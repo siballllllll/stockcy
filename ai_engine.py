@@ -111,7 +111,12 @@ def generate_daily_briefing():
     """
     try:
         response = _call_gemini(prompt, use_search=True, temperature=0.7, response_mime_type="application/json")
-        return json.loads(response.text)
+        text = re.sub(r'```(?:json)?', '', response.text).strip()
+        start = text.find('{')
+        if start != -1:
+            result, _ = json.JSONDecoder().raw_decode(text, start)
+            return result
+        return json.loads(text)
     except Exception as e:
         return {"error": str(e)}
 

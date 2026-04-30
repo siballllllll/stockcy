@@ -24,10 +24,20 @@ def _get_spreadsheet():
     gc = get_gsheet_client()
     if not gc:
         return None, "구글 시트 인증 실패. secrets.toml의 gspread 설정을 확인해주세요."
-    spreadsheets = gc.openall()
-    if not spreadsheets:
-        return None, "봇 계정에 공유된 스프레드시트가 없습니다. 구글 시트를 만들고 봇 이메일을 공유에 추가해주세요."
-    return spreadsheets[0], "성공"
+    try:
+        # secrets에 spreadsheet_id가 있으면 직접 지정 (빠르고 안정적)
+        try:
+            sheet_id = st.secrets["gspread"]["spreadsheet_id"]
+            return gc.open_by_key(sheet_id), "성공"
+        except KeyError:
+            pass
+        # fallback: 공유된 첫 번째 시트 사용
+        spreadsheets = gc.openall()
+        if not spreadsheets:
+            return None, "봇 계정에 공유된 스프레드시트가 없습니다. 구글 시트를 만들고 봇 이메일을 공유에 추가하거나, secrets에 spreadsheet_id를 추가해주세요."
+        return spreadsheets[0], "성공"
+    except Exception as e:
+        return None, f"스프레드시트 접근 오류: {e}"
 
 def _get_or_create_worksheet(sh, title, headers):
     """시트 탭이 없으면 생성하고 헤더를 추가합니다."""
@@ -114,6 +124,30 @@ def load_trade_history_from_gsheet():
         return pd.DataFrame(), "거래내역 탭이 아직 없습니다. 매도 기록 시 자동으로 생성됩니다."
     except Exception as e:
         return None, f"로드 오류: {e}"
+
+def log_ai_recommendation(rec_type: str, ticker: str, name: str, rating: str,
+                           buy_target: str, sell_target: str, stop_loss: str):
+    """AI 추천 내역을 'AI추천로그' 탭에 자동 기록합니다."""
+    sh, msg = _get_spreadsheet()
+    if not sh:
+        return False, msg
+    try:
+        headers = ["기록시간", "유형", "티커", "종목명", "등급/추천", "매수가", "목표가", "손절가"]
+        ws = _get_or_create_worksheet(sh, "AI추천로그", headers)
+        ws.append_row([
+            datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            rec_type,
+            ticker,
+            name,
+            rating,
+            str(buy_target),
+            str(sell_target),
+            str(stop_loss),
+        ])
+        return True, "AI 추천 로그 기록 완료"
+    except Exception as e:
+        return False, f"로그 기록 오류: {e}"
+
 
 def test_connection_and_write():
     """연결 테스트용 함수 (하위 호환성 유지)."""

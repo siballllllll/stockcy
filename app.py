@@ -260,7 +260,7 @@ def main():
 
                 # TradingView 차트 (국내주식)
                 tv_kr_html = f"""
-                <div class="tradingview-widget-container" style="height:420px;width:100%">
+                <div class="tradingview-widget-container" style="height:320px;width:100%">
                   <div class="tradingview-widget-container__widget" style="height:100%;width:100%"></div>
                   <script type="text/javascript" src="https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js" async>
                   {{
@@ -277,7 +277,7 @@ def main():
                   </script>
                 </div>
                 """
-                components.html(tv_kr_html, height=420)
+                components.html(tv_kr_html, height=320)
 
                 st.markdown("---")
 
@@ -327,6 +327,12 @@ def main():
                                 selected_code_kr, price_kr["name"], price_kr, inv_for_ai
                             )
                             st.session_state[f"kr_report_{selected_code_kr}"] = kr_rep
+                            from db import log_ai_recommendation
+                            log_ai_recommendation(
+                                "국내주식분석", selected_code_kr, price_kr["name"],
+                                kr_rep.get("rating", "-"), kr_rep.get("buy_target", "-"),
+                                kr_rep.get("sell_target", "-"), kr_rep.get("stop_loss", "-")
+                            )
 
                     if f"kr_report_{selected_code_kr}" in st.session_state:
                         rep_kr = st.session_state[f"kr_report_{selected_code_kr}"]
@@ -438,6 +444,12 @@ def main():
                         st.session_state.discovered_sell = hot_stock.get("sell_target", "-")
                         st.session_state.discovered_stop = hot_stock.get("stop_loss", "-")
                         st.session_state.discovered_reasoning = hot_stock.get("reasoning")
+                        from db import log_ai_recommendation
+                        log_ai_recommendation(
+                            "단타발굴", hot_stock.get("ticker", ""), hot_stock.get("name_kr", ""),
+                            "AI발굴종목", hot_stock.get("buy_target", "-"),
+                            hot_stock.get("sell_target", "-"), hot_stock.get("stop_loss", "-")
+                        )
                         st.success(f"🔥 발굴 완료: {st.session_state.discovered_name} ({st.session_state.discovered_ticker})")
                     else:
                         st.error(hot_stock.get("reasoning"))
@@ -546,7 +558,7 @@ def main():
                 st.markdown(f"### 📈 {selected_stock_name} 실시간 차트")
                 # TradingView Advanced Chart (실시간 캔들 차트)
                 tv_chart_html = f"""
-                <div class="tradingview-widget-container" style="height:450px;width:100%">
+                <div class="tradingview-widget-container" style="height:360px;width:100%">
                   <div class="tradingview-widget-container__widget" style="height:100%;width:100%"></div>
                   <script type="text/javascript" src="https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js" async>
                   {{
@@ -566,7 +578,7 @@ def main():
                   </script>
                 </div>
                 """
-                components.html(tv_chart_html, height=450)
+                components.html(tv_chart_html, height=360)
                 
             with col_right:
                 st.markdown("### ⚡ 실시간 시세 & 수급")
@@ -645,6 +657,12 @@ def main():
                             from ai_engine import generate_stock_report
                             report_json = generate_stock_report(selected_ticker, cur_price, change_pct)
                             st.session_state[f"report_{selected_ticker}"] = report_json
+                            from db import log_ai_recommendation
+                            log_ai_recommendation(
+                                "미국주식분석", selected_ticker, detail_us.get("name", selected_ticker),
+                                report_json.get("rating", "-"), report_json.get("buy_target", "-"),
+                                report_json.get("sell_target", "-"), report_json.get("stop_loss", "-")
+                            )
 
                             if "추천" in report_json.get("rating", "") and "비추천" not in report_json.get("rating", ""):
                                 if "ai_portfolio" not in st.session_state:
