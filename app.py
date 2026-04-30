@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+import plotly.graph_objects as go
 from datetime import datetime
 from data import get_us_stock_data
 
@@ -419,8 +420,6 @@ def main():
                 st.info("우측 상단의 '🧠 분석' 버튼을 눌러 AI 등급 및 리포트를 받아보세요.")
 
     with tab2:
-        import plotly.graph_objects as go
-
         st.subheader("📊 성과 트래킹 보드")
 
         if "trade_history" not in st.session_state:
