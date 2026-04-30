@@ -123,18 +123,33 @@ def generate_mindmap_data():
       D[금리 인하 우려] -->|악재| E(비트코인 하락)
     '''
     try:
+        import time
         api_key = st.secrets["gemini"]["api_key"]
         client = genai.Client(api_key=api_key)
-        response = client.models.generate_content(
-            model='gemini-2.5-flash',
-            contents=prompt,
-            config=types.GenerateContentConfig(temperature=0.7)
-        )
-        # 백틱 제거 처리
+        
+        for attempt in range(2):
+            try:
+                response = client.models.generate_content(
+                    model='gemini-2.5-flash',
+                    contents=prompt,
+                    config=types.GenerateContentConfig(temperature=0.5)
+                )
+                break
+            except Exception as api_err:
+                if ("503" in str(api_err) or "UNAVAILABLE" in str(api_err)) and attempt == 0:
+                    time.sleep(3)
+                    continue
+                raise api_err
+        
         code = response.text.replace('```mermaid', '').replace('```', '').strip()
+        
+        # Mermaid Syntax 오류 방지: 노드 라벨에서 특수문자(한국어 킴호 제외) 상유
+        # 첫 줄(graph TD)이 있는지 확인
+        if not code.startswith('graph'):
+            code = 'graph TD\n' + code
         return code
     except Exception as e:
-        return f"graph TD\n  A[오류 발생] --> B[{str(e)}]"
+        return f"graph TD\n  A[\"\ubd84\uc11d \uc2dc\uc2a4\ud15c\"] --> B[\"{str(e)[:30]}\"]"
 
 def generate_stock_report(ticker, current_price, change_pct):
     """
@@ -162,26 +177,27 @@ def generate_stock_report(ticker, current_price, change_pct):
         api_key = st.secrets["gemini"]["api_key"]
         client = genai.Client(api_key=api_key)
         
-        try:
-            response = client.models.generate_content(
-                model='gemini-2.5-flash',
-                contents=prompt,
-                config=types.GenerateContentConfig(temperature=0.7)
-            )
-        except Exception as api_err:
-            if "503" in str(api_err) or "UNAVAILABLE" in str(api_err):
+        import time
+        for attempt in range(2):
+            try:
                 response = client.models.generate_content(
-                    model='gemini-2.5-flash-lite',
+                    model='gemini-2.5-flash',
                     contents=prompt,
                     config=types.GenerateContentConfig(temperature=0.7)
                 )
-            else:
+                break
+            except Exception as api_err:
+                if ("503" in str(api_err) or "UNAVAILABLE" in str(api_err)) and attempt == 0:
+                    time.sleep(3)
+                    continue
                 raise api_err
                 
         text = response.text
-        match = re.search(r'\{.*\}', text, re.DOTALL)
-        if match:
-            return json.loads(match.group(0))
+        text = re.sub(r'```(?:json)?', '', text).strip()
+        start = text.find('{')
+        if start != -1:
+            result, _ = json.JSONDecoder().raw_decode(text, start)
+            return result
         return json.loads(text)
         
     except Exception as e:
@@ -238,20 +254,19 @@ def discover_hot_day_trading_stock(context=""):
             tools=[{"google_search": {}}] # 구글 검색 접지 활성화
         )
         
-        try:
-            response = client.models.generate_content(
-                model='gemini-2.5-flash',
-                contents=prompt,
-                config=config
-            )
-        except Exception as api_err:
-            if "503" in str(api_err) or "UNAVAILABLE" in str(api_err):
+        import time
+        for attempt in range(2):  # 최대 2회 재시도 (품질 유지)
+            try:
                 response = client.models.generate_content(
-                    model='gemini-2.5-flash-lite',
+                    model='gemini-2.5-flash',
                     contents=prompt,
                     config=config
                 )
-            else:
+                break
+            except Exception as api_err:
+                if ("503" in str(api_err) or "UNAVAILABLE" in str(api_err) or "429" in str(api_err)) and attempt == 0:
+                    time.sleep(3)
+                    continue
                 raise api_err
         
         text = response.text
@@ -263,13 +278,97 @@ def discover_hot_day_trading_stock(context=""):
                 "buy_target": "-", "sell_target": "-", "stop_loss": "-"
             }
             
-        match = re.search(r'\{.*\}', text, re.DOTALL)
-        if match:
-            return json.loads(match.group(0))
-        return json.loads(text)
+        # 마크다운 백틱 제거 후 첫 번째 유효한 JSON 객체만 정확히 있는 것만 있는 것만 있는 것만 있는 것만 있는 것만 있는 것만 있는 것만 있는 것만 파싱
+        text = re.sub(r'```(?:json)?', '', text).strip()
+        start = text.find('{')
+        if start == -1:
+            raise ValueError("JSON 객체를 찾을 수 없습니다")
+        result, _ = json.JSONDecoder().raw_decode(text, start)
+        return result
     except Exception as e:
         return {
             "ticker": "N/A",
             "name_kr": "오류",
-            "reasoning": f"종목 발굴 중 오류가 발생했습니다: {e}"
+            "reasoning": f"종목 발굴 중 오류가 발생했습니다: {e}",
+            "buy_target": "-", "sell_target": "-", "stop_loss": "-"
         }
+
+
+@st.cache_data(ttl=600)  # 10분 단위 캐싱 (단타앙에 맞게 자주 갱신)
+def generate_dynamic_themes():
+    """
+    미국 주식 시장 전체를 스캔하여 현재 가장 핫한 테마 5개를 세부화하고,
+    각 테마별 대장주와 관련주, 그리고 연관성 설명을 JSON 형태로 반환합니다.
+    (10분 단위 캐싱으로 API 과호출 방지)
+    """
+    import json
+    import re
+    
+    prompt = """
+    당신은 월스트리트의 수석 퀀트 애널리스트입니다.
+    지금 당장 구글 검색을 통해 오늘 미국 주식 시장을 이끌고 있는 '가장 핵심적이고 디테일한 테마(섹터)' 5가지를 완벽하게 분류해주세요.
+    단순히 '반도체', '바이오' 같은 1차원적인 분류가 아니라, 'AI 서버 액체냉각 시스템', 'GLP-1 비만치료제', '전력 인프라 및 우라늄' 처럼 
+    자금이 쏠리는 세부적이고 날카로운 테마명이어야 합니다.
+    
+    각 테마에 대해 다음을 반드시 포함하세요:
+    1. 대장주 (Leader Stock): 해당 테마를 가장 강력하게 이끌고 있는 1위 종목 딱 1개
+    2. 연관성 설명 (Correlation): 왜 이 테마가 떴고, 아래 관련주들이 대장주와 구체적으로 어떤 밸류체인/사업적 연관성을 가지는지 2~3문장으로 요약
+    3. 관련주 (Related Stocks): 대장주를 따라가는 2등, 3등 주식이나 밸류체인에 속한 중소형주 3~5개
+    
+    반드시 아래의 JSON 배열 형식으로만 응답하세요. (마크다운 백틱 제외)
+    {
+      "themes": [
+        {
+          "theme_name": "세부 테마명 (예: AI 데이터센터 전력설비)",
+          "leader_stock": {"name_kr": "버티브 홀딩스", "ticker": "VRT"},
+          "correlation": "AI 데이터센터 확충으로 전력 수요가 폭증함에 따라, 냉각 및 전력 인프라를 독점 공급하는 VRT가 대장주로 상승 중이며, 전선 및 변압기 관련주들이 강한 동조화(커플링)를 보이고 있습니다.",
+          "related_stocks": [
+            {"name_kr": "이튼", "ticker": "ETN"},
+            {"name_kr": "콴타서비스", "ticker": "PWR"},
+            {"name_kr": "슈나이더 일렉트릭", "ticker": "SU.PA"}
+          ]
+        }
+      ]
+    }
+    """
+    
+    try:
+        api_key = st.secrets["gemini"]["api_key"]
+        client = genai.Client(api_key=api_key)
+        
+        config = types.GenerateContentConfig(
+            temperature=0.7,
+            tools=[{"google_search": {}}]
+        )
+        
+        import time
+        
+        last_err = None
+        for attempt in range(2):  # 최대 2회 재시도
+            try:
+                response = client.models.generate_content(
+                    model='gemini-2.5-flash',
+                    contents=prompt,
+                    config=config
+                )
+                break  # 성공시 루프 탈출
+            except Exception as api_err:
+                last_err = api_err
+                if ("503" in str(api_err) or "UNAVAILABLE" in str(api_err) or "429" in str(api_err)) and attempt == 0:
+                    time.sleep(3)  # 3초 대기 후 재시도
+                    continue
+                raise api_err  # 2회 모두 실패 시 외부로 예외 전파
+        
+        text = response.text
+        if not text:
+            return {"themes": []}
+        
+        # 마크다운 백틱(```json ... ```) 제거 후 파싱
+        text = re.sub(r'```(?:json)?', '', text).strip()
+        start = text.find('{')
+        if start == -1:
+            raise ValueError("JSON 객체를 찾을 수 없습니다")
+        result, _ = json.JSONDecoder().raw_decode(text, start)
+        return result
+    except Exception as e:
+        return {"error": str(e), "themes": []}

@@ -233,40 +233,87 @@ def main():
             st.markdown("---")
             
             # --- 관심 섹터 및 종목 선택 (하이브리드 지원) ---
-            st.markdown("### 🔍 트레이딩 종목 탐색")
+            st.markdown("### 🔍 AI 동적 테마 & 종목 탐색 (전 종목 스캔)")
+            st.caption("AI가 지금 당장 미국 시장 전체를 스캔하여 핫한 테마를 분류하고 대장주를 뽑아냅니다.")
             
-            sectors_db = {
-                "🔥 반도체 및 AI": {"엔비디아 (NVDA)": "NVDA", "AMD (AMD)": "AMD", "TSMC (TSM)": "TSM", "브로드컴 (AVGO)": "AVGO", "마이크론 (MU)": "MU", "팔란티어 (PLTR)": "PLTR"},
-                "💻 빅테크 및 소프트웨어": {"애플 (AAPL)": "AAPL", "마이크로소프트 (MSFT)": "MSFT", "알파벳 (GOOGL)": "GOOGL", "메타 (META)": "META", "아마존 (AMZN)": "AMZN"},
-                "🚗 전기차 및 배터리": {"테슬라 (TSLA)": "TSLA", "리비안 (RIVN)": "RIVN", "루시드 (LCID)": "LCID"},
-                "💊 바이오 및 헬스케어": {"일라이릴리 (LLY)": "LLY", "노보노디스크 (NVO)": "NVO", "존슨앤존슨 (JNJ)": "JNJ"},
-                "💸 금융 및 핀테크": {"JP모건 (JPM)": "JPM", "비자 (V)": "V", "마스터카드 (MA)": "MA", "페이팔 (PYPL)": "PYPL"},
-                "⌨️ 직접 검색 (전 종목)": {"수동 입력": "MANUAL"}
-            }
-            
-            col_sel1, col_sel2 = st.columns(2)
-            with col_sel1:
-                selected_sector = st.selectbox("📂 분석할 섹터(영역)를 선택하세요", list(sectors_db.keys()))
+            col_retry, _ = st.columns([1, 4])
+            with col_retry:
+                if st.button("🔄 테마 새로고침", help="캐시를 초기화하고 AI에게 다시 요청합니다"):
+                    from ai_engine import generate_dynamic_themes
+                    generate_dynamic_themes.clear()
+                    st.rerun()
+
+            with st.spinner("AI가 구글 검색을 통해 현재 가장 핫한 5대 테마를 발굴 중입니다..."):
+                from ai_engine import generate_dynamic_themes
+                theme_data = generate_dynamic_themes()
                 
-            with col_sel2:
-                if selected_sector == "⌨️ 직접 검색 (전 종목)":
-                    input_ticker = st.text_input("미국 주식 티커를 직접 입력하세요 (예: GME, SOXL)", "NVDA").upper().strip()
-                    selected_ticker = input_ticker if input_ticker else "NVDA"
-                    selected_stock_name = selected_ticker
+            themes = theme_data.get("themes", [])
+            if not themes:
+                actual_error = theme_data.get("error", "알 수 없는 오류")
+                st.error(f"⚠️ 테마 데이터를 불러오지 못했습니다.\n\n**원인:** `{actual_error}`")
+                st.info("💡 위의 [🔄 테마 새로고침] 버튼을 눌러 다시 시도하거나, 잠시 후 새로고침 해주세요.")
+                selected_ticker = "NVDA"
+                selected_stock_name = "엔비디아"
+            else:
+                theme_names = [t["theme_name"] for t in themes]
+                
+                col_t_left, col_t_right = st.columns([1, 2])
+                with col_t_left:
+                    selected_theme_name = st.radio("📂 발굴된 핫 테마 (클릭)", theme_names)
+                    st.markdown("---")
+                    input_ticker = st.text_input("⌨️ 수동 직접 검색 (예: TSLA)", "").upper().strip()
+                    
+                selected_theme = next((t for t in themes if t["theme_name"] == selected_theme_name), themes[0])
+                leader = selected_theme.get("leader_stock", {})
+                related = selected_theme.get("related_stocks", [])
+                
+                with col_t_right:
+                    with st.container(border=True):
+                        st.markdown(f"#### 👑 대장주: {leader.get('name_kr')} ({leader.get('ticker')})")
+                        
+                        # TradingView Mini Widget으로 방화벽을 우회하여 대장주 실시간 시세 표시
+                        tv_leader = f"""
+                        <div class="tradingview-widget-container">
+                          <div class="tradingview-widget-container__widget"></div>
+                          <script type="text/javascript" src="https://s3.tradingview.com/external-embedding/embed-widget-single-quote.js" async>
+                          {{
+                          "symbol": "{leader.get('ticker')}",
+                          "width": "100%",
+                          "colorTheme": "dark",
+                          "isTransparent": true,
+                          "locale": "kr"
+                        }}
+                          </script>
+                        </div>
+                        """
+                        components.html(tv_leader, height=130)
+                        
+                        st.info(f"**🔗 테마 연관성:**\n{selected_theme.get('correlation', '')}")
+                        
+                        st.markdown("**🔽 관련주 (동조화 종목)**")
+                        rel_text = " | ".join([f"{r.get('name_kr')} ({r.get('ticker')})" for r in related])
+                        st.markdown(f"`{rel_text}`")
+                
+                st.markdown("---")
+                
+                all_options = {f"👑 대장주: {leader.get('name_kr')} ({leader.get('ticker')})": leader.get("ticker")}
+                for r in related:
+                    all_options[f"관련주: {r.get('name_kr')} ({r.get('ticker')})"] = r.get("ticker")
+                    
+                if input_ticker:
+                    selected_ticker = input_ticker
+                    selected_stock_name = input_ticker
                 else:
-                    stock_options = sectors_db[selected_sector]
-                    selected_stock_name = st.selectbox("🎯 트레이딩을 진행할 종목을 선택하세요", list(stock_options.keys()))
-                    selected_ticker = stock_options[selected_stock_name]
+                    selected_stock_name = st.selectbox("🎯 위 테마에서 단타 분석을 진행할 종목을 선택하세요", list(all_options.keys()))
+                    selected_ticker = all_options[selected_stock_name]
             
-            # TradingView용 거래소 심볼 매핑 (주요 종목은 거래소를 명시하고, 그 외 사용자는 직접 입력값 사용)
+            # TradingView용 거래소 심볼 매핑 (없으면 티커 그대로)
             tv_symbols = {
                 "NVDA": "NASDAQ:NVDA", "AMD": "NASDAQ:AMD", "TSM": "NYSE:TSM", "AVGO": "NASDAQ:AVGO", "MU": "NASDAQ:MU", "PLTR": "NYSE:PLTR",
                 "AAPL": "NASDAQ:AAPL", "MSFT": "NASDAQ:MSFT", "GOOGL": "NASDAQ:GOOGL", "META": "NASDAQ:META", "AMZN": "NASDAQ:AMZN",
-                "TSLA": "NASDAQ:TSLA", "RIVN": "NASDAQ:RIVN", "LCID": "NASDAQ:LCID",
-                "LLY": "NYSE:LLY", "NVO": "NYSE:NVO", "JNJ": "NYSE:JNJ",
-                "JPM": "NYSE:JPM", "V": "NYSE:V", "MA": "NYSE:MA", "PYPL": "NASDAQ:PYPL"
+                "TSLA": "NASDAQ:TSLA"
             }
-            tv_symbol = tv_symbols.get(selected_ticker, selected_ticker) # 매핑 안 된 티커는 입력값 그대로 전달
+            tv_symbol = tv_symbols.get(selected_ticker, selected_ticker)
             
             # --- 3분할 대시보드 (상단 좌/우, 하단 전체) ---
             col_left, col_right = st.columns([5, 3])
