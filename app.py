@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
 from datetime import datetime
-from data import get_us_stock_data
+from data import get_us_stock_data, get_us_market_indices, get_us_stock_detail
 
 # 1. 페이지 기본 설정 (항상 최상단에 위치)
 st.set_page_config(
@@ -380,6 +380,25 @@ def main():
             else:
                 st.info("거래량 순위 데이터를 불러올 수 없습니다.")
         else:
+            # --- 미국 시장 지수 ---
+            st.markdown("### 📊 미국 시장 지수")
+            with st.spinner("지수 조회 중..."):
+                us_indices = get_us_market_indices()
+            if us_indices:
+                idx_cols = st.columns(4)
+                for i, (idx_name, idx_data) in enumerate(us_indices.items()):
+                    arrow = "📈" if idx_data["change"] >= 0 else "📉"
+                    delta_color = "normal" if idx_data["change"] >= 0 else "inverse"
+                    if idx_name == "VIX":
+                        idx_cols[i].metric("😱 VIX 공포지수", f"{idx_data['price']:.2f}",
+                                           f"{idx_data['change']:+.2f} ({idx_data['change_pct']:+.2f}%)",
+                                           delta_color="inverse" if idx_data["change"] >= 0 else "normal")
+                    else:
+                        idx_cols[i].metric(f"{arrow} {idx_name}", f"{idx_data['price']:,.2f}",
+                                           f"{idx_data['change']:+.2f} ({idx_data['change_pct']:+.2f}%)",
+                                           delta_color=delta_color)
+            st.markdown("---")
+
             # --- 토스형 마인드맵 다이얼로그 ---
             @st.dialog("🌌 토스형 실시간 급등락 마인드맵", width="large")
             def show_mindmap():
@@ -548,36 +567,66 @@ def main():
                 components.html(tv_chart_html, height=450)
                 
             with col_right:
-                st.markdown("### ⚡ 실시간 수급 및 타점")
-                from data import get_us_stock_data
-                df_us = get_us_stock_data([selected_ticker])
-                
-                if not df_us.empty:
-                    row = df_us.iloc[0]
-                    cur_price = row["현재가($)"]
-                    change_pct = row["등락률(%)"]
-                    
-                    # 실시간 등락률 표시
+                st.markdown("### ⚡ 실시간 시세 & 수급")
+                with st.spinner("데이터 조회 중..."):
+                    detail_us = get_us_stock_detail(selected_ticker)
+
+                if detail_us:
+                    cur_price = detail_us["price"]
+                    change_pct = detail_us["change_pct"]
                     delta_color = "normal" if change_pct >= 0 else "inverse"
-                    st.metric(label=f"{selected_stock_name} 현재가", value=f"${cur_price}", delta=f"{change_pct}%", delta_color=delta_color)
-                    
+
+                    with st.container(border=True):
+                        st.metric(
+                            f"{detail_us['name']} ({selected_ticker})",
+                            f"${cur_price:,.2f}",
+                            f"{detail_us['change']:+.2f} ({change_pct:+.2f}%)",
+                            delta_color=delta_color
+                        )
+                        dc1, dc2 = st.columns(2)
+                        dc1.metric("시가", f"${detail_us['open']:,.2f}")
+                        dc2.metric("거래량", f"{detail_us['volume']:,}")
+                        dc3, dc4 = st.columns(2)
+                        dc3.metric("고가", f"${detail_us['high']:,.2f}")
+                        dc4.metric("저가", f"${detail_us['low']:,.2f}")
+                        dc5, dc6 = st.columns(2)
+                        dc5.metric("52주 최고", f"${detail_us['w52_high']:,.2f}")
+                        dc6.metric("52주 최저", f"${detail_us['w52_low']:,.2f}")
+                        dc7, dc8 = st.columns(2)
+                        dc7.metric("PER", str(detail_us['per']))
+                        dc8.metric("시가총액", detail_us['market_cap'])
+
+                    if detail_us['institutional_pct'] > 0 or detail_us['insider_pct'] > 0:
+                        st.markdown("#### 📊 기관/내부자 보유율")
+                        retail_pct = max(0.0, 100.0 - detail_us['institutional_pct'] - detail_us['insider_pct'])
+                        fig_own = go.Figure(go.Bar(
+                            x=["기관 투자자", "내부자(임원)", "기타"],
+                            y=[detail_us['institutional_pct'], detail_us['insider_pct'], retail_pct],
+                            marker_color=["#2b7cff", "#ff4b4b", "#888"]
+                        ))
+                        fig_own.update_layout(
+                            paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+                            font=dict(color="white"),
+                            yaxis=dict(gridcolor="rgba(255,255,255,0.1)", title="%", range=[0, 100]),
+                            margin=dict(l=10, r=10, t=10, b=10), height=200
+                        )
+                        st.plotly_chart(fig_own, use_container_width=True)
+
                     st.markdown("---")
-                    
+
                     if st.button("🧠 세력 수급 및 AI 타점 분석", use_container_width=True):
                         with st.spinner("차트와 수급 데이터를 융합 분석 중입니다..."):
                             from ai_engine import generate_stock_report
                             report_json = generate_stock_report(selected_ticker, cur_price, change_pct)
                             st.session_state[f"report_{selected_ticker}"] = report_json
-                            
-                            # AI 추천 자동 담기 로직
+
                             if "추천" in report_json.get("rating", "") and "비추천" not in report_json.get("rating", ""):
                                 if "ai_portfolio" not in st.session_state:
                                     st.session_state.ai_portfolio = []
-                                # 중복 방지
                                 if not any(item["ticker"] == selected_ticker for item in st.session_state.ai_portfolio):
                                     st.session_state.ai_portfolio.append({
                                         "ticker": selected_ticker,
-                                        "name": selected_stock_name,
+                                        "name": detail_us["name"],
                                         "buy_price": cur_price,
                                         "quantity": 10,
                                         "buy_date": datetime.now().strftime("%Y-%m-%d %H:%M")
@@ -587,20 +636,20 @@ def main():
                     if f"report_{selected_ticker}" in st.session_state:
                         rep = st.session_state[f"report_{selected_ticker}"]
                         rating_color = "🟢" if "강력 추천" in rep.get("rating", "") else "🟡" if "추천" in rep.get("rating", "") else "🔴"
-                        
+
                         st.markdown(f"#### {rating_color} {rep.get('rating', '')}")
                         col_t1, col_t2 = st.columns(2)
                         col_t1.metric("권장 매수가", rep.get("buy_target", "-"))
                         col_t2.metric("목표 매도가", rep.get("sell_target", "-"))
                         st.metric("손절 라인", rep.get("stop_loss", "-"))
-                        
+
                         if st.button("🎒 내 포트폴리오에 직접 담기", use_container_width=True, type="primary"):
                             if "portfolio" not in st.session_state:
                                 st.session_state.portfolio = []
                             if not any(item["ticker"] == selected_ticker for item in st.session_state.portfolio):
                                 st.session_state.portfolio.append({
                                     "ticker": selected_ticker,
-                                    "name": selected_stock_name,
+                                    "name": detail_us["name"],
                                     "buy_price": cur_price,
                                     "quantity": 10,
                                     "buy_date": datetime.now().strftime("%Y-%m-%d %H:%M")
