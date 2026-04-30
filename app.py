@@ -210,7 +210,7 @@ def main():
 
             # 세션 상태 초기화
             for _k, _v in [
-                ("kr_mode_radio", "📊 일반 주식 검색"),
+                ("kr_mode", "📊 일반 주식 검색"),
                 ("kr_selected_code", "005930"),
                 ("kr_selected_name", "삼성전자"),
                 ("kr_selected_sector", "반도체"),
@@ -218,14 +218,19 @@ def main():
                 if _k not in st.session_state:
                     st.session_state[_k] = _v
 
-            # 모드 토글
+            # 모드 토글 (key 없이 index로 제어 → 프로그램에서 자유롭게 변경 가능)
+            _kr_modes = ["📊 일반 주식 검색", "🔥 오늘의 이슈 섹터"]
+            _kr_idx = _kr_modes.index(st.session_state.kr_mode) if st.session_state.kr_mode in _kr_modes else 0
             kr_mode = st.radio(
                 "모드 선택",
-                ["📊 일반 주식 검색", "🔥 오늘의 이슈 섹터"],
+                _kr_modes,
                 horizontal=True,
                 label_visibility="collapsed",
-                key="kr_mode_radio",
+                index=_kr_idx,
             )
+            if kr_mode != st.session_state.kr_mode:
+                st.session_state.kr_mode = kr_mode
+                st.rerun()
 
             selected_code_kr = st.session_state.kr_selected_code
 
@@ -524,7 +529,7 @@ def main():
                                     ):
                                         st.session_state.kr_selected_code = s["code"]
                                         st.session_state.kr_selected_name = s["name"]
-                                        st.session_state.kr_mode_radio = "📊 일반 주식 검색"
+                                        st.session_state.kr_mode = "📊 일반 주식 검색"
                                         st.rerun()
 
             # AI 리포트 전체 너비 (일반 모드)
