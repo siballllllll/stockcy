@@ -167,6 +167,23 @@ def get_kr_minute_chart(stock_code: str, interval: int = 5):
     return df
 
 
+@st.cache_data(ttl=60)
+def get_kr_prices_bulk(tickers_tuple: tuple) -> dict:
+    """섹터 패널용 종목 일괄 시세 조회 (code → {price, change_pct})"""
+    import yfinance as yf
+    results = {}
+    for code, yf_ticker in tickers_tuple:
+        try:
+            fi = yf.Ticker(yf_ticker).fast_info
+            price = round(fi.get("lastPrice", 0) or 0)
+            prev = fi.get("previousClose", 0) or 0
+            change_pct = round(((price - prev) / prev * 100) if prev > 0 else 0.0, 2)
+            results[code] = {"price": price, "change_pct": change_pct}
+        except Exception:
+            results[code] = {"price": 0, "change_pct": 0.0}
+    return results
+
+
 @st.cache_data(ttl=300)  # 5분 캐싱
 def get_kr_volume_ranking():
     """거래량 상위 10개 종목 (KOSPI)"""

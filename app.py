@@ -208,201 +208,289 @@ def main():
 
             st.markdown("---")
 
-            # 종목 선택
-            st.markdown("### 🔍 종목 선택")
-            POPULAR_KR = {
-                "삼성전자 (005930)": "005930",
-                "SK하이닉스 (000660)": "000660",
-                "현대차 (005380)": "005380",
-                "NAVER (035420)": "035420",
-                "카카오 (035720)": "035720",
-                "LG에너지솔루션 (373220)": "373220",
-                "삼성바이오로직스 (207940)": "207940",
-                "POSCO홀딩스 (005490)": "005490",
-                "삼성전자우 (005935)": "005935",
-                "기아 (000270)": "000270",
-            }
-            col_sel, col_manual = st.columns([3, 1])
-            with col_sel:
-                selected_label = st.selectbox("인기 종목 빠른 선택", list(POPULAR_KR.keys()))
-                selected_code_kr = POPULAR_KR[selected_label]
-            with col_manual:
-                manual_code_kr = st.text_input("직접 입력 (6자리 코드)", "").strip()
-            if manual_code_kr and len(manual_code_kr) == 6 and manual_code_kr.isdigit():
-                selected_code_kr = manual_code_kr
+            # 세션 상태 초기화
+            for _k, _v in [
+                ("kr_mode_radio", "📊 일반 주식 검색"),
+                ("kr_selected_code", "005930"),
+                ("kr_selected_name", "삼성전자"),
+                ("kr_selected_sector", "반도체"),
+            ]:
+                if _k not in st.session_state:
+                    st.session_state[_k] = _v
 
-            # 실시간 시세 카드
+            # 모드 토글
+            kr_mode = st.radio(
+                "모드 선택",
+                ["📊 일반 주식 검색", "🔥 오늘의 이슈 섹터"],
+                horizontal=True,
+                label_visibility="collapsed",
+                key="kr_mode_radio",
+            )
+
+            selected_code_kr = st.session_state.kr_selected_code
+
+            # 시세 사전 조회 (양쪽 컬럼에서 공유)
             with st.spinner(f"{selected_code_kr} 실시간 시세 조회 중..."):
                 price_kr = get_kr_stock_price(selected_code_kr)
 
+            is_up = is_dn = False
+            arrow = "-"
+            d_color = "off"
             if price_kr:
                 is_up = price_kr["sign"] in ("1", "2")
                 is_dn = price_kr["sign"] in ("4", "5")
                 arrow = "▲" if is_up else "▼" if is_dn else "-"
                 d_color = "normal" if is_up else "inverse" if is_dn else "off"
 
-                with st.container(border=True):
-                    st.markdown(f"#### {price_kr['name']} ({selected_code_kr})")
-                    c1, c2, c3 = st.columns(3)
-                    c1.metric("현재가",
-                              f"₩{price_kr['price']:,}",
-                              f"{arrow} {abs(price_kr['change']):,}원 ({price_kr['change_pct']:+.2f}%)",
-                              delta_color=d_color)
-                    c2.metric("거래량", f"{price_kr['volume']:,}주")
-                    c3.metric("거래대금", f"₩{price_kr['amount'] // 100000000:,}억")
+            col_chart, col_right = st.columns([5, 5])
 
-                    oc1, oc2, oc3, oc4, oc5, oc6 = st.columns(6)
-                    oc1.metric("시가", f"₩{price_kr['open']:,}")
-                    oc2.metric("고가", f"₩{price_kr['high']:,}")
-                    oc3.metric("저가", f"₩{price_kr['low']:,}")
-                    oc4.metric("52주 최고", f"₩{price_kr['w52_high']:,}")
-                    oc5.metric("PER", price_kr['per'])
-                    oc6.metric("PBR", price_kr['pbr'])
-
-                # 분봉 차트 (캔들스틱 + 거래량 + 이동평균)
-                from plotly.subplots import make_subplots
-                ctrl_c1, ctrl_c2, ctrl_c3 = st.columns([2, 1, 5])
-                with ctrl_c1:
-                    interval_kr = st.selectbox(
-                        "분봉", [1, 3, 5, 10, 15, 30], index=2,
-                        key="kr_chart_interval", format_func=lambda x: f"{x}분봉"
+            with col_chart:
+                if price_kr:
+                    pct_color = "up-kr" if is_up else "down-kr" if is_dn else ""
+                    st.markdown(
+                        f"**{price_kr['name']}** ({selected_code_kr}) &nbsp; "
+                        f"₩{price_kr['price']:,} &nbsp; "
+                        f'<span class="{pct_color}">{arrow} {price_kr["change_pct"]:+.2f}%</span>',
+                        unsafe_allow_html=True,
                     )
-                with ctrl_c2:
-                    if st.button("🔄", key="refresh_kr_chart", help="차트 새로고침"):
-                        get_kr_minute_chart.clear()
+
+                    ctrl_c1, ctrl_c2, _ = st.columns([2, 1, 5])
+                    with ctrl_c1:
+                        interval_kr = st.selectbox(
+                            "분봉", [1, 3, 5, 10, 15, 30], index=2,
+                            key="kr_chart_interval", format_func=lambda x: f"{x}분봉"
+                        )
+                    with ctrl_c2:
+                        if st.button("🔄", key="refresh_kr_chart", help="차트 새로고침"):
+                            get_kr_minute_chart.clear()
+                            st.rerun()
+
+                    with st.spinner("분봉 데이터 조회 중..."):
+                        df_kr_chart = get_kr_minute_chart(selected_code_kr, interval=interval_kr)
+
+                    if not df_kr_chart.empty:
+                        from plotly.subplots import make_subplots
+                        df_kr_chart["ma5"]  = df_kr_chart["close"].rolling(5).mean()
+                        df_kr_chart["ma20"] = df_kr_chart["close"].rolling(20).mean()
+                        vol_colors = [
+                            "#ff4b4b" if c >= o else "#2b7cff"
+                            for c, o in zip(df_kr_chart["close"], df_kr_chart["open"])
+                        ]
+                        fig_kr = make_subplots(
+                            rows=2, cols=1, shared_xaxes=True,
+                            row_heights=[0.70, 0.30], vertical_spacing=0.02,
+                        )
+                        fig_kr.add_trace(go.Candlestick(
+                            x=df_kr_chart["datetime"],
+                            open=df_kr_chart["open"], high=df_kr_chart["high"],
+                            low=df_kr_chart["low"],   close=df_kr_chart["close"],
+                            increasing=dict(line=dict(color="#ff4b4b", width=1), fillcolor="#ff4b4b"),
+                            decreasing=dict(line=dict(color="#2b7cff", width=1), fillcolor="#2b7cff"),
+                            name="가격", showlegend=False,
+                        ), row=1, col=1)
+                        fig_kr.add_trace(go.Scatter(
+                            x=df_kr_chart["datetime"], y=df_kr_chart["ma5"],
+                            line=dict(color="#f5c518", width=1.2), name="MA5",
+                        ), row=1, col=1)
+                        fig_kr.add_trace(go.Scatter(
+                            x=df_kr_chart["datetime"], y=df_kr_chart["ma20"],
+                            line=dict(color="#00b4d8", width=1.2), name="MA20",
+                        ), row=1, col=1)
+                        fig_kr.add_trace(go.Bar(
+                            x=df_kr_chart["datetime"], y=df_kr_chart["volume"],
+                            marker_color=vol_colors, name="거래량", showlegend=False,
+                        ), row=2, col=1)
+                        axis_style = dict(gridcolor="rgba(255,255,255,0.08)", showline=False)
+                        fig_kr.update_layout(
+                            paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+                            font=dict(color="white", size=11),
+                            xaxis=dict(**axis_style, rangeslider=dict(visible=False), showticklabels=False),
+                            xaxis2=dict(**axis_style),
+                            yaxis=dict(**axis_style, tickformat=",", side="right"),
+                            yaxis2=dict(**axis_style, tickformat=".2s", side="right"),
+                            legend=dict(orientation="h", x=0, y=1.06, bgcolor="rgba(0,0,0,0)", font=dict(size=11)),
+                            margin=dict(l=0, r=55, t=20, b=5),
+                            height=380,
+                        )
+                        st.plotly_chart(fig_kr, use_container_width=True)
+                    else:
+                        st.info("분봉 데이터를 불러올 수 없습니다. 장 운영 시간(09:00~15:30) 중 다시 시도해주세요.")
+                else:
+                    st.error(f"종목코드 {selected_code_kr}의 시세를 불러올 수 없습니다. KIS API 키를 확인해주세요.")
+
+            with col_right:
+                if kr_mode == "📊 일반 주식 검색":
+                    POPULAR_KR = {
+                        "삼성전자 (005930)": "005930",
+                        "SK하이닉스 (000660)": "000660",
+                        "현대차 (005380)": "005380",
+                        "NAVER (035420)": "035420",
+                        "카카오 (035720)": "035720",
+                        "LG에너지솔루션 (373220)": "373220",
+                        "삼성바이오로직스 (207940)": "207940",
+                        "POSCO홀딩스 (005490)": "005490",
+                        "삼성전자우 (005935)": "005935",
+                        "기아 (000270)": "000270",
+                    }
+                    col_sel, col_manual = st.columns([3, 1])
+                    with col_sel:
+                        default_label = next(
+                            (lbl for lbl, code in POPULAR_KR.items()
+                             if code == st.session_state.kr_selected_code),
+                            list(POPULAR_KR.keys())[0]
+                        )
+                        default_idx = list(POPULAR_KR.keys()).index(default_label)
+                        selected_label = st.selectbox(
+                            "인기 종목 빠른 선택", list(POPULAR_KR.keys()), index=default_idx
+                        )
+                        new_code = POPULAR_KR[selected_label]
+                    with col_manual:
+                        manual_code_kr = st.text_input("직접 입력 (6자리 코드)", "").strip()
+                    if manual_code_kr and len(manual_code_kr) == 6 and manual_code_kr.isdigit():
+                        new_code = manual_code_kr
+                    if new_code != st.session_state.kr_selected_code:
+                        st.session_state.kr_selected_code = new_code
                         st.rerun()
 
-                with st.spinner("분봉 데이터 조회 중..."):
-                    df_kr_chart = get_kr_minute_chart(selected_code_kr, interval=interval_kr)
+                    if price_kr:
+                        with st.container(border=True):
+                            c1, c2, c3 = st.columns(3)
+                            c1.metric("현재가", f"₩{price_kr['price']:,}",
+                                      f"{arrow} {abs(price_kr['change']):,}원 ({price_kr['change_pct']:+.2f}%)",
+                                      delta_color=d_color)
+                            c2.metric("거래량", f"{price_kr['volume']:,}주")
+                            c3.metric("거래대금", f"₩{price_kr['amount'] // 100000000:,}억")
+                            oc1, oc2, oc3 = st.columns(3)
+                            oc1.metric("시가", f"₩{price_kr['open']:,}")
+                            oc2.metric("고가", f"₩{price_kr['high']:,}")
+                            oc3.metric("저가", f"₩{price_kr['low']:,}")
+                            oc4, oc5, oc6 = st.columns(3)
+                            oc4.metric("52주 최고", f"₩{price_kr['w52_high']:,}")
+                            oc5.metric("PER", price_kr['per'])
+                            oc6.metric("PBR", price_kr['pbr'])
 
-                if not df_kr_chart.empty:
-                    df_kr_chart["ma5"]  = df_kr_chart["close"].rolling(5).mean()
-                    df_kr_chart["ma20"] = df_kr_chart["close"].rolling(20).mean()
-                    vol_colors = [
-                        "#ff4b4b" if c >= o else "#2b7cff"
-                        for c, o in zip(df_kr_chart["close"], df_kr_chart["open"])
-                    ]
-
-                    fig_kr = make_subplots(
-                        rows=2, cols=1,
-                        shared_xaxes=True,
-                        row_heights=[0.70, 0.30],
-                        vertical_spacing=0.02,
-                    )
-                    fig_kr.add_trace(go.Candlestick(
-                        x=df_kr_chart["datetime"],
-                        open=df_kr_chart["open"], high=df_kr_chart["high"],
-                        low=df_kr_chart["low"],   close=df_kr_chart["close"],
-                        increasing=dict(line=dict(color="#ff4b4b", width=1), fillcolor="#ff4b4b"),
-                        decreasing=dict(line=dict(color="#2b7cff", width=1), fillcolor="#2b7cff"),
-                        name="가격", showlegend=False,
-                    ), row=1, col=1)
-                    fig_kr.add_trace(go.Scatter(
-                        x=df_kr_chart["datetime"], y=df_kr_chart["ma5"],
-                        line=dict(color="#f5c518", width=1.2), name="MA5",
-                    ), row=1, col=1)
-                    fig_kr.add_trace(go.Scatter(
-                        x=df_kr_chart["datetime"], y=df_kr_chart["ma20"],
-                        line=dict(color="#00b4d8", width=1.2), name="MA20",
-                    ), row=1, col=1)
-                    fig_kr.add_trace(go.Bar(
-                        x=df_kr_chart["datetime"], y=df_kr_chart["volume"],
-                        marker_color=vol_colors, name="거래량", showlegend=False,
-                    ), row=2, col=1)
-
-                    axis_style = dict(gridcolor="rgba(255,255,255,0.08)", showline=False)
-                    fig_kr.update_layout(
-                        paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-                        font=dict(color="white", size=11),
-                        xaxis=dict(**axis_style, rangeslider=dict(visible=False), showticklabels=False),
-                        xaxis2=dict(**axis_style),
-                        yaxis=dict(**axis_style, tickformat=",", side="right"),
-                        yaxis2=dict(**axis_style, tickformat=".2s", side="right"),
-                        legend=dict(orientation="h", x=0, y=1.06, bgcolor="rgba(0,0,0,0)", font=dict(size=11)),
-                        margin=dict(l=0, r=55, t=20, b=5),
-                        height=380,
-                    )
-                    st.plotly_chart(fig_kr, use_container_width=True)
-                else:
-                    st.info("분봉 데이터를 불러올 수 없습니다. 장 운영 시간(09:00~15:30) 중 다시 시도해주세요.")
-
-                st.markdown("---")
-
-                # 외국인/기관 수급 + AI 분석
-                col_inv_kr, col_ai_kr = st.columns([3, 2])
-
-                with col_inv_kr:
-                    st.markdown("### 💰 외국인/기관 수급 분석")
-                    with st.spinner("수급 데이터 조회 중..."):
-                        investor_kr = get_kr_investor_trend(selected_code_kr)
-
-                    if investor_kr:
-                        df_inv = pd.DataFrame(investor_kr)
-                        fig_inv = go.Figure()
-                        for col_name, color in [("외국인", "#ff4b4b"), ("기관", "#2b7cff"), ("개인", "#888")]:
-                            fig_inv.add_trace(go.Bar(
-                                name=col_name, x=df_inv["날짜"], y=df_inv[col_name],
-                                marker_color=color
-                            ))
-                        fig_inv.update_layout(
-                            barmode="group",
-                            paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-                            font=dict(color="white"), legend=dict(orientation="h"),
-                            xaxis=dict(gridcolor="rgba(255,255,255,0.1)"),
-                            yaxis=dict(gridcolor="rgba(255,255,255,0.1)", title="순매수(주)"),
-                            margin=dict(l=10, r=10, t=10, b=10), height=280
-                        )
-                        st.plotly_chart(fig_inv, use_container_width=True)
-
-                        latest_kr = investor_kr[0]
-                        st.markdown(
-                            f"**오늘({latest_kr['날짜']}) 수급:** "
-                            f"외국인 {'🔴' if latest_kr['외국인'] > 0 else '🔵'} {latest_kr['외국인']:+,}주 | "
-                            f"기관 {'🔴' if latest_kr['기관'] > 0 else '🔵'} {latest_kr['기관']:+,}주"
-                        )
-                    else:
-                        st.info("수급 데이터를 불러올 수 없습니다.")
-
-                with col_ai_kr:
-                    st.markdown("### 🧠 AI 단타 분석")
-                    if st.button("🎯 AI 수급 & 타점 분석", key="kr_ai_btn",
-                                 use_container_width=True, type="primary"):
-                        with st.spinner("AI가 수급과 뉴스를 융합 분석 중..."):
-                            from ai_engine import generate_kr_stock_report
-                            inv_for_ai = get_kr_investor_trend(selected_code_kr)
-                            kr_rep = generate_kr_stock_report(
-                                selected_code_kr, price_kr["name"], price_kr, inv_for_ai
+                        st.markdown("#### 💰 외국인/기관 수급")
+                        with st.spinner("수급 데이터 조회 중..."):
+                            investor_kr = get_kr_investor_trend(selected_code_kr)
+                        if investor_kr:
+                            df_inv = pd.DataFrame(investor_kr)
+                            fig_inv = go.Figure()
+                            for col_name, color in [("외국인", "#ff4b4b"), ("기관", "#2b7cff"), ("개인", "#888")]:
+                                fig_inv.add_trace(go.Bar(
+                                    name=col_name, x=df_inv["날짜"], y=df_inv[col_name],
+                                    marker_color=color
+                                ))
+                            fig_inv.update_layout(
+                                barmode="group",
+                                paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+                                font=dict(color="white"), legend=dict(orientation="h"),
+                                xaxis=dict(gridcolor="rgba(255,255,255,0.1)"),
+                                yaxis=dict(gridcolor="rgba(255,255,255,0.1)", title="순매수(주)"),
+                                margin=dict(l=10, r=10, t=10, b=10), height=200
                             )
-                            st.session_state[f"kr_report_{selected_code_kr}"] = kr_rep
-                            from db import log_ai_recommendation
-                            log_ai_recommendation(
-                                "국내주식분석", selected_code_kr, price_kr["name"],
-                                kr_rep.get("rating", "-"), kr_rep.get("buy_target", "-"),
-                                kr_rep.get("sell_target", "-"), kr_rep.get("stop_loss", "-")
+                            st.plotly_chart(fig_inv, use_container_width=True)
+                            latest_kr = investor_kr[0]
+                            st.markdown(
+                                f"**오늘({latest_kr['날짜']}) 수급:** "
+                                f"외국인 {'🔴' if latest_kr['외국인'] > 0 else '🔵'} {latest_kr['외국인']:+,}주 | "
+                                f"기관 {'🔴' if latest_kr['기관'] > 0 else '🔵'} {latest_kr['기관']:+,}주"
                             )
+                        else:
+                            st.info("수급 데이터를 불러올 수 없습니다.")
 
-                    if f"kr_report_{selected_code_kr}" in st.session_state:
-                        rep_kr = st.session_state[f"kr_report_{selected_code_kr}"]
-                        rating_kr = rep_kr.get("rating", "")
-                        r_emoji = "🟢" if "강력" in rating_kr else "🟡" if "추천" in rating_kr else "🔴"
-                        st.markdown(f"#### {r_emoji} {rating_kr}")
+                        st.markdown("#### 🧠 AI 단타 분석")
+                        if st.button("🎯 AI 수급 & 타점 분석", key="kr_ai_btn",
+                                     use_container_width=True, type="primary"):
+                            with st.spinner("AI가 수급과 뉴스를 융합 분석 중..."):
+                                from ai_engine import generate_kr_stock_report
+                                inv_for_ai = get_kr_investor_trend(selected_code_kr)
+                                kr_rep = generate_kr_stock_report(
+                                    selected_code_kr, price_kr["name"], price_kr, inv_for_ai
+                                )
+                                st.session_state[f"kr_report_{selected_code_kr}"] = kr_rep
+                                from db import log_ai_recommendation
+                                log_ai_recommendation(
+                                    "국내주식분석", selected_code_kr, price_kr["name"],
+                                    kr_rep.get("rating", "-"), kr_rep.get("buy_target", "-"),
+                                    kr_rep.get("sell_target", "-"), kr_rep.get("stop_loss", "-")
+                                )
+                        if f"kr_report_{selected_code_kr}" in st.session_state:
+                            rep_kr = st.session_state[f"kr_report_{selected_code_kr}"]
+                            rating_kr = rep_kr.get("rating", "")
+                            r_emoji = "🟢" if "강력" in rating_kr else "🟡" if "추천" in rating_kr else "🔴"
+                            st.markdown(f"##### {r_emoji} {rating_kr}")
+                            rk1, rk2 = st.columns(2)
+                            rk1.metric("매수 타점", rep_kr.get("buy_target", "-"))
+                            rk2.metric("목표가", rep_kr.get("sell_target", "-"))
+                            st.metric("손절가", rep_kr.get("stop_loss", "-"))
+                            if rep_kr.get("세력분석"):
+                                st.info(f"**세력 분석:** {rep_kr['세력분석']}")
 
-                        rk1, rk2 = st.columns(2)
-                        rk1.metric("매수 타점", rep_kr.get("buy_target", "-"))
-                        rk2.metric("목표가", rep_kr.get("sell_target", "-"))
-                        st.metric("손절가", rep_kr.get("stop_loss", "-"))
-                        if rep_kr.get("세력분석"):
-                            st.info(f"**세력 분석:** {rep_kr['세력분석']}")
+                else:  # 🔥 오늘의 이슈 섹터
+                    from sectors_kr import KR_SECTOR_MAP
+                    from data_kr import get_kr_prices_bulk
 
-                if f"kr_report_{selected_code_kr}" in st.session_state:
+                    st.markdown("### 🔥 이슈 섹터")
+
+                    sector_names = list(KR_SECTOR_MAP.keys())
+                    if st.session_state.kr_selected_sector not in KR_SECTOR_MAP:
+                        st.session_state.kr_selected_sector = sector_names[0]
+
+                    sector_cols = st.columns(len(sector_names))
+                    for i, sname in enumerate(sector_names):
+                        is_active = st.session_state.kr_selected_sector == sname
+                        if sector_cols[i].button(
+                            sname, key=f"sec_btn_{sname}",
+                            type="primary" if is_active else "secondary",
+                            use_container_width=True,
+                        ):
+                            st.session_state.kr_selected_sector = sname
+                            st.rerun()
+
                     st.markdown("---")
-                    st.markdown("### 📝 AI 종합 분석 리포트")
-                    with st.container(border=True):
-                        st.markdown(
-                            st.session_state[f"kr_report_{selected_code_kr}"].get("analysis", "")
-                        )
-            else:
-                st.error(f"종목코드 {selected_code_kr}의 시세를 불러올 수 없습니다. KIS API 키를 확인해주세요.")
+
+                    selected_sector = st.session_state.kr_selected_sector
+                    subsectors = KR_SECTOR_MAP[selected_sector]
+
+                    # 섹터 내 종목 중복 제거 후 일괄 시세 조회
+                    seen_codes: set = set()
+                    unique_tickers = []
+                    for sub_stocks in subsectors.values():
+                        for s in sub_stocks:
+                            if s["code"] not in seen_codes:
+                                seen_codes.add(s["code"])
+                                unique_tickers.append((s["code"], s["code"] + s["suffix"]))
+
+                    with st.spinner("실시간 시세 조회 중..."):
+                        prices = get_kr_prices_bulk(tuple(unique_tickers))
+
+                    for sub_name, stocks in subsectors.items():
+                        st.markdown(f"**📌 {sub_name}**")
+                        for s in stocks:
+                            pdata = prices.get(s["code"], {"price": 0, "change_pct": 0.0})
+                            pct = pdata["change_pct"]
+                            price_val = pdata["price"]
+                            check = " ✅" if abs(pct) >= 2.0 else ""
+                            price_disp = f"  ₩{price_val:,}" if price_val > 0 else ""
+                            btn_label = f"{s['name']}{price_disp}  {pct:+.2f}%{check}"
+                            if st.button(
+                                btn_label, key=f"stock_{s['code']}_{sub_name}",
+                                use_container_width=True,
+                            ):
+                                st.session_state.kr_selected_code = s["code"]
+                                st.session_state.kr_selected_name = s["name"]
+                                st.session_state.kr_mode_radio = "📊 일반 주식 검색"
+                                st.rerun()
+                        st.markdown("")
+
+            # AI 리포트 전체 너비 (일반 모드)
+            if kr_mode == "📊 일반 주식 검색" and f"kr_report_{selected_code_kr}" in st.session_state:
+                st.markdown("---")
+                st.markdown("### 📝 AI 종합 분석 리포트")
+                with st.container(border=True):
+                    st.markdown(
+                        st.session_state[f"kr_report_{selected_code_kr}"].get("analysis", "")
+                    )
 
             st.markdown("---")
 
