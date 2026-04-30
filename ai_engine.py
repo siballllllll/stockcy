@@ -71,7 +71,7 @@ def _call_gemini(prompt, use_search=False, temperature=0.7, response_mime_type=N
     for attempt in range(2):
         try:
             response = client.models.generate_content(
-                model='gemini-1.5-flash',
+                model='gemini-2.0-flash-lite',
                 contents=prompt,
                 config=config
             )
