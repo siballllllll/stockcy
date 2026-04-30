@@ -178,7 +178,8 @@ def main():
     with tab1:
         if "국내" in st.session_state.market:
             from data_kr import (get_kr_market_index, get_kr_stock_price,
-                                 get_kr_investor_trend, get_kr_volume_ranking)
+                                 get_kr_investor_trend, get_kr_volume_ranking,
+                                 get_kr_minute_chart)
 
             # KIS API 키 설정 확인
             try:
@@ -258,26 +259,47 @@ def main():
                     oc5.metric("PER", price_kr['per'])
                     oc6.metric("PBR", price_kr['pbr'])
 
-                # TradingView 차트 (국내주식)
-                tv_kr_html = f"""
-                <div class="tradingview-widget-container" style="height:320px;width:100%">
-                  <div class="tradingview-widget-container__widget" style="height:100%;width:100%"></div>
-                  <script type="text/javascript" src="https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js" async>
-                  {{
-                  "autosize": true,
-                  "symbol": "KRX:{selected_code_kr}",
-                  "interval": "15",
-                  "timezone": "Asia/Seoul",
-                  "theme": "dark",
-                  "style": "1",
-                  "locale": "kr",
-                  "allow_symbol_change": false,
-                  "backgroundColor": "rgba(0, 0, 0, 1)"
-                  }}
-                  </script>
-                </div>
-                """
-                components.html(tv_kr_html, height=320)
+                # KIS API 분봉 차트 (Plotly 캔들스틱)
+                col_chart_ctrl, _ = st.columns([2, 5])
+                with col_chart_ctrl:
+                    interval_kr = st.selectbox(
+                        "분봉 단위", [1, 3, 5, 10, 15, 30], index=2,
+                        key="kr_chart_interval", label_visibility="collapsed"
+                    )
+                with st.spinner("분봉 데이터 조회 중..."):
+                    df_kr_chart = get_kr_minute_chart(selected_code_kr, interval=interval_kr)
+
+                if not df_kr_chart.empty:
+                    fig_kr = go.Figure(data=[go.Candlestick(
+                        x=df_kr_chart["datetime"],
+                        open=df_kr_chart["open"],
+                        high=df_kr_chart["high"],
+                        low=df_kr_chart["low"],
+                        close=df_kr_chart["close"],
+                        increasing=dict(line=dict(color="#ff4b4b"), fillcolor="#ff4b4b"),
+                        decreasing=dict(line=dict(color="#2b7cff"), fillcolor="#2b7cff"),
+                        name="",
+                    )])
+                    fig_kr.update_layout(
+                        paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+                        font=dict(color="white"),
+                        xaxis=dict(
+                            gridcolor="rgba(255,255,255,0.1)",
+                            rangeslider=dict(visible=False),
+                            type="category",
+                        ),
+                        yaxis=dict(
+                            gridcolor="rgba(255,255,255,0.1)",
+                            tickformat=",",
+                            side="right",
+                        ),
+                        margin=dict(l=0, r=50, t=20, b=10),
+                        height=320,
+                        showlegend=False,
+                    )
+                    st.plotly_chart(fig_kr, use_container_width=True)
+                else:
+                    st.info("분봉 데이터를 불러올 수 없습니다. 장 운영 시간(09:00~15:30) 중 다시 시도해주세요.")
 
                 st.markdown("---")
 

@@ -126,6 +126,62 @@ def get_kr_market_index():
     return result
 
 
+@st.cache_data(ttl=60)
+def get_kr_minute_chart(stock_code: str, interval: int = 5):
+    """국내 주식 분봉 데이터 (KIS API 당일 기준, interval=분 단위)"""
+    from datetime import datetime
+    now_str = datetime.now().strftime("%H%M%S")
+    # 장 시작 전이면 전일 종가 시간대 데이터 요청
+    current_hour = int(now_str[:2])
+    query_time = now_str if current_hour >= 9 else "160000"
+
+    data = _get(
+        "/uapi/domestic-stock/v1/quotations/inquire-time-itemchartprice",
+        "FHKST03010200",
+        {
+            "fid_etc_cls_code": "",
+            "fid_cond_mrkt_div_code": "J",
+            "fid_input_iscd": stock_code,
+            "fid_input_hour_1": query_time,
+            "fid_pw_data_incu_yn": "Y",
+        },
+    )
+    if not data or not data.get("output2"):
+        return pd.DataFrame()
+
+    rows = []
+    for item in reversed(data["output2"]):
+        date = item.get("stck_bsop_date", "")
+        time = item.get("stck_cntg_hour", "")
+        if len(date) == 8 and len(time) == 6:
+            dt_str = f"{date[:4]}-{date[4:6]}-{date[6:]} {time[:2]}:{time[2:4]}"
+            rows.append({
+                "datetime": dt_str,
+                "open":   int(item.get("stck_oprc", 0) or 0),
+                "high":   int(item.get("stck_hgpr", 0) or 0),
+                "low":    int(item.get("stck_lwpr", 0) or 0),
+                "close":  int(item.get("stck_prpr", 0) or 0),
+                "volume": int(item.get("cntg_vol",  0) or 0),
+            })
+
+    if not rows:
+        return pd.DataFrame()
+
+    df = pd.DataFrame(rows)
+    df["datetime"] = pd.to_datetime(df["datetime"])
+
+    # interval 분봉으로 리샘플 (기본 1분 → 5분)
+    df = df.set_index("datetime")
+    df_resampled = df.resample(f"{interval}min").agg({
+        "open":  "first",
+        "high":  "max",
+        "low":   "min",
+        "close": "last",
+        "volume": "sum",
+    }).dropna()
+    return df_resampled.reset_index()
+
+
 @st.cache_data(ttl=300)  # 5분 캐싱
 def get_kr_volume_ranking():
     """거래량 상위 10개 종목 (KOSPI)"""
