@@ -97,6 +97,7 @@ def get_us_stock_detail(ticker: str):
             "insider_pct": insider_pct,
             "sector": info.get('sector', ''),
             "beta": round(info.get('beta', 0) or 0, 2),
+            "exchange": info.get('exchange', ''),
         }
     except Exception:
         return None

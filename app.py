@@ -543,14 +543,20 @@ def main():
                     selected_stock_name = st.selectbox("🎯 위 테마에서 단타 분석을 진행할 종목을 선택하세요", list(all_options.keys()))
                     selected_ticker = all_options[selected_stock_name]
             
-            # TradingView용 거래소 심볼 매핑 (없으면 티커 그대로)
-            tv_symbols = {
-                "NVDA": "NASDAQ:NVDA", "AMD": "NASDAQ:AMD", "TSM": "NYSE:TSM", "AVGO": "NASDAQ:AVGO", "MU": "NASDAQ:MU", "PLTR": "NYSE:PLTR",
-                "AAPL": "NASDAQ:AAPL", "MSFT": "NASDAQ:MSFT", "GOOGL": "NASDAQ:GOOGL", "META": "NASDAQ:META", "AMZN": "NASDAQ:AMZN",
-                "TSLA": "NASDAQ:TSLA"
+            # detail_us를 컬럼 분기 전에 조회 (tv_symbol 빌드에 거래소 정보 필요)
+            with st.spinner("데이터 조회 중..."):
+                detail_us = get_us_stock_detail(selected_ticker)
+
+            # yfinance 거래소 코드 → TradingView prefix 자동 변환
+            _YF_TO_TV = {
+                "NMS": "NASDAQ", "NGM": "NASDAQ", "NCM": "NASDAQ",
+                "NYQ": "NYSE",   "NYS": "NYSE",   "PCX": "NYSE",
+                "ASE": "AMEX",
             }
-            tv_symbol = tv_symbols.get(selected_ticker, selected_ticker)
-            
+            yf_exchange = (detail_us or {}).get("exchange", "")
+            tv_exchange = _YF_TO_TV.get(yf_exchange, "NASDAQ")
+            tv_symbol = f"{tv_exchange}:{selected_ticker}"
+
             # --- 3분할 대시보드 (상단 좌/우, 하단 전체) ---
             col_left, col_right = st.columns([5, 3])
             
@@ -582,9 +588,6 @@ def main():
                 
             with col_right:
                 st.markdown("### ⚡ 실시간 시세 & 수급")
-                with st.spinner("데이터 조회 중..."):
-                    detail_us = get_us_stock_detail(selected_ticker)
-
                 if detail_us:
                     cur_price = detail_us["price"]
                     change_pct = detail_us["change_pct"]
