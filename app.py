@@ -483,7 +483,9 @@ def main():
                 with col_t_left:
                     selected_theme_name = st.radio("📂 발굴된 핫 테마 (클릭)", theme_names)
                     st.markdown("---")
-                    input_ticker = st.text_input("⌨️ 수동 직접 검색 (예: TSLA)", "").upper().strip()
+                    if "us_input_ticker" not in st.session_state:
+                        st.session_state.us_input_ticker = ""
+                    input_ticker = st.text_input("⌨️ 수동 직접 검색 (예: TSLA)", key="us_input_ticker").upper().strip()
                     
                 selected_theme = next((t for t in themes if t["theme_name"] == selected_theme_name), themes[0])
                 leader = selected_theme.get("leader_stock", {})
@@ -596,21 +598,45 @@ def main():
                         dc7.metric("PER", str(detail_us['per']))
                         dc8.metric("시가총액", detail_us['market_cap'])
 
-                    if detail_us['institutional_pct'] > 0 or detail_us['insider_pct'] > 0:
-                        st.markdown("#### 📊 기관/내부자 보유율")
-                        retail_pct = max(0.0, 100.0 - detail_us['institutional_pct'] - detail_us['insider_pct'])
-                        fig_own = go.Figure(go.Bar(
-                            x=["기관 투자자", "내부자(임원)", "기타"],
-                            y=[detail_us['institutional_pct'], detail_us['insider_pct'], retail_pct],
-                            marker_color=["#2b7cff", "#ff4b4b", "#888"]
-                        ))
-                        fig_own.update_layout(
-                            paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-                            font=dict(color="white"),
-                            yaxis=dict(gridcolor="rgba(255,255,255,0.1)", title="%", range=[0, 100]),
-                            margin=dict(l=10, r=10, t=10, b=10), height=200
-                        )
-                        st.plotly_chart(fig_own, use_container_width=True)
+                    own_col, rel_col = st.columns([3, 2])
+                    with own_col:
+                        if detail_us['institutional_pct'] > 0 or detail_us['insider_pct'] > 0:
+                            st.markdown("#### 📊 기관/내부자 보유율")
+                            retail_pct = max(0.0, 100.0 - detail_us['institutional_pct'] - detail_us['insider_pct'])
+                            fig_own = go.Figure(go.Bar(
+                                x=["기관", "내부자", "기타"],
+                                y=[detail_us['institutional_pct'], detail_us['insider_pct'], retail_pct],
+                                marker_color=["#2b7cff", "#ff4b4b", "#888"]
+                            ))
+                            fig_own.update_layout(
+                                paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+                                font=dict(color="white"),
+                                yaxis=dict(gridcolor="rgba(255,255,255,0.1)", title="%", range=[0, 100]),
+                                margin=dict(l=10, r=10, t=30, b=10), height=220
+                            )
+                            st.plotly_chart(fig_own, use_container_width=True)
+
+                    with rel_col:
+                        st.markdown("#### 🔗 AI 관련주")
+                        if st.button("🔍 관련주 발굴", use_container_width=True, key="us_related_btn"):
+                            with st.spinner("관련주 분석 중..."):
+                                from ai_engine import generate_related_stocks
+                                rel_result = generate_related_stocks(selected_ticker, detail_us.get("sector", ""))
+                                st.session_state[f"us_related_{selected_ticker}"] = rel_result
+
+                        if f"us_related_{selected_ticker}" in st.session_state:
+                            for r in st.session_state[f"us_related_{selected_ticker}"]:
+                                r_ticker = r.get("ticker", "")
+                                r_name = r.get("name", r_ticker)
+                                r_reason = r.get("reason", "")
+                                if st.button(
+                                    f"{r_name} ({r_ticker})",
+                                    key=f"goto_{r_ticker}_{selected_ticker}",
+                                    use_container_width=True,
+                                    help=r_reason
+                                ):
+                                    st.session_state.us_input_ticker = r_ticker
+                                    st.rerun()
 
                     st.markdown("---")
 

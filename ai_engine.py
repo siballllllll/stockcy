@@ -336,3 +336,26 @@ def generate_dynamic_themes():
         return result
     except Exception as e:
         return {"error": str(e), "themes": []}
+
+
+@st.cache_data(ttl=300)
+def generate_related_stocks(ticker: str, sector: str = "") -> list:
+    """특정 종목의 동조화 관련주를 AI가 발굴합니다."""
+    sector_str = f" ({sector} 섹터)" if sector else ""
+    prompt = f"""미국 주식 {ticker}{sector_str}의 동조화 관련주 4개를 발굴해주세요.
+구글 검색을 통해 현재 {ticker}와 가장 강한 상관관계를 가진 종목을 찾아주세요.
+아래 JSON 배열만 반환하세요. (설명 없이, 마크다운 백틱 제외)
+[
+  {{"ticker": "티커심볼", "name": "한국어 종목명", "reason": "연관 이유 한 줄"}},
+  ...
+]"""
+    try:
+        response = _call_gemini(prompt, use_search=True, temperature=0.5)
+        text = re.sub(r'```(?:json)?', '', response.text).strip()
+        start = text.find('[')
+        if start != -1:
+            result, _ = json.JSONDecoder().raw_decode(text, start)
+            return result if isinstance(result, list) else []
+        return []
+    except Exception:
+        return []
