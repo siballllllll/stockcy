@@ -239,6 +239,56 @@ def discover_hot_day_trading_stock(context=""):
         }
 
 
+def generate_kr_stock_report(stock_code: str, name: str, price_data: dict, investor_data: list):
+    """국내 주식 AI 수급 분석 및 단타 타점 리포트"""
+    investor_summary = ""
+    if investor_data:
+        latest = investor_data[0]
+        investor_summary = f"""
+최근 수급 동향 ({latest['날짜']}):
+- 외국인 순매수: {latest['외국인']:+,}주
+- 기관 순매수: {latest['기관']:+,}주
+- 개인 순매수: {latest['개인']:+,}주"""
+
+    prompt = f"""
+당신은 한국 주식시장 전문 단타 트레이더이자 세력 추적 전문가입니다.
+
+[종목 정보]
+종목명: {name} ({stock_code})
+현재가: {price_data['price']:,}원 ({price_data['change_pct']:+.2f}%)
+거래량: {price_data['volume']:,}주 / 거래대금: {price_data['amount'] // 100000000:,}억원
+시가: {price_data['open']:,}원 | 고가: {price_data['high']:,}원 | 저가: {price_data['low']:,}원
+52주 최고: {price_data['w52_high']:,}원 | 52주 최저: {price_data['w52_low']:,}원
+PER: {price_data['per']} | PBR: {price_data['pbr']}
+{investor_summary}
+
+위 데이터와 구글 검색을 통한 최신 뉴스를 종합하여 반드시 아래 JSON으로만 응답하세요.
+{{
+  "rating": "매우 강력 추천, 추천, 중간추천, 비추천, 매우 비추천 중 하나",
+  "buy_target": "매수 타점 (원 단위, 예: 72,500)",
+  "sell_target": "목표가 (원 단위, 예: 78,000)",
+  "stop_loss": "손절가 (원 단위, 예: 70,000)",
+  "세력분석": "외국인/기관 수급 흐름의 의미를 2~3문장으로 분석",
+  "analysis": "종합 단타 전략 (최신 뉴스, 차트 패턴, 진입 근거 등을 마크다운으로 상세 작성)"
+}}
+"""
+    try:
+        response = _call_gemini(prompt, use_search=True, temperature=0.7)
+        text = re.sub(r'```(?:json)?', '', response.text).strip()
+        start = text.find('{')
+        if start != -1:
+            result, _ = json.JSONDecoder().raw_decode(text, start)
+            return result
+        return json.loads(text)
+    except Exception as e:
+        return {
+            "rating": "분석 오류",
+            "buy_target": "-", "sell_target": "-", "stop_loss": "-",
+            "세력분석": "-",
+            "analysis": f"AI 분석 중 오류가 발생했습니다: {str(e)}"
+        }
+
+
 @st.cache_data(ttl=600)
 def generate_dynamic_themes():
     """

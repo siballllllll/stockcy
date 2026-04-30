@@ -177,7 +177,208 @@ def main():
     
     with tab1:
         if "국내" in st.session_state.market:
-            st.warning("국내 주식 실시간 시세는 아직 준비 중입니다. 우측 상단 토글에서 '미국 주식'을 선택해주세요.")
+            from data_kr import (get_kr_market_index, get_kr_stock_price,
+                                 get_kr_investor_trend, get_kr_volume_ranking)
+
+            # KIS API 키 설정 확인
+            try:
+                _ = st.secrets["kis"]["app_key"]
+            except Exception:
+                st.error("KIS API 키가 설정되지 않았습니다. Streamlit Cloud → Settings → Secrets에 아래 내용을 추가해주세요.")
+                st.code("[kis]\napp_key = \"발급받은_앱키\"\napp_secret = \"발급받은_앱시크릿\"", language="toml")
+                st.stop()
+
+            # KOSPI / KOSDAQ 지수
+            st.markdown("### 📊 국내 시장 지수")
+            with st.spinner("지수 조회 중..."):
+                indices = get_kr_market_index()
+
+            if indices:
+                col_k, col_q = st.columns(2)
+                for col, idx_name in [(col_k, "KOSPI"), (col_q, "KOSDAQ")]:
+                    if idx_name in indices:
+                        idx = indices[idx_name]
+                        col.metric(
+                            f"{'📈' if idx['change'] >= 0 else '📉'} {idx_name}",
+                            f"{idx['index']:,.2f}",
+                            f"{idx['change']:+.2f}p ({idx['change_pct']:+.2f}%)",
+                            delta_color="normal" if idx["change"] >= 0 else "inverse"
+                        )
+
+            st.markdown("---")
+
+            # 종목 선택
+            st.markdown("### 🔍 종목 선택")
+            POPULAR_KR = {
+                "삼성전자 (005930)": "005930",
+                "SK하이닉스 (000660)": "000660",
+                "현대차 (005380)": "005380",
+                "NAVER (035420)": "035420",
+                "카카오 (035720)": "035720",
+                "LG에너지솔루션 (373220)": "373220",
+                "삼성바이오로직스 (207940)": "207940",
+                "POSCO홀딩스 (005490)": "005490",
+                "삼성전자우 (005935)": "005935",
+                "기아 (000270)": "000270",
+            }
+            col_sel, col_manual = st.columns([3, 1])
+            with col_sel:
+                selected_label = st.selectbox("인기 종목 빠른 선택", list(POPULAR_KR.keys()))
+                selected_code_kr = POPULAR_KR[selected_label]
+            with col_manual:
+                manual_code_kr = st.text_input("직접 입력 (6자리 코드)", "").strip()
+            if manual_code_kr and len(manual_code_kr) == 6 and manual_code_kr.isdigit():
+                selected_code_kr = manual_code_kr
+
+            # 실시간 시세 카드
+            with st.spinner(f"{selected_code_kr} 실시간 시세 조회 중..."):
+                price_kr = get_kr_stock_price(selected_code_kr)
+
+            if price_kr:
+                is_up = price_kr["sign"] in ("1", "2")
+                is_dn = price_kr["sign"] in ("4", "5")
+                arrow = "▲" if is_up else "▼" if is_dn else "-"
+                d_color = "normal" if is_up else "inverse" if is_dn else "off"
+
+                with st.container(border=True):
+                    st.markdown(f"#### {price_kr['name']} ({selected_code_kr})")
+                    c1, c2, c3 = st.columns(3)
+                    c1.metric("현재가",
+                              f"₩{price_kr['price']:,}",
+                              f"{arrow} {abs(price_kr['change']):,}원 ({price_kr['change_pct']:+.2f}%)",
+                              delta_color=d_color)
+                    c2.metric("거래량", f"{price_kr['volume']:,}주")
+                    c3.metric("거래대금", f"₩{price_kr['amount'] // 100000000:,}억")
+
+                    oc1, oc2, oc3, oc4, oc5, oc6 = st.columns(6)
+                    oc1.metric("시가", f"₩{price_kr['open']:,}")
+                    oc2.metric("고가", f"₩{price_kr['high']:,}")
+                    oc3.metric("저가", f"₩{price_kr['low']:,}")
+                    oc4.metric("52주 최고", f"₩{price_kr['w52_high']:,}")
+                    oc5.metric("PER", price_kr['per'])
+                    oc6.metric("PBR", price_kr['pbr'])
+
+                # TradingView 차트 (국내주식)
+                tv_kr_html = f"""
+                <div class="tradingview-widget-container" style="height:420px;width:100%">
+                  <div class="tradingview-widget-container__widget" style="height:100%;width:100%"></div>
+                  <script type="text/javascript" src="https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js" async>
+                  {{
+                  "autosize": true,
+                  "symbol": "KRX:{selected_code_kr}",
+                  "interval": "15",
+                  "timezone": "Asia/Seoul",
+                  "theme": "dark",
+                  "style": "1",
+                  "locale": "kr",
+                  "allow_symbol_change": false,
+                  "backgroundColor": "rgba(0, 0, 0, 1)"
+                  }}
+                  </script>
+                </div>
+                """
+                components.html(tv_kr_html, height=420)
+
+                st.markdown("---")
+
+                # 외국인/기관 수급 + AI 분석
+                col_inv_kr, col_ai_kr = st.columns([3, 2])
+
+                with col_inv_kr:
+                    st.markdown("### 💰 외국인/기관 수급 분석")
+                    with st.spinner("수급 데이터 조회 중..."):
+                        investor_kr = get_kr_investor_trend(selected_code_kr)
+
+                    if investor_kr:
+                        df_inv = pd.DataFrame(investor_kr)
+                        fig_inv = go.Figure()
+                        for col_name, color in [("외국인", "#ff4b4b"), ("기관", "#2b7cff"), ("개인", "#888")]:
+                            fig_inv.add_trace(go.Bar(
+                                name=col_name, x=df_inv["날짜"], y=df_inv[col_name],
+                                marker_color=color
+                            ))
+                        fig_inv.update_layout(
+                            barmode="group",
+                            paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+                            font=dict(color="white"), legend=dict(orientation="h"),
+                            xaxis=dict(gridcolor="rgba(255,255,255,0.1)"),
+                            yaxis=dict(gridcolor="rgba(255,255,255,0.1)", title="순매수(주)"),
+                            margin=dict(l=10, r=10, t=10, b=10), height=280
+                        )
+                        st.plotly_chart(fig_inv, use_container_width=True)
+
+                        latest_kr = investor_kr[0]
+                        st.markdown(
+                            f"**오늘({latest_kr['날짜']}) 수급:** "
+                            f"외국인 {'🔴' if latest_kr['외국인'] > 0 else '🔵'} {latest_kr['외국인']:+,}주 | "
+                            f"기관 {'🔴' if latest_kr['기관'] > 0 else '🔵'} {latest_kr['기관']:+,}주"
+                        )
+                    else:
+                        st.info("수급 데이터를 불러올 수 없습니다.")
+
+                with col_ai_kr:
+                    st.markdown("### 🧠 AI 단타 분석")
+                    if st.button("🎯 AI 수급 & 타점 분석", key="kr_ai_btn",
+                                 use_container_width=True, type="primary"):
+                        with st.spinner("AI가 수급과 뉴스를 융합 분석 중..."):
+                            from ai_engine import generate_kr_stock_report
+                            inv_for_ai = get_kr_investor_trend(selected_code_kr)
+                            kr_rep = generate_kr_stock_report(
+                                selected_code_kr, price_kr["name"], price_kr, inv_for_ai
+                            )
+                            st.session_state[f"kr_report_{selected_code_kr}"] = kr_rep
+
+                    if f"kr_report_{selected_code_kr}" in st.session_state:
+                        rep_kr = st.session_state[f"kr_report_{selected_code_kr}"]
+                        rating_kr = rep_kr.get("rating", "")
+                        r_emoji = "🟢" if "강력" in rating_kr else "🟡" if "추천" in rating_kr else "🔴"
+                        st.markdown(f"#### {r_emoji} {rating_kr}")
+
+                        rk1, rk2 = st.columns(2)
+                        rk1.metric("매수 타점", rep_kr.get("buy_target", "-"))
+                        rk2.metric("목표가", rep_kr.get("sell_target", "-"))
+                        st.metric("손절가", rep_kr.get("stop_loss", "-"))
+                        if rep_kr.get("세력분석"):
+                            st.info(f"**세력 분석:** {rep_kr['세력분석']}")
+
+                if f"kr_report_{selected_code_kr}" in st.session_state:
+                    st.markdown("---")
+                    st.markdown("### 📝 AI 종합 분석 리포트")
+                    with st.container(border=True):
+                        st.markdown(
+                            st.session_state[f"kr_report_{selected_code_kr}"].get("analysis", "")
+                        )
+            else:
+                st.error(f"종목코드 {selected_code_kr}의 시세를 불러올 수 없습니다. KIS API 키를 확인해주세요.")
+
+            st.markdown("---")
+
+            # 거래량 상위 TOP 10
+            st.markdown("### 🔥 거래량 상위 TOP 10")
+            col_ref_kr, _ = st.columns([1, 5])
+            with col_ref_kr:
+                if st.button("🔄 새로고침", key="refresh_vol_kr"):
+                    get_kr_volume_ranking.clear()
+                    st.rerun()
+
+            with st.spinner("거래량 순위 조회 중..."):
+                vol_rank = get_kr_volume_ranking()
+
+            if vol_rank:
+                df_vol = pd.DataFrame(vol_rank)
+
+                def color_kr(val):
+                    if isinstance(val, (int, float)):
+                        if val > 0: return "color: #ff4b4b; font-weight: bold"
+                        if val < 0: return "color: #2b7cff; font-weight: bold"
+                    return ""
+
+                st.dataframe(
+                    df_vol.style.map(color_kr, subset=["등락률(%)"]),
+                    use_container_width=True, hide_index=True
+                )
+            else:
+                st.info("거래량 순위 데이터를 불러올 수 없습니다.")
         else:
             # --- 토스형 마인드맵 다이얼로그 ---
             @st.dialog("🌌 토스형 실시간 급등락 마인드맵", width="large")
