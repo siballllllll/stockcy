@@ -337,24 +337,32 @@ def main():
                         "삼성전자우 (005935)": "005935",
                         "기아 (000270)": "000270",
                     }
+                    # 섹터에서 선택한 종목이 인기 목록에 없으면 [현재] 항목을 맨 앞에 추가
+                    _cur_code = st.session_state.kr_selected_code
+                    _cur_name = st.session_state.kr_selected_name
+                    _pop = dict(POPULAR_KR)
+                    if _cur_code not in _pop.values():
+                        _pop = {f"[현재] {_cur_name} ({_cur_code})": _cur_code, **_pop}
                     col_sel, col_manual = st.columns([3, 1])
                     with col_sel:
-                        default_label = next(
-                            (lbl for lbl, code in POPULAR_KR.items()
-                             if code == st.session_state.kr_selected_code),
-                            list(POPULAR_KR.keys())[0]
+                        _def_label = next(
+                            (lbl for lbl, code in _pop.items() if code == _cur_code),
+                            list(_pop.keys())[0]
                         )
-                        default_idx = list(POPULAR_KR.keys()).index(default_label)
                         selected_label = st.selectbox(
-                            "인기 종목 빠른 선택", list(POPULAR_KR.keys()), index=default_idx
+                            "인기 종목 빠른 선택", list(_pop.keys()),
+                            index=list(_pop.keys()).index(_def_label)
                         )
-                        new_code = POPULAR_KR[selected_label]
+                        new_code = _pop[selected_label]
                     with col_manual:
                         manual_code_kr = st.text_input("직접 입력 (6자리 코드)", "").strip()
                     if manual_code_kr and len(manual_code_kr) == 6 and manual_code_kr.isdigit():
                         new_code = manual_code_kr
                     if new_code != st.session_state.kr_selected_code:
                         st.session_state.kr_selected_code = new_code
+                        st.session_state.kr_selected_name = next(
+                            (n for n, c in _pop.items() if c == new_code), new_code
+                        )
                         st.rerun()
 
                     if price_kr:
@@ -490,43 +498,65 @@ def main():
                     with st.spinner("실시간 시세 조회 중..."):
                         prices = get_kr_prices_bulk(tuple(unique_tickers))
 
-                    # 스크롤 가능한 섹터 패널 (내용이 길어져도 창 전체가 늘어나지 않음)
-                    with st.container(height=520):
+                    # 표 헤더 (스크롤 영역 바깥 고정)
+                    _hcols = st.columns([0.35, 2.8, 1.8, 1.4, 0.45])
+                    for _hc, _ht in zip(_hcols[:4], ["단타", "종목명", "현재가", "등락률"]):
+                        _hc.markdown(
+                            f"<p style='margin:0;font-size:0.72rem;color:#888'>{_ht}</p>",
+                            unsafe_allow_html=True,
+                        )
+
+                    # 스크롤 가능한 섹터 패널
+                    with st.container(height=480):
                         for sub_name, stocks in subsectors.items():
                             with st.container(border=True):
-                                st.markdown(f"**📌 {sub_name}**")
+                                st.markdown(
+                                    f"<p style='margin:0 0 4px 0;font-size:0.8rem;"
+                                    f"color:#aaa;font-weight:600'>📌 {sub_name}</p>",
+                                    unsafe_allow_html=True,
+                                )
                                 for i, s in enumerate(stocks):
                                     if i > 0:
                                         st.markdown(
-                                            '<hr style="margin:3px 0;border:none;'
-                                            'border-top:1px solid rgba(255,255,255,0.12)">',
+                                            '<hr style="margin:2px 0;border:none;'
+                                            'border-top:1px solid rgba(255,255,255,0.1)">',
                                             unsafe_allow_html=True,
                                         )
                                     pdata = prices.get(s["code"], {"price": 0, "change_pct": 0.0})
-                                    pct = pdata["change_pct"]
-                                    price_val = pdata["price"]
-                                    check = "✅ " if abs(pct) >= 2.0 else "    "
-                                    price_disp = f"₩{price_val:,}" if price_val > 0 else "---"
-                                    # 다중 섹터 배지
+                                    pct  = pdata["change_pct"]
+                                    pval = pdata["price"]
+                                    pct_color = "#ff4b4b" if pct > 0 else "#2b7cff" if pct < 0 else "#888"
+
                                     other_locs = [
                                         loc for loc in code_locations.get(s["code"], [])
                                         if loc != f"{selected_sector} › {sub_name}"
                                     ]
-                                    multi_badge = " 🔗" if other_locs else ""
                                     help_text = (
-                                        f"다중 섹터 포함: {', '.join(other_locs)}"
-                                        if other_locs else None
+                                        f"다중 섹터: {', '.join(other_locs)}" if other_locs else None
                                     )
-                                    btn_label = (
-                                        f"{check}{s['name']}{multi_badge}"
-                                        f"  {price_disp}  {pct:+.2f}%"
+
+                                    c0, c1, c2, c3, c4 = st.columns([0.35, 2.8, 1.8, 1.4, 0.45])
+                                    c0.markdown(
+                                        "✅" if abs(pct) >= 2.0 else "&nbsp;",
+                                        unsafe_allow_html=True,
                                     )
-                                    if st.button(
-                                        btn_label,
-                                        key=f"stock_{s['code']}_{sub_name}",
-                                        use_container_width=True,
-                                        help=help_text,
-                                    ):
+                                    c1.markdown(
+                                        f"<span style='font-size:0.85rem'>{s['name']}"
+                                        f"{'&nbsp;🔗' if other_locs else ''}</span>",
+                                        unsafe_allow_html=True,
+                                    )
+                                    c2.markdown(
+                                        f"<span style='font-size:0.85rem'>"
+                                        f"{'₩' + format(pval, ',') if pval > 0 else '---'}</span>",
+                                        unsafe_allow_html=True,
+                                    )
+                                    c3.markdown(
+                                        f"<span style='font-size:0.85rem;font-weight:bold;"
+                                        f"color:{pct_color}'>{pct:+.2f}%</span>",
+                                        unsafe_allow_html=True,
+                                    )
+                                    if c4.button("▶", key=f"stock_{s['code']}_{sub_name}",
+                                                 help=help_text):
                                         st.session_state.kr_selected_code = s["code"]
                                         st.session_state.kr_selected_name = s["name"]
                                         st.session_state.kr_mode = "📊 일반 주식 검색"
