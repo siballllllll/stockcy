@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+from datetime import datetime
 from data import get_us_stock_data
 
 # 1. 페이지 기본 설정 (항상 최상단에 위치)
@@ -374,8 +375,10 @@ def main():
                                 if not any(item["ticker"] == selected_ticker for item in st.session_state.ai_portfolio):
                                     st.session_state.ai_portfolio.append({
                                         "ticker": selected_ticker,
+                                        "name": selected_stock_name,
                                         "buy_price": cur_price,
-                                        "quantity": 10 # 기본 10주
+                                        "quantity": 10,
+                                        "buy_date": datetime.now().strftime("%Y-%m-%d %H:%M")
                                     })
                                     st.toast(f"🤖 AI 자동 담기 완료: {selected_ticker}")
 
@@ -395,8 +398,10 @@ def main():
                             if not any(item["ticker"] == selected_ticker for item in st.session_state.portfolio):
                                 st.session_state.portfolio.append({
                                     "ticker": selected_ticker,
+                                    "name": selected_stock_name,
                                     "buy_price": cur_price,
-                                    "quantity": 10
+                                    "quantity": 10,
+                                    "buy_date": datetime.now().strftime("%Y-%m-%d %H:%M")
                                 })
                                 st.success(f"나의 포트폴리오에 {selected_ticker}가 추가되었습니다!")
                             else:
@@ -414,89 +419,327 @@ def main():
                 st.info("우측 상단의 '🧠 분석' 버튼을 눌러 AI 등급 및 리포트를 받아보세요.")
 
     with tab2:
-        st.subheader("성과 트래킹 보드")
-        
-        tab_ai, tab_my = st.tabs(["🤖 AI 자동 추천 종목", "👤 내가 직접 담은 포트폴리오"])
-        
-        def render_portfolio(portfolio_state_key):
-            port_list = st.session_state.get(portfolio_state_key, [])
+        import plotly.graph_objects as go
+
+        st.subheader("📊 성과 트래킹 보드")
+
+        if "trade_history" not in st.session_state:
+            st.session_state.trade_history = []
+        if "portfolio" not in st.session_state:
+            st.session_state.portfolio = []
+        if "ai_portfolio" not in st.session_state:
+            st.session_state.ai_portfolio = []
+
+        tab_holding, tab_history, tab_sheets = st.tabs([
+            "📈 보유 종목",
+            "📋 거래 성과",
+            "☁️ 구글 시트 연동"
+        ])
+
+        def render_holdings(portfolio_key, show_add=False):
+            # 매도/삭제 pending 처리
+            pending_key = f"_remove_{portfolio_key}"
+            if pending_key in st.session_state:
+                ticker_to_remove = st.session_state.pop(pending_key)
+                st.session_state[portfolio_key] = [
+                    x for x in st.session_state.get(portfolio_key, [])
+                    if x["ticker"] != ticker_to_remove
+                ]
+
+            port_list = st.session_state.get(portfolio_key, [])
+
+            if show_add:
+                with st.expander("➕ 종목 직접 추가"):
+                    c1, c2, c3, c4 = st.columns(4)
+                    nt = c1.text_input("티커 (예: TSLA)", key=f"nt_{portfolio_key}").upper().strip()
+                    nn = c2.text_input("종목명 (예: 테슬라)", key=f"nn_{portfolio_key}")
+                    np_val = c3.number_input("매수가($)", min_value=0.01, value=100.0, key=f"np_{portfolio_key}")
+                    nq_val = c4.number_input("수량", min_value=1, value=10, step=1, key=f"nq_{portfolio_key}")
+                    if st.button("➕ 추가", key=f"add_{portfolio_key}"):
+                        if nt and not any(x["ticker"] == nt for x in port_list):
+                            st.session_state[portfolio_key].append({
+                                "ticker": nt,
+                                "name": nn or nt,
+                                "buy_price": float(np_val),
+                                "quantity": int(nq_val),
+                                "buy_date": datetime.now().strftime("%Y-%m-%d %H:%M")
+                            })
+                            st.success(f"{nt} 추가 완료!")
+                            st.rerun()
+                        elif not nt:
+                            st.warning("티커를 입력해주세요.")
+                        else:
+                            st.warning("이미 포트폴리오에 있는 종목입니다.")
+
+            port_list = st.session_state.get(portfolio_key, [])
             if not port_list:
-                st.info("현재 등록된 종목이 없습니다.")
+                st.info("보유 종목이 없습니다. 분석 탭에서 '포트폴리오에 담기'를 누르거나 위 폼으로 추가하세요.")
                 return
-                
-            portfolio_tickers = list(set([item["ticker"] for item in port_list]))
-            from data import get_us_stock_data
-            
-            with st.spinner("실시간 수익률을 계산 중입니다..."):
-                pf_df = get_us_stock_data(portfolio_tickers)
-            
-            total_invested = 0
-            total_current = 0
-            results = []
-            
+
+            tickers = list(set(x["ticker"] for x in port_list))
+            with st.spinner("실시간 시세 조회 중..."):
+                price_df = get_us_stock_data(tickers)
+
+            total_inv, total_cur = 0.0, 0.0
             for item in port_list:
-                ticker = item["ticker"]
-                buy_p = item["buy_price"]
-                qty = item["quantity"]
-                invested = buy_p * qty
-                
-                if not pf_df.empty and ticker in pf_df["심볼"].values:
-                    cur_p = pf_df[pf_df["심볼"] == ticker].iloc[0]["현재가($)"]
-                    current_val = cur_p * qty
-                    profit = current_val - invested
-                    profit_pct = (profit / invested) * 100 if invested > 0 else 0
+                bp, qty = item["buy_price"], item["quantity"]
+                total_inv += bp * qty
+                if not price_df.empty and item["ticker"] in price_df["심볼"].values:
+                    cp = price_df[price_df["심볼"] == item["ticker"]].iloc[0]["현재가($)"]
+                    total_cur += cp * qty
                 else:
-                    cur_p = buy_p 
-                    current_val = invested
-                    profit = 0
-                    profit_pct = 0
-                    
-                total_invested += invested
-                total_current += current_val
-                
-                results.append({
-                    "종목": ticker,
-                    "수량": qty,
-                    "매수가": f"${buy_p:,.2f}",
-                    "현재가": f"${cur_p:,.2f}",
-                    "수익금": f"${profit:,.2f}",
-                    "수익률(%)": f"{profit_pct:.2f}%"
-                })
-                
-            total_profit = total_current - total_invested
-            total_profit_pct = (total_profit / total_invested * 100) if total_invested > 0 else 0
-            
-            col_m1, col_m2, col_m3 = st.columns(3)
-            col_m1.metric("총 매수 금액", f"${total_invested:,.2f}")
-            col_m2.metric("총 평가 금액", f"${total_current:,.2f}")
-            
-            delta_color = "normal" if total_profit >= 0 else "inverse"
-            col_m3.metric("총 수익률", f"${total_profit:,.2f}", f"{total_profit_pct:.2f}%", delta_color=delta_color)
-            
-            st.dataframe(results, use_container_width=True)
-            
-            if st.button("🗑️ 초기화", key=f"clear_{portfolio_state_key}", type="secondary"):
-                st.session_state[portfolio_state_key] = []
+                    total_cur += bp * qty
+
+            total_pnl = total_cur - total_inv
+            total_pnl_pct = (total_pnl / total_inv * 100) if total_inv > 0 else 0
+
+            cm1, cm2, cm3 = st.columns(3)
+            cm1.metric("총 매수 금액", f"${total_inv:,.2f}")
+            cm2.metric("총 평가 금액", f"${total_cur:,.2f}")
+            cm3.metric("총 수익", f"${total_pnl:,.2f}", f"{total_pnl_pct:.2f}%",
+                       delta_color="normal" if total_pnl >= 0 else "inverse")
+
+            st.markdown("---")
+
+            for idx, item in enumerate(port_list):
+                ticker = item["ticker"]
+                name = item.get("name", ticker)
+                bp = item["buy_price"]
+                qty = item["quantity"]
+
+                if not price_df.empty and ticker in price_df["심볼"].values:
+                    cp = price_df[price_df["심볼"] == ticker].iloc[0]["현재가($)"]
+                else:
+                    cp = bp
+
+                pnl = (cp - bp) * qty
+                pnl_pct = ((cp - bp) / bp * 100) if bp > 0 else 0
+                emoji = "🟢" if pnl_pct > 0 else "🔴" if pnl_pct < 0 else "⚪"
+
+                with st.container(border=True):
+                    cl, cr = st.columns([3, 2])
+                    with cl:
+                        st.markdown(f"**{emoji} {name} ({ticker})** <small style='color:#888'>{item.get('buy_date', '')}</small>",
+                                    unsafe_allow_html=True)
+                        dc1, dc2, dc3 = st.columns(3)
+                        dc1.metric("매수가", f"${bp:,.2f}")
+                        dc2.metric("현재가", f"${cp:,.2f}")
+                        dc3.metric("수익률", f"{pnl_pct:.2f}%", f"${pnl:,.2f}",
+                                   delta_color="normal" if pnl >= 0 else "inverse")
+                    with cr:
+                        st.markdown("**매도가($) 입력 후 기록**")
+                        sell_p = st.number_input(
+                            "매도가", min_value=0.01, value=float(cp),
+                            key=f"sellp_{portfolio_key}_{idx}",
+                            label_visibility="collapsed"
+                        )
+                        bc1, bc2 = st.columns(2)
+                        with bc1:
+                            if st.button("✅ 매도", key=f"sell_{portfolio_key}_{idx}",
+                                         type="primary", use_container_width=True):
+                                invested = bp * qty
+                                sell_val = sell_p * qty
+                                p = sell_val - invested
+                                p_pct = (p / invested * 100) if invested > 0 else 0
+                                trade = {
+                                    "ticker": ticker, "name": name, "quantity": qty,
+                                    "buy_price": bp, "sell_price": sell_p,
+                                    "profit": p, "profit_pct": p_pct,
+                                    "buy_date": item.get("buy_date", "-"),
+                                    "sell_date": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                                    "result": "승" if p >= 0 else "패"
+                                }
+                                st.session_state.trade_history.append(trade)
+                                from db import save_trade_record
+                                save_trade_record(trade)
+                                st.session_state[pending_key] = ticker
+                                st.toast(f"✅ {ticker} 매도 기록 완료!")
+                                st.rerun()
+                        with bc2:
+                            if st.button("🗑️ 삭제", key=f"del_{portfolio_key}_{idx}",
+                                         use_container_width=True):
+                                st.session_state[pending_key] = ticker
+                                st.rerun()
+
+            st.markdown("---")
+            if st.button("🗑️ 전체 초기화", key=f"clear_{portfolio_key}", type="secondary"):
+                st.session_state[portfolio_key] = []
                 st.rerun()
 
-        with tab_ai:
-            st.markdown("**AI가 '추천' 등급 이상을 매긴 종목들이 자동으로 기록되는 공간입니다.**")
-            render_portfolio("ai_portfolio")
-            
-        with tab_my:
-            st.markdown("**내가 종목 카드에서 '내 포트폴리오에 직접 담기'를 눌러 수집한 종목들입니다.**")
-            render_portfolio("portfolio")
-            
+        with tab_holding:
+            st.markdown("### 🤖 AI 자동 추천 종목")
+            st.caption("AI 분석에서 '추천' 이상 등급을 받으면 자동으로 기록됩니다.")
+            render_holdings("ai_portfolio", show_add=False)
+
             st.markdown("---")
-            st.markdown("### 🛠️ 데이터베이스 연동 (Google Sheets)")
-            if st.button("현재 나의 포트폴리오를 구글 시트에 백업하기 🚀"):
-                from db import test_connection_and_write
-                with st.spinner("구글 서버와 통신 중..."):
-                    success, msg = test_connection_and_write()
-                    if success:
-                        st.success("데이터베이스 백업 성공! " + msg)
+            st.markdown("### 👤 내 수동 포트폴리오")
+            st.caption("분석 탭에서 '포트폴리오에 담기'를 눌렀거나 아래 폼으로 직접 추가한 종목입니다.")
+            render_holdings("portfolio", show_add=True)
+
+        with tab_history:
+            history = st.session_state.trade_history
+
+            col_load, _ = st.columns([2, 3])
+            with col_load:
+                if st.button("☁️ 구글 시트에서 거래내역 불러오기", use_container_width=True):
+                    from db import load_trade_history_from_gsheet
+                    with st.spinner("로드 중..."):
+                        df_loaded, load_msg = load_trade_history_from_gsheet()
+                    if df_loaded is not None and not df_loaded.empty:
+                        existing_keys = {(t.get("ticker", ""), t.get("sell_date", "")) for t in history}
+                        added = 0
+                        for row in df_loaded.to_dict("records"):
+                            key = (str(row.get("티커", "")), str(row.get("매도시간", "")))
+                            if key not in existing_keys:
+                                history.append({
+                                    "ticker": str(row.get("티커", "")),
+                                    "name": str(row.get("종목명", "")),
+                                    "quantity": row.get("수량", 0),
+                                    "buy_price": float(row.get("매수가($)", 0) or 0),
+                                    "sell_price": float(row.get("매도가($)", 0) or 0),
+                                    "profit": float(row.get("수익금($)", 0) or 0),
+                                    "profit_pct": float(row.get("수익률(%)", 0) or 0),
+                                    "sell_date": str(row.get("매도시간", "")),
+                                    "result": str(row.get("결과", ""))
+                                })
+                                added += 1
+                        st.session_state.trade_history = history
+                        st.success(f"구글 시트에서 {added}건 신규 로드 완료!")
+                        st.rerun()
                     else:
-                        st.error(msg)
+                        st.info(load_msg)
+
+            if not history:
+                st.info("완료된 거래가 없습니다. 보유 종목 탭에서 '✅ 매도' 버튼을 눌러 거래를 기록하세요.")
+            else:
+                wins = sum(1 for t in history if t.get("result") == "승")
+                total = len(history)
+                win_rate = (wins / total * 100) if total > 0 else 0
+                avg_pct = sum(float(t.get("profit_pct", 0)) for t in history) / total
+                total_profit_sum = sum(float(t.get("profit", 0)) for t in history)
+
+                st.markdown("### 📊 전체 성과 요약")
+                cs1, cs2, cs3, cs4 = st.columns(4)
+                cs1.metric("총 거래 수", f"{total}건")
+                cs2.metric("승률", f"{win_rate:.1f}%", f"{wins}승 {total - wins}패")
+                cs3.metric("평균 수익률", f"{avg_pct:.2f}%")
+                cs4.metric("누적 수익금", f"${total_profit_sum:,.2f}",
+                           delta_color="normal" if total_profit_sum >= 0 else "inverse")
+
+                if len(history) >= 2:
+                    cumulative, x_pts, y_pts = 0.0, [], []
+                    for t in history:
+                        cumulative += float(t.get("profit", 0))
+                        x_pts.append(t.get("sell_date", ""))
+                        y_pts.append(round(cumulative, 2))
+
+                    line_color = "#00c853" if cumulative >= 0 else "#ff4b4b"
+                    fill_color = "rgba(0,200,83,0.15)" if cumulative >= 0 else "rgba(255,75,75,0.15)"
+                    fig = go.Figure()
+                    fig.add_trace(go.Scatter(
+                        x=x_pts, y=y_pts, mode="lines+markers",
+                        line=dict(color=line_color, width=2),
+                        fill="tozeroy", fillcolor=fill_color,
+                        name="누적 수익금"
+                    ))
+                    fig.update_layout(
+                        title="📈 누적 수익금 추이",
+                        paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+                        font=dict(color="white"),
+                        xaxis=dict(gridcolor="rgba(255,255,255,0.1)"),
+                        yaxis=dict(gridcolor="rgba(255,255,255,0.1)", tickprefix="$"),
+                        margin=dict(l=10, r=10, t=40, b=10)
+                    )
+                    st.plotly_chart(fig, use_container_width=True)
+
+                st.markdown("### 📋 거래 내역")
+                df_hist = pd.DataFrame([{
+                    "매도일": t.get("sell_date", ""),
+                    "티커": t.get("ticker", ""),
+                    "종목명": t.get("name", ""),
+                    "수량": t.get("quantity", 0),
+                    "매수가": f"${float(t.get('buy_price', 0)):,.2f}",
+                    "매도가": f"${float(t.get('sell_price', 0)):,.2f}",
+                    "수익금": f"${float(t.get('profit', 0)):,.2f}",
+                    "수익률": f"{float(t.get('profit_pct', 0)):.2f}%",
+                    "결과": t.get("result", "")
+                } for t in reversed(history)])
+
+                def color_result(val):
+                    if val == "승":
+                        return "color: #00c853; font-weight: bold"
+                    if val == "패":
+                        return "color: #ff4b4b; font-weight: bold"
+                    return ""
+
+                st.dataframe(
+                    df_hist.style.map(color_result, subset=["결과"]),
+                    use_container_width=True, hide_index=True
+                )
+
+                if st.button("🗑️ 거래 내역 초기화", type="secondary"):
+                    st.session_state.trade_history = []
+                    st.rerun()
+
+        with tab_sheets:
+            st.markdown("### ☁️ Google Sheets 연동")
+            st.info("`secrets.toml`에 구글 시트 서비스 계정 정보(gspread 섹션)가 등록되어야 합니다.")
+
+            st.markdown("#### 포트폴리오 저장")
+            gs1, gs2 = st.columns(2)
+            with gs1:
+                if st.button("💾 내 포트폴리오 → 구글 시트 저장", use_container_width=True):
+                    from db import save_portfolio_to_gsheet
+                    port = st.session_state.get("portfolio", [])
+                    if port:
+                        tickers_gs = [x["ticker"] for x in port]
+                        price_df_gs = get_us_stock_data(tickers_gs)
+                        with st.spinner("저장 중..."):
+                            ok, msg_gs = save_portfolio_to_gsheet(port, price_df_gs)
+                        if ok:
+                            st.success(msg_gs)
+                        else:
+                            st.error(msg_gs)
+                    else:
+                        st.warning("저장할 종목이 없습니다.")
+            with gs2:
+                if st.button("💾 AI 추천 포트폴리오 → 구글 시트 저장", use_container_width=True):
+                    from db import save_portfolio_to_gsheet
+                    port = st.session_state.get("ai_portfolio", [])
+                    if port:
+                        tickers_gs = [x["ticker"] for x in port]
+                        price_df_gs = get_us_stock_data(tickers_gs)
+                        with st.spinner("저장 중..."):
+                            ok, msg_gs = save_portfolio_to_gsheet(port, price_df_gs)
+                        if ok:
+                            st.success(msg_gs)
+                        else:
+                            st.error(msg_gs)
+                    else:
+                        st.warning("저장할 종목이 없습니다.")
+
+            st.markdown("---")
+            st.markdown("#### 거래 내역 조회 & 연결 테스트")
+            gt1, gt2 = st.columns(2)
+            with gt1:
+                if st.button("📥 구글 시트 거래내역 조회", use_container_width=True):
+                    from db import load_trade_history_from_gsheet
+                    with st.spinner("로드 중..."):
+                        df_gs, msg_gs = load_trade_history_from_gsheet()
+                    if df_gs is not None and not df_gs.empty:
+                        st.success(f"{len(df_gs)}건 조회 성공!")
+                        st.dataframe(df_gs, use_container_width=True, hide_index=True)
+                    else:
+                        st.info(msg_gs)
+            with gt2:
+                if st.button("🔗 연결 테스트", use_container_width=True):
+                    from db import test_connection_and_write
+                    with st.spinner("연결 테스트 중..."):
+                        ok, msg_gs = test_connection_and_write()
+                    if ok:
+                        st.success(msg_gs)
+                    else:
+                        st.error(msg_gs)
 
     # --- 하단 면책 조항 ---
     st.markdown("""
