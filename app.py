@@ -321,7 +321,11 @@ def main():
                     else:
                         st.info("분봉 데이터를 불러올 수 없습니다. 장 운영 시간(09:00~15:30) 중 다시 시도해주세요.")
                 else:
-                    st.error(f"종목코드 {selected_code_kr}의 시세를 불러올 수 없습니다. KIS API 키를 확인해주세요.")
+                    st.warning(
+                        f"종목코드 **{selected_code_kr}** 시세를 불러올 수 없습니다.  \n"
+                        "KIS API와 yfinance 모두 실패했습니다. "
+                        "장 운영 시간(09:00~15:30) 확인 또는 잠시 후 다시 시도해주세요."
+                    )
 
             with col_right:
                 if kr_mode == "📊 일반 주식 검색":

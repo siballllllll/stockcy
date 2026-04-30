@@ -53,33 +53,70 @@ def _get(path: str, tr_id: str, params: dict):
 
 @st.cache_data(ttl=60)
 def get_kr_stock_price(stock_code: str):
-    """국내 주식 현재가 및 기본 정보 조회 (1분 캐싱)"""
+    """국내 주식 현재가 및 기본 정보 조회 (KIS API → yfinance 폴백, 1분 캐싱)"""
     data = _get(
         "/uapi/domestic-stock/v1/quotations/inquire-price",
         "FHKST01010100",
         {"fid_cond_mrkt_div_code": "J", "fid_input_iscd": stock_code},
     )
-    if not data:
-        return None
-    o = data["output"]
-    return {
-        "code": stock_code,
-        "name": o.get("hts_kor_isnm", stock_code),
-        "price": int(o.get("stck_prpr", 0) or 0),
-        "change": int(o.get("prdy_vrss", 0) or 0),
-        "change_pct": float(o.get("prdy_ctrt", 0) or 0),
-        "sign": o.get("prdy_vrss_sign", "3"),  # 1:상한 2:상승 3:보합 4:하락 5:하한
-        "volume": int(o.get("acml_vol", 0) or 0),
-        "amount": int(o.get("acml_tr_pbmn", 0) or 0),
-        "open": int(o.get("stck_oprc", 0) or 0),
-        "high": int(o.get("stck_hgpr", 0) or 0),
-        "low": int(o.get("stck_lwpr", 0) or 0),
-        "w52_high": int(o.get("w52hgpr", 0) or 0),
-        "w52_low": int(o.get("w52lwpr", 0) or 0),
-        "per": o.get("per", "-"),
-        "pbr": o.get("pbr", "-"),
-        "market_cap": o.get("hts_avls", "-"),
-    }
+    if data:
+        o = data["output"]
+        return {
+            "code": stock_code,
+            "name": o.get("hts_kor_isnm", stock_code),
+            "price": int(o.get("stck_prpr", 0) or 0),
+            "change": int(o.get("prdy_vrss", 0) or 0),
+            "change_pct": float(o.get("prdy_ctrt", 0) or 0),
+            "sign": o.get("prdy_vrss_sign", "3"),
+            "volume": int(o.get("acml_vol", 0) or 0),
+            "amount": int(o.get("acml_tr_pbmn", 0) or 0),
+            "open": int(o.get("stck_oprc", 0) or 0),
+            "high": int(o.get("stck_hgpr", 0) or 0),
+            "low": int(o.get("stck_lwpr", 0) or 0),
+            "w52_high": int(o.get("w52hgpr", 0) or 0),
+            "w52_low": int(o.get("w52lwpr", 0) or 0),
+            "per": o.get("per", "-"),
+            "pbr": o.get("pbr", "-"),
+            "market_cap": o.get("hts_avls", "-"),
+        }
+
+    # KIS API 실패 → yfinance 폴백 (.KS 우선, .KQ 차선)
+    import yfinance as yf
+    for suffix in [".KS", ".KQ"]:
+        try:
+            tk = yf.Ticker(f"{stock_code}{suffix}")
+            fi = tk.fast_info
+            info = tk.info
+            price = round(fi.get("lastPrice", 0) or 0)
+            prev  = fi.get("previousClose", 0) or 0
+            if price <= 0:
+                continue
+            change     = round(price - prev)
+            change_pct = round(((price - prev) / prev * 100) if prev > 0 else 0.0, 2)
+            sign = "2" if change > 0 else "4" if change < 0 else "3"
+            name = (info.get("shortName") or info.get("longName") or stock_code)
+            return {
+                "code": stock_code,
+                "name": name,
+                "price": price,
+                "change": change,
+                "change_pct": change_pct,
+                "sign": sign,
+                "volume": int(fi.get("lastVolume", 0) or 0),
+                "amount": 0,
+                "open":     round(fi.get("open", 0) or 0),
+                "high":     round(fi.get("dayHigh", 0) or 0),
+                "low":      round(fi.get("dayLow", 0) or 0),
+                "w52_high": round(fi.get("fiftyTwoWeekHigh", 0) or 0),
+                "w52_low":  round(fi.get("fiftyTwoWeekLow", 0) or 0),
+                "per": round(info.get("trailingPE", 0) or 0, 1) or "-",
+                "pbr": round(info.get("priceToBook", 0) or 0, 2) or "-",
+                "market_cap": "-",
+                "_source": "yfinance",
+            }
+        except Exception:
+            continue
+    return None
 
 
 @st.cache_data(ttl=60)
