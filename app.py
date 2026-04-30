@@ -427,13 +427,27 @@ def main():
                                 st.info(f"**세력 분석:** {rep_kr['세력분석']}")
 
                 else:  # 🔥 오늘의 이슈 섹터
-                    from sectors_kr import KR_SECTOR_MAP
+                    from db import load_sector_map, init_sector_sheet
                     from data_kr import get_kr_prices_bulk
 
-                    st.markdown("### 🔥 이슈 섹터")
+                    hdr_c1, hdr_c2, hdr_c3 = st.columns([4, 1, 1])
+                    hdr_c1.markdown("### 🔥 이슈 섹터")
+                    with hdr_c2:
+                        if st.button("🔄 새로고침", key="sec_refresh",
+                                     use_container_width=True,
+                                     help="섹터 데이터 캐시 초기화"):
+                            load_sector_map.clear()
+                            st.rerun()
+                    with hdr_c3:
+                        if st.button("☁️ 시트 업로드", key="sec_init",
+                                     use_container_width=True,
+                                     help="sectors_kr.py 기본 데이터를 구글 시트 섹터DB 탭에 업로드합니다. 이후 시트에서 직접 편집하세요."):
+                            ok, msg_init = init_sector_sheet()
+                            st.toast(msg_init if ok else f"오류: {msg_init}")
 
-                    sector_names = list(KR_SECTOR_MAP.keys())
-                    if st.session_state.kr_selected_sector not in KR_SECTOR_MAP:
+                    sector_map = load_sector_map()
+                    sector_names = list(sector_map.keys())
+                    if st.session_state.kr_selected_sector not in sector_map:
                         st.session_state.kr_selected_sector = sector_names[0]
 
                     sector_cols = st.columns(len(sector_names))
@@ -447,12 +461,19 @@ def main():
                             st.session_state.kr_selected_sector = sname
                             st.rerun()
 
-                    st.markdown("---")
-
                     selected_sector = st.session_state.kr_selected_sector
-                    subsectors = KR_SECTOR_MAP[selected_sector]
+                    subsectors = sector_map[selected_sector]
 
-                    # 섹터 내 종목 중복 제거 후 일괄 시세 조회
+                    # 전체 섹터맵에서 다중 섹터 소속 종목 미리 계산
+                    code_locations: dict = {}
+                    for sec, subs in sector_map.items():
+                        for sub, stklist in subs.items():
+                            for s in stklist:
+                                code_locations.setdefault(s["code"], []).append(
+                                    f"{sec} › {sub}"
+                                )
+
+                    # 중복 제거 후 일괄 시세 조회
                     seen_codes: set = set()
                     unique_tickers = []
                     for sub_stocks in subsectors.values():
@@ -464,24 +485,47 @@ def main():
                     with st.spinner("실시간 시세 조회 중..."):
                         prices = get_kr_prices_bulk(tuple(unique_tickers))
 
-                    for sub_name, stocks in subsectors.items():
-                        st.markdown(f"**📌 {sub_name}**")
-                        for s in stocks:
-                            pdata = prices.get(s["code"], {"price": 0, "change_pct": 0.0})
-                            pct = pdata["change_pct"]
-                            price_val = pdata["price"]
-                            check = " ✅" if abs(pct) >= 2.0 else ""
-                            price_disp = f"  ₩{price_val:,}" if price_val > 0 else ""
-                            btn_label = f"{s['name']}{price_disp}  {pct:+.2f}%{check}"
-                            if st.button(
-                                btn_label, key=f"stock_{s['code']}_{sub_name}",
-                                use_container_width=True,
-                            ):
-                                st.session_state.kr_selected_code = s["code"]
-                                st.session_state.kr_selected_name = s["name"]
-                                st.session_state.kr_mode_radio = "📊 일반 주식 검색"
-                                st.rerun()
-                        st.markdown("")
+                    # 스크롤 가능한 섹터 패널 (내용이 길어져도 창 전체가 늘어나지 않음)
+                    with st.container(height=520):
+                        for sub_name, stocks in subsectors.items():
+                            with st.container(border=True):
+                                st.markdown(f"**📌 {sub_name}**")
+                                for i, s in enumerate(stocks):
+                                    if i > 0:
+                                        st.markdown(
+                                            '<hr style="margin:3px 0;border:none;'
+                                            'border-top:1px solid rgba(255,255,255,0.12)">',
+                                            unsafe_allow_html=True,
+                                        )
+                                    pdata = prices.get(s["code"], {"price": 0, "change_pct": 0.0})
+                                    pct = pdata["change_pct"]
+                                    price_val = pdata["price"]
+                                    check = "✅ " if abs(pct) >= 2.0 else "    "
+                                    price_disp = f"₩{price_val:,}" if price_val > 0 else "---"
+                                    # 다중 섹터 배지
+                                    other_locs = [
+                                        loc for loc in code_locations.get(s["code"], [])
+                                        if loc != f"{selected_sector} › {sub_name}"
+                                    ]
+                                    multi_badge = " 🔗" if other_locs else ""
+                                    help_text = (
+                                        f"다중 섹터 포함: {', '.join(other_locs)}"
+                                        if other_locs else None
+                                    )
+                                    btn_label = (
+                                        f"{check}{s['name']}{multi_badge}"
+                                        f"  {price_disp}  {pct:+.2f}%"
+                                    )
+                                    if st.button(
+                                        btn_label,
+                                        key=f"stock_{s['code']}_{sub_name}",
+                                        use_container_width=True,
+                                        help=help_text,
+                                    ):
+                                        st.session_state.kr_selected_code = s["code"]
+                                        st.session_state.kr_selected_name = s["name"]
+                                        st.session_state.kr_mode_radio = "📊 일반 주식 검색"
+                                        st.rerun()
 
             # AI 리포트 전체 너비 (일반 모드)
             if kr_mode == "📊 일반 주식 검색" and f"kr_report_{selected_code_kr}" in st.session_state:
