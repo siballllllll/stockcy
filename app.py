@@ -214,6 +214,9 @@ def main():
                 ("kr_selected_code", "005930"),
                 ("kr_selected_name", "삼성전자"),
                 ("kr_selected_sector", "반도체"),
+                ("kr_sector_view", "list"),
+                ("kr_sector_detail_code", ""),
+                ("kr_sector_detail_name", ""),
             ]:
                 if _k not in st.session_state:
                     st.session_state[_k] = _v
@@ -447,124 +450,261 @@ def main():
                     from db import load_sector_map, init_sector_sheet
                     from data_kr import get_kr_prices_bulk
 
-                    hdr_c1, hdr_c2, hdr_c3 = st.columns([4, 1, 1])
-                    hdr_c1.markdown("### 🔥 이슈 섹터")
-                    with hdr_c2:
-                        if st.button("🔄 새로고침", key="sec_refresh",
-                                     use_container_width=True,
-                                     help="섹터 데이터 캐시 초기화"):
-                            load_sector_map.clear()
-                            st.rerun()
-                    with hdr_c3:
-                        if st.button("☁️ 시트 업로드", key="sec_init",
-                                     use_container_width=True,
-                                     help="sectors_kr.py 기본 데이터를 구글 시트 섹터DB 탭에 업로드합니다. 이후 시트에서 직접 편집하세요."):
-                            ok, msg_init = init_sector_sheet()
-                            st.toast(msg_init if ok else f"오류: {msg_init}")
-
                     sector_map = load_sector_map()
                     sector_names = list(sector_map.keys())
                     if st.session_state.kr_selected_sector not in sector_map:
                         st.session_state.kr_selected_sector = sector_names[0]
 
-                    sector_cols = st.columns(len(sector_names))
-                    for i, sname in enumerate(sector_names):
-                        is_active = st.session_state.kr_selected_sector == sname
-                        if sector_cols[i].button(
-                            sname, key=f"sec_btn_{sname}",
-                            type="primary" if is_active else "secondary",
-                            use_container_width=True,
-                        ):
-                            st.session_state.kr_selected_sector = sname
+                    # ── 종목 상세 뷰 (▶ 클릭 후) ──────────────────────────────
+                    if st.session_state.kr_sector_view == "detail":
+                        detail_code = st.session_state.kr_sector_detail_code
+                        detail_name = st.session_state.kr_sector_detail_name
+
+                        if st.button("← 섹터 목록으로", key="sec_back",
+                                     use_container_width=True):
+                            st.session_state.kr_sector_view = "list"
                             st.rerun()
 
-                    selected_sector = st.session_state.kr_selected_sector
-                    subsectors = sector_map[selected_sector]
-
-                    # 전체 섹터맵에서 다중 섹터 소속 종목 미리 계산
-                    code_locations: dict = {}
-                    for sec, subs in sector_map.items():
-                        for sub, stklist in subs.items():
-                            for s in stklist:
-                                code_locations.setdefault(s["code"], []).append(
-                                    f"{sec} › {sub}"
-                                )
-
-                    # 중복 제거 후 일괄 시세 조회
-                    seen_codes: set = set()
-                    unique_tickers = []
-                    for sub_stocks in subsectors.values():
-                        for s in sub_stocks:
-                            if s["code"] not in seen_codes:
-                                seen_codes.add(s["code"])
-                                unique_tickers.append((s["code"], s["code"] + s["suffix"]))
-
-                    with st.spinner("실시간 시세 조회 중..."):
-                        prices = get_kr_prices_bulk(tuple(unique_tickers))
-
-                    # 표 헤더 (스크롤 영역 바깥 고정)
-                    _hcols = st.columns([0.35, 2.8, 1.8, 1.4, 0.45])
-                    for _hc, _ht in zip(_hcols[:4], ["단타", "종목명", "현재가", "등락률"]):
-                        _hc.markdown(
-                            f"<p style='margin:0;font-size:0.72rem;color:#888'>{_ht}</p>",
+                        st.markdown(
+                            f"<h4 style='margin:4px 0 2px 0'>{detail_name}</h4>"
+                            f"<p style='margin:0;font-size:0.78rem;color:#888'>"
+                            f"종목코드 {detail_code} · {st.session_state.kr_selected_sector}</p>",
                             unsafe_allow_html=True,
                         )
 
-                    # 스크롤 가능한 섹터 패널
-                    with st.container(height=480):
-                        for sub_name, stocks in subsectors.items():
-                            with st.container(border=True):
-                                st.markdown(
-                                    f"<p style='margin:0 0 4px 0;font-size:0.8rem;"
-                                    f"color:#aaa;font-weight:600'>📌 {sub_name}</p>",
-                                    unsafe_allow_html=True,
+                        with st.container(height=490):
+                            # 시세 카드
+                            if price_kr:
+                                chg = price_kr["change_pct"]
+                                pct_col = "#ff4b4b" if chg > 0 else "#2b7cff" if chg < 0 else "#888"
+                                with st.container(border=True):
+                                    m1, m2, m3 = st.columns(3)
+                                    m1.metric("현재가", f"₩{price_kr['price']:,}",
+                                              f"{arrow} {abs(price_kr['change']):,}원 ({chg:+.2f}%)",
+                                              delta_color=d_color)
+                                    m2.metric("거래량", f"{price_kr['volume']:,}주")
+                                    m3.metric("거래대금",
+                                              f"₩{price_kr['amount']//100000000:,}억"
+                                              if price_kr["amount"] > 0 else "-")
+                                    n1, n2, n3 = st.columns(3)
+                                    n1.metric("고가", f"₩{price_kr['high']:,}")
+                                    n2.metric("저가", f"₩{price_kr['low']:,}")
+                                    n3.metric("PER", price_kr["per"])
+
+                                # 단타 적합성 판단 (기준: 3% 이상 상승)
+                                st.markdown("#### 🎯 단타 적합성 판단")
+                                if chg >= 5.0:
+                                    st.success(
+                                        f"✅ **강력 단타 추천** — 등락률 **{chg:+.2f}%**\n\n"
+                                        "5% 이상 강한 상승 모멘텀. 세력/기관 유입 가능성 높음.\n"
+                                        "단, 고점 추격 매수는 주의 — 눌림목 진입 우선 고려."
+                                    )
+                                elif chg >= 3.0:
+                                    st.success(
+                                        f"✅ **단타 추천** — 등락률 **{chg:+.2f}%**\n\n"
+                                        "3% 이상 모멘텀 확인. 수급 확인 후 진입 권장.\n"
+                                        "손절가: 당일 저점 / 목표: +3~5% 추가 수익 구간."
+                                    )
+                                elif chg >= 1.5:
+                                    st.warning(
+                                        f"⚠️ **관망** — 등락률 {chg:+.2f}%\n\n"
+                                        "모멘텀 발생 초기 단계. 3% 돌파 확인 후 진입 검토.\n"
+                                        "수수료(0.015~0.3%) 감안 시 최소 3% 이상 수익 목표 필요."
+                                    )
+                                elif chg <= -3.0:
+                                    st.info(
+                                        f"🔵 **반등 포착 관찰** — 등락률 {chg:+.2f}%\n\n"
+                                        "급락 후 반등 매매 고려 가능 (역발상 단타).\n"
+                                        "지지선·거래량 급증 확인 필수. 고위험 전략."
+                                    )
+                                else:
+                                    st.error(
+                                        f"❌ **단타 비적합** — 등락률 {chg:+.2f}%\n\n"
+                                        "3% 미만 변동은 수수료·세금 차감 후 실익 없음.\n"
+                                        "모멘텀 발생 시 재검토 권장."
+                                    )
+
+                            # 외국인/기관 수급
+                            st.markdown("#### 💰 외국인/기관 수급")
+                            with st.spinner("수급 조회 중..."):
+                                investor_detail = get_kr_investor_trend(detail_code)
+                            if investor_detail:
+                                df_inv_d = pd.DataFrame(investor_detail)
+                                fig_inv_d = go.Figure()
+                                for _cn, _cc in [("외국인","#ff4b4b"),("기관","#2b7cff"),("개인","#888")]:
+                                    fig_inv_d.add_trace(go.Bar(
+                                        name=_cn, x=df_inv_d["날짜"], y=df_inv_d[_cn],
+                                        marker_color=_cc
+                                    ))
+                                fig_inv_d.update_layout(
+                                    barmode="group",
+                                    paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+                                    font=dict(color="white"), legend=dict(orientation="h"),
+                                    xaxis=dict(gridcolor="rgba(255,255,255,0.1)"),
+                                    yaxis=dict(gridcolor="rgba(255,255,255,0.1)", title="순매수(주)"),
+                                    margin=dict(l=10,r=10,t=10,b=10), height=170
                                 )
-                                for i, s in enumerate(stocks):
-                                    if i > 0:
-                                        st.markdown(
-                                            '<hr style="margin:2px 0;border:none;'
-                                            'border-top:1px solid rgba(255,255,255,0.1)">',
+                                st.plotly_chart(fig_inv_d, use_container_width=True)
+                                _lat = investor_detail[0]
+                                st.markdown(
+                                    f"외국인 {'🔴' if _lat['외국인']>0 else '🔵'} {_lat['외국인']:+,}주 | "
+                                    f"기관 {'🔴' if _lat['기관']>0 else '🔵'} {_lat['기관']:+,}주"
+                                )
+                            else:
+                                st.info("수급 데이터를 불러올 수 없습니다.")
+
+                            # AI 심층 분석
+                            st.markdown("#### 🧠 AI 단타 심층 분석")
+                            if st.button("🎯 AI 단타 분석 실행", type="primary",
+                                         use_container_width=True, key="sec_detail_ai"):
+                                with st.spinner("AI가 수급·뉴스·차트를 융합 분석 중..."):
+                                    from ai_engine import generate_kr_stock_report
+                                    _inv_ai = get_kr_investor_trend(detail_code)
+                                    _rep = generate_kr_stock_report(
+                                        detail_code, detail_name,
+                                        price_kr or {}, _inv_ai
+                                    )
+                                    st.session_state[f"sec_rep_{detail_code}"] = _rep
+                                    from db import log_ai_recommendation
+                                    log_ai_recommendation(
+                                        "섹터단타분석", detail_code, detail_name,
+                                        _rep.get("rating","-"), _rep.get("buy_target","-"),
+                                        _rep.get("sell_target","-"), _rep.get("stop_loss","-")
+                                    )
+
+                            if f"sec_rep_{detail_code}" in st.session_state:
+                                _r = st.session_state[f"sec_rep_{detail_code}"]
+                                _rtg = _r.get("rating","")
+                                _re = "🟢" if "강력" in _rtg else "🟡" if "추천" in _rtg else "🔴"
+                                st.markdown(f"##### {_re} {_rtg}")
+                                _rk1, _rk2 = st.columns(2)
+                                _rk1.metric("매수 타점", _r.get("buy_target","-"))
+                                _rk2.metric("목표가",    _r.get("sell_target","-"))
+                                st.metric("손절가", _r.get("stop_loss","-"))
+                                if _r.get("세력분석"):
+                                    st.info(f"**세력 분석:** {_r['세력분석']}")
+                                if _r.get("analysis"):
+                                    st.markdown("---")
+                                    with st.container(border=True):
+                                        st.markdown(_r["analysis"])
+
+                    # ── 섹터 목록 뷰 (기본) ───────────────────────────────────
+                    else:
+                        hdr_c1, hdr_c2, hdr_c3 = st.columns([4, 1, 1])
+                        hdr_c1.markdown("### 🔥 이슈 섹터")
+                        with hdr_c2:
+                            if st.button("🔄 새로고침", key="sec_refresh",
+                                         use_container_width=True,
+                                         help="섹터 데이터 캐시 초기화"):
+                                load_sector_map.clear()
+                                st.rerun()
+                        with hdr_c3:
+                            if st.button("☁️ 시트 업로드", key="sec_init",
+                                         use_container_width=True,
+                                         help="sectors_kr.py 기본 데이터를 구글 시트 섹터DB 탭에 업로드합니다."):
+                                ok, msg_init = init_sector_sheet()
+                                st.toast(msg_init if ok else f"오류: {msg_init}")
+
+                        sector_cols = st.columns(len(sector_names))
+                        for i, sname in enumerate(sector_names):
+                            is_active = st.session_state.kr_selected_sector == sname
+                            if sector_cols[i].button(
+                                sname, key=f"sec_btn_{sname}",
+                                type="primary" if is_active else "secondary",
+                                use_container_width=True,
+                            ):
+                                st.session_state.kr_selected_sector = sname
+                                st.rerun()
+
+                        selected_sector = st.session_state.kr_selected_sector
+                        subsectors = sector_map[selected_sector]
+
+                        # 전체 섹터맵 다중섹터 계산
+                        code_locations: dict = {}
+                        for sec, subs in sector_map.items():
+                            for sub, stklist in subs.items():
+                                for s in stklist:
+                                    code_locations.setdefault(s["code"], []).append(
+                                        f"{sec} › {sub}"
+                                    )
+
+                        # 중복 제거 후 일괄 시세 조회
+                        seen_codes: set = set()
+                        unique_tickers = []
+                        for sub_stocks in subsectors.values():
+                            for s in sub_stocks:
+                                if s["code"] not in seen_codes:
+                                    seen_codes.add(s["code"])
+                                    unique_tickers.append((s["code"], s["code"] + s["suffix"]))
+
+                        with st.spinner("실시간 시세 조회 중..."):
+                            prices = get_kr_prices_bulk(tuple(unique_tickers))
+
+                        # 표 헤더
+                        _hcols = st.columns([0.35, 2.8, 1.8, 1.4, 0.45])
+                        for _hc, _ht in zip(_hcols[:4], ["단타", "종목명", "현재가", "등락률"]):
+                            _hc.markdown(
+                                f"<p style='margin:0;font-size:0.72rem;color:#888'>{_ht}</p>",
+                                unsafe_allow_html=True,
+                            )
+
+                        with st.container(height=480):
+                            for sub_name, stocks in subsectors.items():
+                                with st.container(border=True):
+                                    st.markdown(
+                                        f"<p style='margin:0 0 4px 0;font-size:0.8rem;"
+                                        f"color:#aaa;font-weight:600'>📌 {sub_name}</p>",
+                                        unsafe_allow_html=True,
+                                    )
+                                    for i, s in enumerate(stocks):
+                                        if i > 0:
+                                            st.markdown(
+                                                '<hr style="margin:2px 0;border:none;'
+                                                'border-top:1px solid rgba(255,255,255,0.1)">',
+                                                unsafe_allow_html=True,
+                                            )
+                                        pdata = prices.get(s["code"], {"price":0,"change_pct":0.0})
+                                        pct  = pdata["change_pct"]
+                                        pval = pdata["price"]
+                                        pct_color = "#ff4b4b" if pct>0 else "#2b7cff" if pct<0 else "#888"
+
+                                        other_locs = [
+                                            loc for loc in code_locations.get(s["code"],[])
+                                            if loc != f"{selected_sector} › {sub_name}"
+                                        ]
+                                        help_text = (
+                                            f"다중 섹터: {', '.join(other_locs)}" if other_locs else None
+                                        )
+
+                                        c0, c1, c2, c3, c4 = st.columns([0.35,2.8,1.8,1.4,0.45])
+                                        # ✅ 기준: 3% 이상 상승 (수수료 감안 최소 수익 기준)
+                                        c0.markdown(
+                                            "✅" if pct >= 3.0 else "&nbsp;",
                                             unsafe_allow_html=True,
                                         )
-                                    pdata = prices.get(s["code"], {"price": 0, "change_pct": 0.0})
-                                    pct  = pdata["change_pct"]
-                                    pval = pdata["price"]
-                                    pct_color = "#ff4b4b" if pct > 0 else "#2b7cff" if pct < 0 else "#888"
-
-                                    other_locs = [
-                                        loc for loc in code_locations.get(s["code"], [])
-                                        if loc != f"{selected_sector} › {sub_name}"
-                                    ]
-                                    help_text = (
-                                        f"다중 섹터: {', '.join(other_locs)}" if other_locs else None
-                                    )
-
-                                    c0, c1, c2, c3, c4 = st.columns([0.35, 2.8, 1.8, 1.4, 0.45])
-                                    c0.markdown(
-                                        "✅" if abs(pct) >= 2.0 else "&nbsp;",
-                                        unsafe_allow_html=True,
-                                    )
-                                    c1.markdown(
-                                        f"<span style='font-size:0.85rem'>{s['name']}"
-                                        f"{'&nbsp;🔗' if other_locs else ''}</span>",
-                                        unsafe_allow_html=True,
-                                    )
-                                    c2.markdown(
-                                        f"<span style='font-size:0.85rem'>"
-                                        f"{'₩' + format(pval, ',') if pval > 0 else '---'}</span>",
-                                        unsafe_allow_html=True,
-                                    )
-                                    c3.markdown(
-                                        f"<span style='font-size:0.85rem;font-weight:bold;"
-                                        f"color:{pct_color}'>{pct:+.2f}%</span>",
-                                        unsafe_allow_html=True,
-                                    )
-                                    if c4.button("▶", key=f"stock_{s['code']}_{sub_name}",
-                                                 help=help_text):
-                                        st.session_state.kr_selected_code = s["code"]
-                                        st.session_state.kr_selected_name = s["name"]
-                                        st.session_state.kr_mode = "📊 일반 주식 검색"
-                                        st.rerun()
+                                        c1.markdown(
+                                            f"<span style='font-size:0.85rem'>{s['name']}"
+                                            f"{'&nbsp;🔗' if other_locs else ''}</span>",
+                                            unsafe_allow_html=True,
+                                        )
+                                        c2.markdown(
+                                            f"<span style='font-size:0.85rem'>"
+                                            f"{'₩'+format(pval,',') if pval>0 else '---'}</span>",
+                                            unsafe_allow_html=True,
+                                        )
+                                        c3.markdown(
+                                            f"<span style='font-size:0.85rem;font-weight:bold;"
+                                            f"color:{pct_color}'>{pct:+.2f}%</span>",
+                                            unsafe_allow_html=True,
+                                        )
+                                        if c4.button("▶", key=f"stock_{s['code']}_{sub_name}",
+                                                     help=help_text):
+                                            st.session_state.kr_selected_code   = s["code"]
+                                            st.session_state.kr_selected_name   = s["name"]
+                                            st.session_state.kr_sector_detail_code = s["code"]
+                                            st.session_state.kr_sector_detail_name = s["name"]
+                                            st.session_state.kr_sector_view     = "detail"
+                                            st.rerun()
 
             # AI 리포트 전체 너비 (일반 모드)
             if kr_mode == "📊 일반 주식 검색" and f"kr_report_{selected_code_kr}" in st.session_state:
