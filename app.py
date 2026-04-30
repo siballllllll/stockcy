@@ -259,43 +259,68 @@ def main():
                     oc5.metric("PER", price_kr['per'])
                     oc6.metric("PBR", price_kr['pbr'])
 
-                # KIS API 분봉 차트 (Plotly 캔들스틱)
-                col_chart_ctrl, _ = st.columns([2, 5])
-                with col_chart_ctrl:
+                # 분봉 차트 (캔들스틱 + 거래량 + 이동평균)
+                from plotly.subplots import make_subplots
+                ctrl_c1, ctrl_c2, ctrl_c3 = st.columns([2, 1, 5])
+                with ctrl_c1:
                     interval_kr = st.selectbox(
-                        "분봉 단위", [1, 3, 5, 10, 15, 30], index=2,
-                        key="kr_chart_interval", label_visibility="collapsed"
+                        "분봉", [1, 3, 5, 10, 15, 30], index=2,
+                        key="kr_chart_interval", format_func=lambda x: f"{x}분봉"
                     )
+                with ctrl_c2:
+                    if st.button("🔄", key="refresh_kr_chart", help="차트 새로고침"):
+                        get_kr_minute_chart.clear()
+                        st.rerun()
+
                 with st.spinner("분봉 데이터 조회 중..."):
                     df_kr_chart = get_kr_minute_chart(selected_code_kr, interval=interval_kr)
 
                 if not df_kr_chart.empty:
-                    fig_kr = go.Figure(data=[go.Candlestick(
+                    df_kr_chart["ma5"]  = df_kr_chart["close"].rolling(5).mean()
+                    df_kr_chart["ma20"] = df_kr_chart["close"].rolling(20).mean()
+                    vol_colors = [
+                        "#ff4b4b" if c >= o else "#2b7cff"
+                        for c, o in zip(df_kr_chart["close"], df_kr_chart["open"])
+                    ]
+
+                    fig_kr = make_subplots(
+                        rows=2, cols=1,
+                        shared_xaxes=True,
+                        row_heights=[0.70, 0.30],
+                        vertical_spacing=0.02,
+                    )
+                    fig_kr.add_trace(go.Candlestick(
                         x=df_kr_chart["datetime"],
-                        open=df_kr_chart["open"],
-                        high=df_kr_chart["high"],
-                        low=df_kr_chart["low"],
-                        close=df_kr_chart["close"],
-                        increasing=dict(line=dict(color="#ff4b4b"), fillcolor="#ff4b4b"),
-                        decreasing=dict(line=dict(color="#2b7cff"), fillcolor="#2b7cff"),
-                        name="",
-                    )])
+                        open=df_kr_chart["open"], high=df_kr_chart["high"],
+                        low=df_kr_chart["low"],   close=df_kr_chart["close"],
+                        increasing=dict(line=dict(color="#ff4b4b", width=1), fillcolor="#ff4b4b"),
+                        decreasing=dict(line=dict(color="#2b7cff", width=1), fillcolor="#2b7cff"),
+                        name="가격", showlegend=False,
+                    ), row=1, col=1)
+                    fig_kr.add_trace(go.Scatter(
+                        x=df_kr_chart["datetime"], y=df_kr_chart["ma5"],
+                        line=dict(color="#f5c518", width=1.2), name="MA5",
+                    ), row=1, col=1)
+                    fig_kr.add_trace(go.Scatter(
+                        x=df_kr_chart["datetime"], y=df_kr_chart["ma20"],
+                        line=dict(color="#00b4d8", width=1.2), name="MA20",
+                    ), row=1, col=1)
+                    fig_kr.add_trace(go.Bar(
+                        x=df_kr_chart["datetime"], y=df_kr_chart["volume"],
+                        marker_color=vol_colors, name="거래량", showlegend=False,
+                    ), row=2, col=1)
+
+                    axis_style = dict(gridcolor="rgba(255,255,255,0.08)", showline=False)
                     fig_kr.update_layout(
                         paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-                        font=dict(color="white"),
-                        xaxis=dict(
-                            gridcolor="rgba(255,255,255,0.1)",
-                            rangeslider=dict(visible=False),
-                            type="category",
-                        ),
-                        yaxis=dict(
-                            gridcolor="rgba(255,255,255,0.1)",
-                            tickformat=",",
-                            side="right",
-                        ),
-                        margin=dict(l=0, r=50, t=20, b=10),
-                        height=320,
-                        showlegend=False,
+                        font=dict(color="white", size=11),
+                        xaxis=dict(**axis_style, rangeslider=dict(visible=False), showticklabels=False),
+                        xaxis2=dict(**axis_style),
+                        yaxis=dict(**axis_style, tickformat=",", side="right"),
+                        yaxis2=dict(**axis_style, tickformat=".2s", side="right"),
+                        legend=dict(orientation="h", x=0, y=1.06, bgcolor="rgba(0,0,0,0)", font=dict(size=11)),
+                        margin=dict(l=0, r=55, t=20, b=5),
+                        height=380,
                     )
                     st.plotly_chart(fig_kr, use_container_width=True)
                 else:
