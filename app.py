@@ -237,9 +237,15 @@ def main():
 
             selected_code_kr = st.session_state.kr_selected_code
 
-            # 시세 사전 조회 (양쪽 컬럼에서 공유)
-            with st.spinner(f"{selected_code_kr} 실시간 시세 조회 중..."):
-                price_kr = get_kr_stock_price(selected_code_kr)
+            # 시세 조회: 일반 모드 또는 섹터 상세 뷰에서만 필요
+            _need_price = (
+                kr_mode == "📊 일반 주식 검색"
+                or st.session_state.kr_sector_view == "detail"
+            )
+            price_kr = None
+            if _need_price:
+                with st.spinner("시세 조회 중..."):
+                    price_kr = get_kr_stock_price(selected_code_kr)
 
             is_up = is_dn = False
             arrow = "-"
@@ -253,82 +259,151 @@ def main():
             col_chart, col_right = st.columns([5, 5])
 
             with col_chart:
-                if price_kr:
-                    pct_color = "up-kr" if is_up else "down-kr" if is_dn else ""
-                    st.markdown(
-                        f"**{price_kr['name']}** ({selected_code_kr}) &nbsp; "
-                        f"₩{price_kr['price']:,} &nbsp; "
-                        f'<span class="{pct_color}">{arrow} {price_kr["change_pct"]:+.2f}%</span>',
-                        unsafe_allow_html=True,
-                    )
+                # ── 이슈 섹터 모드 ──────────────────────────────────────
+                if kr_mode == "🔥 오늘의 이슈 섹터":
 
-                    ctrl_c1, ctrl_c2, _ = st.columns([2, 1, 5])
-                    with ctrl_c1:
-                        interval_kr = st.selectbox(
-                            "분봉", [1, 3, 5, 10, 15, 30], index=2,
-                            key="kr_chart_interval", format_func=lambda x: f"{x}분봉"
-                        )
-                    with ctrl_c2:
-                        if st.button("🔄", key="refresh_kr_chart", help="차트 새로고침"):
-                            get_kr_minute_chart.clear()
-                            st.rerun()
+                    if st.session_state.kr_sector_view == "detail":
+                        # 선택 종목 TradingView 차트 (KRX:{code})
+                        _dtv_code = st.session_state.kr_sector_detail_code
+                        _dtv_name = st.session_state.kr_sector_detail_name
+                        pct_color = "up-kr" if is_up else "down-kr" if is_dn else ""
+                        if price_kr:
+                            st.markdown(
+                                f"**{_dtv_name}** ({_dtv_code}) &nbsp; "
+                                f"₩{price_kr['price']:,} &nbsp; "
+                                f'<span class="{pct_color}">{arrow} {price_kr["change_pct"]:+.2f}%</span>',
+                                unsafe_allow_html=True,
+                            )
+                        else:
+                            st.markdown(f"**{_dtv_name}** ({_dtv_code})")
+                        _tv_kr_html = f"""
+                        <div class="tradingview-widget-container" style="height:420px;width:100%">
+                          <div class="tradingview-widget-container__widget" style="height:100%;width:100%"></div>
+                          <script type="text/javascript" src="https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js" async>
+                          {{
+                          "autosize": true,
+                          "symbol": "KRX:{_dtv_code}",
+                          "interval": "5",
+                          "timezone": "Asia/Seoul",
+                          "theme": "dark",
+                          "style": "1",
+                          "locale": "kr",
+                          "allow_symbol_change": false,
+                          "hide_top_toolbar": false,
+                          "hide_legend": false,
+                          "save_image": false,
+                          "backgroundColor": "rgba(0, 0, 0, 1)"
+                        }}
+                          </script>
+                        </div>
+                        """
+                        components.html(_tv_kr_html, height=420)
 
-                    with st.spinner("분봉 데이터 조회 중..."):
-                        df_kr_chart = get_kr_minute_chart(selected_code_kr, interval=interval_kr)
-
-                    if not df_kr_chart.empty:
-                        from plotly.subplots import make_subplots
-                        df_kr_chart["ma5"]  = df_kr_chart["close"].rolling(5).mean()
-                        df_kr_chart["ma20"] = df_kr_chart["close"].rolling(20).mean()
-                        vol_colors = [
-                            "#ff4b4b" if c >= o else "#2b7cff"
-                            for c, o in zip(df_kr_chart["close"], df_kr_chart["open"])
-                        ]
-                        fig_kr = make_subplots(
-                            rows=2, cols=1, shared_xaxes=True,
-                            row_heights=[0.70, 0.30], vertical_spacing=0.02,
-                        )
-                        fig_kr.add_trace(go.Candlestick(
-                            x=df_kr_chart["datetime"],
-                            open=df_kr_chart["open"], high=df_kr_chart["high"],
-                            low=df_kr_chart["low"],   close=df_kr_chart["close"],
-                            increasing=dict(line=dict(color="#ff4b4b", width=1), fillcolor="#ff4b4b"),
-                            decreasing=dict(line=dict(color="#2b7cff", width=1), fillcolor="#2b7cff"),
-                            name="가격", showlegend=False,
-                        ), row=1, col=1)
-                        fig_kr.add_trace(go.Scatter(
-                            x=df_kr_chart["datetime"], y=df_kr_chart["ma5"],
-                            line=dict(color="#f5c518", width=1.2), name="MA5",
-                        ), row=1, col=1)
-                        fig_kr.add_trace(go.Scatter(
-                            x=df_kr_chart["datetime"], y=df_kr_chart["ma20"],
-                            line=dict(color="#00b4d8", width=1.2), name="MA20",
-                        ), row=1, col=1)
-                        fig_kr.add_trace(go.Bar(
-                            x=df_kr_chart["datetime"], y=df_kr_chart["volume"],
-                            marker_color=vol_colors, name="거래량", showlegend=False,
-                        ), row=2, col=1)
-                        axis_style = dict(gridcolor="rgba(255,255,255,0.08)", showline=False)
-                        fig_kr.update_layout(
-                            paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-                            font=dict(color="white", size=11),
-                            xaxis=dict(**axis_style, rangeslider=dict(visible=False), showticklabels=False),
-                            xaxis2=dict(**axis_style),
-                            yaxis=dict(**axis_style, tickformat=",", side="right"),
-                            yaxis2=dict(**axis_style, tickformat=".2s", side="right"),
-                            legend=dict(orientation="h", x=0, y=1.06, bgcolor="rgba(0,0,0,0)", font=dict(size=11)),
-                            margin=dict(l=0, r=55, t=20, b=5),
-                            height=380,
-                        )
-                        st.plotly_chart(fig_kr, use_container_width=True)
                     else:
-                        st.info("분봉 데이터를 불러올 수 없습니다. 장 운영 시간(09:00~15:30) 중 다시 시도해주세요.")
+                        # 섹터 목록 뷰 → KOSPI + KOSDAQ 지수 차트
+                        st.markdown("#### 📊 KOSPI / KOSDAQ 실시간")
+                        for _idx_sym, _idx_label in [
+                            ("KRX:KOSPI",  "KOSPI"),
+                            ("KRX:KOSDAQ", "KOSDAQ"),
+                        ]:
+                            _tv_idx_html = f"""
+                            <div class="tradingview-widget-container">
+                              <div class="tradingview-widget-container__widget"></div>
+                              <script type="text/javascript"
+                                src="https://s3.tradingview.com/external-embedding/embed-widget-mini-symbol-overview.js" async>
+                              {{
+                              "symbol": "{_idx_sym}",
+                              "width": "100%",
+                              "height": 180,
+                              "colorTheme": "dark",
+                              "trendLineColor": "rgba(255, 75, 75, 1)",
+                              "underLineColor": "rgba(255, 75, 75, 0.15)",
+                              "isTransparent": true,
+                              "locale": "kr"
+                            }}
+                              </script>
+                            </div>
+                            """
+                            components.html(_tv_idx_html, height=190)
+
+                # ── 일반 주식 검색 모드 ──────────────────────────────────
                 else:
-                    st.warning(
-                        f"종목코드 **{selected_code_kr}** 시세를 불러올 수 없습니다.  \n"
-                        "KIS API와 yfinance 모두 실패했습니다. "
-                        "장 운영 시간(09:00~15:30) 확인 또는 잠시 후 다시 시도해주세요."
-                    )
+                    if price_kr:
+                        pct_color = "up-kr" if is_up else "down-kr" if is_dn else ""
+                        st.markdown(
+                            f"**{price_kr['name']}** ({selected_code_kr}) &nbsp; "
+                            f"₩{price_kr['price']:,} &nbsp; "
+                            f'<span class="{pct_color}">{arrow} {price_kr["change_pct"]:+.2f}%</span>',
+                            unsafe_allow_html=True,
+                        )
+
+                        ctrl_c1, ctrl_c2, _ = st.columns([2, 1, 5])
+                        with ctrl_c1:
+                            interval_kr = st.selectbox(
+                                "분봉", [1, 3, 5, 10, 15, 30], index=2,
+                                key="kr_chart_interval", format_func=lambda x: f"{x}분봉"
+                            )
+                        with ctrl_c2:
+                            if st.button("🔄", key="refresh_kr_chart", help="차트 새로고침"):
+                                get_kr_minute_chart.clear()
+                                st.rerun()
+
+                        with st.spinner("분봉 데이터 조회 중..."):
+                            df_kr_chart = get_kr_minute_chart(selected_code_kr, interval=interval_kr)
+
+                        if not df_kr_chart.empty:
+                            from plotly.subplots import make_subplots
+                            df_kr_chart["ma5"]  = df_kr_chart["close"].rolling(5).mean()
+                            df_kr_chart["ma20"] = df_kr_chart["close"].rolling(20).mean()
+                            vol_colors = [
+                                "#ff4b4b" if c >= o else "#2b7cff"
+                                for c, o in zip(df_kr_chart["close"], df_kr_chart["open"])
+                            ]
+                            fig_kr = make_subplots(
+                                rows=2, cols=1, shared_xaxes=True,
+                                row_heights=[0.70, 0.30], vertical_spacing=0.02,
+                            )
+                            fig_kr.add_trace(go.Candlestick(
+                                x=df_kr_chart["datetime"],
+                                open=df_kr_chart["open"], high=df_kr_chart["high"],
+                                low=df_kr_chart["low"],   close=df_kr_chart["close"],
+                                increasing=dict(line=dict(color="#ff4b4b", width=1), fillcolor="#ff4b4b"),
+                                decreasing=dict(line=dict(color="#2b7cff", width=1), fillcolor="#2b7cff"),
+                                name="가격", showlegend=False,
+                            ), row=1, col=1)
+                            fig_kr.add_trace(go.Scatter(
+                                x=df_kr_chart["datetime"], y=df_kr_chart["ma5"],
+                                line=dict(color="#f5c518", width=1.2), name="MA5",
+                            ), row=1, col=1)
+                            fig_kr.add_trace(go.Scatter(
+                                x=df_kr_chart["datetime"], y=df_kr_chart["ma20"],
+                                line=dict(color="#00b4d8", width=1.2), name="MA20",
+                            ), row=1, col=1)
+                            fig_kr.add_trace(go.Bar(
+                                x=df_kr_chart["datetime"], y=df_kr_chart["volume"],
+                                marker_color=vol_colors, name="거래량", showlegend=False,
+                            ), row=2, col=1)
+                            axis_style = dict(gridcolor="rgba(255,255,255,0.08)", showline=False)
+                            fig_kr.update_layout(
+                                paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+                                font=dict(color="white", size=11),
+                                xaxis=dict(**axis_style, rangeslider=dict(visible=False), showticklabels=False),
+                                xaxis2=dict(**axis_style),
+                                yaxis=dict(**axis_style, tickformat=",", side="right"),
+                                yaxis2=dict(**axis_style, tickformat=".2s", side="right"),
+                                legend=dict(orientation="h", x=0, y=1.06, bgcolor="rgba(0,0,0,0)", font=dict(size=11)),
+                                margin=dict(l=0, r=55, t=20, b=5),
+                                height=380,
+                            )
+                            st.plotly_chart(fig_kr, use_container_width=True)
+                        else:
+                            st.info("분봉 데이터를 불러올 수 없습니다. 장 운영 시간(09:00~15:30) 중 다시 시도해주세요.")
+                    else:
+                        st.warning(
+                            f"종목코드 **{selected_code_kr}** 시세를 불러올 수 없습니다.  \n"
+                            "KIS API와 yfinance 모두 실패했습니다. "
+                            "장 운영 시간(09:00~15:30) 확인 또는 잠시 후 다시 시도해주세요."
+                        )
 
             with col_right:
                 if kr_mode == "📊 일반 주식 검색":
@@ -605,16 +680,19 @@ def main():
                                 ok, msg_init = init_sector_sheet()
                                 st.toast(msg_init if ok else f"오류: {msg_init}")
 
-                        sector_cols = st.columns(len(sector_names))
-                        for i, sname in enumerate(sector_names):
-                            is_active = st.session_state.kr_selected_sector == sname
-                            if sector_cols[i].button(
-                                sname, key=f"sec_btn_{sname}",
-                                type="primary" if is_active else "secondary",
-                                use_container_width=True,
-                            ):
-                                st.session_state.kr_selected_sector = sname
-                                st.rerun()
+                        # 섹터 버튼: 한 줄 최대 5개, 2행으로 배치
+                        _kr_btn_rows = [sector_names[i:i+5] for i in range(0, len(sector_names), 5)]
+                        for _kr_row in _kr_btn_rows:
+                            _kr_rcols = st.columns(len(_kr_row))
+                            for _kr_ri, sname in enumerate(_kr_row):
+                                is_active = st.session_state.kr_selected_sector == sname
+                                if _kr_rcols[_kr_ri].button(
+                                    sname, key=f"sec_btn_{sname}",
+                                    type="primary" if is_active else "secondary",
+                                    use_container_width=True,
+                                ):
+                                    st.session_state.kr_selected_sector = sname
+                                    st.rerun()
 
                         selected_sector = st.session_state.kr_selected_sector
                         subsectors = sector_map[selected_sector]
