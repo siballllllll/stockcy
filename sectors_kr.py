@@ -98,7 +98,6 @@ KR_SECTOR_MAP = {
         ],
         "자율주행·전장": [
             {"name": "현대모비스",   "code": "012330", "suffix": ".KS"},
-            {"name": "만도",        "code": "204320", "suffix": ".KS"},
             {"name": "HL만도",      "code": "204320", "suffix": ".KS"},
         ],
     },
@@ -118,6 +117,144 @@ KR_SECTOR_MAP = {
             {"name": "한화오션",     "code": "042660", "suffix": ".KS"},
             {"name": "빅텍",        "code": "065450", "suffix": ".KQ"},
             {"name": "스페코",      "code": "013810", "suffix": ".KQ"},
+        ],
+    },
+    "조선": {
+        "대형 조선소": [
+            {"name": "HD한국조선해양","code": "009540", "suffix": ".KS"},
+            {"name": "삼성중공업",   "code": "010140", "suffix": ".KS"},
+            {"name": "한화오션",     "code": "042660", "suffix": ".KS"},
+        ],
+        "LNG선·특수선": [
+            {"name": "HD현대중공업", "code": "329180", "suffix": ".KS"},
+            {"name": "HD현대마린엔진","code": "082740", "suffix": ".KS"},
+            {"name": "STX엔진",     "code": "077970", "suffix": ".KQ"},
+        ],
+        "기자재·부품": [
+            {"name": "동성화인텍",   "code": "033500", "suffix": ".KQ"},
+            {"name": "세진중공업",   "code": "075580", "suffix": ".KQ"},
+            {"name": "TKG태광",     "code": "023160", "suffix": ".KQ"},
+            {"name": "화성밸브",     "code": "038530", "suffix": ".KQ"},
+        ],
+        "해운": [
+            {"name": "HMM",         "code": "011200", "suffix": ".KS"},
+            {"name": "팬오션",      "code": "028670", "suffix": ".KS"},
+            {"name": "대한해운",     "code": "005880", "suffix": ".KS"},
+        ],
+    },
+    "자동차·전장": {
+        "완성차": [
+            {"name": "현대차",       "code": "005380", "suffix": ".KS"},
+            {"name": "기아",         "code": "000270", "suffix": ".KS"},
+            {"name": "쌍용차",       "code": "003620", "suffix": ".KS"},
+        ],
+        "전장·부품": [
+            {"name": "현대모비스",   "code": "012330", "suffix": ".KS"},
+            {"name": "현대위아",     "code": "011210", "suffix": ".KS"},
+            {"name": "한온시스템",   "code": "018880", "suffix": ".KS"},
+            {"name": "HL만도",      "code": "204320", "suffix": ".KS"},
+        ],
+        "타이어": [
+            {"name": "한국타이어앤테크놀로지","code": "161390", "suffix": ".KS"},
+            {"name": "금호타이어",   "code": "073240", "suffix": ".KS"},
+            {"name": "넥센타이어",   "code": "002350", "suffix": ".KS"},
+        ],
+        "EV 충전·인프라": [
+            {"name": "SK시그넷",     "code": "009180", "suffix": ".KQ"},
+            {"name": "대영채비",     "code": "084670", "suffix": ".KQ"},
+            {"name": "클린일렉스",   "code": "030520", "suffix": ".KQ"},
+        ],
+    },
+    "원자력": {
+        "원전 운영·건설": [
+            {"name": "한국전력",     "code": "015760", "suffix": ".KS"},
+            {"name": "한전KPS",     "code": "051600", "suffix": ".KS"},
+            {"name": "한전기술",     "code": "053590", "suffix": ".KS"},
+        ],
+        "원전 기자재": [
+            {"name": "두산에너빌리티","code": "034020", "suffix": ".KS"},
+            {"name": "비에이치아이", "code": "083650", "suffix": ".KQ"},
+            {"name": "우진",        "code": "105840", "suffix": ".KQ"},
+            {"name": "보성파워텍",   "code": "006910", "suffix": ".KQ"},
+        ],
+        "SMR·차세대원전": [
+            {"name": "두산에너빌리티","code": "034020", "suffix": ".KS"},
+            {"name": "현대건설",     "code": "000720", "suffix": ".KS"},
+            {"name": "SK이엔에스",   "code": "017900", "suffix": ".KQ"},
+        ],
+        "방사성폐기물·해체": [
+            {"name": "한국원자력환경공단","code": "059090", "suffix": ".KQ"},
+            {"name": "웰크론한텍",   "code": "076080", "suffix": ".KQ"},
+        ],
+    },
+    "전력기기": {
+        "변압기": [
+            {"name": "효성중공업",   "code": "298040", "suffix": ".KS"},
+            {"name": "현대일렉트릭", "code": "267260", "suffix": ".KS"},
+            {"name": "LS ELECTRIC", "code": "010120", "suffix": ".KS"},
+            {"name": "제룡전기",     "code": "033100", "suffix": ".KQ"},
+        ],
+        "차단기·배전기": [
+            {"name": "누리텔레콤",   "code": "040160", "suffix": ".KQ"},
+            {"name": "일진전기",     "code": "103590", "suffix": ".KS"},
+            {"name": "대한전선",     "code": "001440", "suffix": ".KS"},
+        ],
+        "초전도·ESS": [
+            {"name": "LS전선",      "code": "229640", "suffix": ".KQ"},
+            {"name": "비나텍",      "code": "002070", "suffix": ".KQ"},
+            {"name": "에너테크인터내셔널","code": "016250", "suffix": ".KQ"},
+        ],
+        "전력 솔루션·스마트그리드": [
+            {"name": "우리기술투자", "code": "041190", "suffix": ".KQ"},
+            {"name": "KT&G",        "code": "033780", "suffix": ".KS"},
+            {"name": "비츠로시스",   "code": "054220", "suffix": ".KQ"},
+        ],
+    },
+    "게임·엔터": {
+        "PC·콘솔 게임": [
+            {"name": "크래프톤",    "code": "259960", "suffix": ".KS"},
+            {"name": "넥슨코리아",  "code": "225130", "suffix": ".KS"},
+            {"name": "엔씨소프트",  "code": "036570", "suffix": ".KS"},
+            {"name": "넷마블",     "code": "251270", "suffix": ".KS"},
+        ],
+        "모바일 게임": [
+            {"name": "컴투스",      "code": "078340", "suffix": ".KQ"},
+            {"name": "카카오게임즈", "code": "293490", "suffix": ".KQ"},
+            {"name": "위메이드",    "code": "112040", "suffix": ".KQ"},
+            {"name": "펄어비스",    "code": "263750", "suffix": ".KQ"},
+        ],
+        "K-팝·엔터테인먼트": [
+            {"name": "HYBE",        "code": "352820", "suffix": ".KS"},
+            {"name": "SM엔터테인먼트","code": "041510", "suffix": ".KQ"},
+            {"name": "JYP Ent.",    "code": "035900", "suffix": ".KQ"},
+            {"name": "YG엔터테인먼트","code": "122870", "suffix": ".KQ"},
+        ],
+        "OTT·콘텐츠": [
+            {"name": "CJ ENM",     "code": "035760", "suffix": ".KQ"},
+            {"name": "스튜디오드래곤","code": "253450", "suffix": ".KQ"},
+            {"name": "콘텐트리중앙", "code": "036420", "suffix": ".KS"},
+        ],
+    },
+    "뷰티·K-뷰티": {
+        "화장품 대기업": [
+            {"name": "아모레퍼시픽", "code": "090430", "suffix": ".KS"},
+            {"name": "LG생활건강",  "code": "051900", "suffix": ".KS"},
+        ],
+        "인디·ODM": [
+            {"name": "코스맥스",    "code": "192820", "suffix": ".KS"},
+            {"name": "한국콜마",    "code": "161890", "suffix": ".KS"},
+            {"name": "코스메카코리아","code": "241710", "suffix": ".KQ"},
+            {"name": "씨앤씨인터내셔널","code": "352480", "suffix": ".KQ"},
+        ],
+        "기능성·이너뷰티": [
+            {"name": "클리오",      "code": "237880", "suffix": ".KQ"},
+            {"name": "에이피알",    "code": "032120", "suffix": ".KQ"},
+            {"name": "브이티",      "code": "018990", "suffix": ".KQ"},
+        ],
+        "면세·유통": [
+            {"name": "호텔신라",    "code": "008770", "suffix": ".KS"},
+            {"name": "현대백화점",  "code": "069960", "suffix": ".KS"},
+            {"name": "신세계",     "code": "004170", "suffix": ".KS"},
         ],
     },
 }

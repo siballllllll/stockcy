@@ -101,3 +101,19 @@ def get_us_stock_detail(ticker: str):
         }
     except Exception:
         return None
+
+
+@st.cache_data(ttl=60)
+def get_us_prices_bulk(tickers_tuple: tuple) -> dict:
+    """섹터 패널용 미국 종목 일괄 시세 조회 (ticker → {price, change_pct})"""
+    results = {}
+    for ticker in tickers_tuple:
+        try:
+            fi = yf.Ticker(ticker).fast_info
+            price = round(fi.get("lastPrice", 0) or 0, 2)
+            prev = fi.get("previousClose", 0) or 0
+            change_pct = round(((price - prev) / prev * 100) if prev > 0 else 0.0, 2)
+            results[ticker] = {"price": price, "change_pct": change_pct}
+        except Exception:
+            results[ticker] = {"price": 0.0, "change_pct": 0.0}
+    return results

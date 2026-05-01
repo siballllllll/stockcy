@@ -183,6 +183,64 @@ def load_sector_map() -> dict:
         return KR_SECTOR_MAP
 
 
+@st.cache_data(ttl=300)
+def load_us_sector_map() -> dict:
+    """Google Sheets 섹터DB_US 탭에서 미국 섹터 맵 로드. 없거나 실패 시 sectors_us.py 폴백."""
+    try:
+        sh, _ = _get_spreadsheet()
+        if sh is None:
+            raise Exception("no sheet")
+        try:
+            ws = sh.worksheet("섹터DB_US")
+        except gspread.WorksheetNotFound:
+            raise Exception("섹터DB_US 탭 없음")
+        rows = ws.get_all_records()
+        if not rows:
+            raise Exception("empty")
+        sector_map: dict = {}
+        for row in rows:
+            sec      = str(row.get("섹터",    "")).strip()
+            sub      = str(row.get("세부섹터", "")).strip()
+            name     = str(row.get("종목명",   "")).strip()
+            ticker   = str(row.get("티커",    "")).strip()
+            exchange = str(row.get("exchange", "NASDAQ")).strip()
+            if not all([sec, sub, name, ticker]):
+                continue
+            sector_map.setdefault(sec, {}).setdefault(sub, []).append(
+                {"name": name, "ticker": ticker, "exchange": exchange}
+            )
+        if not sector_map:
+            raise Exception("파싱 결과 빈 맵")
+        return sector_map
+    except Exception:
+        from sectors_us import US_SECTOR_MAP
+        return US_SECTOR_MAP
+
+
+def init_us_sector_sheet():
+    """sectors_us.py 기본 데이터를 Google Sheets 섹터DB_US 탭에 업로드 (덮어쓰기)."""
+    sh, msg = _get_spreadsheet()
+    if not sh:
+        return False, msg
+    try:
+        from sectors_us import US_SECTOR_MAP
+        headers = ["섹터", "세부섹터", "종목명", "티커", "exchange"]
+        ws = _get_or_create_worksheet(sh, "섹터DB_US", headers)
+        ws.clear()
+        ws.append_row(headers)
+        rows_to_add = []
+        for sec, subs in US_SECTOR_MAP.items():
+            for sub, stocks in subs.items():
+                for s in stocks:
+                    rows_to_add.append([sec, sub, s["name"], s["ticker"], s["exchange"]])
+        if rows_to_add:
+            ws.append_rows(rows_to_add)
+        load_us_sector_map.clear()
+        return True, f"섹터DB_US에 {len(rows_to_add)}개 종목 업로드 완료!"
+    except Exception as e:
+        return False, f"업로드 오류: {e}"
+
+
 def init_sector_sheet():
     """sectors_kr.py 기본 데이터를 Google Sheets 섹터DB 탭에 업로드 (덮어쓰기)."""
     sh, msg = _get_spreadsheet()

@@ -54,8 +54,16 @@ def get_market_news(category="general"):
         return f"뉴스 데이터 로드 실패: {e}"
 
 
+# 모델 폴백 순서: 무료 티어 쿼터 소진 시 다음 모델로 자동 전환
+_MODEL_FALLBACK = [
+    "gemini-2.0-flash",       # 1500 RPD 무료, Google Search 지원
+    "gemini-1.5-flash",       # 1500 RPD 무료, Google Search 지원
+    "gemini-1.5-flash-8b",    # 1500 RPD 무료, 경량 폴백
+]
+
+
 def _call_gemini(prompt, use_search=False, temperature=0.7, response_mime_type=None):
-    """Gemini API 호출 공통 헬퍼 (재시도 포함)."""
+    """Gemini API 호출 공통 헬퍼 (모델 폴백 + 재시도 포함)."""
     api_key = st.secrets["gemini"]["api_key"]
     client = genai.Client(api_key=api_key)
 
@@ -68,20 +76,27 @@ def _call_gemini(prompt, use_search=False, temperature=0.7, response_mime_type=N
     config = types.GenerateContentConfig(**config_kwargs)
 
     last_err = None
-    for attempt in range(2):
-        try:
-            response = client.models.generate_content(
-                model='gemini-2.0-flash-lite',
-                contents=prompt,
-                config=config
-            )
-            return response
-        except Exception as api_err:
-            last_err = api_err
-            if ("503" in str(api_err) or "UNAVAILABLE" in str(api_err) or "429" in str(api_err)) and attempt == 0:
-                time.sleep(3)
-                continue
-            break
+    for model in _MODEL_FALLBACK:
+        for attempt in range(2):
+            try:
+                response = client.models.generate_content(
+                    model=model,
+                    contents=prompt,
+                    config=config,
+                )
+                return response
+            except Exception as api_err:
+                err_str = str(api_err)
+                last_err = api_err
+                # 503 / 일시적 오류 → 3초 후 같은 모델 재시도
+                if ("503" in err_str or "UNAVAILABLE" in err_str) and attempt == 0:
+                    time.sleep(3)
+                    continue
+                # 429 쿼터 소진 → 다음 모델로 전환
+                if "429" in err_str or "RESOURCE_EXHAUSTED" in err_str:
+                    break
+                # 그 외 오류 → 즉시 raise
+                raise api_err
     raise last_err
 
 
