@@ -2,7 +2,8 @@ import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
 from datetime import datetime
-from data import get_us_stock_data, get_us_market_indices, get_us_stock_detail, get_us_prices_bulk
+from data import get_us_stock_data, get_us_market_indices, get_us_stock_detail
+from data_kr import get_us_prices_bulk_kis
 
 # 1. 페이지 기본 설정 (항상 최상단에 위치)
 st.set_page_config(
@@ -870,8 +871,9 @@ def main():
                 ("us_selected_name",      "엔비디아"),
                 ("us_selected_sector_us", "AI·반도체"),
                 ("us_sector_view",        "list"),
-                ("us_sector_detail_ticker", ""),
-                ("us_sector_detail_name", ""),
+                ("us_sector_detail_ticker",   ""),
+                ("us_sector_detail_name",     ""),
+                ("us_sector_detail_exchange", "NASDAQ"),
             ]:
                 if _k not in st.session_state:
                     st.session_state[_k] = _v
@@ -1245,8 +1247,9 @@ def main():
 
                     # ── 종목 상세 뷰 (▶ 클릭 후) ────────────────────────
                     if st.session_state.us_sector_view == "detail":
-                        us_dticker = st.session_state.us_sector_detail_ticker
-                        us_dname   = st.session_state.us_sector_detail_name
+                        us_dticker   = st.session_state.us_sector_detail_ticker
+                        us_dname     = st.session_state.us_sector_detail_name
+                        us_dexchange = st.session_state.get("us_sector_detail_exchange", "NASDAQ")
 
                         if st.button("← 섹터 목록으로", key="us_sec_back",
                                      use_container_width=True):
@@ -1261,7 +1264,7 @@ def main():
                         )
 
                         with st.spinner("시세 조회 중..."):
-                            us_detail = get_us_stock_detail(us_dticker)
+                            us_detail = get_us_stock_detail(us_dticker, us_dexchange)
 
                         with st.container(height=490):
                             if us_detail:
@@ -1412,17 +1415,17 @@ def main():
                                         f"{_s} › {_sb}"
                                     )
 
-                        # 중복 제거 후 일괄 시세 조회
+                        # 중복 제거 후 일괄 시세 조회 (KIS → yfinance 폴백)
                         _seen: set = set()
                         _unique_tickers: list = []
                         for _stks in us_subsectors.values():
                             for _stk in _stks:
                                 if _stk["ticker"] not in _seen:
                                     _seen.add(_stk["ticker"])
-                                    _unique_tickers.append(_stk["ticker"])
+                                    _unique_tickers.append((_stk["ticker"], _stk.get("exchange", "NASDAQ")))
 
                         with st.spinner("실시간 시세 조회 중..."):
-                            us_prices = get_us_prices_bulk(tuple(_unique_tickers))
+                            us_prices = get_us_prices_bulk_kis(tuple(_unique_tickers))
 
                         # 표 헤더
                         _uhcols = st.columns([0.35, 2.8, 1.8, 1.4, 0.45])
@@ -1482,11 +1485,12 @@ def main():
                                         )
                                         if _uc4.button("▶", key=f"us_stock_{_us['ticker']}_{us_sub_name}",
                                                        help=_help):
-                                            st.session_state.us_selected_ticker      = _us["ticker"]
-                                            st.session_state.us_selected_name        = _us["name"]
-                                            st.session_state.us_sector_detail_ticker = _us["ticker"]
-                                            st.session_state.us_sector_detail_name   = _us["name"]
-                                            st.session_state.us_sector_view          = "detail"
+                                            st.session_state.us_selected_ticker        = _us["ticker"]
+                                            st.session_state.us_selected_name          = _us["name"]
+                                            st.session_state.us_sector_detail_ticker   = _us["ticker"]
+                                            st.session_state.us_sector_detail_name     = _us["name"]
+                                            st.session_state.us_sector_detail_exchange = _us.get("exchange", "NASDAQ")
+                                            st.session_state.us_sector_view            = "detail"
                                             st.rerun()
 
     with tab2:

@@ -66,41 +66,75 @@ def get_us_market_indices():
 
 
 @st.cache_data(ttl=60)
-def get_us_stock_detail(ticker: str):
-    """미국 주식 상세 정보 조회 (시가/고저/52주/PER/PBR/기관보유율 등)"""
+def get_us_stock_detail(ticker: str, exchange: str = "NASDAQ"):
+    """미국 주식 상세 정보 조회 (KIS 현재가 + yfinance 보조지표)"""
+    # KIS로 실시간 가격 먼저 조회
+    kis_data = None
+    try:
+        from data_kr import get_us_stock_price_kis
+        kis_data = get_us_stock_price_kis(ticker, exchange)
+    except Exception:
+        pass
+
     try:
         stock = yf.Ticker(ticker)
         fi = stock.fast_info
         info = stock.info
-        price = fi.get('lastPrice', 0) or 0
-        prev = fi.get('previousClose', 0) or 0
-        change = price - prev
-        mktcap = info.get('marketCap', 0) or 0
-        inst_pct = round((info.get('heldPercentInstitutions', 0) or 0) * 100, 1)
+
+        if kis_data and kis_data.get("price", 0) > 0:
+            price      = kis_data["price"]
+            change     = kis_data["change"]
+            change_pct = kis_data["change_pct"]
+            volume     = kis_data["volume"]
+            open_p     = kis_data["open"]
+            high_p     = kis_data["high"]
+            low_p      = kis_data["low"]
+            w52_high   = kis_data["w52_high"]
+            w52_low    = kis_data["w52_low"]
+            per        = kis_data["per"]
+            pbr        = kis_data["pbr"]
+            name       = kis_data["name"]
+        else:
+            price      = round(fi.get('lastPrice', 0) or 0, 2)
+            prev       = fi.get('previousClose', 0) or 0
+            change     = round(price - prev, 2)
+            change_pct = round((change / prev * 100) if prev > 0 else 0, 2)
+            volume     = int(fi.get('lastVolume', 0) or 0)
+            open_p     = round(fi.get('open', 0) or 0, 2)
+            high_p     = round(fi.get('dayHigh', 0) or 0, 2)
+            low_p      = round(fi.get('dayLow', 0) or 0, 2)
+            w52_high   = round(fi.get('fiftyTwoWeekHigh', 0) or 0, 2)
+            w52_low    = round(fi.get('fiftyTwoWeekLow', 0) or 0, 2)
+            per        = round(info.get('trailingPE', 0) or 0, 1) or "-"
+            pbr        = round(info.get('priceToBook', 0) or 0, 2) or "-"
+            name       = info.get('longName', ticker)
+
+        mktcap      = info.get('marketCap', 0) or 0
+        inst_pct    = round((info.get('heldPercentInstitutions', 0) or 0) * 100, 1)
         insider_pct = round((info.get('heldPercentInsiders', 0) or 0) * 100, 1)
         return {
-            "name": info.get('longName', ticker),
-            "price": round(price, 2),
-            "change": round(change, 2),
-            "change_pct": round((change / prev * 100) if prev > 0 else 0, 2),
-            "volume": int(fi.get('lastVolume', 0) or 0),
-            "avg_volume": int(fi.get('threeMonthAverageVolume', 0) or 0),
-            "open": round(fi.get('open', 0) or 0, 2),
-            "high": round(fi.get('dayHigh', 0) or 0, 2),
-            "low": round(fi.get('dayLow', 0) or 0, 2),
-            "w52_high": round(fi.get('fiftyTwoWeekHigh', 0) or 0, 2),
-            "w52_low": round(fi.get('fiftyTwoWeekLow', 0) or 0, 2),
-            "market_cap": f"${mktcap/1e9:.1f}B" if mktcap >= 1e9 else f"${mktcap/1e6:.0f}M" if mktcap >= 1e6 else "-",
-            "per": round(info.get('trailingPE', 0) or 0, 1) or "-",
-            "pbr": round(info.get('priceToBook', 0) or 0, 2) or "-",
+            "name":             name,
+            "price":            price,
+            "change":           change,
+            "change_pct":       change_pct,
+            "volume":           volume,
+            "avg_volume":       int(fi.get('threeMonthAverageVolume', 0) or 0),
+            "open":             open_p,
+            "high":             high_p,
+            "low":              low_p,
+            "w52_high":         w52_high,
+            "w52_low":          w52_low,
+            "market_cap":       f"${mktcap/1e9:.1f}B" if mktcap >= 1e9 else f"${mktcap/1e6:.0f}M" if mktcap >= 1e6 else "-",
+            "per":              per,
+            "pbr":              pbr,
             "institutional_pct": inst_pct,
-            "insider_pct": insider_pct,
-            "sector": info.get('sector', ''),
-            "beta": round(info.get('beta', 0) or 0, 2),
-            "exchange": info.get('exchange', ''),
+            "insider_pct":      insider_pct,
+            "sector":           info.get('sector', ''),
+            "beta":             round(info.get('beta', 0) or 0, 2),
+            "exchange":         info.get('exchange', exchange),
         }
     except Exception:
-        return None
+        return kis_data  # yfinance 실패 시 KIS 데이터라도 반환
 
 
 @st.cache_data(ttl=60)

@@ -221,6 +221,110 @@ def get_kr_prices_bulk(tickers_tuple: tuple) -> dict:
     return results
 
 
+# ── 미국 주식 KIS API ────────────────────────────────────────────────────────
+# 거래소 코드: sectors_us.py exchange → KIS EXCD
+_KIS_EXCD = {"NASDAQ": "NAS", "NYSE": "NYS", "AMEX": "AMS"}
+
+
+@st.cache_data(ttl=60)
+def get_us_stock_price_kis(ticker: str, exchange: str = "NASDAQ"):
+    """KIS API 해외주식 현재가 → yfinance 폴백"""
+    excd = _KIS_EXCD.get(exchange.upper(), "NAS")
+    data = _get(
+        "/uapi/overseas-price/v1/quotations/price",
+        "HHDFS76200200",
+        {"AUTH": "", "EXCD": excd, "SYMB": ticker},
+    )
+    if data:
+        o = data.get("output", {})
+        price = float(o.get("last", 0) or 0)
+        if price > 0:
+            return {
+                "name":       (o.get("name") or ticker).strip(),
+                "price":      price,
+                "change":     float(o.get("diff", 0) or 0),
+                "change_pct": float(o.get("rate", 0) or 0),
+                "sign":       o.get("sign", "3"),
+                "volume":     int(o.get("tvol", 0) or 0),
+                "open":       float(o.get("open", 0) or 0),
+                "high":       float(o.get("high", 0) or 0),
+                "low":        float(o.get("low", 0) or 0),
+                "w52_high":   float(o.get("h52p", 0) or 0),
+                "w52_low":    float(o.get("l52p", 0) or 0),
+                "per":        o.get("perx", "-") or "-",
+                "pbr":        o.get("pbry", "-") or "-",
+                "market_cap": "-",
+                "exchange":   exchange,
+                "_source":    "kis",
+            }
+    # KIS 실패 → yfinance 폴백
+    import yfinance as yf
+    try:
+        tk   = yf.Ticker(ticker)
+        fi   = tk.fast_info
+        info = tk.info
+        p    = round(fi.get("lastPrice", 0) or 0, 2)
+        prev = fi.get("previousClose", 0) or 0
+        if p > 0:
+            ch  = round(p - prev, 2)
+            chp = round((ch / prev * 100) if prev > 0 else 0, 2)
+            mktcap = info.get("marketCap", 0) or 0
+            return {
+                "name":       info.get("longName", ticker),
+                "price":      p,
+                "change":     ch,
+                "change_pct": chp,
+                "sign":       "2" if ch > 0 else "4" if ch < 0 else "3",
+                "volume":     int(fi.get("lastVolume", 0) or 0),
+                "open":       round(fi.get("open", 0) or 0, 2),
+                "high":       round(fi.get("dayHigh", 0) or 0, 2),
+                "low":        round(fi.get("dayLow", 0) or 0, 2),
+                "w52_high":   round(fi.get("fiftyTwoWeekHigh", 0) or 0, 2),
+                "w52_low":    round(fi.get("fiftyTwoWeekLow", 0) or 0, 2),
+                "per":        round(info.get("trailingPE", 0) or 0, 1) or "-",
+                "pbr":        round(info.get("priceToBook", 0) or 0, 2) or "-",
+                "market_cap": f"${mktcap/1e9:.1f}B" if mktcap >= 1e9 else "-",
+                "exchange":   exchange,
+                "_source":    "yfinance",
+            }
+    except Exception:
+        pass
+    return None
+
+
+@st.cache_data(ttl=60)
+def get_us_prices_bulk_kis(tickers_exchange_tuple: tuple) -> dict:
+    """섹터 패널용 미국 종목 일괄 시세 조회 (KIS → yfinance 폴백)"""
+    import yfinance as yf
+    results = {}
+    for ticker, exchange in tickers_exchange_tuple:
+        excd = _KIS_EXCD.get(exchange.upper(), "NAS")
+        data = _get(
+            "/uapi/overseas-price/v1/quotations/price",
+            "HHDFS76200200",
+            {"AUTH": "", "EXCD": excd, "SYMB": ticker},
+        )
+        if data:
+            o = data.get("output", {})
+            price = float(o.get("last", 0) or 0)
+            if price > 0:
+                results[ticker] = {
+                    "price":      price,
+                    "change_pct": float(o.get("rate", 0) or 0),
+                }
+                continue
+        # yfinance 폴백
+        try:
+            fi   = yf.Ticker(ticker).fast_info
+            p    = round(fi.get("lastPrice", 0) or 0, 2)
+            prev = fi.get("previousClose", 0) or 0
+            chp  = round(((p - prev) / prev * 100) if prev > 0 else 0, 2)
+            results[ticker] = {"price": p, "change_pct": chp}
+        except Exception:
+            results[ticker] = {"price": 0.0, "change_pct": 0.0}
+    return results
+
+
 @st.cache_data(ttl=300)  # 5분 캐싱
 def get_kr_volume_ranking():
     """거래량 상위 10개 종목 (KOSPI)"""
