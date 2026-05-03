@@ -840,124 +840,205 @@ def main():
 
                     # ── 섹터 목록 뷰 (기본) ───────────────────────────────────
                     else:
-                        hdr_c1, hdr_c2, hdr_c3 = st.columns([4, 1, 1])
-                        hdr_c1.markdown("### 🔥 이슈 섹터")
-                        with hdr_c2:
-                            if st.button("🔄 새로고침", key="sec_refresh",
-                                         use_container_width=True,
-                                         help="섹터 데이터 캐시 초기화"):
-                                load_sector_map.clear()
+                        st.markdown("### 🔥 이슈 섹터")
+
+                        # AI 분석 / 전체 탐색 탭 토글
+                        if "kr_sector_panel_tab" not in st.session_state:
+                            st.session_state.kr_sector_panel_tab = "🤖 AI 실시간 분석"
+                        _spt_tabs = ["🤖 AI 실시간 분석", "📚 전체 섹터 탐색"]
+                        _stc1, _stc2 = st.columns(2)
+                        for _stcol, _stn in [(_stc1, _spt_tabs[0]), (_stc2, _spt_tabs[1])]:
+                            if _stcol.button(
+                                _stn, key=f"spt_{_stn}",
+                                type="primary" if st.session_state.kr_sector_panel_tab == _stn else "secondary",
+                                use_container_width=True,
+                            ):
+                                st.session_state.kr_sector_panel_tab = _stn
                                 st.rerun()
-                        with hdr_c3:
-                            if st.button("☁️ 시트 업로드", key="sec_init",
-                                         use_container_width=True,
-                                         help="sectors_kr.py 기본 데이터를 구글 시트 섹터DB 탭에 업로드합니다."):
-                                ok, msg_init = init_sector_sheet()
-                                st.toast(msg_init if ok else f"오류: {msg_init}")
 
-                        # 섹터 버튼: 한 줄 최대 5개, 2행으로 배치
-                        _kr_btn_rows = [sector_names[i:i+5] for i in range(0, len(sector_names), 5)]
-                        for _kr_row in _kr_btn_rows:
-                            _kr_rcols = st.columns(len(_kr_row))
-                            for _kr_ri, sname in enumerate(_kr_row):
-                                is_active = st.session_state.kr_selected_sector == sname
-                                if _kr_rcols[_kr_ri].button(
-                                    sname, key=f"sec_btn_{sname}",
-                                    type="primary" if is_active else "secondary",
-                                    use_container_width=True,
-                                ):
-                                    st.session_state.kr_selected_sector = sname
-                                    st.rerun()
+                        # ── AI 실시간 분석 탭 ──────────────────────────────
+                        if st.session_state.kr_sector_panel_tab == _spt_tabs[0]:
+                            from ai_engine import analyze_kr_hot_sectors
+                            from sector_knowledge import SECTOR_KNOWLEDGE
 
-                        selected_sector = st.session_state.kr_selected_sector
-                        subsectors = sector_map[selected_sector]
-
-                        # 전체 섹터맵 다중섹터 계산
-                        code_locations: dict = {}
-                        for sec, subs in sector_map.items():
-                            for sub, stklist in subs.items():
-                                for s in stklist:
-                                    code_locations.setdefault(s["code"], []).append(
-                                        f"{sec} › {sub}"
-                                    )
-
-                        # 중복 제거 후 일괄 시세 조회
-                        seen_codes: set = set()
-                        unique_tickers = []
-                        for sub_stocks in subsectors.values():
-                            for s in sub_stocks:
-                                if s["code"] not in seen_codes:
-                                    seen_codes.add(s["code"])
-                                    unique_tickers.append((s["code"], s["code"] + s["suffix"]))
-
-                        with st.spinner("실시간 시세 조회 중..."):
-                            prices = get_kr_prices_bulk(tuple(unique_tickers))
-
-                        # 표 헤더
-                        _hcols = st.columns([0.35, 2.8, 1.8, 1.4, 0.45])
-                        for _hc, _ht in zip(_hcols[:4], ["단타", "종목명", "현재가", "등락률"]):
-                            _hc.markdown(
-                                f"<p style='margin:0;font-size:0.72rem;color:#888'>{_ht}</p>",
+                            _ai_hdr, _ai_ref = st.columns([8, 1])
+                            _ai_hdr.markdown(
+                                "<p style='font-size:0.75rem;color:#888;margin:4px 0'>증권사 리포트·뉴스 기반 AI 자동 분석 (30분 갱신)</p>",
                                 unsafe_allow_html=True,
                             )
+                            if _ai_ref.button("🔄", key="ai_sec_refresh", help="AI 재분석"):
+                                analyze_kr_hot_sectors.clear()
+                                st.rerun()
 
-                        with st.container(height=480):
-                            for sub_name, stocks in subsectors.items():
-                                with st.container(border=True):
-                                    st.markdown(
-                                        f"<p style='margin:0 0 4px 0;font-size:0.8rem;"
-                                        f"color:#aaa;font-weight:600'>📌 {sub_name}</p>",
-                                        unsafe_allow_html=True,
-                                    )
-                                    for i, s in enumerate(stocks):
-                                        if i > 0:
+                            with st.spinner("🧠 AI가 오늘의 핫 섹터를 분석 중..."):
+                                _ai_res = analyze_kr_hot_sectors()
+
+                            if "error" in _ai_res and not _ai_res.get("sectors"):
+                                st.error(f"AI 분석 오류: {_ai_res['error']}")
+                            else:
+                                _ai_sectors = sorted(
+                                    _ai_res.get("sectors", []),
+                                    key=lambda x: -x.get("hot_score", 0),
+                                )
+
+                                # 전체 종목 일괄 시세 조회 (루프 밖에서 한 번만)
+                                _all_ai_tickers: list = []
+                                _ai_code_suffix: dict = {}
+                                for _as in _ai_sectors:
+                                    _kb = SECTOR_KNOWLEDGE.get(_as.get("keyword", ""), {})
+                                    _kb_stocks = _kb.get("kr", [])
+                                    _hot_codes = _as.get("hot_codes", [])
+                                    _display = [s for s in _kb_stocks if not _hot_codes or s["code"] in _hot_codes]
+                                    if not _display:
+                                        _display = _kb_stocks[:5]
+                                    for _ds in _display:
+                                        if _ds["code"] not in _ai_code_suffix:
+                                            _ai_code_suffix[_ds["code"]] = _ds["suffix"]
+                                            _all_ai_tickers.append((_ds["code"], _ds["code"] + _ds["suffix"]))
+                                with st.spinner(""):
+                                    _ai_prices = get_kr_prices_bulk(tuple(_all_ai_tickers)) if _all_ai_tickers else {}
+
+                                with st.container(height=520):
+                                    for _asi, _as in enumerate(_ai_sectors):
+                                        _kw     = _as.get("keyword", "")
+                                        _score  = _as.get("hot_score", 0)
+                                        _reason = _as.get("reason", "")
+                                        _news   = _as.get("news_title", "")
+                                        _kb     = SECTOR_KNOWLEDGE.get(_kw, {})
+                                        _kb_stocks = _kb.get("kr", [])
+                                        _hot_codes = _as.get("hot_codes", [])
+                                        _display = [s for s in _kb_stocks if not _hot_codes or s["code"] in _hot_codes]
+                                        if not _display:
+                                            _display = _kb_stocks[:5]
+
+                                        with st.container(border=True):
+                                            # 섹터 헤더
+                                            _fire = "🔥" * max(1, min(int(_score / 2.5), 4))
                                             st.markdown(
-                                                '<hr style="margin:2px 0;border:none;'
-                                                'border-top:1px solid rgba(255,255,255,0.1)">',
+                                                f"<div style='display:flex;justify-content:space-between;align-items:center;margin-bottom:2px'>"
+                                                f"<span style='font-size:0.9rem;font-weight:700'>{_kw}</span>"
+                                                f"<span style='font-size:0.78rem;color:#ff9800'>{_fire} {_score}/10</span>"
+                                                f"</div>",
                                                 unsafe_allow_html=True,
                                             )
-                                        pdata = prices.get(s["code"], {"price":0,"change_pct":0.0})
-                                        pct  = pdata["change_pct"]
-                                        pval = pdata["price"]
-                                        pct_color = "#ff4b4b" if pct>0 else "#2b7cff" if pct<0 else "#888"
+                                            if _reason:
+                                                st.markdown(
+                                                    f"<p style='font-size:0.73rem;color:#aaa;margin:0 0 2px 0'>{_reason}</p>",
+                                                    unsafe_allow_html=True,
+                                                )
+                                            if _news:
+                                                st.markdown(
+                                                    f"<p style='font-size:0.7rem;color:#777;margin:0 0 5px 0'>📰 {_news}</p>",
+                                                    unsafe_allow_html=True,
+                                                )
 
-                                        other_locs = [
-                                            loc for loc in code_locations.get(s["code"],[])
-                                            if loc != f"{selected_sector} › {sub_name}"
-                                        ]
-                                        help_text = (
-                                            f"다중 섹터: {', '.join(other_locs)}" if other_locs else None
-                                        )
+                                            # 종목 행
+                                            for _si, _stk in enumerate(_display[:5]):
+                                                if _si > 0:
+                                                    st.markdown(
+                                                        '<hr style="margin:1px 0;border:none;border-top:1px solid rgba(255,255,255,0.07)">',
+                                                        unsafe_allow_html=True,
+                                                    )
+                                                _pd  = _ai_prices.get(_stk["code"], {"price": 0, "change_pct": 0.0})
+                                                _pct = _pd["change_pct"]
+                                                _pv  = _pd["price"]
+                                                _pc  = "#ff4b4b" if _pct > 0 else "#2b7cff" if _pct < 0 else "#888"
+                                                _badge = "🔑 " if _stk.get("r") == "core" else ""
+                                                _bc0, _bc1, _bc2, _bc3, _bc4 = st.columns([0.3, 2.6, 1.8, 1.4, 0.45])
+                                                _bc0.markdown("✅" if _pct >= 3.0 else "&nbsp;", unsafe_allow_html=True)
+                                                _bc1.markdown(f"<span style='font-size:0.82rem'>{_badge}{_stk['name']}</span>", unsafe_allow_html=True)
+                                                _bc2.markdown(f"<span style='font-size:0.82rem'>{'₩'+format(_pv,',') if _pv>0 else '---'}</span>", unsafe_allow_html=True)
+                                                _bc3.markdown(f"<span style='font-size:0.82rem;font-weight:bold;color:{_pc}'>{_pct:+.2f}%</span>", unsafe_allow_html=True)
+                                                if _bc4.button("▶", key=f"ai_s_{_stk['code']}_{_kw[:6]}_{_si}"):
+                                                    st.session_state.kr_selected_code       = _stk["code"]
+                                                    st.session_state.kr_selected_name       = _stk["name"]
+                                                    st.session_state.kr_sector_detail_code  = _stk["code"]
+                                                    st.session_state.kr_sector_detail_name  = _stk["name"]
+                                                    st.session_state.kr_sector_view         = "detail"
+                                                    st.rerun()
 
-                                        c0, c1, c2, c3, c4 = st.columns([0.35,2.8,1.8,1.4,0.45])
-                                        # ✅ 기준: 3% 이상 상승 (수수료 감안 최소 수익 기준)
-                                        c0.markdown(
-                                            "✅" if pct >= 3.0 else "&nbsp;",
+                                            # AI 신규 추천 종목 (KB에 없는 것)
+                                            for _ns in _as.get("new_stocks", [])[:2]:
+                                                st.markdown(
+                                                    f"<span class='sector-pill'>🤖 {_ns.get('name','')} — {_ns.get('reason','')}</span>",
+                                                    unsafe_allow_html=True,
+                                                )
+
+                        # ── 전체 섹터 탐색 탭 ──────────────────────────────
+                        else:
+                            hdr2_c1, hdr2_c2 = st.columns([8, 1])
+                            if hdr2_c2.button("🔄", key="sec_refresh",
+                                              help="섹터 캐시 초기화"):
+                                load_sector_map.clear()
+                                st.rerun()
+
+                            # 섹터 버튼: 한 줄 최대 5개
+                            _kr_btn_rows = [sector_names[i:i+5] for i in range(0, len(sector_names), 5)]
+                            for _kr_row in _kr_btn_rows:
+                                _kr_rcols = st.columns(len(_kr_row))
+                                for _kr_ri, sname in enumerate(_kr_row):
+                                    is_active = st.session_state.kr_selected_sector == sname
+                                    if _kr_rcols[_kr_ri].button(
+                                        sname, key=f"sec_btn_{sname}",
+                                        type="primary" if is_active else "secondary",
+                                        use_container_width=True,
+                                    ):
+                                        st.session_state.kr_selected_sector = sname
+                                        st.rerun()
+
+                            selected_sector = st.session_state.kr_selected_sector
+                            subsectors = sector_map[selected_sector]
+
+                            # 다중 섹터 위치 계산
+                            code_locations: dict = {}
+                            for sec, subs in sector_map.items():
+                                for sub, stklist in subs.items():
+                                    for s in stklist:
+                                        code_locations.setdefault(s["code"], []).append(f"{sec} › {sub}")
+
+                            seen_codes: set = set()
+                            unique_tickers = []
+                            for sub_stocks in subsectors.values():
+                                for s in sub_stocks:
+                                    if s["code"] not in seen_codes:
+                                        seen_codes.add(s["code"])
+                                        unique_tickers.append((s["code"], s["code"] + s["suffix"]))
+
+                            with st.spinner("실시간 시세 조회 중..."):
+                                prices = get_kr_prices_bulk(tuple(unique_tickers))
+
+                            _hcols = st.columns([0.35, 2.8, 1.8, 1.4, 0.45])
+                            for _hc, _ht in zip(_hcols[:4], ["단타", "종목명", "현재가", "등락률"]):
+                                _hc.markdown(f"<p style='margin:0;font-size:0.72rem;color:#888'>{_ht}</p>", unsafe_allow_html=True)
+
+                            with st.container(height=480):
+                                for sub_name, stocks in subsectors.items():
+                                    with st.container(border=True):
+                                        st.markdown(
+                                            f"<p style='margin:0 0 4px 0;font-size:0.8rem;color:#aaa;font-weight:600'>📌 {sub_name}</p>",
                                             unsafe_allow_html=True,
                                         )
-                                        c1.markdown(
-                                            f"<span style='font-size:0.85rem'>{s['name']}"
-                                            f"{'&nbsp;🔗' if other_locs else ''}</span>",
-                                            unsafe_allow_html=True,
-                                        )
-                                        c2.markdown(
-                                            f"<span style='font-size:0.85rem'>"
-                                            f"{'₩'+format(pval,',') if pval>0 else '---'}</span>",
-                                            unsafe_allow_html=True,
-                                        )
-                                        c3.markdown(
-                                            f"<span style='font-size:0.85rem;font-weight:bold;"
-                                            f"color:{pct_color}'>{pct:+.2f}%</span>",
-                                            unsafe_allow_html=True,
-                                        )
-                                        if c4.button("▶", key=f"stock_{s['code']}_{sub_name}_{i}",
-                                                     help=help_text):
-                                            st.session_state.kr_selected_code   = s["code"]
-                                            st.session_state.kr_selected_name   = s["name"]
-                                            st.session_state.kr_sector_detail_code = s["code"]
-                                            st.session_state.kr_sector_detail_name = s["name"]
-                                            st.session_state.kr_sector_view     = "detail"
-                                            st.rerun()
+                                        for i, s in enumerate(stocks):
+                                            if i > 0:
+                                                st.markdown('<hr style="margin:2px 0;border:none;border-top:1px solid rgba(255,255,255,0.1)">', unsafe_allow_html=True)
+                                            pdata = prices.get(s["code"], {"price": 0, "change_pct": 0.0})
+                                            pct   = pdata["change_pct"]
+                                            pval  = pdata["price"]
+                                            pct_color = "#ff4b4b" if pct > 0 else "#2b7cff" if pct < 0 else "#888"
+                                            other_locs = [loc for loc in code_locations.get(s["code"], []) if loc != f"{selected_sector} › {sub_name}"]
+                                            help_text = f"다중 섹터: {', '.join(other_locs)}" if other_locs else None
+                                            c0, c1, c2, c3, c4 = st.columns([0.35, 2.8, 1.8, 1.4, 0.45])
+                                            c0.markdown("✅" if pct >= 3.0 else "&nbsp;", unsafe_allow_html=True)
+                                            c1.markdown(f"<span style='font-size:0.85rem'>{s['name']}{'&nbsp;🔗' if other_locs else ''}</span>", unsafe_allow_html=True)
+                                            c2.markdown(f"<span style='font-size:0.85rem'>{'₩'+format(pval,',') if pval>0 else '---'}</span>", unsafe_allow_html=True)
+                                            c3.markdown(f"<span style='font-size:0.85rem;font-weight:bold;color:{pct_color}'>{pct:+.2f}%</span>", unsafe_allow_html=True)
+                                            if c4.button("▶", key=f"stock_{s['code']}_{sub_name}_{i}", help=help_text):
+                                                st.session_state.kr_selected_code      = s["code"]
+                                                st.session_state.kr_selected_name      = s["name"]
+                                                st.session_state.kr_sector_detail_code = s["code"]
+                                                st.session_state.kr_sector_detail_name = s["name"]
+                                                st.session_state.kr_sector_view        = "detail"
+                                                st.rerun()
 
             # AI 리포트 전체 너비 (일반 모드)
             if kr_mode == "📊 일반 주식 검색" and f"kr_report_{selected_code_kr}" in st.session_state:

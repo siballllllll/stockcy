@@ -358,6 +358,60 @@ def generate_dynamic_themes():
         return {"error": str(e), "themes": []}
 
 
+@st.cache_data(ttl=1800)  # 30분 캐싱
+def analyze_kr_hot_sectors() -> dict:
+    """
+    Gemini + Google Search로 오늘 증권사 리포트·금융 뉴스를 분석하여
+    핫 섹터를 선별하고 sector_knowledge.py 지식 베이스와 매핑합니다.
+    """
+    from sector_knowledge import SECTOR_KNOWLEDGE
+    known_keywords = list(SECTOR_KNOWLEDGE.keys())
+    keywords_str   = "\n".join(f"- {k}: {SECTOR_KNOWLEDGE[k]['desc']}" for k in known_keywords)
+
+    prompt = f"""당신은 한국 주식시장 전문 섹터 애널리스트입니다.
+지금 즉시 구글 검색으로 오늘(한국 기준) 증권사 리포트, 금융 뉴스, 공시에서 주목받는 테마를 분석하세요.
+
+[사전 학습된 섹터 키워드 목록]:
+{keywords_str}
+
+[지시사항]:
+1. 위 목록에서 오늘 가장 뜨거운 섹터 5~7개를 선택하세요.
+2. 목록에 없어도 오늘 새롭게 부각되는 섹터가 있으면 추가하세요.
+3. 각 섹터에 오늘 관련 종목코드(KR 6자리)를 hot_codes로 반환하세요.
+4. DB에 없지만 오늘 뉴스로 주목받는 신규 종목은 new_stocks에 추가하세요.
+
+반드시 아래 JSON으로만 응답하세요. 주석 없이:
+{{
+  "market": "KR",
+  "sectors": [
+    {{
+      "keyword": "섹터명 (알려진 키워드 그대로 또는 신규)",
+      "hot_score": 1~10,
+      "reason": "오늘 이 섹터가 주목받는 이유 (뉴스 기반, 2문장)",
+      "news_title": "관련 오늘 뉴스 제목",
+      "hot_codes": ["005930", "000660"],
+      "new_stocks": [
+        {{"name": "종목명", "code": "6자리코드", "suffix": ".KS또는.KQ", "reason": "편입 이유"}}
+      ]
+    }}
+  ]
+}}"""
+
+    try:
+        response = _call_gemini(
+            prompt, use_search=True, temperature=0.5,
+            response_mime_type="application/json",
+        )
+        text  = re.sub(r'```(?:json)?', '', response.text).strip()
+        start = text.find('{')
+        if start != -1:
+            result, _ = json.JSONDecoder().raw_decode(text, start)
+            return result
+        return json.loads(text)
+    except Exception as e:
+        return {"error": str(e), "sectors": []}
+
+
 @st.cache_data(ttl=300)
 def generate_related_stocks(ticker: str, sector: str = "") -> list:
     """특정 종목의 동조화 관련주를 AI가 발굴합니다."""
