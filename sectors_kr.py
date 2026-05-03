@@ -257,4 +257,88 @@ KR_SECTOR_MAP = {
             {"name": "신세계",     "code": "004170", "suffix": ".KS"},
         ],
     },
+    "금융·은행": {
+        "은행·지주": [
+            {"name": "KB금융",        "code": "105560", "suffix": ".KS"},
+            {"name": "신한지주",      "code": "055550", "suffix": ".KS"},
+            {"name": "하나금융지주",   "code": "086790", "suffix": ".KS"},
+            {"name": "우리금융지주",   "code": "316140", "suffix": ".KS"},
+            {"name": "기업은행",      "code": "024110", "suffix": ".KS"},
+        ],
+        "보험": [
+            {"name": "삼성생명",      "code": "032830", "suffix": ".KS"},
+            {"name": "삼성화재",      "code": "000810", "suffix": ".KS"},
+            {"name": "한화생명",      "code": "088350", "suffix": ".KS"},
+            {"name": "현대해상",      "code": "001450", "suffix": ".KS"},
+        ],
+        "증권": [
+            {"name": "미래에셋증권",   "code": "006800", "suffix": ".KS"},
+            {"name": "키움증권",      "code": "039490", "suffix": ".KQ"},
+            {"name": "한국금융지주",   "code": "071050", "suffix": ".KS"},
+            {"name": "NH투자증권",    "code": "005940", "suffix": ".KS"},
+        ],
+        "카드·캐피탈": [
+            {"name": "삼성카드",      "code": "029780", "suffix": ".KS"},
+            {"name": "현대캐피탈(현대차)","code": "005380", "suffix": ".KS"},
+            {"name": "롯데지주",      "code": "004990", "suffix": ".KS"},
+        ],
+    },
+    "화학·소재": {
+        "석유화학": [
+            {"name": "LG화학",        "code": "051910", "suffix": ".KS"},
+            {"name": "롯데케미칼",    "code": "011170", "suffix": ".KS"},
+            {"name": "한화솔루션",    "code": "009830", "suffix": ".KS"},
+            {"name": "금호석유",      "code": "011780", "suffix": ".KS"},
+        ],
+        "정밀화학": [
+            {"name": "효성첨단소재",   "code": "298050", "suffix": ".KS"},
+            {"name": "SKC",           "code": "011790", "suffix": ".KS"},
+            {"name": "코오롱인더",    "code": "120110", "suffix": ".KS"},
+            {"name": "OCI홀딩스",     "code": "010060", "suffix": ".KS"},
+        ],
+        "철강·금속": [
+            {"name": "POSCO홀딩스",   "code": "005490", "suffix": ".KS"},
+            {"name": "현대제철",      "code": "004020", "suffix": ".KS"},
+            {"name": "고려아연",      "code": "010130", "suffix": ".KS"},
+            {"name": "풍산",          "code": "103140", "suffix": ".KS"},
+        ],
+    },
+    "건설·인프라": {
+        "대형 건설": [
+            {"name": "삼성물산",      "code": "028260", "suffix": ".KS"},
+            {"name": "현대건설",      "code": "000720", "suffix": ".KS"},
+            {"name": "GS건설",        "code": "006360", "suffix": ".KS"},
+            {"name": "DL이앤씨",      "code": "375500", "suffix": ".KS"},
+        ],
+        "주택·부동산": [
+            {"name": "HDC현대산업개발","code": "294870", "suffix": ".KS"},
+            {"name": "대우건설",      "code": "047040", "suffix": ".KS"},
+            {"name": "태영건설",      "code": "009410", "suffix": ".KS"},
+            {"name": "두산건설",      "code": "011160", "suffix": ".KS"},
+        ],
+        "인프라·시멘트": [
+            {"name": "한국전력",      "code": "015760", "suffix": ".KS"},
+            {"name": "쌍용C&E",      "code": "003410", "suffix": ".KS"},
+            {"name": "아세아시멘트",  "code": "183190", "suffix": ".KS"},
+            {"name": "성신양회",      "code": "004980", "suffix": ".KQ"},
+        ],
+    },
+    "통신": {
+        "이동통신": [
+            {"name": "SK텔레콤",      "code": "017670", "suffix": ".KS"},
+            {"name": "KT",            "code": "030200", "suffix": ".KS"},
+            {"name": "LG유플러스",    "code": "032640", "suffix": ".KS"},
+        ],
+        "미디어·플랫폼": [
+            {"name": "카카오",        "code": "035720", "suffix": ".KS"},
+            {"name": "NAVER",         "code": "035420", "suffix": ".KS"},
+            {"name": "SK브로드밴드(SKT)","code": "017670", "suffix": ".KS"},
+        ],
+        "유통·이커머스": [
+            {"name": "롯데쇼핑",      "code": "023530", "suffix": ".KS"},
+            {"name": "이마트",        "code": "139480", "suffix": ".KS"},
+            {"name": "GS리테일",      "code": "007070", "suffix": ".KS"},
+            {"name": "BGF리테일",     "code": "027410", "suffix": ".KS"},
+        ],
+    },
 }

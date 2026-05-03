@@ -18,19 +18,86 @@ st.set_page_config(
 def inject_custom_css():
     st.markdown("""
         <style>
-        /* 기본적으로 Streamlit 테마 설정(Settings)에서 Dark를 선택해야 완벽히 적용됩니다. */
-        /* 여기서는 추가적인 커스텀 스타일만 정의합니다. */
-        .up-kr { color: #ff4b4b; font-weight: bold; }
-        .down-kr { color: #2b7cff; font-weight: bold; }
-        .up-us { color: #00c853; font-weight: bold; }
-        .down-us { color: #ff4b4b; font-weight: bold; }
-        .disclaimer { 
-            font-size: 0.8rem; 
-            color: #888; 
-            text-align: center; 
+        /* ── 색상 ── */
+        .up-kr   { color: #ff4b4b; font-weight: 700; }
+        .down-kr { color: #2b7cff; font-weight: 700; }
+        .up-us   { color: #00c853; font-weight: 700; }
+        .down-us { color: #ff4b4b; font-weight: 700; }
+
+        /* ── Toss 스타일 버튼 (pill) ── */
+        div[data-testid="stButton"] > button {
+            border-radius: 20px !important;
+            font-size: 0.82rem !important;
+            padding: 4px 14px !important;
+            border: 1px solid rgba(255,255,255,0.12) !important;
+            transition: all 0.15s ease !important;
+        }
+        div[data-testid="stButton"] > button[kind="primary"] {
+            background: rgba(255,255,255,0.12) !important;
+            color: #fff !important;
+            border-color: rgba(255,255,255,0.25) !important;
+        }
+        div[data-testid="stButton"] > button:hover {
+            background: rgba(255,255,255,0.1) !important;
+            border-color: rgba(255,255,255,0.3) !important;
+        }
+
+        /* ── Toss 스타일 카드 ── */
+        .toss-card {
+            background: rgba(255,255,255,0.035);
+            border: 1px solid rgba(255,255,255,0.07);
+            border-radius: 14px;
+            padding: 14px 16px;
+            margin: 6px 0;
+        }
+        .toss-card-sm {
+            background: rgba(255,255,255,0.025);
+            border: 1px solid rgba(255,255,255,0.06);
+            border-radius: 10px;
+            padding: 8px 12px;
+            margin: 3px 0;
+        }
+
+        /* ── 상단 지수 배너 ── */
+        .index-banner {
+            display: flex;
+            gap: 28px;
+            align-items: center;
+            padding: 8px 4px 4px 2px;
+        }
+        .index-item { display: flex; flex-direction: column; }
+        .index-name { font-size: 0.7rem; color: #888; letter-spacing: 0.04em; }
+        .index-val  { font-size: 1.05rem; font-weight: 700; line-height: 1.2; }
+        .index-chg  { font-size: 0.72rem; margin-top: 1px; }
+
+        /* ── 종목 행 hover ── */
+        .stock-row:hover { background: rgba(255,255,255,0.04); border-radius: 8px; }
+
+        /* ── 섹터 태그 ── */
+        .sector-pill {
+            display: inline-block;
+            background: rgba(255,255,255,0.07);
+            border-radius: 20px;
+            padding: 2px 10px;
+            font-size: 0.72rem;
+            color: #bbb;
+            margin: 1px;
+        }
+
+        /* ── 구분선 ── */
+        .toss-divider {
+            border: none;
+            border-top: 1px solid rgba(255,255,255,0.07);
+            margin: 10px 0;
+        }
+
+        .disclaimer {
+            font-size: 0.78rem;
+            color: #666;
+            text-align: center;
             margin-top: 50px;
             padding-top: 20px;
-            border-top: 1px solid #444;
+            border-top: 1px solid rgba(255,255,255,0.07);
         }
         </style>
     """, unsafe_allow_html=True)
@@ -190,24 +257,32 @@ def main():
                 st.code("[kis]\napp_key = \"발급받은_앱키\"\napp_secret = \"발급받은_앱시크릿\"", language="toml")
                 st.stop()
 
-            # KOSPI / KOSDAQ 지수
-            st.markdown("### 📊 국내 시장 지수")
-            with st.spinner("지수 조회 중..."):
+            # KOSPI / KOSDAQ 지수 (Toss 스타일 인라인 배너)
+            with st.spinner(""):
                 indices = get_kr_market_index()
 
-            if indices:
-                col_k, col_q = st.columns(2)
-                for col, idx_name in [(col_k, "KOSPI"), (col_q, "KOSDAQ")]:
-                    if idx_name in indices:
-                        idx = indices[idx_name]
-                        col.metric(
-                            f"{'📈' if idx['change'] >= 0 else '📉'} {idx_name}",
-                            f"{idx['index']:,.2f}",
-                            f"{idx['change']:+.2f}p ({idx['change_pct']:+.2f}%)",
-                            delta_color="normal" if idx["change"] >= 0 else "inverse"
-                        )
-
-            st.markdown("---")
+            _banner_parts = []
+            for _iname in ["KOSPI", "KOSDAQ"]:
+                _id = indices.get(_iname, {})
+                _iv  = _id.get("index", 0)
+                _ic  = _id.get("change", 0)
+                _ip  = _id.get("change_pct", 0)
+                _col = "#ff4b4b" if _ic >= 0 else "#2b7cff"
+                _sg  = "+" if _ic >= 0 else ""
+                _banner_parts.append(
+                    f"<div class='index-item'>"
+                    f"<span class='index-name'>{_iname}</span>"
+                    f"<span class='index-val' style='color:{_col}'>{_iv:,.2f}</span>"
+                    f"<span class='index-chg' style='color:{_col}'>{_sg}{_ic:.2f}p ({_sg}{_ip:.2f}%)</span>"
+                    f"</div>"
+                ) if _iv > 0 else None
+            _banner_parts = [p for p in _banner_parts if p]
+            if _banner_parts:
+                st.markdown(
+                    f"<div class='index-banner'>{''.join(_banner_parts)}</div>",
+                    unsafe_allow_html=True,
+                )
+            st.markdown("<hr class='toss-divider'>", unsafe_allow_html=True)
 
             # 세션 상태 초기화
             for _k, _v in [
