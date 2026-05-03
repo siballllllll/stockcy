@@ -56,9 +56,9 @@ def get_market_news(category="general"):
 
 # 모델 폴백 순서: 무료 티어 쿼터 소진 시 다음 모델로 자동 전환
 _MODEL_FALLBACK = [
-    "gemini-2.0-flash",       # 1500 RPD 무료, Google Search 지원
-    "gemini-1.5-flash",       # 1500 RPD 무료, Google Search 지원
-    "gemini-1.5-flash-8b",    # 1500 RPD 무료, 경량 폴백
+    "gemini-2.5-flash",       # 최신 flash, Google Search 지원
+    "gemini-2.0-flash",       # 안정 flash, Google Search 지원
+    "gemini-2.0-flash-lite",  # 경량 폴백, Google Search 지원
 ]
 
 
