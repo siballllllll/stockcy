@@ -263,7 +263,7 @@ def main():
                 if kr_mode == "🔥 오늘의 이슈 섹터":
 
                     if st.session_state.kr_sector_view == "detail":
-                        # 선택 종목 TradingView 차트 (KRX:{code})
+                        # 선택 종목 Plotly 차트 (최근 60봉 한정 → 1초봉 현상 방지)
                         _dtv_code = st.session_state.kr_sector_detail_code
                         _dtv_name = st.session_state.kr_sector_detail_name
                         pct_color = "up-kr" if is_up else "down-kr" if is_dn else ""
@@ -276,34 +276,64 @@ def main():
                             )
                         else:
                             st.markdown(f"**{_dtv_name}** ({_dtv_code})")
-                        _tv_kr_html = f"""
-                        <div class="tradingview-widget-container" style="height:420px;width:100%">
-                          <div class="tradingview-widget-container__widget" style="height:100%;width:100%"></div>
-                          <script type="text/javascript" src="https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js" async>
-                          {{
-                          "autosize": true,
-                          "symbol": "KRX:{_dtv_code}",
-                          "interval": "5",
-                          "timezone": "Asia/Seoul",
-                          "theme": "dark",
-                          "style": "1",
-                          "locale": "kr",
-                          "allow_symbol_change": false,
-                          "hide_top_toolbar": false,
-                          "hide_legend": false,
-                          "save_image": false,
-                          "backgroundColor": "rgba(0, 0, 0, 1)"
-                        }}
-                          </script>
-                        </div>
-                        """
-                        components.html(_tv_kr_html, height=420)
+
+                        _si_c1, _si_c2, _ = st.columns([2, 1, 4])
+                        with _si_c1:
+                            _sec_interval = st.selectbox(
+                                "분봉", [5, 10, 15, 30], index=0,
+                                key="kr_sec_chart_interval",
+                                format_func=lambda x: f"{x}분봉",
+                            )
+                        with _si_c2:
+                            if st.button("🔄", key="refresh_sec_chart", help="새로고침"):
+                                get_kr_minute_chart.clear()
+                                st.rerun()
+
+                        with st.spinner("차트 조회 중..."):
+                            df_sec = get_kr_minute_chart(_dtv_code, interval=_sec_interval)
+
+                        if not df_sec.empty:
+                            df_sec = df_sec.tail(60).reset_index(drop=True)
+                            from plotly.subplots import make_subplots
+                            df_sec["ma5"]  = df_sec["close"].rolling(5).mean()
+                            df_sec["ma20"] = df_sec["close"].rolling(20).mean()
+                            _vc = ["#ff4b4b" if c >= o else "#2b7cff"
+                                   for c, o in zip(df_sec["close"], df_sec["open"])]
+                            _fig_s = make_subplots(rows=2, cols=1, shared_xaxes=True,
+                                                   row_heights=[0.70, 0.30], vertical_spacing=0.02)
+                            _fig_s.add_trace(go.Candlestick(
+                                x=df_sec["datetime"],
+                                open=df_sec["open"], high=df_sec["high"],
+                                low=df_sec["low"],   close=df_sec["close"],
+                                increasing=dict(line=dict(color="#ff4b4b", width=1), fillcolor="#ff4b4b"),
+                                decreasing=dict(line=dict(color="#2b7cff", width=1), fillcolor="#2b7cff"),
+                                name="가격", showlegend=False,
+                            ), row=1, col=1)
+                            _fig_s.add_trace(go.Scatter(x=df_sec["datetime"], y=df_sec["ma5"],
+                                line=dict(color="#f5c518", width=1.2), name="MA5"), row=1, col=1)
+                            _fig_s.add_trace(go.Scatter(x=df_sec["datetime"], y=df_sec["ma20"],
+                                line=dict(color="#00b4d8", width=1.2), name="MA20"), row=1, col=1)
+                            _fig_s.add_trace(go.Bar(x=df_sec["datetime"], y=df_sec["volume"],
+                                marker_color=_vc, name="거래량", showlegend=False), row=2, col=1)
+                            _ax = dict(gridcolor="rgba(255,255,255,0.08)", showline=False)
+                            _fig_s.update_layout(
+                                paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+                                font=dict(color="white", size=11),
+                                xaxis=dict(**_ax, rangeslider=dict(visible=False), showticklabels=False),
+                                xaxis2=dict(**_ax),
+                                yaxis=dict(**_ax, tickformat=",", side="right"),
+                                yaxis2=dict(**_ax, tickformat=".2s", side="right"),
+                                legend=dict(orientation="h", x=0, y=1.06,
+                                            bgcolor="rgba(0,0,0,0)", font=dict(size=11)),
+                                margin=dict(l=0, r=55, t=20, b=5), height=390,
+                            )
+                            st.plotly_chart(_fig_s, use_container_width=True)
+                        else:
+                            st.info("분봉 데이터를 불러올 수 없습니다. 장 운영 시간(09:00~15:30) 중 다시 시도해주세요.")
 
                     else:
-                        # 섹터 목록 뷰 → KOSPI/KOSDAQ 지수 메트릭 + TradingView 차트
-                        st.markdown("#### 📊 KOSPI / KOSDAQ 실시간")
-
-                        # 상단: 이미 fetch된 지수 데이터로 메트릭 카드 표시
+                        # 섹터 목록 뷰 → KOSPI/KOSDAQ 메트릭 카드만 표시
+                        st.markdown("#### 📊 KOSPI / KOSDAQ 현재 지수")
                         if indices:
                             _mi_c1, _mi_c2 = st.columns(2)
                             for _mi_col, _mi_name in [(_mi_c1, "KOSPI"), (_mi_c2, "KOSDAQ")]:
@@ -315,30 +345,8 @@ def main():
                                         f"{_mi['change']:+.2f}p ({_mi['change_pct']:+.2f}%)",
                                         delta_color="normal" if _mi["change"] >= 0 else "inverse",
                                     )
-
-                        # 하단: TVC:KOSPI 차트 (TVC 심볼은 임베딩 제한 없음)
-                        _tv_kospi_html = """
-                        <div class="tradingview-widget-container" style="height:330px;width:100%">
-                          <div class="tradingview-widget-container__widget" style="height:100%;width:100%"></div>
-                          <script type="text/javascript" src="https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js" async>
-                          {
-                          "autosize": true,
-                          "symbol": "TVC:KOSPI",
-                          "interval": "5",
-                          "timezone": "Asia/Seoul",
-                          "theme": "dark",
-                          "style": "1",
-                          "locale": "kr",
-                          "allow_symbol_change": true,
-                          "hide_top_toolbar": false,
-                          "hide_legend": true,
-                          "save_image": false,
-                          "backgroundColor": "rgba(0, 0, 0, 1)"
-                        }
-                          </script>
-                        </div>
-                        """
-                        components.html(_tv_kospi_html, height=340)
+                        else:
+                            st.info("지수 데이터를 불러올 수 없습니다.")
 
                 # ── 일반 주식 검색 모드 ──────────────────────────────────
                 else:
