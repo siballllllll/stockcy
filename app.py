@@ -300,31 +300,45 @@ def main():
                         components.html(_tv_kr_html, height=420)
 
                     else:
-                        # 섹터 목록 뷰 → KOSPI + KOSDAQ 지수 차트
+                        # 섹터 목록 뷰 → KOSPI/KOSDAQ 지수 메트릭 + TradingView 차트
                         st.markdown("#### 📊 KOSPI / KOSDAQ 실시간")
-                        for _idx_sym, _idx_label in [
-                            ("KRX:KOSPI",  "KOSPI"),
-                            ("KRX:KOSDAQ", "KOSDAQ"),
-                        ]:
-                            _tv_idx_html = f"""
-                            <div class="tradingview-widget-container">
-                              <div class="tradingview-widget-container__widget"></div>
-                              <script type="text/javascript"
-                                src="https://s3.tradingview.com/external-embedding/embed-widget-mini-symbol-overview.js" async>
-                              {{
-                              "symbol": "{_idx_sym}",
-                              "width": "100%",
-                              "height": 180,
-                              "colorTheme": "dark",
-                              "trendLineColor": "rgba(255, 75, 75, 1)",
-                              "underLineColor": "rgba(255, 75, 75, 0.15)",
-                              "isTransparent": true,
-                              "locale": "kr"
-                            }}
-                              </script>
-                            </div>
-                            """
-                            components.html(_tv_idx_html, height=190)
+
+                        # 상단: 이미 fetch된 지수 데이터로 메트릭 카드 표시
+                        if indices:
+                            _mi_c1, _mi_c2 = st.columns(2)
+                            for _mi_col, _mi_name in [(_mi_c1, "KOSPI"), (_mi_c2, "KOSDAQ")]:
+                                if _mi_name in indices:
+                                    _mi = indices[_mi_name]
+                                    _mi_col.metric(
+                                        f"{'📈' if _mi['change'] >= 0 else '📉'} {_mi_name}",
+                                        f"{_mi['index']:,.2f}",
+                                        f"{_mi['change']:+.2f}p ({_mi['change_pct']:+.2f}%)",
+                                        delta_color="normal" if _mi["change"] >= 0 else "inverse",
+                                    )
+
+                        # 하단: TVC:KOSPI 차트 (TVC 심볼은 임베딩 제한 없음)
+                        _tv_kospi_html = """
+                        <div class="tradingview-widget-container" style="height:330px;width:100%">
+                          <div class="tradingview-widget-container__widget" style="height:100%;width:100%"></div>
+                          <script type="text/javascript" src="https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js" async>
+                          {
+                          "autosize": true,
+                          "symbol": "TVC:KOSPI",
+                          "interval": "5",
+                          "timezone": "Asia/Seoul",
+                          "theme": "dark",
+                          "style": "1",
+                          "locale": "kr",
+                          "allow_symbol_change": true,
+                          "hide_top_toolbar": false,
+                          "hide_legend": true,
+                          "save_image": false,
+                          "backgroundColor": "rgba(0, 0, 0, 1)"
+                        }
+                          </script>
+                        </div>
+                        """
+                        components.html(_tv_kospi_html, height=340)
 
                 # ── 일반 주식 검색 모드 ──────────────────────────────────
                 else:
