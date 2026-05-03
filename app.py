@@ -3,7 +3,7 @@ import pandas as pd
 import plotly.graph_objects as go
 from datetime import datetime
 from data import get_us_stock_data, get_us_market_indices, get_us_stock_detail
-from data_kr import get_us_prices_bulk_kis
+from data_kr import get_us_prices_bulk_kis, get_kr_index_history
 
 # 1. 페이지 기본 설정 (항상 최상단에 위치)
 st.set_page_config(
@@ -336,7 +336,6 @@ def main():
 
                     else:
                         # 섹터 목록 뷰 → KOSPI/KOSDAQ Toss 스타일 라인 차트
-                        from data_kr import get_kr_index_history
 
                         # KOSPI / KOSDAQ 탭 토글
                         _itab_c1, _itab_c2 = st.columns(2)
