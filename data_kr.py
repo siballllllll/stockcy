@@ -361,6 +361,45 @@ def get_kr_volume_ranking():
     return results
 
 
+@st.cache_data(ttl=300)
+def get_kr_change_ranking(market: str = "J") -> list:
+    """등락률 상위 20개 종목 (KIS 랭킹 API, J=KOSPI / Q=KOSDAQ)"""
+    data = _get(
+        "/uapi/domestic-stock/v1/ranking/fluctuation",
+        "FHPST01700000",
+        {
+            "fid_cond_mrkt_div_code": market,
+            "fid_cond_scr_div_code": "20170",
+            "fid_input_iscd": "0000",
+            "fid_rank_sort_cls_code": "0",   # 0=상승률순
+            "fid_input_cnt_1": "0",
+            "fid_prc_cls_code": "1",
+            "fid_input_price_1": "",
+            "fid_input_price_2": "",
+            "fid_vol_cnt": "",
+            "fid_trgt_cls_code": "0",
+            "fid_trgt_exls_cls_code": "0",
+            "fid_div_cls_code": "0",
+            "fid_rsfl_rate1": "",
+            "fid_rsfl_rate2": "",
+        },
+    )
+    if not data:
+        return []
+    results = []
+    for item in data.get("output", [])[:20]:
+        change_pct = float(item.get("prdy_ctrt", 0) or 0)
+        results.append({
+            "종목코드": item.get("stck_shrn_iscd", "") or item.get("mksc_shrn_iscd", ""),
+            "종목명": item.get("hts_kor_isnm", ""),
+            "현재가": int(item.get("stck_prpr", 0) or 0),
+            "등락률(%)": change_pct,
+            "거래량": int(item.get("acml_vol", 0) or 0),
+            "시장": "KOSPI" if market == "J" else "KOSDAQ",
+        })
+    return results
+
+
 @st.cache_data(ttl=60)
 def get_kr_index_history(symbol: str, period: str = "1d") -> pd.DataFrame:
     """KOSPI(^KS11) / KOSDAQ(^KQ11) 지수 히스토리 (yfinance)"""
