@@ -359,3 +359,29 @@ def get_kr_volume_ranking():
             "상태": "상승 🔴" if change_pct > 0 else ("하락 🔵" if change_pct < 0 else "보합 ⚪"),
         })
     return results
+
+
+@st.cache_data(ttl=60)
+def get_kr_index_history(symbol: str, period: str = "1d") -> pd.DataFrame:
+    """KOSPI(^KS11) / KOSDAQ(^KQ11) 지수 히스토리 (yfinance)"""
+    import yfinance as yf
+    _interval_map = {
+        "1d":  "5m",
+        "5d":  "30m",
+        "1mo": "1d",
+        "3mo": "1d",
+        "1y":  "1d",
+    }
+    interval = _interval_map.get(period, "1d")
+    try:
+        df = yf.Ticker(symbol).history(period=period, interval=interval, auto_adjust=True)
+        if df.empty:
+            return pd.DataFrame()
+        if df.index.tz is not None:
+            df.index = df.index.tz_convert("Asia/Seoul").tz_localize(None)
+        df = df.reset_index()
+        dt_col = "Datetime" if "Datetime" in df.columns else "Date"
+        df = df[[dt_col, "Close"]].rename(columns={dt_col: "datetime", "Close": "close"})
+        return df
+    except Exception:
+        return pd.DataFrame()

@@ -218,6 +218,8 @@ def main():
                 ("kr_sector_view", "list"),
                 ("kr_sector_detail_code", ""),
                 ("kr_sector_detail_name", ""),
+                ("kr_index_tab", "KOSPI"),
+                ("kr_index_period", "1d"),
             ]:
                 if _k not in st.session_state:
                     st.session_state[_k] = _v
@@ -333,21 +335,97 @@ def main():
                             st.info("분봉 데이터를 불러올 수 없습니다. 장 운영 시간(09:00~15:30) 중 다시 시도해주세요.")
 
                     else:
-                        # 섹터 목록 뷰 → KOSPI/KOSDAQ 메트릭 카드만 표시
-                        st.markdown("#### 📊 KOSPI / KOSDAQ 현재 지수")
-                        if indices:
-                            _mi_c1, _mi_c2 = st.columns(2)
-                            for _mi_col, _mi_name in [(_mi_c1, "KOSPI"), (_mi_c2, "KOSDAQ")]:
-                                if _mi_name in indices:
-                                    _mi = indices[_mi_name]
-                                    _mi_col.metric(
-                                        f"{'📈' if _mi['change'] >= 0 else '📉'} {_mi_name}",
-                                        f"{_mi['index']:,.2f}",
-                                        f"{_mi['change']:+.2f}p ({_mi['change_pct']:+.2f}%)",
-                                        delta_color="normal" if _mi["change"] >= 0 else "inverse",
-                                    )
+                        # 섹터 목록 뷰 → KOSPI/KOSDAQ Toss 스타일 라인 차트
+                        from data_kr import get_kr_index_history
+
+                        # KOSPI / KOSDAQ 탭 토글
+                        _itab_c1, _itab_c2 = st.columns(2)
+                        for _itc, _itn in [(_itab_c1, "KOSPI"), (_itab_c2, "KOSDAQ")]:
+                            _active = st.session_state.kr_index_tab == _itn
+                            if _itc.button(
+                                _itn,
+                                key=f"idx_tab_{_itn}",
+                                use_container_width=True,
+                                type="primary" if _active else "secondary",
+                            ):
+                                st.session_state.kr_index_tab = _itn
+                                st.rerun()
+
+                        _cur_tab    = st.session_state.kr_index_tab
+                        _cur_symbol = "^KS11" if _cur_tab == "KOSPI" else "^KQ11"
+                        _idx_data   = indices.get(_cur_tab, {})
+                        _idx_val    = _idx_data.get("index", 0)
+                        _idx_chg    = _idx_data.get("change", 0)
+                        _idx_pct    = _idx_data.get("change_pct", 0)
+                        _is_up_idx  = _idx_chg >= 0
+                        _lc         = "#ff4b4b" if _is_up_idx else "#2b7cff"
+                        _fc         = "rgba(255,75,75,0.12)" if _is_up_idx else "rgba(43,124,255,0.12)"
+                        _sign       = "+" if _is_up_idx else ""
+
+                        # 현재 지수값 + 등락 표시 (토스 스타일: 크고 굵게)
+                        st.markdown(
+                            f"<div style='margin:8px 0 4px 0'>"
+                            f"<span style='font-size:1.55rem;font-weight:700'>"
+                            f"{_idx_val:,.2f}</span>&nbsp;"
+                            f"<span style='font-size:0.88rem;color:{_lc};font-weight:600'>"
+                            f"{_sign}{_idx_chg:.2f}p&nbsp;({_sign}{_idx_pct:.2f}%)</span>"
+                            f"</div>",
+                            unsafe_allow_html=True,
+                        )
+
+                        # 기간 선택 버튼
+                        _periods = [("1일","1d"),("1주","5d"),("1달","1mo"),("3달","3mo"),("1년","1y")]
+                        _pcols   = st.columns(len(_periods))
+                        for _pi, (_pl, _pv) in enumerate(_periods):
+                            _sel = st.session_state.kr_index_period == _pv
+                            if _pcols[_pi].button(
+                                _pl, key=f"idx_per_{_pv}",
+                                use_container_width=True,
+                                type="primary" if _sel else "secondary",
+                            ):
+                                st.session_state.kr_index_period = _pv
+                                st.rerun()
+
+                        # 차트 그리기
+                        _period = st.session_state.kr_index_period
+                        with st.spinner(""):
+                            _df_idx = get_kr_index_history(_cur_symbol, _period)
+
+                        if not _df_idx.empty:
+                            _fig_idx = go.Figure()
+                            _fig_idx.add_trace(go.Scatter(
+                                x=_df_idx["datetime"],
+                                y=_df_idx["close"],
+                                mode="lines",
+                                line=dict(color=_lc, width=2),
+                                fill="tozeroy",
+                                fillcolor=_fc,
+                                hovertemplate="%{x|%m/%d %H:%M}<br><b>%{y:,.2f}</b><extra></extra>",
+                            ))
+                            _fig_idx.update_layout(
+                                height=285,
+                                margin=dict(l=0, r=4, t=4, b=0),
+                                paper_bgcolor="rgba(0,0,0,0)",
+                                plot_bgcolor="rgba(0,0,0,0)",
+                                showlegend=False,
+                                xaxis=dict(
+                                    showgrid=False, showline=False, zeroline=False,
+                                    tickfont=dict(size=10, color="#666"),
+                                    tickformat="%H:%M" if _period == "1d" else "%m/%d",
+                                ),
+                                yaxis=dict(
+                                    showgrid=False, showline=False, zeroline=False,
+                                    tickfont=dict(size=10, color="#666"),
+                                    side="right", tickformat=",.0f",
+                                ),
+                                hovermode="x unified",
+                            )
+                            st.plotly_chart(
+                                _fig_idx, use_container_width=True,
+                                config={"displayModeBar": False},
+                            )
                         else:
-                            st.info("지수 데이터를 불러올 수 없습니다.")
+                            st.info("차트 데이터를 불러올 수 없습니다.")
 
                 # ── 일반 주식 검색 모드 ──────────────────────────────────
                 else:
