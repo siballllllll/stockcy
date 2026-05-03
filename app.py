@@ -295,6 +295,7 @@ def main():
                 ("kr_sector_detail_name", ""),
                 ("kr_index_tab", "KOSPI"),
                 ("kr_index_period", "1d"),
+                ("ai_pattern_kw", ""),
             ]:
                 if _k not in st.session_state:
                     st.session_state[_k] = _v
@@ -909,6 +910,89 @@ def main():
                                 with st.spinner(""):
                                     _ai_prices = get_kr_prices_bulk(tuple(_all_ai_tickers)) if _all_ai_tickers else {}
 
+                                # ── 신규 이슈 섹터 요약 패널 ──────────────
+                                _new_sec_list = [
+                                    s for s in _ai_sectors
+                                    if not any(_ai_sector_db.get(s.get("keyword", ""), {}).values())
+                                ]
+                                _all_dyn_subs = [
+                                    (s.get("keyword", ""), ds)
+                                    for s in _ai_sectors
+                                    for ds in s.get("dynamic_subsectors", [])
+                                ]
+                                if _new_sec_list or _all_dyn_subs:
+                                    st.markdown(
+                                        "<p style='font-size:0.78rem;font-weight:700;color:#4caf50;margin:8px 0 4px 0'>"
+                                        "⚡ 오늘의 신규 이슈 감지</p>",
+                                        unsafe_allow_html=True,
+                                    )
+                                    _iss_cols = st.columns(min(len(_new_sec_list) + len(_all_dyn_subs), 4))
+                                    _iss_idx = 0
+                                    for _nsl in _new_sec_list:
+                                        if _iss_idx < len(_iss_cols):
+                                            _iss_cols[_iss_idx].markdown(
+                                                f"<div style='background:rgba(76,175,80,0.1);border:1px solid #4caf50;"
+                                                f"border-radius:8px;padding:6px 10px;margin:2px 0'>"
+                                                f"<span style='font-size:0.72rem;font-weight:700;color:#4caf50'>🆕 {_nsl['keyword']}</span><br>"
+                                                f"<span style='font-size:0.68rem;color:#aaa'>{_nsl.get('reason','')[:50]}...</span>"
+                                                f"</div>",
+                                                unsafe_allow_html=True,
+                                            )
+                                            _iss_idx += 1
+                                    for _par, _ds in _all_dyn_subs:
+                                        if _iss_idx < len(_iss_cols):
+                                            _iss_cols[_iss_idx].markdown(
+                                                f"<div style='background:rgba(255,152,0,0.1);border:1px solid #ff9800;"
+                                                f"border-radius:8px;padding:6px 10px;margin:2px 0'>"
+                                                f"<span style='font-size:0.72rem;font-weight:700;color:#ff9800'>📡 {_ds['name']}</span><br>"
+                                                f"<span style='font-size:0.68rem;color:#aaa'>{_par} › {_ds.get('reason','')[:40]}...</span>"
+                                                f"</div>",
+                                                unsafe_allow_html=True,
+                                            )
+                                            _iss_idx += 1
+                                    st.markdown("<hr style='margin:6px 0;border:none;border-top:1px solid rgba(255,255,255,0.07)'>", unsafe_allow_html=True)
+
+                                # ── 역사적 패턴 분석 결과 패널 ──────────────
+                                _pat_kw = st.session_state.get("ai_pattern_kw", "")
+                                if _pat_kw:
+                                    from ai_engine import analyze_market_pattern
+                                    with st.spinner(f"🔍 {_pat_kw} 역사적 패턴 분석 중..."):
+                                        _pat_data = analyze_market_pattern(_pat_kw)
+                                    with st.container(border=True):
+                                        _pcol1, _pcol2 = st.columns([9, 1])
+                                        _pcol1.markdown(
+                                            f"<p style='font-size:0.82rem;font-weight:700;color:#64b5f6;margin:0'>📊 {_pat_kw} — 역사적 패턴 분석</p>",
+                                            unsafe_allow_html=True,
+                                        )
+                                        if _pcol2.button("✕", key="pat_close"):
+                                            st.session_state["ai_pattern_kw"] = ""
+                                            st.rerun()
+                                        if "error" in _pat_data:
+                                            st.error(f"패턴 분석 오류: {_pat_data['error']}")
+                                        else:
+                                            for _hp in _pat_data.get("historical_patterns", []):
+                                                st.markdown(
+                                                    f"**📅 {_hp.get('period','')}** — {_hp.get('trigger','')}  \n"
+                                                    f"{_hp.get('what_happened','')} *({_hp.get('duration','')})*"
+                                                )
+                                            if _pat_data.get("current_similarity"):
+                                                st.markdown(f"**🔗 현재 유사도**: {_pat_data['current_similarity']}")
+                                            if _pat_data.get("prediction"):
+                                                st.markdown(
+                                                    f"<div style='background:rgba(100,181,246,0.08);border-left:3px solid #64b5f6;"
+                                                    f"padding:6px 10px;border-radius:4px;margin:4px 0'>"
+                                                    f"<span style='font-size:0.78rem;color:#64b5f6;font-weight:700'>🎯 예측</span><br>"
+                                                    f"<span style='font-size:0.75rem;color:#ccc'>{_pat_data['prediction']}</span>"
+                                                    f"</div>",
+                                                    unsafe_allow_html=True,
+                                                )
+                                            if _pat_data.get("risk_factors"):
+                                                st.markdown(f"**⚠️ 리스크**: {_pat_data['risk_factors']}")
+                                            _watch = _pat_data.get("key_stocks_to_watch", [])
+                                            if _watch:
+                                                st.markdown("**👀 주목 종목**: " + " · ".join(_watch))
+                                    st.markdown("")
+
                                 with st.container(height=520):
                                     for _asi, _as in enumerate(_ai_sectors):
                                         _kw     = _as.get("keyword", "")
@@ -979,6 +1063,34 @@ def main():
                                                     f"<span class='sector-pill'>🤖 {_ns.get('name','')} — {_ns.get('reason','')}</span>",
                                                     unsafe_allow_html=True,
                                                 )
+
+                                            # 동적 서브섹터 (오늘 새로 부각된 세부 테마)
+                                            _dyn_subs = _as.get("dynamic_subsectors", [])
+                                            if _dyn_subs:
+                                                st.markdown(
+                                                    "<hr style='margin:4px 0;border:none;border-top:1px solid rgba(255,152,0,0.2)'>",
+                                                    unsafe_allow_html=True,
+                                                )
+                                            for _dys in _dyn_subs:
+                                                st.markdown(
+                                                    f"<div style='padding:4px 8px;background:rgba(255,152,0,0.07);"
+                                                    f"border-left:2px solid #ff9800;border-radius:0 4px 4px 0;margin:2px 0'>"
+                                                    f"<span style='font-size:0.72rem;color:#ff9800;font-weight:700'>📡 {_dys['name']}</span>"
+                                                    f"<span style='font-size:0.68rem;color:#aaa;margin-left:8px'>{_dys.get('reason','')}</span>"
+                                                    f"</div>",
+                                                    unsafe_allow_html=True,
+                                                )
+                                                for _dns in _dys.get("new_stocks", [])[:2]:
+                                                    st.markdown(
+                                                        f"<span class='sector-pill' style='font-size:0.67rem'>↳ {_dns.get('name','')} — {_dns.get('reason','')}</span>",
+                                                        unsafe_allow_html=True,
+                                                    )
+
+                                            # 역사적 패턴 분석 버튼
+                                            if st.button("📊 역사적 패턴", key=f"pat_btn_{_asi}", help=f"{_kw} 섹터 과거 패턴 기반 미래 예측"):
+                                                st.session_state["ai_pattern_kw"] = _kw
+                                                st.rerun()
+
 
                         # ── 전체 섹터 탐색 탭 ──────────────────────────────
                         else:

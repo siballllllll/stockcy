@@ -398,6 +398,9 @@ def analyze_kr_hot_sectors() -> dict:
 3. 실시간 급등 종목 데이터가 있으면 해당 종목이 속한 섹터의 hot_codes에 반영하세요.
 4. hot_codes: 이 섹터에서 오늘 가장 주목받는 종목코드 최대 10개 (KR 6자리).
 5. new_stocks: DB에 없지만 오늘 뉴스로 주목받는 신규 종목 (신규 섹터일 때 특히 중요).
+6. dynamic_subsectors: 이 섹터 안에서 오늘 뉴스·수급으로 새롭게 부각되는 세부 테마 최대 2개.
+   예) '통신' 섹터에서 '광통신'이 급부상, 'AI·로봇' 섹터에서 '온디바이스AI'가 급부상하는 경우.
+   세부테마가 없으면 빈 배열 []로 두세요.
 
 반드시 아래 JSON으로만 응답하세요. 주석 없이:
 {{
@@ -411,6 +414,16 @@ def analyze_kr_hot_sectors() -> dict:
       "hot_codes": ["005930", "000660"],
       "new_stocks": [
         {{"name": "종목명", "code": "6자리코드", "suffix": ".KS또는.KQ", "reason": "편입 이유"}}
+      ],
+      "dynamic_subsectors": [
+        {{
+          "name": "세부테마명 (예: 광통신, 온디바이스AI)",
+          "reason": "오늘 이 세부테마가 새롭게 부각되는 이유 1문장",
+          "hot_codes": ["종목코드1", "종목코드2"],
+          "new_stocks": [
+            {{"name": "종목명", "code": "6자리코드", "suffix": ".KS또는.KQ", "reason": "편입 이유"}}
+          ]
+        }}
       ]
     }}
   ]
@@ -429,6 +442,49 @@ def analyze_kr_hot_sectors() -> dict:
         return json.loads(text)
     except Exception:
         raise  # 오류는 캐시하지 않음 — app.py에서 try/except로 처리
+
+
+@st.cache_data(ttl=3600)
+def analyze_market_pattern(keyword: str) -> dict:
+    """특정 섹터/테마의 역사적 경제 패턴을 분석하고 미래를 예측합니다. (1시간 캐싱)"""
+    prompt = f"""당신은 한국 주식시장 전문 섹터 애널리스트이자 역사적 패턴 분석 전문가입니다.
+지금 즉시 구글 검색으로 '{keyword}' 섹터/테마에 대한 역사적 주가 패턴과 현재 상황을 분석하세요.
+
+[분석 항목]:
+1. 과거에 유사한 이슈/사건이 발생했을 때 이 섹터가 어떻게 움직였는지 (최대 3건의 역사적 사례)
+2. 현재 상황과 과거 패턴의 유사점/차이점
+3. 과거 패턴 기반 향후 3~6개월 전망
+
+반드시 아래 JSON으로만 응답하세요. 주석 없이:
+{{
+  "keyword": "{keyword}",
+  "historical_patterns": [
+    {{
+      "period": "시기 (예: 2020년 코로나 이후)",
+      "trigger": "촉발 요인 (1문장)",
+      "what_happened": "해당 섹터 주가 반응 및 주요 종목 움직임 (1~2문장)",
+      "duration": "지속 기간 (예: 약 6개월)",
+      "outcome": "최종 결과 (1문장)"
+    }}
+  ],
+  "current_similarity": "현재 상황과 과거 패턴의 유사도 분석 (2~3문장)",
+  "prediction": "과거 패턴 기반 향후 3~6개월 전망 (2~3문장, 가능하면 수치 포함)",
+  "risk_factors": "주요 리스크 요인 (1~2문장)",
+  "key_stocks_to_watch": ["주목할 국내 종목명1", "종목명2", "종목명3"]
+}}"""
+    try:
+        response = _call_gemini(
+            prompt, use_search=True, temperature=0.5,
+            response_mime_type="application/json",
+        )
+        text = re.sub(r'```(?:json)?', '', response.text).strip()
+        start = text.find('{')
+        if start != -1:
+            result, _ = json.JSONDecoder().raw_decode(text, start)
+            return result
+        return json.loads(text)
+    except Exception as e:
+        return {"keyword": keyword, "error": str(e)}
 
 
 @st.cache_data(ttl=300)

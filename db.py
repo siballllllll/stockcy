@@ -151,7 +151,10 @@ def log_ai_recommendation(rec_type: str, ticker: str, name: str, rating: str,
 
 @st.cache_data(ttl=300)
 def load_sector_map() -> dict:
-    """Google Sheets 섹터DB 탭에서 섹터 맵 로드. 없거나 실패 시 sectors_kr.py 폴백."""
+    """Google Sheets 섹터DB 탭에서 섹터 맵 로드.
+    sectors_kr.py가 더 많은 섹터를 가지면 항상 파일 우선 (업데이트 자동 반영).
+    """
+    from sectors_kr import KR_SECTOR_MAP
     try:
         sh, _ = _get_spreadsheet()
         if sh is None:
@@ -177,9 +180,11 @@ def load_sector_map() -> dict:
             )
         if not sector_map:
             raise Exception("파싱 결과 빈 맵")
+        # sectors_kr.py가 더 많은 섹터 → 코드가 최신, 파일 우선
+        if len(KR_SECTOR_MAP) >= len(sector_map):
+            return KR_SECTOR_MAP
         return sector_map
     except Exception:
-        from sectors_kr import KR_SECTOR_MAP
         return KR_SECTOR_MAP
 
 
