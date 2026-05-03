@@ -92,8 +92,9 @@ def _call_gemini(prompt, use_search=False, temperature=0.7, response_mime_type=N
                 if ("503" in err_str or "UNAVAILABLE" in err_str) and attempt == 0:
                     time.sleep(3)
                     continue
-                # 429 쿼터 소진 → 다음 모델로 전환
-                if "429" in err_str or "RESOURCE_EXHAUSTED" in err_str:
+                # 429 쿼터 소진 또는 404 모델 미지원 → 다음 모델로 전환
+                if ("429" in err_str or "RESOURCE_EXHAUSTED" in err_str
+                        or "404" in err_str or "NOT_FOUND" in err_str):
                     break
                 # 그 외 오류 → 즉시 raise
                 raise api_err
@@ -358,7 +359,7 @@ def generate_dynamic_themes():
         return {"error": str(e), "themes": []}
 
 
-@st.cache_data(ttl=1800)  # 30분 캐싱
+@st.cache_data(ttl=1800)  # 30분 캐싱 (성공 결과만 캐시됨)
 def analyze_kr_hot_sectors() -> dict:
     """
     Gemini + Google Search로 오늘 증권사 리포트·금융 뉴스를 분석하여
@@ -408,8 +409,8 @@ def analyze_kr_hot_sectors() -> dict:
             result, _ = json.JSONDecoder().raw_decode(text, start)
             return result
         return json.loads(text)
-    except Exception as e:
-        return {"error": str(e), "sectors": []}
+    except Exception:
+        raise  # 오류는 캐시하지 않음 — app.py에서 try/except로 처리
 
 
 @st.cache_data(ttl=300)

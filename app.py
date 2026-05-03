@@ -867,13 +867,19 @@ def main():
                                 unsafe_allow_html=True,
                             )
                             if _ai_ref.button("🔄", key="ai_sec_refresh", help="AI 재분석"):
-                                analyze_kr_hot_sectors.clear()
+                                try:
+                                    analyze_kr_hot_sectors.clear()
+                                except Exception:
+                                    pass
                                 st.rerun()
 
                             with st.spinner("🧠 AI가 오늘의 핫 섹터를 분석 중..."):
-                                _ai_res = analyze_kr_hot_sectors()
+                                try:
+                                    _ai_res = analyze_kr_hot_sectors()
+                                except Exception as _ai_err:
+                                    _ai_res = {"error": str(_ai_err), "sectors": []}
 
-                            if "error" in _ai_res and not _ai_res.get("sectors"):
+                            if not _ai_res.get("sectors") and _ai_res.get("error"):
                                 st.error(f"AI 분석 오류: {_ai_res['error']}")
                             else:
                                 _ai_sectors = sorted(
