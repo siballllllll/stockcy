@@ -363,14 +363,15 @@ def generate_dynamic_themes():
 def analyze_kr_hot_sectors() -> dict:
     """
     Gemini + Google Search로 오늘 증권사 리포트·금융 뉴스를 분석하여
-    핫 섹터를 선별하고 sector_knowledge.py 지식 베이스와 매핑합니다.
+    핫 섹터를 선별하고 sectors_kr.py DB와 매핑합니다.
     실시간 급등 종목(KIS API)을 프롬프트에 주입하여 정확도를 높입니다.
     """
-    from sector_knowledge import SECTOR_KNOWLEDGE
+    from sectors_kr import KR_SECTOR_MAP
     from data_kr import get_kr_change_ranking
 
-    known_keywords = list(SECTOR_KNOWLEDGE.keys())
-    keywords_str   = "\n".join(f"- {k}: {SECTOR_KNOWLEDGE[k]['desc']}" for k in known_keywords)
+    # sectors_kr.py 전체 섹터명을 AI 키워드 기준으로 사용
+    known_sectors = list(KR_SECTOR_MAP.keys())
+    sectors_str   = "\n".join(f"- {s}" for s in known_sectors)
 
     # 실시간 급등 종목 수집 (KOSPI + KOSDAQ 상위 10개씩)
     gainers_str = ""
@@ -388,22 +389,22 @@ def analyze_kr_hot_sectors() -> dict:
     prompt = f"""당신은 한국 주식시장 전문 섹터 애널리스트입니다.
 지금 즉시 구글 검색으로 오늘(한국 기준) 증권사 리포트, 금융 뉴스, 공시에서 주목받는 테마를 분석하세요.
 
-[사전 학습된 섹터 키워드 목록]:
-{keywords_str}
+[등록된 섹터 DB (keyword는 아래 이름과 정확히 일치시킬 것)]:
+{sectors_str}
 {gainers_str}
 [지시사항]:
-1. 위 목록에서 오늘 가장 뜨거운 섹터 5~7개를 선택하세요.
-2. 목록에 없어도 오늘 새롭게 부각되는 섹터가 있으면 추가하세요.
-3. 실시간 급등 종목 데이터가 제공된 경우, 해당 종목이 속한 섹터를 반드시 hot_codes에 반영하세요.
-4. 각 섹터에 오늘 관련 종목코드(KR 6자리)를 hot_codes로 반환하세요.
-5. DB에 없지만 오늘 뉴스로 주목받는 신규 종목은 new_stocks에 추가하세요.
+1. 위 DB에서 오늘 가장 뜨거운 섹터 5~7개를 선택하세요. keyword는 위 섹터명과 정확히 일치해야 합니다.
+2. DB에 없어도 오늘 뉴스에서 새롭게 부각되는 테마가 있으면 신규 keyword로 추가하세요 (예: 양자컴퓨터·암호, 우주·항공우주).
+3. 실시간 급등 종목 데이터가 있으면 해당 종목이 속한 섹터의 hot_codes에 반영하세요.
+4. hot_codes: 이 섹터에서 오늘 가장 주목받는 종목코드 최대 10개 (KR 6자리).
+5. new_stocks: DB에 없지만 오늘 뉴스로 주목받는 신규 종목 (신규 섹터일 때 특히 중요).
 
 반드시 아래 JSON으로만 응답하세요. 주석 없이:
 {{
   "market": "KR",
   "sectors": [
     {{
-      "keyword": "섹터명 (알려진 키워드 그대로 또는 신규)",
+      "keyword": "섹터명 (DB에 있으면 그대로, 없으면 신규명)",
       "hot_score": 1~10,
       "reason": "오늘 이 섹터가 주목받는 이유 (뉴스 기반, 2문장)",
       "news_title": "관련 오늘 뉴스 제목",

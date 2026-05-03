@@ -859,7 +859,6 @@ def main():
                         # ── AI 실시간 분석 탭 ──────────────────────────────
                         if st.session_state.kr_sector_panel_tab == _spt_tabs[0]:
                             from ai_engine import analyze_kr_hot_sectors
-                            from sector_knowledge import SECTOR_KNOWLEDGE
 
                             _ai_hdr, _ai_ref = st.columns([8, 1])
                             _ai_hdr.markdown(
@@ -887,17 +886,23 @@ def main():
                                     key=lambda x: -x.get("hot_score", 0),
                                 )
 
+                                # sectors_kr.py 전체 맵 (AI 탭 종목 소스)
+                                _ai_sector_db = load_sector_map()
+
                                 # 전체 종목 일괄 시세 조회 (루프 밖에서 한 번만)
                                 _all_ai_tickers: list = []
                                 _ai_code_suffix: dict = {}
                                 for _as in _ai_sectors:
-                                    _kb = SECTOR_KNOWLEDGE.get(_as.get("keyword", ""), {})
-                                    _kb_stocks = _kb.get("kr", [])
-                                    _hot_codes = _as.get("hot_codes", [])
-                                    _display = [s for s in _kb_stocks if not _hot_codes or s["code"] in _hot_codes]
-                                    if not _display:
-                                        _display = _kb_stocks[:5]
-                                    for _ds in _display:
+                                    _kw_pre = _as.get("keyword", "")
+                                    _hot_codes_pre = _as.get("hot_codes", [])
+                                    # sectors_kr.py에서 해당 섹터 전체 종목 flatten
+                                    _all_sec_stocks = []
+                                    for _sub_stks in _ai_sector_db.get(_kw_pre, {}).values():
+                                        _all_sec_stocks.extend(_sub_stks)
+                                    _display_pre = [s for s in _all_sec_stocks if not _hot_codes_pre or s["code"] in _hot_codes_pre]
+                                    if not _display_pre:
+                                        _display_pre = _all_sec_stocks[:10]
+                                    for _ds in _display_pre[:10]:
                                         if _ds["code"] not in _ai_code_suffix:
                                             _ai_code_suffix[_ds["code"]] = _ds["suffix"]
                                             _all_ai_tickers.append((_ds["code"], _ds["code"] + _ds["suffix"]))
@@ -910,19 +915,24 @@ def main():
                                         _score  = _as.get("hot_score", 0)
                                         _reason = _as.get("reason", "")
                                         _news   = _as.get("news_title", "")
-                                        _kb     = SECTOR_KNOWLEDGE.get(_kw, {})
-                                        _kb_stocks = _kb.get("kr", [])
                                         _hot_codes = _as.get("hot_codes", [])
-                                        _display = [s for s in _kb_stocks if not _hot_codes or s["code"] in _hot_codes]
+                                        # sectors_kr.py에서 해당 섹터 종목 flatten
+                                        _all_sec = []
+                                        for _sub_stks in _ai_sector_db.get(_kw, {}).values():
+                                            _all_sec.extend(_sub_stks)
+                                        _display = [s for s in _all_sec if not _hot_codes or s["code"] in _hot_codes]
                                         if not _display:
-                                            _display = _kb_stocks[:5]
+                                            _display = _all_sec[:10]
+                                        # 신규 섹터(DB 없음): AI new_stocks를 변환해서 표시
+                                        _is_new_sector = len(_all_sec) == 0
 
                                         with st.container(border=True):
                                             # 섹터 헤더
                                             _fire = "🔥" * max(1, min(int(_score / 2.5), 4))
+                                            _new_badge = " <span style='font-size:0.65rem;color:#4caf50;border:1px solid #4caf50;border-radius:3px;padding:1px 4px'>NEW</span>" if _is_new_sector else ""
                                             st.markdown(
                                                 f"<div style='display:flex;justify-content:space-between;align-items:center;margin-bottom:2px'>"
-                                                f"<span style='font-size:0.9rem;font-weight:700'>{_kw}</span>"
+                                                f"<span style='font-size:0.9rem;font-weight:700'>{_kw}{_new_badge}</span>"
                                                 f"<span style='font-size:0.78rem;color:#ff9800'>{_fire} {_score}/10</span>"
                                                 f"</div>",
                                                 unsafe_allow_html=True,
@@ -938,8 +948,8 @@ def main():
                                                     unsafe_allow_html=True,
                                                 )
 
-                                            # 종목 행
-                                            for _si, _stk in enumerate(_display[:5]):
+                                            # 종목 행 (최대 10개)
+                                            for _si, _stk in enumerate(_display[:10]):
                                                 if _si > 0:
                                                     st.markdown(
                                                         '<hr style="margin:1px 0;border:none;border-top:1px solid rgba(255,255,255,0.07)">',
