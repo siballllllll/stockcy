@@ -78,7 +78,8 @@ def _call_gemini(prompt, use_search=False, temperature=0.7, response_mime_type=N
     config_kwargs = {"temperature": temperature}
     if use_search:
         config_kwargs["tools"] = [{"google_search": {}}]
-    if response_mime_type:
+        # Google Search grounding과 JSON 응답 모드는 동시 사용 불가 → 무시
+    elif response_mime_type:
         config_kwargs["response_mime_type"] = response_mime_type
 
     config = types.GenerateContentConfig(**config_kwargs)
@@ -101,6 +102,8 @@ def _call_gemini(prompt, use_search=False, temperature=0.7, response_mime_type=N
                 if ("503" in err_str or "UNAVAILABLE" in err_str) and attempt == 0:
                     time.sleep(3)
                     continue
+                if ("400" in err_str or "INVALID_ARGUMENT" in err_str):
+                    break  # 잘못된 요청 — 재시도 불필요
                 if ("429" in err_str or "RESOURCE_EXHAUSTED" in err_str
                         or "404" in err_str or "NOT_FOUND" in err_str):
                     if "429" in err_str or "RESOURCE_EXHAUSTED" in err_str:
@@ -139,7 +142,7 @@ def generate_daily_briefing():
     }
     """
     try:
-        response = _call_gemini(prompt, use_search=True, temperature=0.7, response_mime_type="application/json")
+        response = _call_gemini(prompt, use_search=True, temperature=0.7)
         text = re.sub(r'```(?:json)?', '', response.text).strip()
         start = text.find('{')
         if start != -1:
@@ -443,10 +446,7 @@ def analyze_kr_hot_sectors() -> dict:
 }}"""
 
     try:
-        response = _call_gemini(
-            prompt, use_search=True, temperature=0.5,
-            response_mime_type="application/json",
-        )
+        response = _call_gemini(prompt, use_search=True, temperature=0.5)
         text  = re.sub(r'```(?:json)?', '', response.text).strip()
         start = text.find('{')
         if start != -1:
@@ -454,9 +454,10 @@ def analyze_kr_hot_sectors() -> dict:
             return result
         return json.loads(text)
     except Exception as e:
-        if "QUOTA" in str(e) or "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
+        err_str = str(e)
+        if "QUOTA" in err_str or "429" in err_str or "RESOURCE_EXHAUSTED" in err_str:
             return _quota_error_result("analyze_kr_hot_sectors")
-        raise
+        return {"error": f"AI 분석 오류: {type(e).__name__}"}
 
 
 def _quota_error_result(fn_name: str) -> dict:
@@ -520,10 +521,7 @@ def analyze_today_market() -> dict:
 }}"""
 
     try:
-        response = _call_gemini(
-            prompt, use_search=True, temperature=0.4,
-            response_mime_type="application/json",
-        )
+        response = _call_gemini(prompt, use_search=True, temperature=0.4)
         text  = re.sub(r'```(?:json)?', '', response.text).strip()
         start = text.find('{')
         if start != -1:
@@ -565,10 +563,7 @@ def analyze_market_pattern(keyword: str) -> dict:
   "key_stocks_to_watch": ["주목할 국내 종목명1", "종목명2", "종목명3"]
 }}"""
     try:
-        response = _call_gemini(
-            prompt, use_search=True, temperature=0.5,
-            response_mime_type="application/json",
-        )
+        response = _call_gemini(prompt, use_search=True, temperature=0.5)
         text = re.sub(r'```(?:json)?', '', response.text).strip()
         start = text.find('{')
         if start != -1:
