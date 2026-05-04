@@ -201,6 +201,16 @@ def get_kr_minute_chart(stock_code: str, interval: int = 5):
             {"open": "first", "high": "max", "low": "min", "close": "last", "volume": "sum"}
         ).dropna().reset_index()
 
+    # 장 시간(09:00~15:30)만 남기고, 미래 데이터 제거
+    from datetime import datetime as _dt
+    import pytz as _pytz
+    _now_kr = _dt.now(_pytz.timezone("Asia/Seoul")).replace(tzinfo=None)
+    _today  = _now_kr.date()
+    _open   = _dt.combine(_today, _dt.strptime("09:00", "%H:%M").time())
+    _close  = _dt.combine(_today, _dt.strptime("15:30", "%H:%M").time())
+    _cutoff = min(_now_kr, _close)
+
+    df = df[(df["datetime"] >= _open) & (df["datetime"] <= _cutoff)].reset_index(drop=True)
     return df
 
 
@@ -338,7 +348,7 @@ def get_kr_volume_ranking():
             "fid_div_cls_code": "0",
             "fid_blng_cls_code": "0",
             "fid_trgt_cls_code": "111111111",
-            "fid_trgt_exls_cls_code": "000000",
+            "fid_trgt_exls_cls_code": "000000000",  # 9자리 (6자리 → 오류)
             "fid_input_price_1": "",
             "fid_input_price_2": "",
             "fid_vol_cnt": "",
@@ -347,8 +357,10 @@ def get_kr_volume_ranking():
     )
     if not data:
         return []
+    # KIS 거래량 랭킹 응답: output 또는 output1
+    raw_list = data.get("output") or data.get("output1") or []
     results = []
-    for item in data.get("output", [])[:10]:
+    for item in raw_list[:10]:
         change_pct = float(item.get("prdy_ctrt", 0) or 0)
         results.append({
             "종목코드": item.get("mksc_shrn_iscd", ""),
