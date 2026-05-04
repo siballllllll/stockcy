@@ -444,6 +444,73 @@ def analyze_kr_hot_sectors() -> dict:
         raise  # 오류는 캐시하지 않음 — app.py에서 try/except로 처리
 
 
+@st.cache_data(ttl=600)  # 10분 캐싱
+def analyze_today_market() -> dict:
+    """
+    오늘 급등 종목들을 AI + Google Search로 분석하여
+    종목별 급등 이유와 오늘의 주도 테마를 반환합니다.
+    """
+    from data_kr import get_kr_change_ranking
+
+    try:
+        kospi_g  = get_kr_change_ranking("J")[:10]
+        kosdaq_g = get_kr_change_ranking("Q")[:10]
+        all_g    = kospi_g + kosdaq_g
+    except Exception:
+        all_g = []
+
+    if not all_g:
+        return {"error": "급등 종목 데이터 없음 (장 마감 또는 API 오류)"}
+
+    gainers_text = "\n".join(
+        f"- {g['종목명']}({g['종목코드']}) {g.get('등락률(%)', 0):+.1f}% [{g.get('시장', '')}]"
+        for g in all_g
+    )
+
+    prompt = f"""당신은 한국 주식시장 전문 애널리스트입니다.
+지금 즉시 구글 검색을 통해 아래 오늘의 급등 종목들의 상승 이유를 분석하세요.
+
+[오늘 급등 종목]:
+{gainers_text}
+
+[요청 사항]:
+1. 각 종목이 오늘 왜 급등하는지 뉴스·공시·테마 기반으로 1~2문장 설명
+2. 오늘 시장 전체의 주도 테마 3가지
+3. 가장 강한 테마 1개와 그 이유
+
+반드시 아래 JSON으로만 응답하세요. 주석 없이:
+{{
+  "market_summary": "오늘 시장 전체 흐름 2~3문장 핵심 요약",
+  "leading_themes": ["테마1", "테마2", "테마3"],
+  "top_theme": "오늘 가장 강한 테마명",
+  "top_theme_reason": "이 테마가 오늘 주도하는 이유 2문장",
+  "stocks": [
+    {{
+      "code": "종목코드6자리",
+      "name": "종목명",
+      "change_pct": 등락률숫자,
+      "market": "KOSPI 또는 KOSDAQ",
+      "theme": "속한 테마 (예: 방산, 광통신, AI반도체)",
+      "reason": "급등 이유 1~2문장 (뉴스·공시 기반 구체적으로)"
+    }}
+  ]
+}}"""
+
+    try:
+        response = _call_gemini(
+            prompt, use_search=True, temperature=0.4,
+            response_mime_type="application/json",
+        )
+        text  = re.sub(r'```(?:json)?', '', response.text).strip()
+        start = text.find('{')
+        if start != -1:
+            result, _ = json.JSONDecoder().raw_decode(text, start)
+            return result
+        return json.loads(text)
+    except Exception as e:
+        return {"error": str(e)}
+
+
 @st.cache_data(ttl=3600)
 def analyze_market_pattern(keyword: str) -> dict:
     """특정 섹터/테마의 역사적 경제 패턴을 분석하고 미래를 예측합니다. (1시간 캐싱)"""

@@ -712,4 +712,272 @@ KR_SECTOR_MAP = {
             {"name": "서울옥션",       "code": "063170", "suffix": ".KQ"},
         ],
     },
+
+    # ── 신규 섹터 (2025 확장) ────────────────────────────────────────────────
+
+    "조선·해운": {
+        "대형조선": [
+            {"name": "HD한국조선해양", "code": "009540", "suffix": ".KS"},
+            {"name": "삼성중공업",     "code": "010140", "suffix": ".KS"},
+            {"name": "한화오션",       "code": "042660", "suffix": ".KS"},
+            {"name": "HD현대중공업",   "code": "329180", "suffix": ".KS"},
+            {"name": "HD현대미포",     "code": "010620", "suffix": ".KS"},
+            {"name": "HD현대",         "code": "267250", "suffix": ".KS"},
+            {"name": "STX엔진",        "code": "077970", "suffix": ".KS"},
+            {"name": "한화엔진",       "code": "082740", "suffix": ".KS"},
+        ],
+        "조선 기자재·부품": [
+            {"name": "세진중공업",     "code": "075580", "suffix": ".KQ"},
+            {"name": "한국카본",       "code": "017960", "suffix": ".KS"},
+            {"name": "동성화인텍",     "code": "033500", "suffix": ".KQ"},
+            {"name": "케이조선",       "code": "023160", "suffix": ".KQ"},
+            {"name": "성광벤드",       "code": "014620", "suffix": ".KS"},
+            {"name": "한라IMS",        "code": "092460", "suffix": ".KQ"},
+            {"name": "대창솔루션",     "code": "096350", "suffix": ".KQ"},
+            {"name": "태광",           "code": "023160", "suffix": ".KQ"},
+        ],
+        "해운·항만": [
+            {"name": "HMM",           "code": "011200", "suffix": ".KS"},
+            {"name": "팬오션",         "code": "028670", "suffix": ".KS"},
+            {"name": "KSS해운",        "code": "044450", "suffix": ".KS"},
+            {"name": "대한해운",       "code": "005880", "suffix": ".KS"},
+            {"name": "흥아해운",       "code": "003280", "suffix": ".KS"},
+            {"name": "CJ대한통운",     "code": "000120", "suffix": ".KS"},
+            {"name": "현대글로비스",   "code": "086280", "suffix": ".KS"},
+            {"name": "한진",           "code": "002320", "suffix": ".KS"},
+            {"name": "동방",           "code": "004140", "suffix": ".KS"},
+        ],
+    },
+
+    "방위산업": {
+        "지상무기·탄약": [
+            {"name": "한화에어로스페이스","code": "012450", "suffix": ".KS"},
+            {"name": "현대로템",       "code": "064350", "suffix": ".KS"},
+            {"name": "풍산",           "code": "103140", "suffix": ".KS"},
+            {"name": "한화",           "code": "000880", "suffix": ".KS"},
+            {"name": "S&T중공업",      "code": "003570", "suffix": ".KS"},
+            {"name": "SNT모티브",      "code": "064960", "suffix": ".KS"},
+            {"name": "퍼스텍",         "code": "010820", "suffix": ".KS"},
+            {"name": "S&T홀딩스",      "code": "100840", "suffix": ".KS"},
+        ],
+        "항공·함정무기": [
+            {"name": "한국항공우주",   "code": "047810", "suffix": ".KS"},
+            {"name": "LIG넥스원",      "code": "079550", "suffix": ".KS"},
+            {"name": "한화시스템",     "code": "272210", "suffix": ".KS"},
+            {"name": "쎄트렉아이",     "code": "099550", "suffix": ".KQ"},
+            {"name": "빅텍",           "code": "065450", "suffix": ".KQ"},
+            {"name": "한화오션",       "code": "042660", "suffix": ".KS"},
+            {"name": "현대중공업",     "code": "329180", "suffix": ".KS"},
+        ],
+        "방산전자·드론": [
+            {"name": "한화시스템",     "code": "272210", "suffix": ".KS"},
+            {"name": "LIG넥스원",      "code": "079550", "suffix": ".KS"},
+            {"name": "아이쓰리시스템", "code": "214430", "suffix": ".KQ"},
+            {"name": "한국항공우주",   "code": "047810", "suffix": ".KS"},
+            {"name": "유콘시스템",     "code": "023350", "suffix": ".KQ"},
+            {"name": "우리기술",       "code": "032820", "suffix": ".KQ"},
+            {"name": "휴니드",         "code": "005010", "suffix": ".KS"},
+            {"name": "스페코",         "code": "013810", "suffix": ".KQ"},
+        ],
+    },
+
+    "건설·부동산": {
+        "대형건설": [
+            {"name": "삼성물산",       "code": "028260", "suffix": ".KS"},
+            {"name": "현대건설",       "code": "000720", "suffix": ".KS"},
+            {"name": "대우건설",       "code": "047040", "suffix": ".KS"},
+            {"name": "GS건설",         "code": "006360", "suffix": ".KS"},
+            {"name": "DL이앤씨",       "code": "375500", "suffix": ".KS"},
+            {"name": "포스코이앤씨",   "code": "047050", "suffix": ".KS"},
+            {"name": "HDC현대산업개발","code": "294870", "suffix": ".KS"},
+            {"name": "삼성엔지니어링", "code": "028050", "suffix": ".KS"},
+        ],
+        "중소건설·주택": [
+            {"name": "계룡건설산업",   "code": "013580", "suffix": ".KS"},
+            {"name": "태영건설",       "code": "009410", "suffix": ".KS"},
+            {"name": "코오롱글로벌",   "code": "003070", "suffix": ".KS"},
+            {"name": "신세계건설",     "code": "034300", "suffix": ".KS"},
+            {"name": "서한",           "code": "018680", "suffix": ".KQ"},
+            {"name": "두산에너빌리티", "code": "034020", "suffix": ".KS"},
+            {"name": "HJ중공업",       "code": "097230", "suffix": ".KS"},
+        ],
+        "리츠·부동산": [
+            {"name": "맥쿼리인프라",   "code": "088980", "suffix": ".KS"},
+            {"name": "ESR켄달스퀘어리츠","code": "365550", "suffix": ".KS"},
+            {"name": "신한알파리츠",   "code": "293940", "suffix": ".KS"},
+            {"name": "한국토지신탁",   "code": "034830", "suffix": ".KS"},
+            {"name": "이지스레지던스리츠","code": "350520", "suffix": ".KS"},
+            {"name": "케이탑리츠",     "code": "337150", "suffix": ".KS"},
+            {"name": "코람코에너지리츠","code": "434490", "suffix": ".KS"},
+        ],
+    },
+
+    "은행·금융지주": {
+        "4대금융지주": [
+            {"name": "KB금융",         "code": "105560", "suffix": ".KS"},
+            {"name": "신한지주",       "code": "055550", "suffix": ".KS"},
+            {"name": "하나금융지주",   "code": "086790", "suffix": ".KS"},
+            {"name": "우리금융지주",   "code": "316140", "suffix": ".KS"},
+            {"name": "BNK금융지주",    "code": "138930", "suffix": ".KS"},
+            {"name": "DGB금융지주",    "code": "139130", "suffix": ".KS"},
+            {"name": "JB금융지주",     "code": "175330", "suffix": ".KS"},
+        ],
+        "인터넷은행·핀테크": [
+            {"name": "카카오뱅크",     "code": "323410", "suffix": ".KS"},
+            {"name": "카카오페이",     "code": "377300", "suffix": ".KS"},
+            {"name": "NHN KCP",        "code": "060250", "suffix": ".KQ"},
+            {"name": "한국금융지주",   "code": "071050", "suffix": ".KS"},
+            {"name": "웰컴저축은행",   "code": "046310", "suffix": ".KQ"},
+        ],
+        "카드·캐피탈": [
+            {"name": "메리츠금융지주", "code": "138040", "suffix": ".KS"},
+            {"name": "한국캐피탈",     "code": "024110", "suffix": ".KQ"},
+        ],
+    },
+
+    "보험·증권": {
+        "생명보험": [
+            {"name": "삼성생명",       "code": "032830", "suffix": ".KS"},
+            {"name": "한화생명",       "code": "088350", "suffix": ".KS"},
+            {"name": "미래에셋생명",   "code": "085620", "suffix": ".KS"},
+            {"name": "동양생명",       "code": "082640", "suffix": ".KS"},
+        ],
+        "손해보험": [
+            {"name": "삼성화재",       "code": "000810", "suffix": ".KS"},
+            {"name": "DB손해보험",     "code": "005830", "suffix": ".KS"},
+            {"name": "현대해상",       "code": "001450", "suffix": ".KS"},
+            {"name": "메리츠화재",     "code": "000060", "suffix": ".KS"},
+            {"name": "한화손해보험",   "code": "000370", "suffix": ".KS"},
+        ],
+        "대형증권": [
+            {"name": "미래에셋증권",   "code": "006800", "suffix": ".KS"},
+            {"name": "NH투자증권",     "code": "005940", "suffix": ".KS"},
+            {"name": "삼성증권",       "code": "016360", "suffix": ".KS"},
+            {"name": "키움증권",       "code": "039490", "suffix": ".KQ"},
+            {"name": "한화투자증권",   "code": "003530", "suffix": ".KS"},
+            {"name": "유안타증권",     "code": "003470", "suffix": ".KS"},
+            {"name": "대신증권",       "code": "003540", "suffix": ".KS"},
+        ],
+    },
+
+    "철강·금속·광물": {
+        "철강": [
+            {"name": "POSCO홀딩스",    "code": "005490", "suffix": ".KS"},
+            {"name": "현대제철",       "code": "004020", "suffix": ".KS"},
+            {"name": "동국제강",       "code": "460860", "suffix": ".KS"},
+            {"name": "세아베스틸지주", "code": "001430", "suffix": ".KS"},
+            {"name": "포스코스틸리온", "code": "058430", "suffix": ".KS"},
+            {"name": "동국씨엠",       "code": "025890", "suffix": ".KS"},
+            {"name": "KG스틸",         "code": "016380", "suffix": ".KS"},
+        ],
+        "비철금속·희소금속": [
+            {"name": "고려아연",       "code": "010130", "suffix": ".KS"},
+            {"name": "풍산",           "code": "103140", "suffix": ".KS"},
+            {"name": "영풍",           "code": "000670", "suffix": ".KS"},
+            {"name": "황금에스티",     "code": "032560", "suffix": ".KQ"},
+            {"name": "알루코",         "code": "001780", "suffix": ".KS"},
+            {"name": "대창",           "code": "015590", "suffix": ".KS"},
+            {"name": "이구산업",       "code": "025820", "suffix": ".KS"},
+        ],
+        "광물·자원개발": [
+            {"name": "포스코인터내셔널","code": "047050", "suffix": ".KS"},
+            {"name": "SK이노베이션",   "code": "096770", "suffix": ".KS"},
+            {"name": "한국가스공사",   "code": "036460", "suffix": ".KS"},
+            {"name": "한국전력",       "code": "015760", "suffix": ".KS"},
+            {"name": "삼탄",           "code": "000650", "suffix": ".KS"},
+        ],
+    },
+
+    "유통·소매": {
+        "대형유통·백화점": [
+            {"name": "롯데쇼핑",       "code": "023530", "suffix": ".KS"},
+            {"name": "신세계",         "code": "004170", "suffix": ".KS"},
+            {"name": "현대백화점",     "code": "069960", "suffix": ".KS"},
+            {"name": "이마트",         "code": "139480", "suffix": ".KS"},
+            {"name": "롯데하이마트",   "code": "071840", "suffix": ".KS"},
+        ],
+        "편의점·슈퍼": [
+            {"name": "BGF리테일",      "code": "282330", "suffix": ".KS"},
+            {"name": "GS리테일",       "code": "007070", "suffix": ".KS"},
+        ],
+        "이커머스·배달": [
+            {"name": "카카오",         "code": "035720", "suffix": ".KS"},
+            {"name": "NAVER",         "code": "035420", "suffix": ".KS"},
+            {"name": "오아시스",       "code": "101360", "suffix": ".KQ"},
+        ],
+        "홈쇼핑·TV커머스": [
+            {"name": "CJ온스타일",     "code": "035760", "suffix": ".KS"},
+            {"name": "GS홈쇼핑",       "code": "028150", "suffix": ".KS"},
+            {"name": "현대홈쇼핑",     "code": "057050", "suffix": ".KS"},
+            {"name": "NS홈쇼핑",       "code": "057060", "suffix": ".KS"},
+        ],
+    },
+
+    "미디어·광고·콘텐츠": {
+        "방송·OTT": [
+            {"name": "CJ ENM",         "code": "035760", "suffix": ".KS"},
+            {"name": "SBS",            "code": "034120", "suffix": ".KS"},
+            {"name": "스튜디오드래곤", "code": "253450", "suffix": ".KQ"},
+            {"name": "NEW",            "code": "160550", "suffix": ".KQ"},
+            {"name": "에이스토리",     "code": "241840", "suffix": ".KQ"},
+        ],
+        "광고·마케팅": [
+            {"name": "제일기획",       "code": "030000", "suffix": ".KS"},
+            {"name": "이노션",         "code": "214320", "suffix": ".KS"},
+            {"name": "오리콤",         "code": "010470", "suffix": ".KS"},
+            {"name": "나스미디어",     "code": "089600", "suffix": ".KQ"},
+            {"name": "인크로스",       "code": "216050", "suffix": ".KQ"},
+            {"name": "모비데이즈",     "code": "363280", "suffix": ".KQ"},
+        ],
+        "출판·교육콘텐츠": [
+            {"name": "웅진씽크빅",     "code": "095720", "suffix": ".KQ"},
+            {"name": "메가스터디",     "code": "072870", "suffix": ".KQ"},
+            {"name": "대교",           "code": "019680", "suffix": ".KS"},
+            {"name": "NE능률",         "code": "053300", "suffix": ".KQ"},
+        ],
+    },
+
+    "교육·이러닝": {
+        "이러닝·에듀테크": [
+            {"name": "메가스터디교육", "code": "215200", "suffix": ".KQ"},
+            {"name": "비상교육",       "code": "100220", "suffix": ".KQ"},
+        ],
+        "어학·자격증": [
+        ],
+        "유아·초중고교육": [
+            {"name": "웅진씽크빅",     "code": "095720", "suffix": ".KQ"},
+            {"name": "대교",           "code": "019680", "suffix": ".KS"},
+            {"name": "청담러닝",       "code": "051380", "suffix": ".KQ"},
+            {"name": "아이스크림에듀", "code": "289010", "suffix": ".KQ"},
+        ],
+    },
+
+    "광통신·네트워크장비": {
+        "광통신 부품·모듈": [
+            {"name": "오이솔루션",     "code": "138080", "suffix": ".KQ"},
+            {"name": "우리로",         "code": "043590", "suffix": ".KQ"},
+            {"name": "옵티시스",       "code": "109080", "suffix": ".KQ"},
+            {"name": "이노와이어리스", "code": "073490", "suffix": ".KQ"},
+            {"name": "에치에프알",     "code": "230340", "suffix": ".KQ"},
+            {"name": "코위버",         "code": "056360", "suffix": ".KQ"},
+            {"name": "파이버프로",     "code": "100700", "suffix": ".KQ"},
+            {"name": "빛과전자",       "code": "082660", "suffix": ".KQ"},
+        ],
+        "네트워크 장비": [
+            {"name": "다산네트웍스",   "code": "039560", "suffix": ".KQ"},
+            {"name": "유비쿼스",       "code": "078070", "suffix": ".KQ"},
+            {"name": "쏠리드",         "code": "050890", "suffix": ".KQ"},
+            {"name": "엑스플라",       "code": "088800", "suffix": ".KQ"},
+            {"name": "에이치엘비파워", "code": "043220", "suffix": ".KQ"},
+            {"name": "케이엠더블유",   "code": "032500", "suffix": ".KQ"},
+            {"name": "서진시스템",     "code": "178320", "suffix": ".KQ"},
+        ],
+        "IDC·클라우드인프라": [
+            {"name": "KT",            "code": "030200", "suffix": ".KS"},
+            {"name": "SK텔레콤",       "code": "017670", "suffix": ".KS"},
+            {"name": "LG유플러스",     "code": "032640", "suffix": ".KS"},
+            {"name": "삼성SDS",        "code": "018260", "suffix": ".KS"},
+            {"name": "가비아",         "code": "079940", "suffix": ".KQ"},
+        ],
+    },
 }

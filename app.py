@@ -871,12 +871,12 @@ def main():
                     else:
                         st.markdown("### 🔥 이슈 섹터")
 
-                        # AI 분석 / 전체 탐색 탭 토글
+                        # 탭 토글: 주도주 / AI섹터 / 전체탐색
                         if "kr_sector_panel_tab" not in st.session_state:
-                            st.session_state.kr_sector_panel_tab = "🤖 AI 실시간 분석"
-                        _spt_tabs = ["🤖 AI 실시간 분석", "📚 전체 섹터 탐색"]
-                        _stc1, _stc2 = st.columns(2)
-                        for _stcol, _stn in [(_stc1, _spt_tabs[0]), (_stc2, _spt_tabs[1])]:
+                            st.session_state.kr_sector_panel_tab = "📈 오늘의 주도주"
+                        _spt_tabs = ["📈 오늘의 주도주", "🤖 AI 실시간 분석", "📚 전체 섹터 탐색"]
+                        _stc1, _stc2, _stc3 = st.columns(3)
+                        for _stcol, _stn in [(_stc1, _spt_tabs[0]), (_stc2, _spt_tabs[1]), (_stc3, _spt_tabs[2])]:
                             if _stcol.button(
                                 _stn, key=f"spt_{_stn}",
                                 type="primary" if st.session_state.kr_sector_panel_tab == _stn else "secondary",
@@ -885,8 +885,108 @@ def main():
                                 st.session_state.kr_sector_panel_tab = _stn
                                 st.rerun()
 
-                        # ── AI 실시간 분석 탭 ──────────────────────────────
+                        # ── 오늘의 주도주 탭 ───────────────────────────────
                         if st.session_state.kr_sector_panel_tab == _spt_tabs[0]:
+                            from ai_engine import analyze_today_market
+
+                            _tm_hdr, _tm_ref = st.columns([8, 1])
+                            _tm_hdr.markdown(
+                                "<p style='font-size:0.75rem;color:#888;margin:4px 0'>실시간 급등 종목 + AI 상승 이유 분석 (10분 갱신)</p>",
+                                unsafe_allow_html=True,
+                            )
+                            if _tm_ref.button("🔄", key="today_mkt_refresh", help="재분석"):
+                                try:
+                                    analyze_today_market.clear()
+                                except Exception:
+                                    pass
+                                st.rerun()
+
+                            with st.spinner("🔍 오늘 급등 종목 이유 분석 중..."):
+                                try:
+                                    _tm = analyze_today_market()
+                                except Exception as _tme:
+                                    _tm = {"error": str(_tme)}
+
+                            if _tm.get("error"):
+                                st.info(f"⏸ {_tm['error']}")
+                            else:
+                                # 시장 요약 배너
+                                if _tm.get("market_summary"):
+                                    st.markdown(
+                                        f"<div style='background:rgba(255,255,255,0.04);border-left:3px solid #ff9800;"
+                                        f"padding:8px 12px;border-radius:4px;margin-bottom:8px'>"
+                                        f"<span style='font-size:0.72rem;color:#ff9800;font-weight:700'>📌 오늘 시장 요약</span><br>"
+                                        f"<span style='font-size:0.73rem;color:#ccc'>{_tm['market_summary']}</span>"
+                                        f"</div>",
+                                        unsafe_allow_html=True,
+                                    )
+
+                                # 주도 테마 태그
+                                _themes = _tm.get("leading_themes", [])
+                                _top_th = _tm.get("top_theme", "")
+                                if _themes:
+                                    _theme_html = " ".join(
+                                        f"<span style='background:rgba(255,75,75,0.2);border:1px solid #ff4b4b;"
+                                        f"border-radius:12px;padding:2px 8px;font-size:0.68rem;color:#ff4b4b;"
+                                        f"font-weight:700'>{t}</span>"
+                                        if t == _top_th else
+                                        f"<span style='background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.15);"
+                                        f"border-radius:12px;padding:2px 8px;font-size:0.68rem;color:#aaa'>{t}</span>"
+                                        for t in _themes
+                                    )
+                                    st.markdown(
+                                        f"<div style='margin-bottom:8px'>🔥 주도 테마: {_theme_html}</div>",
+                                        unsafe_allow_html=True,
+                                    )
+
+                                # 종목 카드 리스트
+                                with st.container(height=480):
+                                    for _si, _stk in enumerate(_tm.get("stocks", [])):
+                                        _cpct = _stk.get("change_pct", 0) or 0
+                                        _col  = "#ff4b4b" if _cpct > 0 else "#2b7cff"
+                                        _mkt  = _stk.get("market", "")
+                                        _thm  = _stk.get("theme", "")
+                                        _rsn  = _stk.get("reason", "")
+                                        _nm   = _stk.get("name", "")
+                                        _cd   = _stk.get("code", "")
+
+                                        with st.container(border=True):
+                                            _r1c1, _r1c2, _r1c3 = st.columns([4, 2, 1.2])
+                                            _r1c1.markdown(
+                                                f"<span style='font-size:0.88rem;font-weight:700'>{_nm}</span>"
+                                                f"<span style='font-size:0.68rem;color:#888;margin-left:6px'>{_mkt}</span>",
+                                                unsafe_allow_html=True,
+                                            )
+                                            _r1c2.markdown(
+                                                f"<span style='font-size:0.82rem;color:#888'>{_cd}</span>",
+                                                unsafe_allow_html=True,
+                                            )
+                                            _r1c3.markdown(
+                                                f"<span style='font-size:0.88rem;font-weight:700;color:{_col}'>{_cpct:+.1f}%</span>",
+                                                unsafe_allow_html=True,
+                                            )
+                                            if _thm:
+                                                st.markdown(
+                                                    f"<span style='font-size:0.67rem;background:rgba(255,152,0,0.15);"
+                                                    f"border-radius:10px;padding:1px 7px;color:#ff9800'>#{_thm}</span>",
+                                                    unsafe_allow_html=True,
+                                                )
+                                            if _rsn:
+                                                st.markdown(
+                                                    f"<p style='font-size:0.73rem;color:#bbb;margin:3px 0 0 0'>{_rsn}</p>",
+                                                    unsafe_allow_html=True,
+                                                )
+                                            if _cd and st.button("▶ 차트", key=f"tm_cd_{_cd}_{_si}"):
+                                                st.session_state.kr_selected_code      = _cd
+                                                st.session_state.kr_selected_name      = _nm
+                                                st.session_state.kr_sector_detail_code = _cd
+                                                st.session_state.kr_sector_detail_name = _nm
+                                                st.session_state.kr_sector_view        = "detail"
+                                                st.session_state.kr_mode               = "📊 일반 주식 검색"
+                                                st.rerun()
+
+                        # ── AI 실시간 분석 탭 ───────────────────────────────
+                        elif st.session_state.kr_sector_panel_tab == _spt_tabs[1]:
                             from ai_engine import analyze_kr_hot_sectors
 
                             _ai_hdr, _ai_ref = st.columns([8, 1])
@@ -1121,7 +1221,7 @@ def main():
 
 
                         # ── 전체 섹터 탐색 탭 ──────────────────────────────
-                        else:
+                        elif st.session_state.kr_sector_panel_tab == _spt_tabs[2]:
                             hdr2_c1, hdr2_c2 = st.columns([8, 1])
                             if hdr2_c2.button("🔄", key="sec_refresh",
                                               help="섹터 캐시 초기화"):
