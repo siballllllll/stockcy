@@ -679,43 +679,59 @@ def main():
 
             with col_right:
                 if kr_mode == "📊 일반 주식 검색":
-                    POPULAR_KR = {
-                        "삼성전자 (005930)": "005930",
-                        "SK하이닉스 (000660)": "000660",
-                        "현대차 (005380)": "005380",
-                        "NAVER (035420)": "035420",
-                        "카카오 (035720)": "035720",
-                        "LG에너지솔루션 (373220)": "373220",
-                        "삼성바이오로직스 (207940)": "207940",
-                        "POSCO홀딩스 (005490)": "005490",
-                        "삼성전자우 (005935)": "005935",
-                        "기아 (000270)": "000270",
-                    }
                     _cur_code = st.session_state.kr_selected_code
                     _cur_name = st.session_state.kr_selected_name
-                    _pop = dict(POPULAR_KR)
-                    if _cur_code not in _pop.values():
-                        _pop = {f"[현재] {_cur_name} ({_cur_code})": _cur_code, **_pop}
-                    col_sel, col_manual = st.columns([3, 1])
-                    with col_sel:
-                        _def_label = next(
-                            (lbl for lbl, code in _pop.items() if code == _cur_code),
-                            list(_pop.keys())[0]
+                    _krx_map = get_kr_name_to_code_map()
+                    new_code = _cur_code
+                    new_name = _cur_name
+                    if _krx_map:
+                        _all_opts = sorted(_krx_map.items(), key=lambda x: x[0])
+                        _opt_labels = [f"{n} ({i['code']})" for n, i in _all_opts]
+                        _opt_codes  = [i["code"] for _, i in _all_opts]
+                        _def_idx = next((i for i, c in enumerate(_opt_codes) if c == _cur_code), 0)
+                        _sel_label = st.selectbox(
+                            "종목 검색 (이름·코드 입력하면 필터링)",
+                            _opt_labels,
+                            index=_def_idx,
+                            key="kr_stock_search",
                         )
-                        selected_label = st.selectbox(
-                            "인기 종목 빠른 선택", list(_pop.keys()),
-                            index=list(_pop.keys()).index(_def_label)
-                        )
-                        new_code = _pop[selected_label]
-                    with col_manual:
-                        manual_code_kr = st.text_input("직접 입력 (6자리 코드)", "").strip()
-                    if manual_code_kr and len(manual_code_kr) == 6 and manual_code_kr.isdigit():
-                        new_code = manual_code_kr
+                        new_code = _opt_codes[_opt_labels.index(_sel_label)]
+                        new_name = _sel_label.split(" (")[0]
+                    else:
+                        POPULAR_KR = {
+                            "삼성전자 (005930)": "005930",
+                            "SK하이닉스 (000660)": "000660",
+                            "현대차 (005380)": "005380",
+                            "NAVER (035420)": "035420",
+                            "카카오 (035720)": "035720",
+                            "LG에너지솔루션 (373220)": "373220",
+                            "삼성바이오로직스 (207940)": "207940",
+                            "POSCO홀딩스 (005490)": "005490",
+                            "기아 (000270)": "000270",
+                        }
+                        _pop = dict(POPULAR_KR)
+                        if _cur_code not in _pop.values():
+                            _pop = {f"[현재] {_cur_name} ({_cur_code})": _cur_code, **_pop}
+                        col_sel, col_manual = st.columns([3, 1])
+                        with col_sel:
+                            _def_label = next(
+                                (lbl for lbl, code in _pop.items() if code == _cur_code),
+                                list(_pop.keys())[0]
+                            )
+                            selected_label = st.selectbox(
+                                "인기 종목 빠른 선택", list(_pop.keys()),
+                                index=list(_pop.keys()).index(_def_label)
+                            )
+                            new_code = _pop[selected_label]
+                            new_name = selected_label.split(" (")[0]
+                        with col_manual:
+                            manual_code_kr = st.text_input("직접 입력 (6자리 코드)", "").strip()
+                        if manual_code_kr and len(manual_code_kr) == 6 and manual_code_kr.isdigit():
+                            new_code = manual_code_kr
+                            new_name = manual_code_kr
                     if new_code != st.session_state.kr_selected_code:
                         st.session_state.kr_selected_code = new_code
-                        st.session_state.kr_selected_name = next(
-                            (n for n, c in _pop.items() if c == new_code), new_code
-                        )
+                        st.session_state.kr_selected_name = new_name
                         st.rerun()
 
                     # ── 우측 패널 탭 ──────────────────────────────────────
