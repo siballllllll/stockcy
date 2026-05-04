@@ -1478,19 +1478,55 @@ def main():
                                         st.session_state.kr_sector_view        = "detail"
                                         st.rerun()
 
+                            def _sub_avg_pct(stocks, prices):
+                                vals = [prices.get(s["code"], {}).get("change_pct", 0.0) for s in stocks]
+                                vals = [v for v in vals if v != 0.0]
+                                return sum(vals) / len(vals) if vals else 0.0
+
+                            def _sub_ai_summary(sub_name, avg_pct, stocks, prices):
+                                from ai_engine import _call_gemini
+                                import datetime
+                                top = sorted(
+                                    [(s["name"], prices.get(s["code"], {}).get("change_pct", 0.0)) for s in stocks],
+                                    key=lambda x: abs(x[1]), reverse=True
+                                )[:5]
+                                top_str = ", ".join(f"{n}({p:+.1f}%)" for n, p in top if p != 0)
+                                prompt = (
+                                    f"오늘({datetime.date.today()}) 한국 증시에서 '{sub_name}' 세부섹터의 "
+                                    f"평균 등락률이 {avg_pct:+.2f}%입니다. "
+                                    f"주요 종목: {top_str if top_str else '시세 없음'}. "
+                                    f"이 섹터가 오늘 이렇게 움직이는 이유를 뉴스·시장 흐름 기반으로 "
+                                    f"2~3문장으로 간결하게 요약해주세요. 이모지 없이 핵심만."
+                                )
+                                try:
+                                    return _call_gemini(prompt, use_search=True, temperature=0.4) or "분석 정보 없음"
+                                except Exception:
+                                    return "AI 분석을 불러올 수 없습니다."
+
                             with st.container(height=600):
                                 for sub_name, stocks in subsectors.items():
-                                    LARGE_THRESHOLD = 15
-                                    if len(stocks) > LARGE_THRESHOLD:
-                                        with st.expander(f"📌 {sub_name} ({len(stocks)}개) ▼ 펼치기", expanded=False):
-                                            _render_sector_stocks(sub_name, stocks, prices, code_locations, selected_sector)
-                                    else:
-                                        with st.container(border=True):
-                                            st.markdown(
-                                                f"<p style='margin:0 0 4px 0;font-size:0.8rem;color:#aaa;font-weight:600'>📌 {sub_name} ({len(stocks)}개)</p>",
-                                                unsafe_allow_html=True,
-                                            )
-                                            _render_sector_stocks(sub_name, stocks, prices, code_locations, selected_sector)
+                                    avg_pct = _sub_avg_pct(stocks, prices)
+                                    pct_color = "#ff4b4b" if avg_pct > 0 else "#2b7cff" if avg_pct < 0 else "#888"
+                                    exp_label = (
+                                        f"📌 {sub_name}  ({len(stocks)}개)"
+                                        f"　　평균 {avg_pct:+.2f}%"
+                                    )
+                                    with st.expander(exp_label, expanded=False):
+                                        ai_key = f"_sub_ai_{selected_sector}__{sub_name}"
+                                        col_ai, col_btn = st.columns([9, 1])
+                                        with col_btn:
+                                            if st.button("AI", key=f"ai_btn_{sub_name}", help="AI 섹터 분석"):
+                                                st.session_state[ai_key] = _sub_ai_summary(sub_name, avg_pct, stocks, prices)
+                                        if ai_key in st.session_state:
+                                            with col_ai:
+                                                st.markdown(
+                                                    f"<div style='background:rgba(255,255,255,0.05);border-left:3px solid {pct_color};"
+                                                    f"border-radius:6px;padding:8px 12px;margin-bottom:8px;"
+                                                    f"font-size:0.82rem;line-height:1.5;color:#ddd'>"
+                                                    f"{st.session_state[ai_key]}</div>",
+                                                    unsafe_allow_html=True,
+                                                )
+                                        _render_sector_stocks(sub_name, stocks, prices, code_locations, selected_sector)
 
 
 
