@@ -270,13 +270,14 @@ def main():
                 _ip  = _id.get("change_pct", 0)
                 _col = "#ff4b4b" if _ic >= 0 else "#2b7cff"
                 _sg  = "+" if _ic >= 0 else ""
-                _banner_parts.append(
-                    f"<div class='index-item'>"
-                    f"<span class='index-name'>{_iname}</span>"
-                    f"<span class='index-val' style='color:{_col}'>{_iv:,.2f}</span>"
-                    f"<span class='index-chg' style='color:{_col}'>{_sg}{_ic:.2f}p ({_sg}{_ip:.2f}%)</span>"
-                    f"</div>"
-                ) if _iv > 0 else None
+                if _iv > 0:
+                    _banner_parts.append(
+                        f"<div class='index-item'>"
+                        f"<span class='index-name'>{_iname}</span>"
+                        f"<span class='index-val' style='color:{_col}'>{_iv:,.2f}</span>"
+                        f"<span class='index-chg' style='color:{_col}'>{_sg}{_ic:.2f}p ({_sg}{_ip:.2f}%)</span>"
+                        f"</div>"
+                    )
             _banner_parts = [p for p in _banner_parts if p]
             if _banner_parts:
                 st.markdown(
