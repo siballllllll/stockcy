@@ -296,6 +296,7 @@ def main():
                 ("kr_index_tab", "KOSPI"),
                 ("kr_index_period", "1d"),
                 ("ai_pattern_kw", ""),
+                ("kr_ai_market_run", False),
             ]:
                 if _k not in st.session_state:
                     st.session_state[_k] = _v
@@ -871,12 +872,12 @@ def main():
                     else:
                         st.markdown("### 🔥 이슈 섹터")
 
-                        # 탭 토글: 주도주 / AI섹터 / 전체탐색
+                        # 탭 토글: AI 시장분석 / 전체탐색
                         if "kr_sector_panel_tab" not in st.session_state:
-                            st.session_state.kr_sector_panel_tab = "📈 오늘의 주도주"
-                        _spt_tabs = ["📈 오늘의 주도주", "🤖 AI 실시간 분석", "📚 전체 섹터 탐색"]
-                        _stc1, _stc2, _stc3 = st.columns(3)
-                        for _stcol, _stn in [(_stc1, _spt_tabs[0]), (_stc2, _spt_tabs[1]), (_stc3, _spt_tabs[2])]:
+                            st.session_state.kr_sector_panel_tab = "📊 AI 시장분석"
+                        _spt_tabs = ["📊 AI 시장분석", "📚 전체 섹터 탐색"]
+                        _stc1, _stc2 = st.columns(2)
+                        for _stcol, _stn in [(_stc1, _spt_tabs[0]), (_stc2, _spt_tabs[1])]:
                             if _stcol.button(
                                 _stn, key=f"spt_{_stn}",
                                 type="primary" if st.session_state.kr_sector_panel_tab == _stn else "secondary",
@@ -885,40 +886,58 @@ def main():
                                 st.session_state.kr_sector_panel_tab = _stn
                                 st.rerun()
 
-                        # ── 오늘의 주도주 탭 ───────────────────────────────
+                        # ── AI 시장분석 탭 (거래량 + 급등주 + 핫섹터 통합) ──
                         if st.session_state.kr_sector_panel_tab == _spt_tabs[0]:
-                            from ai_engine import analyze_today_market
+                            from ai_engine import analyze_today_market, analyze_kr_hot_sectors
 
-                            _tm_hdr, _tm_ref = st.columns([8, 1])
-                            _tm_hdr.markdown(
-                                "<p style='font-size:0.75rem;color:#888;margin:4px 0'>실시간 급등 종목 + AI 상승 이유 분석 (10분 갱신)</p>",
+                            _am_hdr, _am_ref = st.columns([8, 1])
+                            _am_hdr.markdown(
+                                "<p style='font-size:0.75rem;color:#888;margin:4px 0'>거래량 TOP10 · 급등 종목 이유 · AI 핫 섹터 통합</p>",
                                 unsafe_allow_html=True,
                             )
-                            if _tm_ref.button("🔄", key="today_mkt_refresh", help="재분석"):
-                                try:
-                                    analyze_today_market.clear()
-                                except Exception:
-                                    pass
-                                st.rerun()
+                            if st.session_state.kr_ai_market_run:
+                                if _am_ref.button("🔄", key="ai_mkt_refresh", help="전체 재분석"):
+                                    try: analyze_today_market.clear()
+                                    except: pass
+                                    try: analyze_kr_hot_sectors.clear()
+                                    except: pass
+                                    get_kr_volume_ranking.clear()
+                                    st.rerun()
 
-                            with st.spinner("🔍 오늘 급등 종목 이유 분석 중..."):
-                                try:
-                                    _tm = analyze_today_market()
-                                except Exception as _tme:
-                                    _tm = {"error": str(_tme)}
-
-                            if _tm.get("error") == "QUOTA":
-                                st.warning(
-                                    "⚠️ **Gemini API 무료 할당량 초과**\n\n"
-                                    "오늘의 AI 분석 횟수가 모두 소진되었습니다.  \n"
-                                    "• 내일 자정(KST) 자동 초기화  \n"
-                                    "• 즉시 해결: [Google AI Studio](https://aistudio.google.com) 에서 유료 전환 (월 $10 미만)"
+                            if not st.session_state.kr_ai_market_run:
+                                st.markdown(
+                                    "<div style='text-align:center;padding:40px 20px'>"
+                                    "<p style='color:#888;font-size:0.85rem;margin-bottom:16px'>"
+                                    "거래량 TOP10, 급등 종목 이유 분석, AI 핫 섹터를 한번에 확인합니다</p>"
+                                    "</div>",
+                                    unsafe_allow_html=True,
                                 )
-                            elif _tm.get("error"):
-                                st.info(f"⏸ {_tm['error']}")
+                                if st.button("🤖 AI 시장분석 실행", use_container_width=True,
+                                             type="primary", key="run_ai_market"):
+                                    st.session_state.kr_ai_market_run = True
+                                    st.rerun()
                             else:
+                                with st.spinner("📊 시장 데이터 불러오는 중..."):
+                                    _tm       = analyze_today_market()
+                                    _ai_res   = analyze_kr_hot_sectors()
+                                    _vol_rank = get_kr_volume_ranking()
+
+                                _quota_err = (
+                                    (isinstance(_tm, dict) and _tm.get("error") == "QUOTA") or
+                                    (isinstance(_ai_res, dict) and _ai_res.get("error") == "QUOTA")
+                                )
+                                if _quota_err:
+                                    st.warning(
+                                        "⚠️ **Gemini API 무료 할당량 초과**\n\n"
+                                        "오늘의 AI 분석 횟수가 모두 소진되었습니다.  \n"
+                                        "• 내일 자정(KST) 자동 초기화  \n"
+                                        "• 즉시 해결: [Google AI Studio](https://aistudio.google.com) 에서 유료 전환 (월 $10 미만)"
+                                    )
+                                elif isinstance(_tm, dict) and _tm.get("error"):
+                                    st.info(f"⏸ {_tm['error']}")
+
                                 # 시장 요약 배너
-                                if _tm.get("market_summary"):
+                                if isinstance(_tm, dict) and _tm.get("market_summary"):
                                     st.markdown(
                                         f"<div style='background:rgba(255,255,255,0.04);border-left:3px solid #ff9800;"
                                         f"padding:8px 12px;border-radius:4px;margin-bottom:8px'>"
@@ -929,8 +948,8 @@ def main():
                                     )
 
                                 # 주도 테마 태그
-                                _themes = _tm.get("leading_themes", [])
-                                _top_th = _tm.get("top_theme", "")
+                                _themes = _tm.get("leading_themes", []) if isinstance(_tm, dict) else []
+                                _top_th = _tm.get("top_theme", "") if isinstance(_tm, dict) else ""
                                 if _themes:
                                     _theme_html = " ".join(
                                         f"<span style='background:rgba(255,75,75,0.2);border:1px solid #ff4b4b;"
@@ -946,296 +965,293 @@ def main():
                                         unsafe_allow_html=True,
                                     )
 
-                                # 종목 카드 리스트
-                                with st.container(height=480):
-                                    for _si, _stk in enumerate(_tm.get("stocks", [])):
-                                        _cpct = _stk.get("change_pct", 0) or 0
-                                        _col  = "#ff4b4b" if _cpct > 0 else "#2b7cff"
-                                        _mkt  = _stk.get("market", "")
-                                        _thm  = _stk.get("theme", "")
-                                        _rsn  = _stk.get("reason", "")
-                                        _nm   = _stk.get("name", "")
-                                        _cd   = _stk.get("code", "")
-
-                                        with st.container(border=True):
-                                            _r1c1, _r1c2, _r1c3 = st.columns([4, 2, 1.2])
-                                            _r1c1.markdown(
-                                                f"<span style='font-size:0.88rem;font-weight:700'>{_nm}</span>"
-                                                f"<span style='font-size:0.68rem;color:#888;margin-left:6px'>{_mkt}</span>",
-                                                unsafe_allow_html=True,
-                                            )
-                                            _r1c2.markdown(
-                                                f"<span style='font-size:0.82rem;color:#888'>{_cd}</span>",
-                                                unsafe_allow_html=True,
-                                            )
-                                            _r1c3.markdown(
-                                                f"<span style='font-size:0.88rem;font-weight:700;color:{_col}'>{_cpct:+.1f}%</span>",
-                                                unsafe_allow_html=True,
-                                            )
-                                            if _thm:
-                                                st.markdown(
-                                                    f"<span style='font-size:0.67rem;background:rgba(255,152,0,0.15);"
-                                                    f"border-radius:10px;padding:1px 7px;color:#ff9800'>#{_thm}</span>",
-                                                    unsafe_allow_html=True,
-                                                )
-                                            if _rsn:
-                                                st.markdown(
-                                                    f"<p style='font-size:0.73rem;color:#bbb;margin:3px 0 0 0'>{_rsn}</p>",
-                                                    unsafe_allow_html=True,
-                                                )
-                                            if _cd and st.button("▶ 차트", key=f"tm_cd_{_cd}_{_si}"):
-                                                st.session_state.kr_selected_code      = _cd
-                                                st.session_state.kr_selected_name      = _nm
-                                                st.session_state.kr_sector_detail_code = _cd
-                                                st.session_state.kr_sector_detail_name = _nm
-                                                st.session_state.kr_sector_view        = "detail"
-                                                st.session_state.kr_mode               = "📊 일반 주식 검색"
-                                                st.rerun()
-
-                        # ── AI 실시간 분석 탭 ───────────────────────────────
-                        elif st.session_state.kr_sector_panel_tab == _spt_tabs[1]:
-                            from ai_engine import analyze_kr_hot_sectors
-
-                            _ai_hdr, _ai_ref = st.columns([8, 1])
-                            _ai_hdr.markdown(
-                                "<p style='font-size:0.75rem;color:#888;margin:4px 0'>증권사 리포트·뉴스 기반 AI 자동 분석 (30분 갱신)</p>",
-                                unsafe_allow_html=True,
-                            )
-                            if _ai_ref.button("🔄", key="ai_sec_refresh", help="AI 재분석"):
-                                try:
-                                    analyze_kr_hot_sectors.clear()
-                                except Exception:
-                                    pass
-                                st.rerun()
-
-                            with st.spinner("🧠 AI가 오늘의 핫 섹터를 분석 중..."):
-                                try:
-                                    _ai_res = analyze_kr_hot_sectors()
-                                except Exception as _ai_err:
-                                    _ai_res = {"error": str(_ai_err), "sectors": []}
-
-                            if not _ai_res.get("sectors") and _ai_res.get("error") == "QUOTA":
-                                st.warning(
-                                    "⚠️ **Gemini API 무료 할당량 초과**\n\n"
-                                    "오늘의 AI 분석 횟수가 모두 소진되었습니다.  \n"
-                                    "• 내일 자정(KST) 자동 초기화  \n"
-                                    "• 즉시 해결: [Google AI Studio](https://aistudio.google.com) 에서 유료 전환"
+                                # ── 거래량 TOP 10 ─────────────────────────────
+                                st.markdown(
+                                    "<p style='font-size:0.78rem;font-weight:700;color:#aaa;margin:6px 0 4px 0'>📊 거래량 TOP 10</p>",
+                                    unsafe_allow_html=True,
                                 )
-                            elif not _ai_res.get("sectors") and _ai_res.get("error"):
-                                st.error(f"AI 분석 오류: {_ai_res['error']}")
-                            else:
-                                _ai_sectors = sorted(
-                                    _ai_res.get("sectors", []),
-                                    key=lambda x: -x.get("hot_score", 0),
-                                )
+                                if _vol_rank:
+                                    _df_vol = pd.DataFrame(_vol_rank)
 
-                                # sectors_kr.py 전체 맵 (AI 탭 종목 소스)
-                                _ai_sector_db = load_sector_map()
+                                    def _color_vol(val):
+                                        if isinstance(val, (int, float)):
+                                            if val > 0: return "color: #ff4b4b; font-weight: bold"
+                                            if val < 0: return "color: #2b7cff; font-weight: bold"
+                                        return ""
 
-                                # 전체 종목 일괄 시세 조회 (루프 밖에서 한 번만)
-                                _all_ai_tickers: list = []
-                                _ai_code_suffix: dict = {}
-                                for _as in _ai_sectors:
-                                    _kw_pre = _as.get("keyword", "")
-                                    _hot_codes_pre = _as.get("hot_codes", [])
-                                    # sectors_kr.py에서 해당 섹터 전체 종목 flatten
-                                    _all_sec_stocks = []
-                                    for _sub_stks in _ai_sector_db.get(_kw_pre, {}).values():
-                                        _all_sec_stocks.extend(_sub_stks)
-                                    _display_pre = [s for s in _all_sec_stocks if not _hot_codes_pre or s["code"] in _hot_codes_pre]
-                                    if not _display_pre:
-                                        _display_pre = _all_sec_stocks[:10]
-                                    for _ds in _display_pre[:10]:
-                                        if _ds["code"] not in _ai_code_suffix:
-                                            _ai_code_suffix[_ds["code"]] = _ds["suffix"]
-                                            _all_ai_tickers.append((_ds["code"], _ds["code"] + _ds["suffix"]))
-                                with st.spinner(""):
-                                    _ai_prices = get_kr_prices_bulk(tuple(_all_ai_tickers)) if _all_ai_tickers else {}
-
-                                # ── 신규 이슈 섹터 요약 패널 ──────────────
-                                _new_sec_list = [
-                                    s for s in _ai_sectors
-                                    if not any(_ai_sector_db.get(s.get("keyword", ""), {}).values())
-                                ]
-                                _all_dyn_subs = [
-                                    (s.get("keyword", ""), ds)
-                                    for s in _ai_sectors
-                                    for ds in s.get("dynamic_subsectors", [])
-                                ]
-                                if _new_sec_list or _all_dyn_subs:
-                                    st.markdown(
-                                        "<p style='font-size:0.78rem;font-weight:700;color:#4caf50;margin:8px 0 4px 0'>"
-                                        "⚡ 오늘의 신규 이슈 감지</p>",
-                                        unsafe_allow_html=True,
+                                    st.dataframe(
+                                        _df_vol.style.map(_color_vol, subset=["등락률(%)"]),
+                                        use_container_width=True, hide_index=True, height=220,
                                     )
-                                    _iss_cols = st.columns(min(len(_new_sec_list) + len(_all_dyn_subs), 4))
-                                    _iss_idx = 0
-                                    for _nsl in _new_sec_list:
-                                        if _iss_idx < len(_iss_cols):
-                                            _iss_cols[_iss_idx].markdown(
-                                                f"<div style='background:rgba(76,175,80,0.1);border:1px solid #4caf50;"
-                                                f"border-radius:8px;padding:6px 10px;margin:2px 0'>"
-                                                f"<span style='font-size:0.72rem;font-weight:700;color:#4caf50'>🆕 {_nsl['keyword']}</span><br>"
-                                                f"<span style='font-size:0.68rem;color:#aaa'>{_nsl.get('reason','')[:50]}...</span>"
-                                                f"</div>",
-                                                unsafe_allow_html=True,
-                                            )
-                                            _iss_idx += 1
-                                    for _par, _ds in _all_dyn_subs:
-                                        if _iss_idx < len(_iss_cols):
-                                            _iss_cols[_iss_idx].markdown(
-                                                f"<div style='background:rgba(255,152,0,0.1);border:1px solid #ff9800;"
-                                                f"border-radius:8px;padding:6px 10px;margin:2px 0'>"
-                                                f"<span style='font-size:0.72rem;font-weight:700;color:#ff9800'>📡 {_ds['name']}</span><br>"
-                                                f"<span style='font-size:0.68rem;color:#aaa'>{_par} › {_ds.get('reason','')[:40]}...</span>"
-                                                f"</div>",
-                                                unsafe_allow_html=True,
-                                            )
-                                            _iss_idx += 1
-                                    st.markdown("<hr style='margin:6px 0;border:none;border-top:1px solid rgba(255,255,255,0.07)'>", unsafe_allow_html=True)
+                                else:
+                                    st.caption("거래량 데이터를 불러올 수 없습니다.")
 
-                                # ── 역사적 패턴 분석 결과 패널 ──────────────
-                                _pat_kw = st.session_state.get("ai_pattern_kw", "")
-                                if _pat_kw:
-                                    from ai_engine import analyze_market_pattern
-                                    with st.spinner(f"🔍 {_pat_kw} 역사적 패턴 분석 중..."):
-                                        _pat_data = analyze_market_pattern(_pat_kw)
-                                    with st.container(border=True):
-                                        _pcol1, _pcol2 = st.columns([9, 1])
-                                        _pcol1.markdown(
-                                            f"<p style='font-size:0.82rem;font-weight:700;color:#64b5f6;margin:0'>📊 {_pat_kw} — 역사적 패턴 분석</p>",
+                                st.markdown("<hr style='margin:8px 0;border:none;border-top:1px solid rgba(255,255,255,0.07)'>", unsafe_allow_html=True)
+
+                                # ── 오늘의 급등 종목 ──────────────────────────
+                                st.markdown(
+                                    "<p style='font-size:0.78rem;font-weight:700;color:#aaa;margin:4px 0'>📈 오늘의 급등 종목</p>",
+                                    unsafe_allow_html=True,
+                                )
+                                if isinstance(_tm, dict) and not _tm.get("error") and _tm.get("stocks"):
+                                    with st.container(height=320):
+                                        for _si, _stk in enumerate(_tm.get("stocks", [])):
+                                            _cpct = _stk.get("change_pct", 0) or 0
+                                            _col  = "#ff4b4b" if _cpct > 0 else "#2b7cff"
+                                            _mkt  = _stk.get("market", "")
+                                            _thm  = _stk.get("theme", "")
+                                            _rsn  = _stk.get("reason", "")
+                                            _nm   = _stk.get("name", "")
+                                            _cd   = _stk.get("code", "")
+
+                                            with st.container(border=True):
+                                                _r1c1, _r1c2, _r1c3 = st.columns([4, 2, 1.2])
+                                                _r1c1.markdown(
+                                                    f"<span style='font-size:0.88rem;font-weight:700'>{_nm}</span>"
+                                                    f"<span style='font-size:0.68rem;color:#888;margin-left:6px'>{_mkt}</span>",
+                                                    unsafe_allow_html=True,
+                                                )
+                                                _r1c2.markdown(
+                                                    f"<span style='font-size:0.82rem;color:#888'>{_cd}</span>",
+                                                    unsafe_allow_html=True,
+                                                )
+                                                _r1c3.markdown(
+                                                    f"<span style='font-size:0.88rem;font-weight:700;color:{_col}'>{_cpct:+.1f}%</span>",
+                                                    unsafe_allow_html=True,
+                                                )
+                                                if _thm:
+                                                    st.markdown(
+                                                        f"<span style='font-size:0.67rem;background:rgba(255,152,0,0.15);"
+                                                        f"border-radius:10px;padding:1px 7px;color:#ff9800'>#{_thm}</span>",
+                                                        unsafe_allow_html=True,
+                                                    )
+                                                if _rsn:
+                                                    st.markdown(
+                                                        f"<p style='font-size:0.73rem;color:#bbb;margin:3px 0 0 0'>{_rsn}</p>",
+                                                        unsafe_allow_html=True,
+                                                    )
+                                                if _cd and st.button("▶ 차트", key=f"tm_cd_{_cd}_{_si}"):
+                                                    st.session_state.kr_selected_code      = _cd
+                                                    st.session_state.kr_selected_name      = _nm
+                                                    st.session_state.kr_sector_detail_code = _cd
+                                                    st.session_state.kr_sector_detail_name = _nm
+                                                    st.session_state.kr_sector_view        = "detail"
+                                                    st.session_state.kr_mode               = "📊 일반 주식 검색"
+                                                    st.rerun()
+                                elif not _quota_err:
+                                    st.caption("급등 종목 데이터를 불러올 수 없습니다.")
+
+                                st.markdown("<hr style='margin:8px 0;border:none;border-top:1px solid rgba(255,255,255,0.07)'>", unsafe_allow_html=True)
+
+                                # ── AI 핫 섹터 ───────────────────────────────
+                                st.markdown(
+                                    "<p style='font-size:0.78rem;font-weight:700;color:#aaa;margin:4px 0'>🔥 AI 핫 섹터</p>",
+                                    unsafe_allow_html=True,
+                                )
+                                if isinstance(_ai_res, dict) and not _ai_res.get("error") and _ai_res.get("sectors"):
+                                    _ai_sectors = sorted(
+                                        _ai_res.get("sectors", []),
+                                        key=lambda x: -x.get("hot_score", 0),
+                                    )
+                                    _ai_sector_db = load_sector_map()
+
+                                    _all_ai_tickers: list = []
+                                    _ai_code_suffix: dict = {}
+                                    for _as in _ai_sectors:
+                                        _kw_pre = _as.get("keyword", "")
+                                        _hot_codes_pre = _as.get("hot_codes", [])
+                                        _all_sec_stocks = []
+                                        for _sub_stks in _ai_sector_db.get(_kw_pre, {}).values():
+                                            _all_sec_stocks.extend(_sub_stks)
+                                        _display_pre = [s for s in _all_sec_stocks if not _hot_codes_pre or s["code"] in _hot_codes_pre]
+                                        if not _display_pre:
+                                            _display_pre = _all_sec_stocks[:10]
+                                        for _ds in _display_pre[:10]:
+                                            if _ds["code"] not in _ai_code_suffix:
+                                                _ai_code_suffix[_ds["code"]] = _ds["suffix"]
+                                                _all_ai_tickers.append((_ds["code"], _ds["code"] + _ds["suffix"]))
+                                    with st.spinner(""):
+                                        _ai_prices = get_kr_prices_bulk(tuple(_all_ai_tickers)) if _all_ai_tickers else {}
+
+                                    # 신규 이슈 섹터 요약 패널
+                                    _new_sec_list = [
+                                        s for s in _ai_sectors
+                                        if not any(_ai_sector_db.get(s.get("keyword", ""), {}).values())
+                                    ]
+                                    _all_dyn_subs = [
+                                        (s.get("keyword", ""), ds)
+                                        for s in _ai_sectors
+                                        for ds in s.get("dynamic_subsectors", [])
+                                    ]
+                                    if _new_sec_list or _all_dyn_subs:
+                                        st.markdown(
+                                            "<p style='font-size:0.78rem;font-weight:700;color:#4caf50;margin:8px 0 4px 0'>"
+                                            "⚡ 오늘의 신규 이슈 감지</p>",
                                             unsafe_allow_html=True,
                                         )
-                                        if _pcol2.button("✕", key="pat_close"):
-                                            st.session_state["ai_pattern_kw"] = ""
-                                            st.rerun()
-                                        if "error" in _pat_data:
-                                            st.error(f"패턴 분석 오류: {_pat_data['error']}")
-                                        else:
-                                            for _hp in _pat_data.get("historical_patterns", []):
-                                                st.markdown(
-                                                    f"**📅 {_hp.get('period','')}** — {_hp.get('trigger','')}  \n"
-                                                    f"{_hp.get('what_happened','')} *({_hp.get('duration','')})*"
-                                                )
-                                            if _pat_data.get("current_similarity"):
-                                                st.markdown(f"**🔗 현재 유사도**: {_pat_data['current_similarity']}")
-                                            if _pat_data.get("prediction"):
-                                                st.markdown(
-                                                    f"<div style='background:rgba(100,181,246,0.08);border-left:3px solid #64b5f6;"
-                                                    f"padding:6px 10px;border-radius:4px;margin:4px 0'>"
-                                                    f"<span style='font-size:0.78rem;color:#64b5f6;font-weight:700'>🎯 예측</span><br>"
-                                                    f"<span style='font-size:0.75rem;color:#ccc'>{_pat_data['prediction']}</span>"
+                                        _iss_cols = st.columns(min(len(_new_sec_list) + len(_all_dyn_subs), 4))
+                                        _iss_idx = 0
+                                        for _nsl in _new_sec_list:
+                                            if _iss_idx < len(_iss_cols):
+                                                _iss_cols[_iss_idx].markdown(
+                                                    f"<div style='background:rgba(76,175,80,0.1);border:1px solid #4caf50;"
+                                                    f"border-radius:8px;padding:6px 10px;margin:2px 0'>"
+                                                    f"<span style='font-size:0.72rem;font-weight:700;color:#4caf50'>🆕 {_nsl['keyword']}</span><br>"
+                                                    f"<span style='font-size:0.68rem;color:#aaa'>{_nsl.get('reason','')[:50]}...</span>"
                                                     f"</div>",
                                                     unsafe_allow_html=True,
                                                 )
-                                            if _pat_data.get("risk_factors"):
-                                                st.markdown(f"**⚠️ 리스크**: {_pat_data['risk_factors']}")
-                                            _watch = _pat_data.get("key_stocks_to_watch", [])
-                                            if _watch:
-                                                st.markdown("**👀 주목 종목**: " + " · ".join(_watch))
-                                    st.markdown("")
+                                                _iss_idx += 1
+                                        for _par, _ds in _all_dyn_subs:
+                                            if _iss_idx < len(_iss_cols):
+                                                _iss_cols[_iss_idx].markdown(
+                                                    f"<div style='background:rgba(255,152,0,0.1);border:1px solid #ff9800;"
+                                                    f"border-radius:8px;padding:6px 10px;margin:2px 0'>"
+                                                    f"<span style='font-size:0.72rem;font-weight:700;color:#ff9800'>📡 {_ds['name']}</span><br>"
+                                                    f"<span style='font-size:0.68rem;color:#aaa'>{_par} › {_ds.get('reason','')[:40]}...</span>"
+                                                    f"</div>",
+                                                    unsafe_allow_html=True,
+                                                )
+                                                _iss_idx += 1
+                                        st.markdown("<hr style='margin:6px 0;border:none;border-top:1px solid rgba(255,255,255,0.07)'>", unsafe_allow_html=True)
 
-                                with st.container(height=520):
-                                    for _asi, _as in enumerate(_ai_sectors):
-                                        _kw     = _as.get("keyword", "")
-                                        _score  = _as.get("hot_score", 0)
-                                        _reason = _as.get("reason", "")
-                                        _news   = _as.get("news_title", "")
-                                        _hot_codes = _as.get("hot_codes", [])
-                                        # sectors_kr.py에서 해당 섹터 종목 flatten
-                                        _all_sec = []
-                                        for _sub_stks in _ai_sector_db.get(_kw, {}).values():
-                                            _all_sec.extend(_sub_stks)
-                                        _display = [s for s in _all_sec if not _hot_codes or s["code"] in _hot_codes]
-                                        if not _display:
-                                            _display = _all_sec[:10]
-                                        # 신규 섹터(DB 없음): AI new_stocks를 변환해서 표시
-                                        _is_new_sector = len(_all_sec) == 0
-
+                                    # 역사적 패턴 분석 결과 패널
+                                    _pat_kw = st.session_state.get("ai_pattern_kw", "")
+                                    if _pat_kw:
+                                        from ai_engine import analyze_market_pattern
+                                        with st.spinner(f"🔍 {_pat_kw} 역사적 패턴 분석 중..."):
+                                            _pat_data = analyze_market_pattern(_pat_kw)
                                         with st.container(border=True):
-                                            # 섹터 헤더
-                                            _fire = "🔥" * max(1, min(int(_score / 2.5), 4))
-                                            _new_badge = " <span style='font-size:0.65rem;color:#4caf50;border:1px solid #4caf50;border-radius:3px;padding:1px 4px'>NEW</span>" if _is_new_sector else ""
-                                            st.markdown(
-                                                f"<div style='display:flex;justify-content:space-between;align-items:center;margin-bottom:2px'>"
-                                                f"<span style='font-size:0.9rem;font-weight:700'>{_kw}{_new_badge}</span>"
-                                                f"<span style='font-size:0.78rem;color:#ff9800'>{_fire} {_score}/10</span>"
-                                                f"</div>",
+                                            _pcol1, _pcol2 = st.columns([9, 1])
+                                            _pcol1.markdown(
+                                                f"<p style='font-size:0.82rem;font-weight:700;color:#64b5f6;margin:0'>📊 {_pat_kw} — 역사적 패턴 분석</p>",
                                                 unsafe_allow_html=True,
                                             )
-                                            if _reason:
-                                                st.markdown(
-                                                    f"<p style='font-size:0.73rem;color:#aaa;margin:0 0 2px 0'>{_reason}</p>",
-                                                    unsafe_allow_html=True,
-                                                )
-                                            if _news:
-                                                st.markdown(
-                                                    f"<p style='font-size:0.7rem;color:#777;margin:0 0 5px 0'>📰 {_news}</p>",
-                                                    unsafe_allow_html=True,
-                                                )
-
-                                            # 종목 행 (최대 10개)
-                                            for _si, _stk in enumerate(_display[:10]):
-                                                if _si > 0:
+                                            if _pcol2.button("✕", key="pat_close"):
+                                                st.session_state["ai_pattern_kw"] = ""
+                                                st.rerun()
+                                            if "error" in _pat_data:
+                                                st.error(f"패턴 분석 오류: {_pat_data['error']}")
+                                            else:
+                                                for _hp in _pat_data.get("historical_patterns", []):
                                                     st.markdown(
-                                                        '<hr style="margin:1px 0;border:none;border-top:1px solid rgba(255,255,255,0.07)">',
+                                                        f"**📅 {_hp.get('period','')}** — {_hp.get('trigger','')}  \n"
+                                                        f"{_hp.get('what_happened','')} *({_hp.get('duration','')})*"
+                                                    )
+                                                if _pat_data.get("current_similarity"):
+                                                    st.markdown(f"**🔗 현재 유사도**: {_pat_data['current_similarity']}")
+                                                if _pat_data.get("prediction"):
+                                                    st.markdown(
+                                                        f"<div style='background:rgba(100,181,246,0.08);border-left:3px solid #64b5f6;"
+                                                        f"padding:6px 10px;border-radius:4px;margin:4px 0'>"
+                                                        f"<span style='font-size:0.78rem;color:#64b5f6;font-weight:700'>🎯 예측</span><br>"
+                                                        f"<span style='font-size:0.75rem;color:#ccc'>{_pat_data['prediction']}</span>"
+                                                        f"</div>",
                                                         unsafe_allow_html=True,
                                                     )
-                                                _pd  = _ai_prices.get(_stk["code"], {"price": 0, "change_pct": 0.0})
-                                                _pct = _pd["change_pct"]
-                                                _pv  = _pd["price"]
-                                                _pc  = "#ff4b4b" if _pct > 0 else "#2b7cff" if _pct < 0 else "#888"
-                                                _badge = "🔑 " if _stk.get("r") == "core" else ""
-                                                _bc0, _bc1, _bc2, _bc3, _bc4 = st.columns([0.3, 2.6, 1.8, 1.4, 0.45])
-                                                _bc0.markdown("✅" if _pct >= 3.0 else "&nbsp;", unsafe_allow_html=True)
-                                                _bc1.markdown(f"<span style='font-size:0.82rem'>{_badge}{_stk['name']}</span>", unsafe_allow_html=True)
-                                                _bc2.markdown(f"<span style='font-size:0.82rem'>{'₩'+format(_pv,',') if _pv>0 else '---'}</span>", unsafe_allow_html=True)
-                                                _bc3.markdown(f"<span style='font-size:0.82rem;font-weight:bold;color:{_pc}'>{_pct:+.2f}%</span>", unsafe_allow_html=True)
-                                                if _bc4.button("▶", key=f"ai_s_{_stk['code']}_{_kw[:6]}_{_si}"):
-                                                    st.session_state.kr_selected_code       = _stk["code"]
-                                                    st.session_state.kr_selected_name       = _stk["name"]
-                                                    st.session_state.kr_sector_detail_code  = _stk["code"]
-                                                    st.session_state.kr_sector_detail_name  = _stk["name"]
-                                                    st.session_state.kr_sector_view         = "detail"
-                                                    st.rerun()
+                                                if _pat_data.get("risk_factors"):
+                                                    st.markdown(f"**⚠️ 리스크**: {_pat_data['risk_factors']}")
+                                                _watch = _pat_data.get("key_stocks_to_watch", [])
+                                                if _watch:
+                                                    st.markdown("**👀 주목 종목**: " + " · ".join(_watch))
+                                        st.markdown("")
 
-                                            # AI 신규 추천 종목 (KB에 없는 것)
-                                            for _ns in _as.get("new_stocks", [])[:2]:
-                                                st.markdown(
-                                                    f"<span class='sector-pill'>🤖 {_ns.get('name','')} — {_ns.get('reason','')}</span>",
-                                                    unsafe_allow_html=True,
-                                                )
+                                    with st.container(height=460):
+                                        for _asi, _as in enumerate(_ai_sectors):
+                                            _kw        = _as.get("keyword", "")
+                                            _score     = _as.get("hot_score", 0)
+                                            _reason    = _as.get("reason", "")
+                                            _news      = _as.get("news_title", "")
+                                            _hot_codes = _as.get("hot_codes", [])
+                                            _all_sec   = []
+                                            for _sub_stks in _ai_sector_db.get(_kw, {}).values():
+                                                _all_sec.extend(_sub_stks)
+                                            _display = [s for s in _all_sec if not _hot_codes or s["code"] in _hot_codes]
+                                            if not _display:
+                                                _display = _all_sec[:10]
+                                            _is_new_sector = len(_all_sec) == 0
 
-                                            # 동적 서브섹터 (오늘 새로 부각된 세부 테마)
-                                            _dyn_subs = _as.get("dynamic_subsectors", [])
-                                            if _dyn_subs:
+                                            with st.container(border=True):
+                                                _fire = "🔥" * max(1, min(int(_score / 2.5), 4))
+                                                _new_badge = " <span style='font-size:0.65rem;color:#4caf50;border:1px solid #4caf50;border-radius:3px;padding:1px 4px'>NEW</span>" if _is_new_sector else ""
                                                 st.markdown(
-                                                    "<hr style='margin:4px 0;border:none;border-top:1px solid rgba(255,152,0,0.2)'>",
-                                                    unsafe_allow_html=True,
-                                                )
-                                            for _dys in _dyn_subs:
-                                                st.markdown(
-                                                    f"<div style='padding:4px 8px;background:rgba(255,152,0,0.07);"
-                                                    f"border-left:2px solid #ff9800;border-radius:0 4px 4px 0;margin:2px 0'>"
-                                                    f"<span style='font-size:0.72rem;color:#ff9800;font-weight:700'>📡 {_dys['name']}</span>"
-                                                    f"<span style='font-size:0.68rem;color:#aaa;margin-left:8px'>{_dys.get('reason','')}</span>"
+                                                    f"<div style='display:flex;justify-content:space-between;align-items:center;margin-bottom:2px'>"
+                                                    f"<span style='font-size:0.9rem;font-weight:700'>{_kw}{_new_badge}</span>"
+                                                    f"<span style='font-size:0.78rem;color:#ff9800'>{_fire} {_score}/10</span>"
                                                     f"</div>",
                                                     unsafe_allow_html=True,
                                                 )
-                                                for _dns in _dys.get("new_stocks", [])[:2]:
+                                                if _reason:
                                                     st.markdown(
-                                                        f"<span class='sector-pill' style='font-size:0.67rem'>↳ {_dns.get('name','')} — {_dns.get('reason','')}</span>",
+                                                        f"<p style='font-size:0.73rem;color:#aaa;margin:0 0 2px 0'>{_reason}</p>",
+                                                        unsafe_allow_html=True,
+                                                    )
+                                                if _news:
+                                                    st.markdown(
+                                                        f"<p style='font-size:0.7rem;color:#777;margin:0 0 5px 0'>📰 {_news}</p>",
                                                         unsafe_allow_html=True,
                                                     )
 
-                                            # 역사적 패턴 분석 버튼
-                                            if st.button("📊 역사적 패턴", key=f"pat_btn_{_asi}", help=f"{_kw} 섹터 과거 패턴 기반 미래 예측"):
-                                                st.session_state["ai_pattern_kw"] = _kw
-                                                st.rerun()
+                                                for _si, _stk in enumerate(_display[:10]):
+                                                    if _si > 0:
+                                                        st.markdown(
+                                                            '<hr style="margin:1px 0;border:none;border-top:1px solid rgba(255,255,255,0.07)">',
+                                                            unsafe_allow_html=True,
+                                                        )
+                                                    _pd  = _ai_prices.get(_stk["code"], {"price": 0, "change_pct": 0.0})
+                                                    _pct = _pd["change_pct"]
+                                                    _pv  = _pd["price"]
+                                                    _pc  = "#ff4b4b" if _pct > 0 else "#2b7cff" if _pct < 0 else "#888"
+                                                    _badge = "🔑 " if _stk.get("r") == "core" else ""
+                                                    _bc0, _bc1, _bc2, _bc3, _bc4 = st.columns([0.3, 2.6, 1.8, 1.4, 0.45])
+                                                    _bc0.markdown("✅" if _pct >= 3.0 else "&nbsp;", unsafe_allow_html=True)
+                                                    _bc1.markdown(f"<span style='font-size:0.82rem'>{_badge}{_stk['name']}</span>", unsafe_allow_html=True)
+                                                    _bc2.markdown(f"<span style='font-size:0.82rem'>{'₩'+format(_pv,',') if _pv>0 else '---'}</span>", unsafe_allow_html=True)
+                                                    _bc3.markdown(f"<span style='font-size:0.82rem;font-weight:bold;color:{_pc}'>{_pct:+.2f}%</span>", unsafe_allow_html=True)
+                                                    if _bc4.button("▶", key=f"ai_s_{_stk['code']}_{_kw[:6]}_{_si}"):
+                                                        st.session_state.kr_selected_code       = _stk["code"]
+                                                        st.session_state.kr_selected_name       = _stk["name"]
+                                                        st.session_state.kr_sector_detail_code  = _stk["code"]
+                                                        st.session_state.kr_sector_detail_name  = _stk["name"]
+                                                        st.session_state.kr_sector_view         = "detail"
+                                                        st.rerun()
+
+                                                for _ns in _as.get("new_stocks", [])[:2]:
+                                                    st.markdown(
+                                                        f"<span class='sector-pill'>🤖 {_ns.get('name','')} — {_ns.get('reason','')}</span>",
+                                                        unsafe_allow_html=True,
+                                                    )
+
+                                                _dyn_subs = _as.get("dynamic_subsectors", [])
+                                                if _dyn_subs:
+                                                    st.markdown(
+                                                        "<hr style='margin:4px 0;border:none;border-top:1px solid rgba(255,152,0,0.2)'>",
+                                                        unsafe_allow_html=True,
+                                                    )
+                                                for _dys in _dyn_subs:
+                                                    st.markdown(
+                                                        f"<div style='padding:4px 8px;background:rgba(255,152,0,0.07);"
+                                                        f"border-left:2px solid #ff9800;border-radius:0 4px 4px 0;margin:2px 0'>"
+                                                        f"<span style='font-size:0.72rem;color:#ff9800;font-weight:700'>📡 {_dys['name']}</span>"
+                                                        f"<span style='font-size:0.68rem;color:#aaa;margin-left:8px'>{_dys.get('reason','')}</span>"
+                                                        f"</div>",
+                                                        unsafe_allow_html=True,
+                                                    )
+                                                    for _dns in _dys.get("new_stocks", [])[:2]:
+                                                        st.markdown(
+                                                            f"<span class='sector-pill' style='font-size:0.67rem'>↳ {_dns.get('name','')} — {_dns.get('reason','')}</span>",
+                                                            unsafe_allow_html=True,
+                                                        )
+
+                                                if st.button("📊 역사적 패턴", key=f"pat_btn_{_asi}", help=f"{_kw} 섹터 과거 패턴 기반 미래 예측"):
+                                                    st.session_state["ai_pattern_kw"] = _kw
+                                                    st.rerun()
+                                elif not _quota_err:
+                                    st.caption("섹터 데이터를 불러올 수 없습니다.")
 
 
                         # ── 전체 섹터 탐색 탭 ──────────────────────────────
-                        elif st.session_state.kr_sector_panel_tab == _spt_tabs[2]:
+                        elif st.session_state.kr_sector_panel_tab == _spt_tabs[1]:
                             hdr2_c1, hdr2_c2 = st.columns([8, 1])
                             if hdr2_c2.button("🔄", key="sec_refresh",
                                               help="섹터 캐시 초기화"):
@@ -1319,34 +1335,7 @@ def main():
                         st.session_state[f"kr_report_{selected_code_kr}"].get("analysis", "")
                     )
 
-            st.markdown("---")
 
-            # 거래량 상위 TOP 10
-            st.markdown("### 🔥 거래량 상위 TOP 10")
-            col_ref_kr, _ = st.columns([1, 5])
-            with col_ref_kr:
-                if st.button("🔄 새로고침", key="refresh_vol_kr"):
-                    get_kr_volume_ranking.clear()
-                    st.rerun()
-
-            with st.spinner("거래량 순위 조회 중..."):
-                vol_rank = get_kr_volume_ranking()
-
-            if vol_rank:
-                df_vol = pd.DataFrame(vol_rank)
-
-                def color_kr(val):
-                    if isinstance(val, (int, float)):
-                        if val > 0: return "color: #ff4b4b; font-weight: bold"
-                        if val < 0: return "color: #2b7cff; font-weight: bold"
-                    return ""
-
-                st.dataframe(
-                    df_vol.style.map(color_kr, subset=["등락률(%)"]),
-                    use_container_width=True, hide_index=True
-                )
-            else:
-                st.info("거래량 순위 데이터를 불러올 수 없습니다.")
         else:
             # ── 미국 시장 지수 ────────────────────────────────────────────
             st.markdown("### 📊 미국 시장 지수")
