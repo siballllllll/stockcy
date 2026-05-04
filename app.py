@@ -1416,19 +1416,19 @@ def main():
                                 load_sector_map.clear()
                                 st.rerun()
 
-                            # 섹터 버튼: 한 줄 최대 5개
-                            _kr_btn_rows = [sector_names[i:i+5] for i in range(0, len(sector_names), 5)]
-                            for _kr_row in _kr_btn_rows:
-                                _kr_rcols = st.columns(len(_kr_row))
-                                for _kr_ri, sname in enumerate(_kr_row):
-                                    is_active = st.session_state.kr_selected_sector == sname
-                                    if _kr_rcols[_kr_ri].button(
-                                        sname, key=f"sec_btn_{sname}",
-                                        type="primary" if is_active else "secondary",
-                                        use_container_width=True,
-                                    ):
-                                        st.session_state.kr_selected_sector = sname
-                                        st.rerun()
+                            # 섹터 선택 드롭다운
+                            _cur_idx = sector_names.index(st.session_state.kr_selected_sector) \
+                                if st.session_state.kr_selected_sector in sector_names else 0
+                            _sel_sector = st.selectbox(
+                                "섹터 선택",
+                                sector_names,
+                                index=_cur_idx,
+                                key="kr_sector_selectbox",
+                                label_visibility="collapsed",
+                            )
+                            if _sel_sector != st.session_state.kr_selected_sector:
+                                st.session_state.kr_selected_sector = _sel_sector
+                                st.rerun()
 
                             selected_sector = st.session_state.kr_selected_sector
                             subsectors = sector_map[selected_sector]
