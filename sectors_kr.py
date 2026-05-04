@@ -943,7 +943,7 @@ KR_SECTOR_MAP = {
     "광통신·네트워크장비": {
         "광통신 부품·모듈": [
             {"name": "오이솔루션",     "code": "138080", "suffix": ".KQ"},
-            {"name": "우리로",         "code": "043590", "suffix": ".KQ"},
+            {"name": "우리로",         "code": "046970", "suffix": ".KQ"},
             {"name": "옵티시스",       "code": "109080", "suffix": ".KQ"},
             {"name": "이노와이어리스", "code": "073490", "suffix": ".KQ"},
             {"name": "에치에프알",     "code": "230340", "suffix": ".KQ"},
