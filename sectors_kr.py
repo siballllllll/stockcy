@@ -643,7 +643,6 @@ KR_SECTOR_MAP = {
         "양자 보안·암호화": [
             {"name": "SK텔레콤",       "code": "017670", "suffix": ".KS"},
             {"name": "ICTK홀딩스",     "code": "040850", "suffix": ".KQ"},
-            {"name": "우리로",         "code": "043590", "suffix": ".KQ"},
             {"name": "드림시큐리티",   "code": "203650", "suffix": ".KQ"},
             {"name": "라온시큐어",     "code": "042510", "suffix": ".KQ"},
             {"name": "이니텍",         "code": "053350", "suffix": ".KQ"},

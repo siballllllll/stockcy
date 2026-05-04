@@ -245,7 +245,7 @@ def main():
     components.html(ticker_html, height=75)
     
     # --- 메인 탭 구성 ---
-    tab1, tab2 = st.tabs(["📊 실시간 타점 보드", "📈 성과 트래킹"])
+    tab1, tab2, tab3 = st.tabs(["📊 실시간 타점 보드", "📈 성과 트래킹", "🔧 관리자"])
     
     with tab1:
         if "국내" in st.session_state.market:
@@ -411,12 +411,13 @@ def main():
                                 font=dict(color="white", size=11),
                                 xaxis=dict(**_ax, rangeslider=dict(visible=False),
                                            showticklabels=False, range=[_xs_st, _xs_end]),
-                                xaxis2=dict(**_ax, range=[_xs_st, _xs_end], tickformat="%m/%d %H:%M"),
-                                yaxis=dict(**_ax, tickformat=",", side="right"),
-                                yaxis2=dict(**_ax, tickformat=".2s", side="right"),
-                                legend=dict(orientation="h", x=0, y=1.06,
+                                xaxis2=dict(**_ax, range=[_xs_st, _xs_end], tickformat="%H:%M"),
+                                yaxis=dict(**_ax, tickformat=",", side="right", autorange=True),
+                                yaxis2=dict(**_ax, tickformat=".2s", side="right", autorange=True),
+                                legend=dict(orientation="h", x=0, y=1.05,
                                             bgcolor="rgba(0,0,0,0)", font=dict(size=11)),
-                                margin=dict(l=0, r=55, t=20, b=5), height=390,
+                                hovermode="x unified",
+                                margin=dict(l=0, r=60, t=30, b=5), height=540,
                             )
                             _fig_s.update_xaxes(
                                 rangebreaks=[
@@ -597,10 +598,11 @@ def main():
                                                type="date"),
                                     xaxis2=dict(**_ax, range=[_x_start, _x_end],
                                                 tickformat="%H:%M", type="date"),
-                                    yaxis=dict(**_ax, tickformat=",", side="right"),
-                                    yaxis2=dict(**_ax, tickformat=".2s", side="right"),
-                                    legend=dict(orientation="h", x=0, y=1.06, bgcolor="rgba(0,0,0,0)", font=dict(size=11)),
-                                    margin=dict(l=0, r=55, t=20, b=5), height=380,
+                                    yaxis=dict(**_ax, tickformat=",", side="right", autorange=True),
+                                    yaxis2=dict(**_ax, tickformat=".2s", side="right", autorange=True),
+                                    legend=dict(orientation="h", x=0, y=1.05, bgcolor="rgba(0,0,0,0)", font=dict(size=11)),
+                                    hovermode="x unified",
+                                    margin=dict(l=0, r=60, t=30, b=5), height=540,
                                 )
                                 fig_kr.update_xaxes(rangebreaks=[
                                     dict(bounds=["sat", "mon"]),
@@ -650,15 +652,19 @@ def main():
                                 fig_d.add_trace(go.Bar(x=df_d["datetime"], y=df_d["volume"],
                                     marker_color=_dvc, name="거래량", showlegend=False), row=2, col=1)
                                 _ax = dict(gridcolor="rgba(255,255,255,0.08)", showline=False)
+                                _xrng = [str(df_d["datetime"].min())[:10],
+                                         str(df_d["datetime"].max())[:10]]
                                 fig_d.update_layout(
                                     paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
                                     font=dict(color="white", size=11),
-                                    xaxis=dict(**_ax, rangeslider=dict(visible=False), showticklabels=False),
-                                    xaxis2=dict(**_ax, tickformat="%y/%m/%d"),
-                                    yaxis=dict(**_ax, tickformat=",", side="right"),
-                                    yaxis2=dict(**_ax, tickformat=".2s", side="right"),
-                                    legend=dict(orientation="h", x=0, y=1.06, bgcolor="rgba(0,0,0,0)", font=dict(size=11)),
-                                    margin=dict(l=0, r=55, t=20, b=5), height=380,
+                                    xaxis=dict(**_ax, rangeslider=dict(visible=False),
+                                               showticklabels=False, range=_xrng),
+                                    xaxis2=dict(**_ax, tickformat="%y/%m/%d", range=_xrng),
+                                    yaxis=dict(**_ax, tickformat=",", side="right", autorange=True),
+                                    yaxis2=dict(**_ax, tickformat=".2s", side="right", autorange=True),
+                                    legend=dict(orientation="h", x=0, y=1.05, bgcolor="rgba(0,0,0,0)", font=dict(size=11)),
+                                    hovermode="x unified",
+                                    margin=dict(l=0, r=60, t=30, b=5), height=540,
                                 )
                                 fig_d.update_xaxes(rangebreaks=[dict(bounds=["sat", "mon"])])
                                 st.plotly_chart(fig_d, use_container_width=True)
@@ -2323,10 +2329,9 @@ def main():
         if "ai_portfolio" not in st.session_state:
             st.session_state.ai_portfolio = []
 
-        tab_holding, tab_history, tab_sheets = st.tabs([
+        tab_holding, tab_history = st.tabs([
             "📈 보유 종목",
             "📋 거래 성과",
-            "☁️ 구글 시트 연동"
         ])
 
         def render_holdings(portfolio_key, show_add=False):
@@ -2574,116 +2579,111 @@ def main():
                     st.session_state.trade_history = []
                     st.rerun()
 
-        with tab_sheets:
-            st.markdown("### ☁️ Google Sheets 연동")
-            st.info("`secrets.toml`에 구글 시트 서비스 계정 정보(gspread 섹션)가 등록되어야 합니다.")
+    with tab3:
+        st.subheader("🔧 관리자")
 
-            st.markdown("#### 포트폴리오 저장")
-            gs1, gs2 = st.columns(2)
-            with gs1:
-                if st.button("💾 내 포트폴리오 → 구글 시트 저장", use_container_width=True):
-                    from db import save_portfolio_to_gsheet
-                    port = st.session_state.get("portfolio", [])
-                    if port:
-                        tickers_gs = [x["ticker"] for x in port]
-                        price_df_gs = get_us_stock_data(tickers_gs)
-                        with st.spinner("저장 중..."):
-                            ok, msg_gs = save_portfolio_to_gsheet(port, price_df_gs)
-                        if ok:
-                            st.success(msg_gs)
-                        else:
-                            st.error(msg_gs)
-                    else:
-                        st.warning("저장할 종목이 없습니다.")
-            with gs2:
-                if st.button("💾 AI 추천 포트폴리오 → 구글 시트 저장", use_container_width=True):
-                    from db import save_portfolio_to_gsheet
-                    port = st.session_state.get("ai_portfolio", [])
-                    if port:
-                        tickers_gs = [x["ticker"] for x in port]
-                        price_df_gs = get_us_stock_data(tickers_gs)
-                        with st.spinner("저장 중..."):
-                            ok, msg_gs = save_portfolio_to_gsheet(port, price_df_gs)
-                        if ok:
-                            st.success(msg_gs)
-                        else:
-                            st.error(msg_gs)
-                    else:
-                        st.warning("저장할 종목이 없습니다.")
+        st.markdown("### ☁️ Google Sheets 연동")
+        st.info("`secrets.toml`에 구글 시트 서비스 계정 정보(gspread 섹션)가 등록되어야 합니다.")
 
-            st.markdown("---")
-            st.markdown("#### 거래 내역 조회 & 연결 테스트")
-            gt1, gt2 = st.columns(2)
-            with gt1:
-                if st.button("📥 구글 시트 거래내역 조회", use_container_width=True):
-                    from db import load_trade_history_from_gsheet
-                    with st.spinner("로드 중..."):
-                        df_gs, msg_gs = load_trade_history_from_gsheet()
-                    if df_gs is not None and not df_gs.empty:
-                        st.success(f"{len(df_gs)}건 조회 성공!")
-                        st.dataframe(df_gs, use_container_width=True, hide_index=True)
-                    else:
-                        st.info(msg_gs)
-            with gt2:
-                if st.button("🔗 연결 테스트", use_container_width=True):
-                    from db import test_connection_and_write
-                    with st.spinner("연결 테스트 중..."):
-                        ok, msg_gs = test_connection_and_write()
+        st.markdown("#### 포트폴리오 저장")
+        gs1, gs2 = st.columns(2)
+        with gs1:
+            if st.button("💾 내 포트폴리오 → 구글 시트 저장", use_container_width=True):
+                from db import save_portfolio_to_gsheet
+                port = st.session_state.get("portfolio", [])
+                if port:
+                    tickers_gs = [x["ticker"] for x in port]
+                    price_df_gs = get_us_stock_data(tickers_gs)
+                    with st.spinner("저장 중..."):
+                        ok, msg_gs = save_portfolio_to_gsheet(port, price_df_gs)
                     if ok:
                         st.success(msg_gs)
                     else:
                         st.error(msg_gs)
-
-            st.markdown("---")
-            st.markdown("#### 종목 코드 검증 (KIS API)")
-            if st.button("🔍 KIS API로 종목 코드 일치 여부 확인", use_container_width=True):
-                from sectors_kr import KR_SECTOR_MAP
-                # 전체 종목 수집 (중복 코드는 첫 번째 항목 기준)
-                all_stocks: dict[str, dict] = {}
-                for sector, subsectors in KR_SECTOR_MAP.items():
-                    for subsector, stocks in subsectors.items():
-                        for s in stocks:
-                            code = s.get("code", "")
-                            if code and code not in all_stocks:
-                                all_stocks[code] = {"name": s["name"], "sector": sector, "subsector": subsector}
-
-                mismatches = []
-                errors = []
-                total = len(all_stocks)
-                prog = st.progress(0, text=f"0 / {total} 검증 중...")
-                for i, (code, info) in enumerate(all_stocks.items()):
-                    prog.progress((i + 1) / total, text=f"{i+1} / {total} 검증 중... ({code})")
-                    try:
-                        kis_name = get_kr_stock_name_kis(code)
-                    except Exception as e:
-                        errors.append({"코드": code, "저장명": info["name"], "오류": str(e)})
-                        continue
-                    if not kis_name:
-                        errors.append({"코드": code, "저장명": info["name"], "오류": "KIS API 응답 없음"})
-                        continue
-                    stored_name = info["name"]
-                    if kis_name != stored_name:
-                        mismatches.append({
-                            "코드": code,
-                            "저장명": stored_name,
-                            "KIS명": kis_name,
-                            "섹터": info["sector"],
-                            "서브섹터": info["subsector"],
-                        })
-                prog.empty()
-
-                if mismatches:
-                    st.warning(f"불일치 {len(mismatches)}건 발견")
-                    st.dataframe(
-                        pd.DataFrame(mismatches),
-                        use_container_width=True,
-                        hide_index=True,
-                    )
                 else:
-                    st.success(f"전체 {total}개 종목 코드-종목명 일치 확인 완료!")
-                if errors:
-                    with st.expander(f"조회 실패 {len(errors)}건"):
-                        st.dataframe(pd.DataFrame(errors), use_container_width=True, hide_index=True)
+                    st.warning("저장할 종목이 없습니다.")
+        with gs2:
+            if st.button("💾 AI 추천 포트폴리오 → 구글 시트 저장", use_container_width=True):
+                from db import save_portfolio_to_gsheet
+                port = st.session_state.get("ai_portfolio", [])
+                if port:
+                    tickers_gs = [x["ticker"] for x in port]
+                    price_df_gs = get_us_stock_data(tickers_gs)
+                    with st.spinner("저장 중..."):
+                        ok, msg_gs = save_portfolio_to_gsheet(port, price_df_gs)
+                    if ok:
+                        st.success(msg_gs)
+                    else:
+                        st.error(msg_gs)
+                else:
+                    st.warning("저장할 종목이 없습니다.")
+
+        st.markdown("---")
+        st.markdown("#### 거래 내역 조회 & 연결 테스트")
+        gt1, gt2 = st.columns(2)
+        with gt1:
+            if st.button("📥 구글 시트 거래내역 조회", use_container_width=True):
+                from db import load_trade_history_from_gsheet
+                with st.spinner("로드 중..."):
+                    df_gs, msg_gs = load_trade_history_from_gsheet()
+                if df_gs is not None and not df_gs.empty:
+                    st.success(f"{len(df_gs)}건 조회 성공!")
+                    st.dataframe(df_gs, use_container_width=True, hide_index=True)
+                else:
+                    st.info(msg_gs)
+        with gt2:
+            if st.button("🔗 연결 테스트", use_container_width=True):
+                from db import test_connection_and_write
+                with st.spinner("연결 테스트 중..."):
+                    ok, msg_gs = test_connection_and_write()
+                if ok:
+                    st.success(msg_gs)
+                else:
+                    st.error(msg_gs)
+
+        st.markdown("---")
+        st.markdown("#### 종목 코드 검증 (KIS API)")
+        if st.button("🔍 KIS API로 종목 코드 일치 여부 확인", use_container_width=True):
+            from sectors_kr import KR_SECTOR_MAP
+            all_stocks: dict = {}
+            for sector, subsectors in KR_SECTOR_MAP.items():
+                for subsector, stocks in subsectors.items():
+                    for s in stocks:
+                        code = s.get("code", "")
+                        if code and code not in all_stocks:
+                            all_stocks[code] = {"name": s["name"], "sector": sector, "subsector": subsector}
+
+            mismatches = []
+            errors = []
+            total = len(all_stocks)
+            prog = st.progress(0, text=f"0 / {total} 검증 중...")
+            for i, (code, info) in enumerate(all_stocks.items()):
+                prog.progress((i + 1) / total, text=f"{i+1} / {total} 검증 중... ({code})")
+                try:
+                    kis_name = get_kr_stock_name_kis(code)
+                except Exception as e:
+                    errors.append({"코드": code, "저장명": info["name"], "오류": str(e)})
+                    continue
+                if not kis_name:
+                    errors.append({"코드": code, "저장명": info["name"], "오류": "KIS API 응답 없음"})
+                    continue
+                if kis_name != info["name"]:
+                    mismatches.append({
+                        "코드": code,
+                        "저장명": info["name"],
+                        "KIS명": kis_name,
+                        "섹터": info["sector"],
+                        "서브섹터": info["subsector"],
+                    })
+            prog.empty()
+            if mismatches:
+                st.warning(f"불일치 {len(mismatches)}건 발견")
+                st.dataframe(pd.DataFrame(mismatches), use_container_width=True, hide_index=True)
+            else:
+                st.success(f"전체 {total}개 종목 코드-종목명 일치!")
+            if errors:
+                with st.expander(f"조회 실패 {len(errors)}건"):
+                    st.dataframe(pd.DataFrame(errors), use_container_width=True, hide_index=True)
 
     # --- 하단 면책 조항 ---
     st.markdown("""
