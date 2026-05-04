@@ -1467,10 +1467,15 @@ def main():
                                     help_text = f"다중 섹터: {', '.join(other_locs)}" if other_locs else None
                                     c0, c1, c2, c3, c4 = st.columns([0.35, 2.8, 1.8, 1.4, 0.45])
                                     c0.markdown("✅" if pct >= 3.0 else "&nbsp;", unsafe_allow_html=True)
-                                    c1.markdown(f"<span style='font-size:0.85rem'>{s['name']}{'&nbsp;🔗' if other_locs else ''}</span>", unsafe_allow_html=True)
+                                    name_html = (
+                                        f"<span style='font-size:0.85rem'>{s['name']}</span>"
+                                        + (f"<span style='font-size:0.7rem;color:#666'> 🔗</span>" if other_locs else "")
+                                    )
+                                    c1.markdown(name_html, unsafe_allow_html=True)
                                     c2.markdown(f"<span style='font-size:0.85rem'>{'₩'+format(pval,',') if pval>0 else '---'}</span>", unsafe_allow_html=True)
                                     c3.markdown(f"<span style='font-size:0.85rem;font-weight:bold;color:{pct_color}'>{pct:+.2f}%</span>", unsafe_allow_html=True)
-                                    if c4.button("▶", key=f"stock_{s['code']}_{sub_name}_{i}", help=help_text):
+                                    if c4.button("▶", key=f"stock_{s['code']}_{sub_name}_{i}",
+                                                 use_container_width=True):
                                         st.session_state.kr_selected_code      = s["code"]
                                         st.session_state.kr_selected_name      = s["name"]
                                         st.session_state.kr_sector_detail_code = s["code"]
@@ -1499,7 +1504,8 @@ def main():
                                     f"2~3문장으로 간결하게 요약해주세요. 이모지 없이 핵심만."
                                 )
                                 try:
-                                    return _call_gemini(prompt, use_search=True, temperature=0.4) or "분석 정보 없음"
+                                    resp = _call_gemini(prompt, use_search=True, temperature=0.4)
+                                    return resp.text.strip() if resp and resp.text else "분석 정보 없음"
                                 except Exception:
                                     return "AI 분석을 불러올 수 없습니다."
 
