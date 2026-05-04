@@ -372,7 +372,6 @@ def main():
                             df_sec = get_kr_minute_chart(_dtv_code, interval=_sec_interval)
 
                         if not df_sec.empty:
-                            df_sec = df_sec.tail(60).reset_index(drop=True)
                             from plotly.subplots import make_subplots
                             from datetime import datetime as _dt_s
                             import pytz as _pytz_s
@@ -380,12 +379,10 @@ def main():
                             df_sec["ma20"] = df_sec["close"].rolling(20).mean()
                             _vc = ["#ff4b4b" if c >= o else "#2b7cff"
                                    for c, o in zip(df_sec["close"], df_sec["open"])]
-                            # x축 범위: 09:00 ~ 현재시각 or 15:30
                             _now_s  = _dt_s.now(_pytz_s.timezone("Asia/Seoul")).replace(tzinfo=None)
-                            _td_s   = _now_s.date()
-                            _xs_st  = f"{_td_s} 09:00"
-                            _xs_cl  = _dt_s.combine(_td_s, _dt_s.strptime("15:30", "%H:%M").time())
+                            _xs_cl  = _dt_s.combine(_now_s.date(), _dt_s.strptime("15:30", "%H:%M").time())
                             _xs_end = min(_now_s, _xs_cl).strftime("%Y-%m-%d %H:%M")
+                            _xs_st  = df_sec["datetime"].iloc[0].strftime("%Y-%m-%d 09:00")
 
                             _fig_s = make_subplots(rows=2, cols=1, shared_xaxes=True,
                                                    row_heights=[0.70, 0.30], vertical_spacing=0.02)
@@ -409,12 +406,18 @@ def main():
                                 font=dict(color="white", size=11),
                                 xaxis=dict(**_ax, rangeslider=dict(visible=False),
                                            showticklabels=False, range=[_xs_st, _xs_end]),
-                                xaxis2=dict(**_ax, range=[_xs_st, _xs_end], tickformat="%H:%M"),
+                                xaxis2=dict(**_ax, range=[_xs_st, _xs_end], tickformat="%m/%d %H:%M"),
                                 yaxis=dict(**_ax, tickformat=",", side="right"),
                                 yaxis2=dict(**_ax, tickformat=".2s", side="right"),
                                 legend=dict(orientation="h", x=0, y=1.06,
                                             bgcolor="rgba(0,0,0,0)", font=dict(size=11)),
                                 margin=dict(l=0, r=55, t=20, b=5), height=390,
+                            )
+                            _fig_s.update_xaxes(
+                                rangebreaks=[
+                                    dict(bounds=["sat", "mon"]),
+                                    dict(bounds=[15.5, 9], pattern="hour"),
+                                ]
                             )
                             st.plotly_chart(_fig_s, use_container_width=True)
                         else:
@@ -547,12 +550,10 @@ def main():
                                 "#ff4b4b" if c >= o else "#2b7cff"
                                 for c, o in zip(df_kr_chart["close"], df_kr_chart["open"])
                             ]
-                            # x축 범위: 오늘 09:00 ~ 현재시각(장중) or 15:30(장마감 후)
                             _now_kr_c = _dt_c.now(_pytz_c.timezone("Asia/Seoul")).replace(tzinfo=None)
-                            _today_c  = _now_kr_c.date()
-                            _x_start  = f"{_today_c} 09:00"
-                            _x_close  = _dt_c.combine(_today_c, _dt_c.strptime("15:30", "%H:%M").time())
+                            _x_close  = _dt_c.combine(_now_kr_c.date(), _dt_c.strptime("15:30", "%H:%M").time())
                             _x_end    = min(_now_kr_c, _x_close).strftime("%Y-%m-%d %H:%M")
+                            _x_start  = df_kr_chart["datetime"].iloc[0].strftime("%Y-%m-%d 09:00")
 
                             fig_kr = make_subplots(
                                 rows=2, cols=1, shared_xaxes=True,
@@ -585,12 +586,18 @@ def main():
                                 xaxis=dict(**axis_style, rangeslider=dict(visible=False),
                                            showticklabels=False, range=[_x_start, _x_end]),
                                 xaxis2=dict(**axis_style, range=[_x_start, _x_end],
-                                            tickformat="%H:%M"),
+                                            tickformat="%m/%d %H:%M"),
                                 yaxis=dict(**axis_style, tickformat=",", side="right"),
                                 yaxis2=dict(**axis_style, tickformat=".2s", side="right"),
                                 legend=dict(orientation="h", x=0, y=1.06, bgcolor="rgba(0,0,0,0)", font=dict(size=11)),
                                 margin=dict(l=0, r=55, t=20, b=5),
                                 height=380,
+                            )
+                            fig_kr.update_xaxes(
+                                rangebreaks=[
+                                    dict(bounds=["sat", "mon"]),
+                                    dict(bounds=[15.5, 9], pattern="hour"),
+                                ]
                             )
                             st.plotly_chart(fig_kr, use_container_width=True)
                         else:

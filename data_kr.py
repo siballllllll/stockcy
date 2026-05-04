@@ -165,22 +165,27 @@ def get_kr_market_index():
 
 @st.cache_data(ttl=60)
 def get_kr_minute_chart(stock_code: str, interval: int = 5):
-    """국내 주식 분봉 OHLCV (yfinance .KS/.KQ 자동 감지, KIS는 수급 전용)"""
+    """국내 주식 분봉 OHLCV (yfinance, 인터벌별 최대 조회 기간 자동 적용)"""
     import yfinance as yf
+    from datetime import datetime as _dt
+    import pytz as _pytz
 
-    # yfinance가 지원하는 최소 인터벌로 fetch 후 리샘플
-    if interval <= 5:
-        yf_interval = "1m"
+    # yfinance 인터벌 및 조회 기간 설정
+    # 1m: 최대 7일 / 2~5m: 60일 / 15m~: 60일
+    if interval <= 1:
+        yf_interval, period = "1m",  "5d"
+    elif interval <= 5:
+        yf_interval, period = "5m",  "30d"
     elif interval <= 15:
-        yf_interval = "5m"
+        yf_interval, period = "15m", "60d"
     else:
-        yf_interval = "15m"
+        yf_interval, period = "30m", "60d"
 
     df = pd.DataFrame()
     for suffix in [".KS", ".KQ"]:
         try:
             raw = yf.Ticker(f"{stock_code}{suffix}").history(
-                period="1d", interval=yf_interval, auto_adjust=True
+                period=period, interval=yf_interval, auto_adjust=True
             )
             if not raw.empty:
                 raw.index = raw.index.tz_convert("Asia/Seoul")
@@ -201,16 +206,16 @@ def get_kr_minute_chart(stock_code: str, interval: int = 5):
             {"open": "first", "high": "max", "low": "min", "close": "last", "volume": "sum"}
         ).dropna().reset_index()
 
-    # 장 시간(09:00~15:30)만 남기고, 미래 데이터 제거
-    from datetime import datetime as _dt
-    import pytz as _pytz
+    # 장 시간(09:00~15:30) 필터 + 미래 데이터 제거
     _now_kr = _dt.now(_pytz.timezone("Asia/Seoul")).replace(tzinfo=None)
-    _today  = _now_kr.date()
-    _open   = _dt.combine(_today, _dt.strptime("09:00", "%H:%M").time())
-    _close  = _dt.combine(_today, _dt.strptime("15:30", "%H:%M").time())
-    _cutoff = min(_now_kr, _close)
+    _close_t = _dt.strptime("15:30", "%H:%M").time()
+    _open_t  = _dt.strptime("09:00", "%H:%M").time()
+    df = df[
+        (df["datetime"].dt.time >= _open_t) &
+        (df["datetime"].dt.time <= _close_t) &
+        (df["datetime"] <= _now_kr)
+    ].reset_index(drop=True)
 
-    df = df[(df["datetime"] >= _open) & (df["datetime"] <= _cutoff)].reset_index(drop=True)
     return df
 
 
