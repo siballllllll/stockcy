@@ -297,7 +297,7 @@ def main():
                 ("kr_index_period", "1d"),
                 ("ai_pattern_kw", ""),
                 ("kr_ai_market_run", False),
-                ("kr_chart_type", "분봉"),
+                ("kr_chart_type", "일봉"),
                 ("kr_daily_period", "3mo"),
                 ("kr_right_tab", "📊 시세"),
             ]:
@@ -530,9 +530,9 @@ def main():
                             unsafe_allow_html=True,
                         )
 
-                        # 차트 타입 토글: 분봉 | 일봉
+                        # 차트 타입 토글: 일봉(기본) | 분봉(당일)
                         _ct_c1, _ct_c2, _ct_c3, _ = st.columns([1.2, 1.2, 1.2, 4])
-                        for _ctcol, _ctn in [(_ct_c1, "분봉"), (_ct_c2, "일봉")]:
+                        for _ctcol, _ctn in [(_ct_c1, "일봉"), (_ct_c2, "분봉")]:
                             if _ctcol.button(
                                 _ctn, key=f"chart_type_{_ctn}",
                                 type="primary" if st.session_state.kr_chart_type == _ctn else "secondary",
@@ -576,9 +576,10 @@ def main():
                                     x=df_kr_chart["datetime"],
                                     open=df_kr_chart["open"], high=df_kr_chart["high"],
                                     low=df_kr_chart["low"],   close=df_kr_chart["close"],
-                                    increasing=dict(line=dict(color="#ff4b4b", width=1), fillcolor="#ff4b4b"),
-                                    decreasing=dict(line=dict(color="#2b7cff", width=1), fillcolor="#2b7cff"),
+                                    increasing=dict(line=dict(color="#ff4b4b", width=1.5), fillcolor="#ff4b4b"),
+                                    decreasing=dict(line=dict(color="#2b7cff", width=1.5), fillcolor="#2b7cff"),
                                     name="가격", showlegend=False,
+                                    whiskerwidth=0.3,
                                 ), row=1, col=1)
                                 fig_kr.add_trace(go.Scatter(x=df_kr_chart["datetime"], y=df_kr_chart["ma5"],
                                     line=dict(color="#f5c518", width=1.2), name="MA5"), row=1, col=1)
@@ -591,8 +592,10 @@ def main():
                                     paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
                                     font=dict(color="white", size=11),
                                     xaxis=dict(**_ax, rangeslider=dict(visible=False),
-                                               showticklabels=False, range=[_x_start, _x_end]),
-                                    xaxis2=dict(**_ax, range=[_x_start, _x_end], tickformat="%m/%d %H:%M"),
+                                               showticklabels=False, range=[_x_start, _x_end],
+                                               type="date"),
+                                    xaxis2=dict(**_ax, range=[_x_start, _x_end],
+                                                tickformat="%H:%M", type="date"),
                                     yaxis=dict(**_ax, tickformat=",", side="right"),
                                     yaxis2=dict(**_ax, tickformat=".2s", side="right"),
                                     legend=dict(orientation="h", x=0, y=1.06, bgcolor="rgba(0,0,0,0)", font=dict(size=11)),
@@ -607,7 +610,7 @@ def main():
                                 st.info("분봉 데이터를 불러올 수 없습니다. 장 운영 시간(09:00~15:30) 중 다시 시도해주세요.")
 
                         else:  # 일봉
-                            _dp_labels = [("1개월","1mo"),("3개월","3mo"),("6개월","6mo"),("1년","1y")]
+                            _dp_labels = [("1개월","1mo"),("3개월","3mo"),("6개월","6mo"),("1년","1y"),("2년","2y"),("5년","5y")]
                             _dp_cols   = st.columns(len(_dp_labels))
                             for _dpi, (_dpl, _dpv) in enumerate(_dp_labels):
                                 if _dp_cols[_dpi].button(

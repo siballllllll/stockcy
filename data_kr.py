@@ -426,16 +426,24 @@ def get_kr_daily_chart(stock_code: str, period: str = "3mo") -> pd.DataFrame:
         try:
             df = yf.download(
                 f"{stock_code}{suffix}", period=period, interval="1d",
-                auto_adjust=True, progress=False
+                auto_adjust=True, progress=False, group_by="ticker",
             )
             if df.empty:
                 continue
             df = df.reset_index()
-            df.columns = [str(c).lower().strip() for c in df.columns]
+            # yfinance 0.2.50+ 는 MultiIndex 컬럼 반환 → 첫 번째 레벨만 사용
+            if isinstance(df.columns, pd.MultiIndex):
+                df.columns = [c[0].lower().strip() for c in df.columns]
+            else:
+                df.columns = [str(c).lower().strip() for c in df.columns]
             if "date" in df.columns:
                 df.rename(columns={"date": "datetime"}, inplace=True)
             df["datetime"] = pd.to_datetime(df["datetime"])
-            return df[["datetime", "open", "high", "low", "close", "volume"]].copy()
+            needed = ["datetime", "open", "high", "low", "close", "volume"]
+            if not all(c in df.columns for c in needed):
+                continue
+            df = df[needed].dropna(subset=["open", "high", "low", "close"]).copy()
+            return df
         except Exception:
             continue
     return pd.DataFrame()
