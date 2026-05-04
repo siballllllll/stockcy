@@ -2685,9 +2685,9 @@ def main():
                         st.dataframe(pd.DataFrame(not_found), use_container_width=True, hide_index=True)
 
         st.markdown("---")
-        st.markdown("#### 종목 코드 검증 (KIS API — 개별 조회)")
-        st.caption("위 KRX 검증이 실패할 때 사용. 약 40~50초 소요됩니다.")
-        if st.button("🔍 KIS API로 섹터 종목 개별 검증", use_container_width=True):
+        st.markdown("#### 종목 코드 검증 (KIS API)")
+        st.caption("약 3분 소요. 페이지를 닫지 마세요.")
+        if st.button("🔍 KIS API로 섹터 종목 코드 검증", use_container_width=True):
             from sectors_kr import KR_SECTOR_MAP
             import time as _time
             all_stocks: dict = {}
@@ -2700,26 +2700,23 @@ def main():
             mismatches, errors = [], []
             total = len(all_stocks)
             prog = st.progress(0, text=f"0 / {total} 검증 중...")
+            err_placeholder = st.empty()
             for i, (code, info) in enumerate(all_stocks.items()):
-                prog.progress((i + 1) / total, text=f"{i+1} / {total} 검증 중... ({code})")
-                _time.sleep(0.06)
-                kis_name = None
-                for _att in range(3):
-                    try:
-                        kis_name = get_kr_stock_name_kis(code)
-                        if kis_name:
-                            break
-                    except Exception:
-                        pass
-                    if _att < 2:
-                        _time.sleep(0.5)
-                if not kis_name:
-                    errors.append({"코드": code, "저장명": info["name"], "오류": "응답 없음"})
-                    continue
-                if kis_name != info["name"]:
+                prog.progress((i + 1) / total, text=f"{i+1} / {total} — {code} {info['name']}")
+                _time.sleep(0.25)  # 초당 4건 — rate limit 안전권
+                kis_name, err_msg = get_kr_stock_name_kis(code)
+                if kis_name is None:
+                    # rate limit 오류면 2초 대기 후 재시도 1회
+                    if err_msg and ("초과" in err_msg or "EGW" in err_msg or "limit" in err_msg.lower()):
+                        _time.sleep(2)
+                        kis_name, err_msg = get_kr_stock_name_kis(code)
+                if kis_name is None:
+                    errors.append({"코드": code, "저장명": info["name"], "KIS오류": err_msg})
+                elif kis_name != info["name"]:
                     mismatches.append({"코드": code, "저장명": info["name"], "KIS명": kis_name,
                                        "섹터": info["sector"], "서브섹터": info["subsector"]})
             prog.empty()
+            err_placeholder.empty()
             verified = total - len(errors)
             if mismatches:
                 st.warning(f"불일치 {len(mismatches)}건 (검증 성공 {verified}/{total})")

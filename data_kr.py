@@ -126,16 +126,29 @@ def get_kr_name_to_code_map() -> dict:
     return {}
 
 
-def get_kr_stock_name_kis(stock_code: str) -> str | None:
-    """KIS API로 종목명만 조회 (캐시 없음, yfinance 폴백 없음). 검증용."""
-    data = _get(
-        "/uapi/domestic-stock/v1/quotations/inquire-price",
-        "FHKST01010100",
-        {"fid_cond_mrkt_div_code": "J", "fid_input_iscd": stock_code},
-    )
-    if data:
-        return data["output"].get("hts_kor_isnm") or None
-    return None
+def get_kr_stock_name_kis(stock_code: str) -> tuple:
+    """KIS API로 종목명 조회. (종목명 or None, 오류메시지) 반환. 캐시 없음."""
+    try:
+        token = get_kis_token()
+        resp = requests.get(
+            f"{KIS_BASE}/uapi/domestic-stock/v1/quotations/inquire-price",
+            headers={
+                "content-type": "application/json; charset=utf-8",
+                "authorization": f"Bearer {token}",
+                "appkey": st.secrets["kis"]["app_key"],
+                "appsecret": st.secrets["kis"]["app_secret"],
+                "tr_id": "FHKST01010100",
+                "custtype": "P",
+            },
+            params={"fid_cond_mrkt_div_code": "J", "fid_input_iscd": stock_code},
+            timeout=10,
+        )
+        data = resp.json()
+        if data.get("rt_cd") == "0":
+            return data["output"].get("hts_kor_isnm") or None, ""
+        return None, data.get("msg1", f"rt_cd={data.get('rt_cd','?')}")
+    except Exception as e:
+        return None, str(e)
 
 
 @st.cache_data(ttl=60)
