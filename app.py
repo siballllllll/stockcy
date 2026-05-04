@@ -1505,20 +1505,27 @@ def main():
                                 vals = [v for v in vals if v != 0.0]
                                 return sum(vals) / len(vals) if vals else 0.0
 
-                            def _sub_ai_summary(sub_name, avg_pct, stocks, prices):
+                            def _sub_ai_summary(parent_sector, sub_name, avg_pct, stocks, prices):
                                 from ai_engine import _call_gemini
                                 import datetime
-                                top = sorted(
-                                    [(s["name"], prices.get(s["code"], {}).get("change_pct", 0.0)) for s in stocks],
+                                # 등락률 있는 종목만 추출, 없으면 전체 이름 사용
+                                all_names = [s["name"] for s in stocks]
+                                with_pct = sorted(
+                                    [(s["name"], prices.get(s["code"], {}).get("change_pct", 0.0))
+                                     for s in stocks if prices.get(s["code"], {}).get("change_pct", 0.0) != 0.0],
                                     key=lambda x: abs(x[1]), reverse=True
-                                )[:5]
-                                top_str = ", ".join(f"{n}({p:+.1f}%)" for n, p in top if p != 0)
+                                )
+                                stock_detail = ", ".join(f"{n}({p:+.1f}%)" for n, p in with_pct[:8])
+                                if not stock_detail:
+                                    stock_detail = ", ".join(all_names[:8])
                                 prompt = (
-                                    f"오늘({datetime.date.today()}) 한국 증시에서 '{sub_name}' 세부섹터의 "
-                                    f"평균 등락률이 {avg_pct:+.2f}%입니다. "
-                                    f"주요 종목: {top_str if top_str else '시세 없음'}. "
-                                    f"이 섹터가 오늘 이렇게 움직이는 이유를 뉴스·시장 흐름 기반으로 "
-                                    f"2~3문장으로 간결하게 요약해주세요. 이모지 없이 핵심만."
+                                    f"오늘({datetime.date.today()}) 한국 증시 분석 요청.\n"
+                                    f"분석 범위: '{parent_sector}' 섹터 내 '{sub_name}' 세부섹터 ({len(stocks)}개 종목)\n"
+                                    f"해당 세부섹터 종목: {stock_detail}\n"
+                                    f"세부섹터 평균 등락률: {avg_pct:+.2f}%\n\n"
+                                    f"위 {len(stocks)}개 종목으로 구성된 '{sub_name}' 세부섹터만을 대상으로, "
+                                    f"오늘 이 종목들이 이렇게 움직이는 이유를 뉴스·공시·시장 흐름 기반으로 "
+                                    f"3~5줄 이내로 간결하게 요약해주세요. 이모지 없이 핵심만."
                                 )
                                 try:
                                     resp = _call_gemini(prompt, use_search=True, temperature=0.4)
@@ -1554,7 +1561,7 @@ def main():
                                         )
                                         ai_key = f"_sub_ai_{selected_sector}__{sub_name}"
                                         if h4.button("AI", key=f"ai_btn_{sub_name}", help="AI 섹터 분석"):
-                                            st.session_state[ai_key] = _sub_ai_summary(sub_name, avg_pct, stocks, prices)
+                                            st.session_state[ai_key] = _sub_ai_summary(selected_sector, sub_name, avg_pct, stocks, prices)
 
                                         # ── 펼쳐진 내용 ──
                                         if is_open:
