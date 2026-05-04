@@ -417,6 +417,29 @@ def get_kr_change_ranking(market: str = "J") -> list:
     return results
 
 
+@st.cache_data(ttl=300)
+def get_kr_daily_chart(stock_code: str, period: str = "3mo") -> pd.DataFrame:
+    """국내 주식 일봉 데이터 (yfinance). period: 1mo / 3mo / 6mo / 1y"""
+    import yfinance as yf
+    for suffix in [".KS", ".KQ"]:
+        try:
+            df = yf.download(
+                f"{stock_code}{suffix}", period=period, interval="1d",
+                auto_adjust=True, progress=False
+            )
+            if df.empty:
+                continue
+            df = df.reset_index()
+            df.columns = [str(c).lower().strip() for c in df.columns]
+            if "date" in df.columns:
+                df.rename(columns={"date": "datetime"}, inplace=True)
+            df["datetime"] = pd.to_datetime(df["datetime"])
+            return df[["datetime", "open", "high", "low", "close", "volume"]].copy()
+        except Exception:
+            continue
+    return pd.DataFrame()
+
+
 @st.cache_data(ttl=60)
 def get_kr_index_history(symbol: str, period: str = "1d") -> pd.DataFrame:
     """KOSPI(^KS11) / KOSDAQ(^KQ11) 지수 히스토리 (yfinance)"""
