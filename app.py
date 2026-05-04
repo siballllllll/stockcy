@@ -6,7 +6,8 @@ from data import get_us_stock_data, get_us_market_indices, get_us_stock_detail
 from data_kr import (get_us_prices_bulk_kis, get_kr_index_history,
                      get_kr_market_index, get_kr_stock_price,
                      get_kr_investor_trend, get_kr_volume_ranking,
-                     get_kr_minute_chart, get_kr_daily_chart)
+                     get_kr_minute_chart, get_kr_daily_chart,
+                     get_kr_stock_name_kis)
 
 # 1. 페이지 기본 설정 (항상 최상단에 위치)
 st.set_page_config(
@@ -2632,6 +2633,57 @@ def main():
                         st.success(msg_gs)
                     else:
                         st.error(msg_gs)
+
+            st.markdown("---")
+            st.markdown("#### 종목 코드 검증 (KIS API)")
+            if st.button("🔍 KIS API로 종목 코드 일치 여부 확인", use_container_width=True):
+                from sectors_kr import KR_SECTOR_MAP
+                # 전체 종목 수집 (중복 코드는 첫 번째 항목 기준)
+                all_stocks: dict[str, dict] = {}
+                for sector, subsectors in KR_SECTOR_MAP.items():
+                    for subsector, stocks in subsectors.items():
+                        for s in stocks:
+                            code = s.get("code", "")
+                            if code and code not in all_stocks:
+                                all_stocks[code] = {"name": s["name"], "sector": sector, "subsector": subsector}
+
+                mismatches = []
+                errors = []
+                total = len(all_stocks)
+                prog = st.progress(0, text=f"0 / {total} 검증 중...")
+                for i, (code, info) in enumerate(all_stocks.items()):
+                    prog.progress((i + 1) / total, text=f"{i+1} / {total} 검증 중... ({code})")
+                    try:
+                        kis_name = get_kr_stock_name_kis(code)
+                    except Exception as e:
+                        errors.append({"코드": code, "저장명": info["name"], "오류": str(e)})
+                        continue
+                    if not kis_name:
+                        errors.append({"코드": code, "저장명": info["name"], "오류": "KIS API 응답 없음"})
+                        continue
+                    stored_name = info["name"]
+                    if kis_name != stored_name:
+                        mismatches.append({
+                            "코드": code,
+                            "저장명": stored_name,
+                            "KIS명": kis_name,
+                            "섹터": info["sector"],
+                            "서브섹터": info["subsector"],
+                        })
+                prog.empty()
+
+                if mismatches:
+                    st.warning(f"불일치 {len(mismatches)}건 발견")
+                    st.dataframe(
+                        pd.DataFrame(mismatches),
+                        use_container_width=True,
+                        hide_index=True,
+                    )
+                else:
+                    st.success(f"전체 {total}개 종목 코드-종목명 일치 확인 완료!")
+                if errors:
+                    with st.expander(f"조회 실패 {len(errors)}건"):
+                        st.dataframe(pd.DataFrame(errors), use_container_width=True, hide_index=True)
 
     # --- 하단 면책 조항 ---
     st.markdown("""

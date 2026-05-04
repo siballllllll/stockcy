@@ -52,6 +52,18 @@ def _get(path: str, tr_id: str, params: dict):
         return None
 
 
+def get_kr_stock_name_kis(stock_code: str) -> str | None:
+    """KIS API로 종목명만 조회 (캐시 없음, yfinance 폴백 없음). 검증용."""
+    data = _get(
+        "/uapi/domestic-stock/v1/quotations/inquire-price",
+        "FHKST01010100",
+        {"fid_cond_mrkt_div_code": "J", "fid_input_iscd": stock_code},
+    )
+    if data:
+        return data["output"].get("hts_kor_isnm") or None
+    return None
+
+
 @st.cache_data(ttl=60)
 def get_kr_stock_price(stock_code: str):
     """국내 주식 현재가 및 기본 정보 조회 (KIS API → yfinance 폴백, 1분 캐싱)"""
