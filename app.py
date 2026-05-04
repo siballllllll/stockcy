@@ -1507,33 +1507,44 @@ def main():
                                 for sub_name, stocks in subsectors.items():
                                     avg_pct = _sub_avg_pct(stocks, prices)
                                     pct_color = "#ff4b4b" if avg_pct > 0 else "#2b7cff" if avg_pct < 0 else "#888"
-                                    arrow = "▲" if avg_pct > 0 else "▼" if avg_pct < 0 else "─"
-                                    with st.expander(f"📌 {sub_name}  ({len(stocks)}개)　{arrow} {avg_pct:+.2f}%", expanded=False):
-                                        # ── 평균 등락률 행 (개별 종목과 동일한 열 비율) ──
-                                        a0, a1, a2, a3, a4 = st.columns([0.35, 2.8, 1.8, 1.4, 0.45])
-                                        a1.markdown(
-                                            "<span style='font-size:0.78rem;color:#aaa;font-weight:600'>평균 등락률</span>",
+                                    tok = f"_sub_open_{selected_sector}__{sub_name}"
+                                    if tok not in st.session_state:
+                                        st.session_state[tok] = False
+                                    is_open = st.session_state[tok]
+
+                                    with st.container(border=True):
+                                        # ── 헤더 행: 항상 표시 (접힌 상태에서도 색상 있는 평균 등락률 노출) ──
+                                        h0, h1, h2, h3, h4 = st.columns([0.35, 2.8, 1.8, 1.4, 0.45])
+                                        tog_label = "▼" if is_open else "▶"
+                                        if h0.button(tog_label, key=f"tog_{sub_name}", use_container_width=True):
+                                            st.session_state[tok] = not is_open
+                                            st.rerun()
+                                        h1.markdown(
+                                            f"<span style='font-size:0.85rem;font-weight:600'>📌 {sub_name}</span>"
+                                            f"<span style='font-size:0.75rem;color:#888'>　{len(stocks)}개</span>",
                                             unsafe_allow_html=True,
                                         )
-                                        a3.markdown(
+                                        # 현재가 컬럼(h2)은 비워둠
+                                        h3.markdown(
                                             f"<span style='font-size:0.92rem;font-weight:700;color:{pct_color}'>{avg_pct:+.2f}%</span>",
                                             unsafe_allow_html=True,
                                         )
-                                        with a4:
-                                            ai_key = f"_sub_ai_{selected_sector}__{sub_name}"
-                                            if st.button("AI", key=f"ai_btn_{sub_name}", help="AI 섹터 분석"):
-                                                st.session_state[ai_key] = _sub_ai_summary(sub_name, avg_pct, stocks, prices)
-                                        # ── AI 요약 박스 ──
-                                        if ai_key in st.session_state:
-                                            st.markdown(
-                                                f"<div style='background:rgba(255,255,255,0.05);border-left:3px solid {pct_color};"
-                                                f"border-radius:6px;padding:8px 12px;margin:4px 0 8px 0;"
-                                                f"font-size:0.82rem;line-height:1.55;color:#ddd'>"
-                                                f"{st.session_state[ai_key]}</div>",
-                                                unsafe_allow_html=True,
-                                            )
-                                        st.markdown('<hr style="margin:4px 0 6px 0;border:none;border-top:1px solid rgba(255,255,255,0.15)">', unsafe_allow_html=True)
-                                        _render_sector_stocks(sub_name, stocks, prices, code_locations, selected_sector)
+                                        ai_key = f"_sub_ai_{selected_sector}__{sub_name}"
+                                        if h4.button("AI", key=f"ai_btn_{sub_name}", help="AI 섹터 분석"):
+                                            st.session_state[ai_key] = _sub_ai_summary(sub_name, avg_pct, stocks, prices)
+
+                                        # ── 펼쳐진 내용 ──
+                                        if is_open:
+                                            if ai_key in st.session_state:
+                                                st.markdown(
+                                                    f"<div style='background:rgba(255,255,255,0.05);border-left:3px solid {pct_color};"
+                                                    f"border-radius:6px;padding:8px 12px;margin:4px 0 8px 0;"
+                                                    f"font-size:0.82rem;line-height:1.55;color:#ddd'>"
+                                                    f"{st.session_state[ai_key]}</div>",
+                                                    unsafe_allow_html=True,
+                                                )
+                                            st.markdown('<hr style="margin:4px 0 6px 0;border:none;border-top:1px solid rgba(255,255,255,0.15)">', unsafe_allow_html=True)
+                                            _render_sector_stocks(sub_name, stocks, prices, code_locations, selected_sector)
 
 
 
