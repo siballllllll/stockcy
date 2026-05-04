@@ -1448,8 +1448,25 @@ def main():
                                         seen_codes.add(s["code"])
                                         unique_tickers.append((s["code"], s["code"] + s["suffix"]))
 
-                            with st.spinner("실시간 시세 조회 중..."):
-                                prices = get_kr_prices_bulk(tuple(unique_tickers))
+                            _n_stocks = len(unique_tickers)
+                            _est_sec  = max(3, min(_n_stocks // 8, 20))
+                            _load_ph  = st.empty()
+                            _load_ph.markdown(
+                                f"""<div style='display:flex;flex-direction:column;align-items:center;
+                                    justify-content:center;padding:48px 0;gap:14px;'>
+                                  <div style='font-size:2rem;animation:spin 1s linear infinite'>⏳</div>
+                                  <div style='font-size:1rem;font-weight:600;color:#ccc'>
+                                    시세 조회 중 ({_n_stocks}개 종목)</div>
+                                  <div style='font-size:0.82rem;color:#888'>
+                                    약 {_est_sec}초 소요</div>
+                                </div>
+                                <style>@keyframes spin{{
+                                  0%{{transform:rotate(0deg)}} 100%{{transform:rotate(360deg)}}
+                                }}</style>""",
+                                unsafe_allow_html=True,
+                            )
+                            prices = get_kr_prices_bulk(tuple(unique_tickers))
+                            _load_ph.empty()
 
                             _hcols = st.columns([0.35, 2.8, 1.8, 1.4, 0.45])
                             for _hc, _ht in zip(_hcols[:4], ["단타", "종목명", "현재가", "등락률"]):

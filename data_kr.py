@@ -319,7 +319,7 @@ def get_kr_minute_chart(stock_code: str, interval: int = 5):
     return df
 
 
-@st.cache_data(ttl=60)
+@st.cache_data(ttl=60, show_spinner=False)
 def get_kr_prices_bulk(tickers_tuple: tuple) -> dict:
     """섹터 패널용 종목 일괄 시세 조회 (code → {price, change_pct})"""
     import yfinance as yf
