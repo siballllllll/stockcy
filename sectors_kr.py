@@ -75,14 +75,12 @@ KR_SECTOR_MAP = {
             {"name": "코스모신소재",   "code": "005070", "suffix": ".KS"},
             {"name": "에코프로",       "code": "086520", "suffix": ".KQ"},
             {"name": "코스모화학",     "code": "005420", "suffix": ".KS"},
-            {"name": "엠케이전자",     "code": "033920", "suffix": ".KQ"},
         ],
         "음극재": [
             {"name": "포스코홀딩스",   "code": "005490", "suffix": ".KS"},
             {"name": "대주전자재료",   "code": "078600", "suffix": ".KQ"},
             {"name": "일진머티리얼즈", "code": "020150", "suffix": ".KS"},
             {"name": "한솔케미칼",     "code": "014680", "suffix": ".KS"},
-            {"name": "솔루에타",       "code": "357780", "suffix": ".KQ"},
         ],
         "전해질·분리막": [
             {"name": "솔브레인홀딩스", "code": "036830", "suffix": ".KQ"},
@@ -203,7 +201,7 @@ KR_SECTOR_MAP = {
             {"name": "한화",          "code": "000880", "suffix": ".KS"},
             {"name": "풍산",          "code": "103140", "suffix": ".KS"},
             {"name": "SNT다이내믹스",  "code": "003570", "suffix": ".KS"},
-            {"name": "한국화약(한화)", "code": "000880", "suffix": ".KS"},
+            {"name": "한화",           "code": "000880", "suffix": ".KS"},
         ],
         "항공·우주": [
             {"name": "한국항공우주",   "code": "047810", "suffix": ".KS"},
@@ -237,7 +235,7 @@ KR_SECTOR_MAP = {
         ],
         "LNG선·특수선": [
             {"name": "HD현대중공업",   "code": "329180", "suffix": ".KS"},
-            {"name": "HD현대마린엔진", "code": "082740", "suffix": ".KS"},
+            {"name": "한화엔진",        "code": "082740", "suffix": ".KS"},
             {"name": "STX엔진",        "code": "077970", "suffix": ".KQ"},
             {"name": "현대힘스",       "code": "350520", "suffix": ".KQ"},
         ],
@@ -478,7 +476,7 @@ KR_SECTOR_MAP = {
             {"name": "한국정보통신",   "code": "025770", "suffix": ".KQ"},
             {"name": "나이스정보통신", "code": "036800", "suffix": ".KQ"},
             {"name": "웹케시",         "code": "053580", "suffix": ".KQ"},
-            {"name": "NHN(페이코)",    "code": "181710", "suffix": ".KS"},
+            {"name": "NHN",            "code": "181710", "suffix": ".KS"},
         ],
     },
     "화학·소재": {
@@ -500,7 +498,7 @@ KR_SECTOR_MAP = {
             {"name": "하나머티리얼즈", "code": "166090", "suffix": ".KQ"},
         ],
         "철강·금속": [
-            {"name": "POSCO홀딩스",    "code": "005490", "suffix": ".KS"},
+            {"name": "포스코홀딩스",    "code": "005490", "suffix": ".KS"},
             {"name": "현대제철",       "code": "004020", "suffix": ".KS"},
             {"name": "고려아연",       "code": "010130", "suffix": ".KS"},
             {"name": "풍산",          "code": "103140", "suffix": ".KS"},
@@ -522,7 +520,6 @@ KR_SECTOR_MAP = {
             {"name": "현대건설",       "code": "000720", "suffix": ".KS"},
             {"name": "GS건설",         "code": "006360", "suffix": ".KS"},
             {"name": "DL이앤씨",       "code": "375500", "suffix": ".KS"},
-            {"name": "SK에코플랜트",   "code": "034730", "suffix": ".KS"},
         ],
         "주택·부동산": [
             {"name": "HDC현대산업개발","code": "294870", "suffix": ".KS"},
@@ -541,7 +538,7 @@ KR_SECTOR_MAP = {
         ],
         "엔지니어링·플랜트": [
             {"name": "한미글로벌",     "code": "053690", "suffix": ".KQ"},
-            {"name": "계룡건설",       "code": "013580", "suffix": ".KS"},
+            {"name": "계룡건설산업",   "code": "013580", "suffix": ".KS"},
             {"name": "삼부토건",       "code": "001470", "suffix": ".KS"},
             {"name": "한국종합기술",   "code": "225570", "suffix": ".KQ"},
         ],
@@ -678,8 +675,7 @@ KR_SECTOR_MAP = {
             {"name": "한국항공우주",   "code": "047810", "suffix": ".KS"},
             {"name": "켄코아에어로스페이스","code": "274090", "suffix": ".KQ"},
             {"name": "아스트",         "code": "067390", "suffix": ".KQ"},
-            {"name": "한국항공서비스(대한항공)","code": "003490", "suffix": ".KS"},
-            {"name": "시이오더블유",   "code": "082660", "suffix": ".KQ"},
+            {"name": "대한항공",        "code": "003490", "suffix": ".KS"},
         ],
         "위성 통신·항법": [
             {"name": "AP위성",         "code": "211270", "suffix": ".KQ"},
@@ -724,17 +720,14 @@ KR_SECTOR_MAP = {
             {"name": "HD현대미포",     "code": "010620", "suffix": ".KS"},
             {"name": "HD현대",         "code": "267250", "suffix": ".KS"},
             {"name": "STX엔진",        "code": "077970", "suffix": ".KS"},
-            {"name": "한화엔진",       "code": "082740", "suffix": ".KS"},
         ],
         "조선 기자재·부품": [
             {"name": "세진중공업",     "code": "075580", "suffix": ".KQ"},
             {"name": "한국카본",       "code": "017960", "suffix": ".KS"},
             {"name": "동성화인텍",     "code": "033500", "suffix": ".KQ"},
-            {"name": "케이조선",       "code": "023160", "suffix": ".KQ"},
             {"name": "성광벤드",       "code": "014620", "suffix": ".KS"},
             {"name": "한라IMS",        "code": "092460", "suffix": ".KQ"},
             {"name": "대창솔루션",     "code": "096350", "suffix": ".KQ"},
-            {"name": "태광",           "code": "023160", "suffix": ".KQ"},
         ],
         "해운·항만": [
             {"name": "HMM",           "code": "011200", "suffix": ".KS"},
@@ -755,7 +748,6 @@ KR_SECTOR_MAP = {
             {"name": "현대로템",       "code": "064350", "suffix": ".KS"},
             {"name": "풍산",           "code": "103140", "suffix": ".KS"},
             {"name": "한화",           "code": "000880", "suffix": ".KS"},
-            {"name": "S&T중공업",      "code": "003570", "suffix": ".KS"},
             {"name": "SNT모티브",      "code": "064960", "suffix": ".KS"},
             {"name": "퍼스텍",         "code": "010820", "suffix": ".KS"},
             {"name": "S&T홀딩스",      "code": "100840", "suffix": ".KS"},
@@ -767,7 +759,7 @@ KR_SECTOR_MAP = {
             {"name": "쎄트렉아이",     "code": "099550", "suffix": ".KQ"},
             {"name": "빅텍",           "code": "065450", "suffix": ".KQ"},
             {"name": "한화오션",       "code": "042660", "suffix": ".KS"},
-            {"name": "현대중공업",     "code": "329180", "suffix": ".KS"},
+            {"name": "HD현대중공업",   "code": "329180", "suffix": ".KS"},
         ],
         "방산전자·드론": [
             {"name": "한화시스템",     "code": "272210", "suffix": ".KS"},
@@ -788,7 +780,6 @@ KR_SECTOR_MAP = {
             {"name": "대우건설",       "code": "047040", "suffix": ".KS"},
             {"name": "GS건설",         "code": "006360", "suffix": ".KS"},
             {"name": "DL이앤씨",       "code": "375500", "suffix": ".KS"},
-            {"name": "포스코이앤씨",   "code": "047050", "suffix": ".KS"},
             {"name": "HDC현대산업개발","code": "294870", "suffix": ".KS"},
             {"name": "삼성엔지니어링", "code": "028050", "suffix": ".KS"},
         ],
@@ -806,7 +797,6 @@ KR_SECTOR_MAP = {
             {"name": "ESR켄달스퀘어리츠","code": "365550", "suffix": ".KS"},
             {"name": "신한알파리츠",   "code": "293940", "suffix": ".KS"},
             {"name": "한국토지신탁",   "code": "034830", "suffix": ".KS"},
-            {"name": "이지스레지던스리츠","code": "350520", "suffix": ".KS"},
             {"name": "케이탑리츠",     "code": "337150", "suffix": ".KS"},
             {"name": "코람코에너지리츠","code": "434490", "suffix": ".KS"},
         ],
@@ -831,7 +821,6 @@ KR_SECTOR_MAP = {
         ],
         "카드·캐피탈": [
             {"name": "메리츠금융지주", "code": "138040", "suffix": ".KS"},
-            {"name": "한국캐피탈",     "code": "024110", "suffix": ".KQ"},
         ],
     },
 
@@ -862,7 +851,7 @@ KR_SECTOR_MAP = {
 
     "철강·금속·광물": {
         "철강": [
-            {"name": "POSCO홀딩스",    "code": "005490", "suffix": ".KS"},
+            {"name": "포스코홀딩스",    "code": "005490", "suffix": ".KS"},
             {"name": "현대제철",       "code": "004020", "suffix": ".KS"},
             {"name": "동국제강",       "code": "460860", "suffix": ".KS"},
             {"name": "세아베스틸지주", "code": "001430", "suffix": ".KS"},
@@ -906,7 +895,7 @@ KR_SECTOR_MAP = {
             {"name": "오아시스",       "code": "101360", "suffix": ".KQ"},
         ],
         "홈쇼핑·TV커머스": [
-            {"name": "CJ온스타일",     "code": "035760", "suffix": ".KS"},
+            {"name": "CJ ENM",         "code": "035760", "suffix": ".KQ"},
             {"name": "GS홈쇼핑",       "code": "028150", "suffix": ".KS"},
             {"name": "현대홈쇼핑",     "code": "057050", "suffix": ".KS"},
             {"name": "NS홈쇼핑",       "code": "057060", "suffix": ".KS"},
@@ -915,7 +904,7 @@ KR_SECTOR_MAP = {
 
     "미디어·광고·콘텐츠": {
         "방송·OTT": [
-            {"name": "CJ ENM",         "code": "035760", "suffix": ".KS"},
+            {"name": "CJ ENM",         "code": "035760", "suffix": ".KQ"},
             {"name": "SBS",            "code": "034120", "suffix": ".KS"},
             {"name": "스튜디오드래곤", "code": "253450", "suffix": ".KQ"},
             {"name": "NEW",            "code": "160550", "suffix": ".KQ"},
@@ -965,7 +954,7 @@ KR_SECTOR_MAP = {
         ],
         "네트워크 장비": [
             {"name": "다산네트웍스",   "code": "039560", "suffix": ".KQ"},
-            {"name": "유비쿼스",       "code": "078070", "suffix": ".KQ"},
+            {"name": "유비쿼스홀딩스", "code": "078070", "suffix": ".KQ"},
             {"name": "쏠리드",         "code": "050890", "suffix": ".KQ"},
             {"name": "엑스플라",       "code": "088800", "suffix": ".KQ"},
             {"name": "에이치엘비파워", "code": "043220", "suffix": ".KQ"},
