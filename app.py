@@ -2676,13 +2676,16 @@ def main():
                         "서브섹터": info["subsector"],
                     })
             prog.empty()
+            verified = total - len(errors)
             if mismatches:
-                st.warning(f"불일치 {len(mismatches)}건 발견")
+                st.warning(f"불일치 {len(mismatches)}건 발견 (검증 성공 {verified}/{total}개)")
                 st.dataframe(pd.DataFrame(mismatches), use_container_width=True, hide_index=True)
+            elif errors:
+                st.info(f"불일치 없음 — 단, KIS API 조회 실패 {len(errors)}건 포함 (검증 성공 {verified}/{total}개)")
             else:
-                st.success(f"전체 {total}개 종목 코드-종목명 일치!")
+                st.success(f"전체 {total}개 종목 코드-종목명 완전 일치!")
             if errors:
-                with st.expander(f"조회 실패 {len(errors)}건"):
+                with st.expander(f"조회 실패 {len(errors)}건 (장 마감·상장폐지 등)"):
                     st.dataframe(pd.DataFrame(errors), use_container_width=True, hide_index=True)
 
     # --- 하단 면책 조항 ---
