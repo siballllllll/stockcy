@@ -3,7 +3,10 @@ import pandas as pd
 import plotly.graph_objects as go
 from datetime import datetime
 from data import get_us_stock_data, get_us_market_indices, get_us_stock_detail
-from data_kr import get_us_prices_bulk_kis, get_kr_index_history
+from data_kr import (get_us_prices_bulk_kis, get_kr_index_history,
+                     get_kr_market_index, get_kr_stock_price,
+                     get_kr_investor_trend, get_kr_volume_ranking,
+                     get_kr_minute_chart, get_kr_daily_chart)
 
 # 1. 페이지 기본 설정 (항상 최상단에 위치)
 st.set_page_config(
@@ -245,9 +248,6 @@ def main():
     
     with tab1:
         if "국내" in st.session_state.market:
-            from data_kr import (get_kr_market_index, get_kr_stock_price,
-                                 get_kr_investor_trend, get_kr_volume_ranking,
-                                 get_kr_minute_chart, get_kr_daily_chart)
 
             # KIS API 키 설정 확인
             try:
