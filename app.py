@@ -2657,15 +2657,25 @@ def main():
             errors = []
             total = len(all_stocks)
             prog = st.progress(0, text=f"0 / {total} 검증 중...")
+            import time as _time
             for i, (code, info) in enumerate(all_stocks.items()):
                 prog.progress((i + 1) / total, text=f"{i+1} / {total} 검증 중... ({code})")
-                try:
-                    kis_name = get_kr_stock_name_kis(code)
-                except Exception as e:
-                    errors.append({"코드": code, "저장명": info["name"], "오류": str(e)})
-                    continue
-                if not kis_name:
+                # KIS API 초당 20건 한도 — 0.06초 간격으로 호출
+                _time.sleep(0.06)
+                kis_name = None
+                for _attempt in range(3):
+                    try:
+                        kis_name = get_kr_stock_name_kis(code)
+                        if kis_name is not None:
+                            break
+                    except Exception as e:
+                        if _attempt == 2:
+                            errors.append({"코드": code, "저장명": info["name"], "오류": str(e)})
+                    if _attempt < 2:
+                        _time.sleep(0.5)
+                if kis_name is None and not any(e["코드"] == code for e in errors):
                     errors.append({"코드": code, "저장명": info["name"], "오류": "KIS API 응답 없음"})
+                if kis_name is None:
                     continue
                 if kis_name != info["name"]:
                     mismatches.append({
