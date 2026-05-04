@@ -2645,10 +2645,12 @@ def main():
         st.markdown("#### 종목 코드 검증 (KRX 전체 종목)")
         if st.button("🔍 KRX 데이터로 전체 종목 코드 검증", use_container_width=True):
             from sectors_kr import KR_SECTOR_MAP
-            with st.spinner("KRX에서 전체 종목 로드 중..."):
+            with st.spinner("전체 종목 로드 중... (FinanceDataReader → pykrx → KRX 순으로 시도)"):
                 krx_map = get_kr_name_to_code_map()
             if not krx_map:
-                st.error("KRX 데이터 로드 실패. 잠시 후 다시 시도해주세요.")
+                st.error("전체 종목 데이터 로드 실패 (FinanceDataReader·pykrx·KRX 모두 실패).\n\n"
+                         "Streamlit Cloud 서버가 한국 거래소 API에 접근할 수 없는 상태입니다.\n"
+                         "잠시 후 다시 시도하거나, 아래 KIS API 개별 검증을 이용해주세요.")
             else:
                 st.info(f"KRX 종목 {len(krx_map):,}개 로드 완료")
                 mismatches = []
@@ -2681,6 +2683,54 @@ def main():
                 if not_found:
                     with st.expander(f"KRX 미확인 종목 {len(not_found)}건 (상장폐지·이름 상이 등)"):
                         st.dataframe(pd.DataFrame(not_found), use_container_width=True, hide_index=True)
+
+        st.markdown("---")
+        st.markdown("#### 종목 코드 검증 (KIS API — 개별 조회)")
+        st.caption("위 KRX 검증이 실패할 때 사용. 약 40~50초 소요됩니다.")
+        if st.button("🔍 KIS API로 섹터 종목 개별 검증", use_container_width=True):
+            from sectors_kr import KR_SECTOR_MAP
+            import time as _time
+            all_stocks: dict = {}
+            for _sec, _subs in KR_SECTOR_MAP.items():
+                for _sub, _stks in _subs.items():
+                    for s in _stks:
+                        code = s.get("code", "")
+                        if code and code not in all_stocks:
+                            all_stocks[code] = {"name": s["name"], "sector": _sec, "subsector": _sub}
+            mismatches, errors = [], []
+            total = len(all_stocks)
+            prog = st.progress(0, text=f"0 / {total} 검증 중...")
+            for i, (code, info) in enumerate(all_stocks.items()):
+                prog.progress((i + 1) / total, text=f"{i+1} / {total} 검증 중... ({code})")
+                _time.sleep(0.06)
+                kis_name = None
+                for _att in range(3):
+                    try:
+                        kis_name = get_kr_stock_name_kis(code)
+                        if kis_name:
+                            break
+                    except Exception:
+                        pass
+                    if _att < 2:
+                        _time.sleep(0.5)
+                if not kis_name:
+                    errors.append({"코드": code, "저장명": info["name"], "오류": "응답 없음"})
+                    continue
+                if kis_name != info["name"]:
+                    mismatches.append({"코드": code, "저장명": info["name"], "KIS명": kis_name,
+                                       "섹터": info["sector"], "서브섹터": info["subsector"]})
+            prog.empty()
+            verified = total - len(errors)
+            if mismatches:
+                st.warning(f"불일치 {len(mismatches)}건 (검증 성공 {verified}/{total})")
+                st.dataframe(pd.DataFrame(mismatches), use_container_width=True, hide_index=True)
+            elif errors:
+                st.info(f"불일치 없음 — 조회 실패 {len(errors)}건 포함 (검증 성공 {verified}/{total})")
+            else:
+                st.success(f"전체 {total}개 완전 일치!")
+            if errors:
+                with st.expander(f"조회 실패 {len(errors)}건"):
+                    st.dataframe(pd.DataFrame(errors), use_container_width=True, hide_index=True)
 
     # --- 하단 면책 조항 ---
     st.markdown("""

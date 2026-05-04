@@ -56,12 +56,43 @@ def _get(path: str, tr_id: str, params: dict):
 def get_kr_name_to_code_map() -> dict:
     """전체 KOSPI+KOSDAQ 종목 이름→{code, suffix} 맵 반환 (24시간 캐시).
 
-    KRX 공개 API로 2회 요청만에 2000여 종목을 로드한다.
-    실패 시 pykrx 폴백.
+    FinanceDataReader → pykrx → KRX 직접 API 순으로 시도.
+    해외 서버(Streamlit Cloud)에서도 동작하도록 여러 소스를 시도한다.
     """
     result: dict = {}
 
-    # 1차: KRX 공개 API (한 요청으로 시장 전체 종목 로드)
+    # 1차: FinanceDataReader (해외 서버에서도 동작)
+    try:
+        import FinanceDataReader as fdr
+        for market, suffix in [("KOSPI", ".KS"), ("KOSDAQ", ".KQ")]:
+            df = fdr.StockListing(market)
+            for _, row in df.iterrows():
+                name = str(row.get("Name", "")).strip()
+                code = str(row.get("Code", "")).strip()
+                if name and code and len(code) == 6 and code.isdigit():
+                    result[name] = {"code": code, "suffix": suffix}
+        if result:
+            return result
+    except Exception:
+        pass
+
+    # 2차: pykrx
+    try:
+        from pykrx import stock as _pykrx
+        import datetime
+        today = datetime.date.today().strftime("%Y%m%d")
+        for market, suffix in [("KOSPI", ".KS"), ("KOSDAQ", ".KQ")]:
+            tickers = _pykrx.get_market_ticker_list(today, market=market)
+            for ticker in tickers:
+                name = _pykrx.get_market_ticker_name(ticker)
+                if name:
+                    result[name] = {"code": ticker, "suffix": suffix}
+        if result:
+            return result
+    except Exception:
+        pass
+
+    # 3차: KRX 공개 API (해외 IP 차단 가능성 있음)
     try:
         for mkt_id, suffix in [("STK", ".KS"), ("KSQ", ".KQ")]:
             resp = requests.post(
@@ -74,8 +105,13 @@ def get_kr_name_to_code_map() -> dict:
                     "money": "1",
                     "csvxls_isNo": "false",
                 },
-                headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"},
-                timeout=10,
+                headers={
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                    "Referer": "http://data.krx.co.kr/",
+                    "Accept": "application/json, text/javascript, */*; q=0.01",
+                    "X-Requested-With": "XMLHttpRequest",
+                },
+                timeout=15,
             )
             for item in resp.json().get("output", []):
                 name = item.get("ISU_ABBRV", "").strip()
@@ -87,20 +123,7 @@ def get_kr_name_to_code_map() -> dict:
     except Exception:
         pass
 
-    # 2차 폴백: pykrx
-    try:
-        from pykrx import stock as _pykrx
-        import datetime
-        today = datetime.date.today().strftime("%Y%m%d")
-        for market, suffix in [("KOSPI", ".KS"), ("KOSDAQ", ".KQ")]:
-            tickers = _pykrx.get_market_ticker_list(today, market=market)
-            for ticker in tickers:
-                name = _pykrx.get_market_ticker_name(ticker)
-                if name:
-                    result[name] = {"code": ticker, "suffix": suffix}
-        return result
-    except Exception:
-        return {}
+    return {}
 
 
 def get_kr_stock_name_kis(stock_code: str) -> str | None:
