@@ -54,16 +54,24 @@ def get_market_news(category="general"):
         return f"뉴스 데이터 로드 실패: {e}"
 
 
-# 모델 폴백 순서: 무료 티어 쿼터 소진 시 다음 모델로 자동 전환
+# 모델 폴백 순서
 _MODEL_FALLBACK = [
-    "gemini-2.5-flash",       # 최신 flash, Google Search 지원
-    "gemini-2.0-flash",       # 안정 flash, Google Search 지원
-    "gemini-2.0-flash-lite",  # 경량 폴백, Google Search 지원
+    "gemini-2.5-flash",
+    "gemini-2.0-flash",
+    "gemini-2.0-flash-lite",
 ]
+
+# 할당량 소진 여부 (세션 중 반복 호출 방지)
+_QUOTA_EXHAUSTED = False
 
 
 def _call_gemini(prompt, use_search=False, temperature=0.7, response_mime_type=None):
     """Gemini API 호출 공통 헬퍼 (모델 폴백 + 재시도 포함)."""
+    global _QUOTA_EXHAUSTED
+
+    if _QUOTA_EXHAUSTED:
+        raise Exception("QUOTA_EXHAUSTED: 오늘의 Gemini API 무료 할당량이 소진되었습니다. 내일 자정(한국 기준) 초기화됩니다.")
+
     api_key = st.secrets["gemini"]["api_key"]
     client = genai.Client(api_key=api_key)
 
@@ -76,6 +84,7 @@ def _call_gemini(prompt, use_search=False, temperature=0.7, response_mime_type=N
     config = types.GenerateContentConfig(**config_kwargs)
 
     last_err = None
+    exhausted_count = 0
     for model in _MODEL_FALLBACK:
         for attempt in range(2):
             try:
@@ -84,20 +93,24 @@ def _call_gemini(prompt, use_search=False, temperature=0.7, response_mime_type=N
                     contents=prompt,
                     config=config,
                 )
+                _QUOTA_EXHAUSTED = False  # 성공 시 플래그 초기화
                 return response
             except Exception as api_err:
                 err_str = str(api_err)
                 last_err = api_err
-                # 503 / 일시적 오류 → 3초 후 같은 모델 재시도
                 if ("503" in err_str or "UNAVAILABLE" in err_str) and attempt == 0:
                     time.sleep(3)
                     continue
-                # 429 쿼터 소진 또는 404 모델 미지원 → 다음 모델로 전환
                 if ("429" in err_str or "RESOURCE_EXHAUSTED" in err_str
                         or "404" in err_str or "NOT_FOUND" in err_str):
+                    if "429" in err_str or "RESOURCE_EXHAUSTED" in err_str:
+                        exhausted_count += 1
                     break
-                # 그 외 오류 → 즉시 raise
                 raise api_err
+
+    # 모든 모델이 할당량 소진 → 플래그 설정
+    if exhausted_count >= len(_MODEL_FALLBACK):
+        _QUOTA_EXHAUSTED = True
     raise last_err
 
 
@@ -359,7 +372,7 @@ def generate_dynamic_themes():
         return {"error": str(e), "themes": []}
 
 
-@st.cache_data(ttl=1800)  # 30분 캐싱 (성공 결과만 캐시됨)
+@st.cache_data(ttl=3600)  # 1시간 캐싱 (할당량 절약)
 def analyze_kr_hot_sectors() -> dict:
     """
     Gemini + Google Search로 오늘 증권사 리포트·금융 뉴스를 분석하여
@@ -440,11 +453,21 @@ def analyze_kr_hot_sectors() -> dict:
             result, _ = json.JSONDecoder().raw_decode(text, start)
             return result
         return json.loads(text)
-    except Exception:
-        raise  # 오류는 캐시하지 않음 — app.py에서 try/except로 처리
+    except Exception as e:
+        if "QUOTA" in str(e) or "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
+            return _quota_error_result("analyze_kr_hot_sectors")
+        raise
 
 
-@st.cache_data(ttl=600)  # 10분 캐싱
+def _quota_error_result(fn_name: str) -> dict:
+    """할당량 초과 시 통일된 에러 딕셔너리 반환."""
+    return {
+        "error": "QUOTA",
+        "message": "오늘의 Gemini API 무료 할당량이 소진되었습니다.\n내일 자정(KST) 자동 초기화되며, Google AI Studio에서 유료 전환 시 즉시 해제됩니다.",
+    }
+
+
+@st.cache_data(ttl=1800)  # 30분 캐싱 (할당량 절약)
 def analyze_today_market() -> dict:
     """
     오늘 급등 종목들을 AI + Google Search로 분석하여
@@ -508,6 +531,8 @@ def analyze_today_market() -> dict:
             return result
         return json.loads(text)
     except Exception as e:
+        if "QUOTA" in str(e) or "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
+            return _quota_error_result("analyze_today_market")
         return {"error": str(e)}
 
 

@@ -907,7 +907,14 @@ def main():
                                 except Exception as _tme:
                                     _tm = {"error": str(_tme)}
 
-                            if _tm.get("error"):
+                            if _tm.get("error") == "QUOTA":
+                                st.warning(
+                                    "⚠️ **Gemini API 무료 할당량 초과**\n\n"
+                                    "오늘의 AI 분석 횟수가 모두 소진되었습니다.  \n"
+                                    "• 내일 자정(KST) 자동 초기화  \n"
+                                    "• 즉시 해결: [Google AI Studio](https://aistudio.google.com) 에서 유료 전환 (월 $10 미만)"
+                                )
+                            elif _tm.get("error"):
                                 st.info(f"⏸ {_tm['error']}")
                             else:
                                 # 시장 요약 배너
@@ -1007,7 +1014,14 @@ def main():
                                 except Exception as _ai_err:
                                     _ai_res = {"error": str(_ai_err), "sectors": []}
 
-                            if not _ai_res.get("sectors") and _ai_res.get("error"):
+                            if not _ai_res.get("sectors") and _ai_res.get("error") == "QUOTA":
+                                st.warning(
+                                    "⚠️ **Gemini API 무료 할당량 초과**\n\n"
+                                    "오늘의 AI 분석 횟수가 모두 소진되었습니다.  \n"
+                                    "• 내일 자정(KST) 자동 초기화  \n"
+                                    "• 즉시 해결: [Google AI Studio](https://aistudio.google.com) 에서 유료 전환"
+                                )
+                            elif not _ai_res.get("sectors") and _ai_res.get("error"):
                                 st.error(f"AI 분석 오류: {_ai_res['error']}")
                             else:
                                 _ai_sectors = sorted(
