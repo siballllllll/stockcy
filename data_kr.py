@@ -52,6 +52,57 @@ def _get(path: str, tr_id: str, params: dict):
         return None
 
 
+@st.cache_data(ttl=86400)
+def get_kr_name_to_code_map() -> dict:
+    """전체 KOSPI+KOSDAQ 종목 이름→{code, suffix} 맵 반환 (24시간 캐시).
+
+    KRX 공개 API로 2회 요청만에 2000여 종목을 로드한다.
+    실패 시 pykrx 폴백.
+    """
+    result: dict = {}
+
+    # 1차: KRX 공개 API (한 요청으로 시장 전체 종목 로드)
+    try:
+        for mkt_id, suffix in [("STK", ".KS"), ("KSQ", ".KQ")]:
+            resp = requests.post(
+                "http://data.krx.co.kr/comm/bldAttendant/getJsonData.cmd",
+                data={
+                    "bld": "dbms/MDC/STAT/standard/MDCSTAT01901",
+                    "locale": "ko_KR",
+                    "mktId": mkt_id,
+                    "share": "1",
+                    "money": "1",
+                    "csvxls_isNo": "false",
+                },
+                headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"},
+                timeout=10,
+            )
+            for item in resp.json().get("output", []):
+                name = item.get("ISU_ABBRV", "").strip()
+                code = item.get("ISU_SRT_CD", "").strip()
+                if name and code and len(code) == 6 and code.isdigit():
+                    result[name] = {"code": code, "suffix": suffix}
+        if result:
+            return result
+    except Exception:
+        pass
+
+    # 2차 폴백: pykrx
+    try:
+        from pykrx import stock as _pykrx
+        import datetime
+        today = datetime.date.today().strftime("%Y%m%d")
+        for market, suffix in [("KOSPI", ".KS"), ("KOSDAQ", ".KQ")]:
+            tickers = _pykrx.get_market_ticker_list(today, market=market)
+            for ticker in tickers:
+                name = _pykrx.get_market_ticker_name(ticker)
+                if name:
+                    result[name] = {"code": ticker, "suffix": suffix}
+        return result
+    except Exception:
+        return {}
+
+
 def get_kr_stock_name_kis(stock_code: str) -> str | None:
     """KIS API로 종목명만 조회 (캐시 없음, yfinance 폴백 없음). 검증용."""
     data = _get(

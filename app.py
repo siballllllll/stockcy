@@ -7,7 +7,7 @@ from data_kr import (get_us_prices_bulk_kis, get_kr_index_history,
                      get_kr_market_index, get_kr_stock_price,
                      get_kr_investor_trend, get_kr_volume_ranking,
                      get_kr_minute_chart, get_kr_daily_chart,
-                     get_kr_stock_name_kis)
+                     get_kr_stock_name_kis, get_kr_name_to_code_map)
 
 # 1. 페이지 기본 설정 (항상 최상단에 위치)
 st.set_page_config(
@@ -2642,61 +2642,45 @@ def main():
                     st.error(msg_gs)
 
         st.markdown("---")
-        st.markdown("#### 종목 코드 검증 (KIS API)")
-        if st.button("🔍 KIS API로 종목 코드 일치 여부 확인", use_container_width=True):
+        st.markdown("#### 종목 코드 검증 (KRX 전체 종목)")
+        if st.button("🔍 KRX 데이터로 전체 종목 코드 검증", use_container_width=True):
             from sectors_kr import KR_SECTOR_MAP
-            all_stocks: dict = {}
-            for sector, subsectors in KR_SECTOR_MAP.items():
-                for subsector, stocks in subsectors.items():
-                    for s in stocks:
-                        code = s.get("code", "")
-                        if code and code not in all_stocks:
-                            all_stocks[code] = {"name": s["name"], "sector": sector, "subsector": subsector}
-
-            mismatches = []
-            errors = []
-            total = len(all_stocks)
-            prog = st.progress(0, text=f"0 / {total} 검증 중...")
-            import time as _time
-            for i, (code, info) in enumerate(all_stocks.items()):
-                prog.progress((i + 1) / total, text=f"{i+1} / {total} 검증 중... ({code})")
-                # KIS API 초당 20건 한도 — 0.06초 간격으로 호출
-                _time.sleep(0.06)
-                kis_name = None
-                for _attempt in range(3):
-                    try:
-                        kis_name = get_kr_stock_name_kis(code)
-                        if kis_name is not None:
-                            break
-                    except Exception as e:
-                        if _attempt == 2:
-                            errors.append({"코드": code, "저장명": info["name"], "오류": str(e)})
-                    if _attempt < 2:
-                        _time.sleep(0.5)
-                if kis_name is None and not any(e["코드"] == code for e in errors):
-                    errors.append({"코드": code, "저장명": info["name"], "오류": "KIS API 응답 없음"})
-                if kis_name is None:
-                    continue
-                if kis_name != info["name"]:
-                    mismatches.append({
-                        "코드": code,
-                        "저장명": info["name"],
-                        "KIS명": kis_name,
-                        "섹터": info["sector"],
-                        "서브섹터": info["subsector"],
-                    })
-            prog.empty()
-            verified = total - len(errors)
-            if mismatches:
-                st.warning(f"불일치 {len(mismatches)}건 발견 (검증 성공 {verified}/{total}개)")
-                st.dataframe(pd.DataFrame(mismatches), use_container_width=True, hide_index=True)
-            elif errors:
-                st.info(f"불일치 없음 — 단, KIS API 조회 실패 {len(errors)}건 포함 (검증 성공 {verified}/{total}개)")
+            with st.spinner("KRX에서 전체 종목 로드 중..."):
+                krx_map = get_kr_name_to_code_map()
+            if not krx_map:
+                st.error("KRX 데이터 로드 실패. 잠시 후 다시 시도해주세요.")
             else:
-                st.success(f"전체 {total}개 종목 코드-종목명 완전 일치!")
-            if errors:
-                with st.expander(f"조회 실패 {len(errors)}건 (장 마감·상장폐지 등)"):
-                    st.dataframe(pd.DataFrame(errors), use_container_width=True, hide_index=True)
+                st.info(f"KRX 종목 {len(krx_map):,}개 로드 완료")
+                mismatches = []
+                not_found  = []
+                for sector, subsectors in KR_SECTOR_MAP.items():
+                    for subsector, stocks in subsectors.items():
+                        for s in stocks:
+                            krx_info = krx_map.get(s["name"])
+                            if krx_info is None:
+                                not_found.append({"종목명": s["name"], "저장코드": s.get("code",""),
+                                                  "섹터": sector, "서브섹터": subsector})
+                            elif krx_info["code"] != s.get("code", ""):
+                                mismatches.append({
+                                    "종목명": s["name"],
+                                    "저장코드": s.get("code", ""),
+                                    "KRX코드": krx_info["code"],
+                                    "저장suffix": s.get("suffix",""),
+                                    "KRX suffix": krx_info["suffix"],
+                                    "섹터": sector, "서브섹터": subsector,
+                                })
+                total = sum(len(st_list) for subs in KR_SECTOR_MAP.values() for st_list in subs.values())
+                problems = len(mismatches) + len(not_found)
+                if not problems:
+                    st.success(f"전체 {total}개 종목 코드 완전 일치!")
+                else:
+                    st.warning(f"전체 {total}개 중 문제 {problems}건 발견")
+                if mismatches:
+                    st.markdown("**코드 불일치** (sectors_kr.py 코드가 KRX와 다름)")
+                    st.dataframe(pd.DataFrame(mismatches), use_container_width=True, hide_index=True)
+                if not_found:
+                    with st.expander(f"KRX 미확인 종목 {len(not_found)}건 (상장폐지·이름 상이 등)"):
+                        st.dataframe(pd.DataFrame(not_found), use_container_width=True, hide_index=True)
 
     # --- 하단 면책 조항 ---
     st.markdown("""
