@@ -149,38 +149,10 @@ def log_ai_recommendation(rec_type: str, ticker: str, name: str, rating: str,
         return False, f"로그 기록 오류: {e}"
 
 
-def _enrich_with_krx(raw_map: dict) -> dict:
-    """KRX 전체 종목 맵으로 섹터 맵의 코드·suffix를 보정한다."""
-    try:
-        from data_kr import get_kr_name_to_code_map
-        name_map = get_kr_name_to_code_map()
-    except Exception:
-        name_map = {}
-    if not name_map:
-        return raw_map
-
-    enriched: dict = {}
-    for sector, subsectors in raw_map.items():
-        enriched[sector] = {}
-        for sub, stocks in subsectors.items():
-            enriched_stocks = []
-            for s in stocks:
-                info = name_map.get(s["name"])
-                if info:
-                    enriched_stocks.append(
-                        {"name": s["name"], "code": info["code"], "suffix": info["suffix"]}
-                    )
-                else:
-                    enriched_stocks.append(s.copy())
-            enriched[sector][sub] = enriched_stocks
-    return enriched
-
-
 @st.cache_data(ttl=300)
 def load_sector_map() -> dict:
     """Google Sheets 섹터DB 탭에서 섹터 맵 로드.
     sectors_kr.py가 더 많은 섹터를 가지면 항상 파일 우선 (업데이트 자동 반영).
-    KRX 전체 종목 데이터로 코드를 자동 보정한다.
     """
     from sectors_kr import KR_SECTOR_MAP
     try:
@@ -208,10 +180,11 @@ def load_sector_map() -> dict:
             )
         if not sector_map:
             raise Exception("파싱 결과 빈 맵")
-        raw = KR_SECTOR_MAP if len(KR_SECTOR_MAP) >= len(sector_map) else sector_map
+        if len(KR_SECTOR_MAP) >= len(sector_map):
+            return KR_SECTOR_MAP
+        return sector_map
     except Exception:
-        raw = KR_SECTOR_MAP
-    return _enrich_with_krx(raw)
+        return KR_SECTOR_MAP
 
 
 @st.cache_data(ttl=300)
