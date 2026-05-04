@@ -1455,34 +1455,42 @@ def main():
                             for _hc, _ht in zip(_hcols[:4], ["단타", "종목명", "현재가", "등락률"]):
                                 _hc.markdown(f"<p style='margin:0;font-size:0.72rem;color:#888'>{_ht}</p>", unsafe_allow_html=True)
 
-                            with st.container(height=480):
+                            def _render_sector_stocks(sub_name, stocks, prices, code_locations, selected_sector):
+                                for i, s in enumerate(stocks):
+                                    if i > 0:
+                                        st.markdown('<hr style="margin:2px 0;border:none;border-top:1px solid rgba(255,255,255,0.1)">', unsafe_allow_html=True)
+                                    pdata = prices.get(s["code"], {"price": 0, "change_pct": 0.0})
+                                    pct   = pdata["change_pct"]
+                                    pval  = pdata["price"]
+                                    pct_color = "#ff4b4b" if pct > 0 else "#2b7cff" if pct < 0 else "#888"
+                                    other_locs = [loc for loc in code_locations.get(s["code"], []) if loc != f"{selected_sector} › {sub_name}"]
+                                    help_text = f"다중 섹터: {', '.join(other_locs)}" if other_locs else None
+                                    c0, c1, c2, c3, c4 = st.columns([0.35, 2.8, 1.8, 1.4, 0.45])
+                                    c0.markdown("✅" if pct >= 3.0 else "&nbsp;", unsafe_allow_html=True)
+                                    c1.markdown(f"<span style='font-size:0.85rem'>{s['name']}{'&nbsp;🔗' if other_locs else ''}</span>", unsafe_allow_html=True)
+                                    c2.markdown(f"<span style='font-size:0.85rem'>{'₩'+format(pval,',') if pval>0 else '---'}</span>", unsafe_allow_html=True)
+                                    c3.markdown(f"<span style='font-size:0.85rem;font-weight:bold;color:{pct_color}'>{pct:+.2f}%</span>", unsafe_allow_html=True)
+                                    if c4.button("▶", key=f"stock_{s['code']}_{sub_name}_{i}", help=help_text):
+                                        st.session_state.kr_selected_code      = s["code"]
+                                        st.session_state.kr_selected_name      = s["name"]
+                                        st.session_state.kr_sector_detail_code = s["code"]
+                                        st.session_state.kr_sector_detail_name = s["name"]
+                                        st.session_state.kr_sector_view        = "detail"
+                                        st.rerun()
+
+                            with st.container(height=600):
                                 for sub_name, stocks in subsectors.items():
-                                    with st.container(border=True):
-                                        st.markdown(
-                                            f"<p style='margin:0 0 4px 0;font-size:0.8rem;color:#aaa;font-weight:600'>📌 {sub_name}</p>",
-                                            unsafe_allow_html=True,
-                                        )
-                                        for i, s in enumerate(stocks):
-                                            if i > 0:
-                                                st.markdown('<hr style="margin:2px 0;border:none;border-top:1px solid rgba(255,255,255,0.1)">', unsafe_allow_html=True)
-                                            pdata = prices.get(s["code"], {"price": 0, "change_pct": 0.0})
-                                            pct   = pdata["change_pct"]
-                                            pval  = pdata["price"]
-                                            pct_color = "#ff4b4b" if pct > 0 else "#2b7cff" if pct < 0 else "#888"
-                                            other_locs = [loc for loc in code_locations.get(s["code"], []) if loc != f"{selected_sector} › {sub_name}"]
-                                            help_text = f"다중 섹터: {', '.join(other_locs)}" if other_locs else None
-                                            c0, c1, c2, c3, c4 = st.columns([0.35, 2.8, 1.8, 1.4, 0.45])
-                                            c0.markdown("✅" if pct >= 3.0 else "&nbsp;", unsafe_allow_html=True)
-                                            c1.markdown(f"<span style='font-size:0.85rem'>{s['name']}{'&nbsp;🔗' if other_locs else ''}</span>", unsafe_allow_html=True)
-                                            c2.markdown(f"<span style='font-size:0.85rem'>{'₩'+format(pval,',') if pval>0 else '---'}</span>", unsafe_allow_html=True)
-                                            c3.markdown(f"<span style='font-size:0.85rem;font-weight:bold;color:{pct_color}'>{pct:+.2f}%</span>", unsafe_allow_html=True)
-                                            if c4.button("▶", key=f"stock_{s['code']}_{sub_name}_{i}", help=help_text):
-                                                st.session_state.kr_selected_code      = s["code"]
-                                                st.session_state.kr_selected_name      = s["name"]
-                                                st.session_state.kr_sector_detail_code = s["code"]
-                                                st.session_state.kr_sector_detail_name = s["name"]
-                                                st.session_state.kr_sector_view        = "detail"
-                                                st.rerun()
+                                    LARGE_THRESHOLD = 15
+                                    if len(stocks) > LARGE_THRESHOLD:
+                                        with st.expander(f"📌 {sub_name} ({len(stocks)}개) ▼ 펼치기", expanded=False):
+                                            _render_sector_stocks(sub_name, stocks, prices, code_locations, selected_sector)
+                                    else:
+                                        with st.container(border=True):
+                                            st.markdown(
+                                                f"<p style='margin:0 0 4px 0;font-size:0.8rem;color:#aaa;font-weight:600'>📌 {sub_name} ({len(stocks)}개)</p>",
+                                                unsafe_allow_html=True,
+                                            )
+                                            _render_sector_stocks(sub_name, stocks, prices, code_locations, selected_sector)
 
 
 
