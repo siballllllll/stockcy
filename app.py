@@ -464,12 +464,20 @@ def main():
                             _themes = [t.strip() for t in str(_pick.get("theme","")).split(",") if t.strip()]
 
                             with _pcol:
-                                st.markdown(
+                                _cur_html = (
+                                    f"<div style='font-size:0.8rem;color:#aaa;margin-bottom:10px'>"
+                                    f"현재 <b style='color:#eee'>₩{int(_cur):,}</b></div>"
+                                ) if _cur > 0 else ""
+                                _theme_html = "".join(
+                                    f"<span style='background:rgba(255,255,255,0.08);"
+                                    f"border-radius:10px;padding:2px 7px;font-size:0.63rem;"
+                                    f"color:#aaa;margin-right:4px'>{th}</span>"
+                                    for th in _themes
+                                )
+                                _card_html = (
                                     f"<div style='background:rgba(255,255,255,0.035);"
                                     f"border:1px solid rgba(255,255,255,0.1);border-radius:14px;"
-                                    f"padding:14px 14px 12px 14px;height:100%'>"
-
-                                    # 헤더: 순위 + 종목명 + 긴급도 뱃지
+                                    f"padding:14px 14px 12px 14px'>"
                                     f"<div style='display:flex;justify-content:space-between;"
                                     f"align-items:flex-start;margin-bottom:10px'>"
                                     f"<div>"
@@ -481,13 +489,7 @@ def main():
                                     f"border-radius:12px;padding:3px 8px;font-size:0.68rem;font-weight:700;"
                                     f"white-space:nowrap'>{_urg_icon} {_urg}</span>"
                                     f"</div>"
-
-                                    # 현재가
-                                    + (f"<div style='font-size:0.8rem;color:#aaa;margin-bottom:10px'>"
-                                       f"현재 <b style='color:#eee'>₩{int(_cur):,}</b></div>"
-                                       if _cur > 0 else "")
-
-                                    # 타점 / 목표가 / 손절가
+                                    + _cur_html +
                                     f"<div style='display:grid;grid-template-columns:1fr 1fr 1fr;"
                                     f"gap:6px;margin-bottom:10px'>"
                                     f"<div style='background:rgba(255,255,255,0.06);border-radius:8px;"
@@ -506,23 +508,12 @@ def main():
                                     f"<div style='font-size:0.85rem;font-weight:700;color:#2b7cff'>"
                                     f"₩{int(_stop):,}</div></div>"
                                     f"</div>"
-
-                                    # 추천 근거
                                     f"<div style='font-size:0.72rem;color:#bbb;line-height:1.55;"
                                     f"margin-bottom:8px'>{_pick.get('reason','')}</div>"
-
-                                    # 테마 태그
-                                    + ("".join(
-                                        f"<span style='background:rgba(255,255,255,0.08);"
-                                        f"border-radius:10px;padding:2px 7px;font-size:0.63rem;"
-                                        f"color:#aaa;margin-right:4px'>{th}</span>"
-                                        for th in _themes
-                                    ) if _themes else "")
-
-                                    + "</div>",
-                                    unsafe_allow_html=True,
+                                    + _theme_html +
+                                    "</div>"
                                 )
-                                # 바로 분석하기 버튼
+                                st.markdown(_card_html, unsafe_allow_html=True)
                                 if st.button("상세 분석 →", key=f"pk_detail_{_pick.get('code',_ci)}",
                                              use_container_width=True):
                                     st.session_state.kr_selected_code = _pick.get("code", "005930")
