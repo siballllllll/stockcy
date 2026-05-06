@@ -186,11 +186,13 @@ def show_daily_briefing():
     if st.button("닫기"):
         st.rerun()
 
+@st.fragment(run_every=60)
+def _auto_refresh_data():
+    """60초마다 데이터만 새로고침 (session state 유지, 전체 화면 초기화 없음)"""
+    st.rerun()
+
 def main():
-    st.components.v1.html(
-        "<script>setTimeout(function(){window.parent.location.reload();},60000);</script>",
-        height=0
-    )
+    _auto_refresh_data()
     init_session_state()
     inject_custom_css()
     

@@ -567,15 +567,16 @@ def get_kr_index_history(symbol: str, period: str = "1d") -> pd.DataFrame:
         "1y":  "1d",
     }
     interval = _interval_map.get(period, "1d")
-    try:
-        df = yf.Ticker(symbol).history(period=period, interval=interval, auto_adjust=True)
-        if df.empty:
-            return pd.DataFrame()
-        if df.index.tz is not None:
-            df.index = df.index.tz_convert("Asia/Seoul").tz_localize(None)
-        df = df.reset_index()
-        dt_col = "Datetime" if "Datetime" in df.columns else "Date"
-        df = df[[dt_col, "Close"]].rename(columns={dt_col: "datetime", "Close": "close"})
-        return df
-    except Exception:
-        return pd.DataFrame()
+    for _attempt in range(2):
+        try:
+            df = yf.Ticker(symbol).history(period=period, interval=interval, auto_adjust=True)
+            if not df.empty:
+                if df.index.tz is not None:
+                    df.index = df.index.tz_convert("Asia/Seoul").tz_localize(None)
+                df = df.reset_index()
+                dt_col = "Datetime" if "Datetime" in df.columns else "Date"
+                df = df[[dt_col, "Close"]].rename(columns={dt_col: "datetime", "Close": "close"})
+                return df
+        except Exception:
+            pass
+    return pd.DataFrame()
