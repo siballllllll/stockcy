@@ -622,3 +622,32 @@ def get_kr_index_history(symbol: str, period: str = "1d") -> pd.DataFrame:
         except Exception:
             pass
     return pd.DataFrame()
+
+
+@st.cache_data(ttl=60, show_spinner=False)
+def get_kr_major_tickers() -> list:
+    """상단 티커 표시용 주요 국내 종목 시세 (yfinance, 60초 캐시)"""
+    import yfinance as yf
+    stocks = [
+        ("005930", "삼성전자", ".KS"),
+        ("000660", "SK하이닉스", ".KS"),
+        ("005380", "현대차", ".KS"),
+        ("373220", "LG에너지솔루션", ".KS"),
+        ("035420", "NAVER", ".KS"),
+        ("035720", "카카오", ".KS"),
+        ("068270", "셀트리온", ".KS"),
+        ("207940", "삼성바이오", ".KS"),
+    ]
+    results = []
+    for code, name, suffix in stocks:
+        try:
+            fi = yf.Ticker(f"{code}{suffix}").fast_info
+            price = round(fi.get("lastPrice") or 0)
+            prev  = fi.get("previousClose") or 0
+            if price <= 0:
+                continue
+            pct = round(((price - prev) / prev * 100) if prev > 0 else 0.0, 2)
+            results.append({"name": name, "price": price, "pct": pct})
+        except Exception:
+            continue
+    return results

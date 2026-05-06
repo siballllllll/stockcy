@@ -12,7 +12,8 @@ from data_kr import (get_us_prices_bulk_kis, get_kr_index_history,
                      get_kr_market_index, get_kr_stock_price,
                      get_kr_investor_trend, get_kr_volume_ranking,
                      get_kr_minute_chart, get_kr_daily_chart,
-                     get_kr_stock_name_kis, get_kr_name_to_code_map)
+                     get_kr_stock_name_kis, get_kr_name_to_code_map,
+                     get_kr_major_tickers)
 
 # 1. 페이지 기본 설정 (항상 최상단에 위치)
 st.set_page_config(
@@ -222,42 +223,81 @@ def main():
 
     st.markdown("---")
     
-    # --- 🚀 [무료 라이브 위젯] TradingView 실시간 티커 테이프 ---
     import streamlit.components.v1 as components
-    ticker_html = """
-    <!-- TradingView Widget BEGIN -->
+
+    # ── 국내 주요 종목 티커 (CSS 마키, KIS/yfinance 직접 호출) ──────────
+    _kr_idx   = get_kr_market_index() or {}
+    _kr_ticks = get_kr_major_tickers()
+    _kr_items = []
+    for _iname, _id in _kr_idx.items():
+        _ip   = _id.get("change_pct", 0)
+        _ic   = "#ff4b4b" if _ip >= 0 else "#2b7cff"
+        _is   = "+" if _ip >= 0 else ""
+        _kr_items.append(
+            f'<span style="margin:0 18px;font-size:0.78rem">'
+            f'<b style="color:#ddd">{_iname}</b>&nbsp;'
+            f'{_id.get("index", 0):,.2f}&nbsp;'
+            f'<span style="color:{_ic}">{_is}{_ip:.2f}%</span></span>'
+        )
+    for _t in _kr_ticks:
+        _tp = _t["pct"]
+        _tc = "#ff4b4b" if _tp >= 0 else "#2b7cff"
+        _ts = "+" if _tp >= 0 else ""
+        _kr_items.append(
+            f'<span style="margin:0 18px;font-size:0.78rem">'
+            f'<b style="color:#ddd">{_t["name"]}</b>&nbsp;'
+            f'₩{_t["price"]:,}&nbsp;'
+            f'<span style="color:{_tc}">{_ts}{_tp:.2f}%</span></span>'
+        )
+    if _kr_items:
+        _kr_body = " · ".join(_kr_items)
+        components.html(f"""
+        <div style="background:rgba(255,75,75,0.06);border:1px solid rgba(255,75,75,0.15);
+                    border-radius:8px;overflow:hidden;padding:5px 0;margin-bottom:4px">
+          <div style="display:inline-block;white-space:nowrap;
+                      animation:krtick 40s linear infinite">
+            {_kr_body}&nbsp;&nbsp;&nbsp;&nbsp;{_kr_body}
+          </div>
+        </div>
+        <style>
+          @keyframes krtick {{
+            from {{ transform: translateX(0); }}
+            to   {{ transform: translateX(-50%); }}
+          }}
+        </style>""", height=38)
+
+    # ── 미국·글로벌 TradingView 티커 ────────────────────────────────────
+    components.html("""
     <div class="tradingview-widget-container">
       <div class="tradingview-widget-container__widget"></div>
-      <script type="text/javascript" src="https://s3.tradingview.com/external-embedding/embed-widget-ticker-tape.js" async>
+      <script type="text/javascript"
+        src="https://s3.tradingview.com/external-embedding/embed-widget-ticker-tape.js" async>
       {
-      "symbols": [
-        {"description": "S&P500", "proName": "SP:SPX"},
-        {"description": "나스닥100", "proName": "FOREXCOM:NSXUSD"},
-        {"description": "다우존스", "proName": "DJ:DJI"},
-        {"description": "원/달러", "proName": "FX_IDC:USDKRW"},
-        {"description": "엔비디아", "proName": "NASDAQ:NVDA"},
-        {"description": "애플", "proName": "NASDAQ:AAPL"},
-        {"description": "테슬라", "proName": "NASDAQ:TSLA"},
-        {"description": "마이크로소프트", "proName": "NASDAQ:MSFT"},
-        {"description": "메타", "proName": "NASDAQ:META"},
-        {"description": "구글", "proName": "NASDAQ:GOOGL"},
-        {"description": "아마존", "proName": "NASDAQ:AMZN"},
-        {"description": "금", "proName": "TVC:GOLD"},
-        {"description": "WTI유가", "proName": "TVC:USOIL"},
-        {"description": "비트코인", "proName": "CRYPTO:BTCUSD"},
-        {"description": "이더리움", "proName": "CRYPTO:ETHUSD"}
-      ],
-      "showSymbolLogo": true,
-      "isTransparent": true,
-      "displayMode": "adaptive",
-      "colorTheme": "dark",
-      "locale": "kr"
-    }
+        "symbols": [
+          {"description": "S&P500",      "proName": "AMEX:SPY"},
+          {"description": "나스닥100",    "proName": "NASDAQ:QQQ"},
+          {"description": "다우존스",     "proName": "AMEX:DIA"},
+          {"description": "원/달러",      "proName": "FX_IDC:USDKRW"},
+          {"description": "엔비디아",     "proName": "NASDAQ:NVDA"},
+          {"description": "애플",         "proName": "NASDAQ:AAPL"},
+          {"description": "테슬라",       "proName": "NASDAQ:TSLA"},
+          {"description": "마이크로소프트","proName": "NASDAQ:MSFT"},
+          {"description": "메타",         "proName": "NASDAQ:META"},
+          {"description": "구글",         "proName": "NASDAQ:GOOGL"},
+          {"description": "아마존",       "proName": "NASDAQ:AMZN"},
+          {"description": "금",           "proName": "TVC:GOLD"},
+          {"description": "WTI유가",      "proName": "TVC:USOIL"},
+          {"description": "비트코인",     "proName": "CRYPTO:BTCUSD"},
+          {"description": "이더리움",     "proName": "CRYPTO:ETHUSD"}
+        ],
+        "showSymbolLogo": true,
+        "isTransparent": true,
+        "displayMode": "adaptive",
+        "colorTheme": "dark",
+        "locale": "kr"
+      }
       </script>
-    </div>
-    <!-- TradingView Widget END -->
-    """
-    components.html(ticker_html, height=75)
+    </div>""", height=75)
     
     # --- 메인 탭 구성 ---
     tab1, tab2, tab3 = st.tabs(["📊 실시간 타점 보드", "📈 성과 트래킹", "🔧 관리자"])
