@@ -2038,7 +2038,7 @@ def main():
 
             # ── 세션 상태 초기화 ──────────────────────────────────────────
             for _k, _v in [
-                ("us_mode",               "🎯 AI 타점 보드"),
+                ("us_mode",               "📊 일반 주식 검색"),
                 ("us_selected_ticker",    "NVDA"),
                 ("us_selected_name",      "엔비디아"),
                 ("us_selected_sector_us", "AI·반도체"),
@@ -2055,21 +2055,12 @@ def main():
                 if _k not in st.session_state:
                     st.session_state[_k] = _v
 
-            # ── 모드 토글 ─────────────────────────────────────────────────
-            _us_modes = ["🎯 AI 타점 보드", "📊 일반 주식 검색", "🔥 오늘의 이슈 섹터"]
-            _us_idx = _us_modes.index(st.session_state.us_mode) if st.session_state.us_mode in _us_modes else 0
-            us_mode = st.radio(
-                "US 모드 선택", _us_modes,
-                horizontal=True, label_visibility="collapsed", index=_us_idx,
-            )
-            if us_mode != st.session_state.us_mode:
-                st.session_state.us_mode = us_mode
-                st.rerun()
+            us_mode = st.session_state.us_mode
 
             # ══════════════════════════════════════════════════════════════
             # 🎯 US AI 타점 보드
             # ══════════════════════════════════════════════════════════════
-            if us_mode == "🎯 AI 타점 보드":
+            if True:
                 _us_pb_key  = "us_picks_result"
                 _us_run_key = "_us_picks_pending"
 
@@ -2237,1004 +2228,1014 @@ def main():
                                     if _up_chg >= 12:
                                         st.warning("⚠️ 등락률 12% 이상 — 추격 매수 금지")
 
-            # ── 2-컬럼 레이아웃 변수 (타점 보드 이외 모드에서 사용) ──────────
-            _us_ticker_cur = st.session_state.us_selected_ticker
-            _us_name_cur   = st.session_state.us_selected_name
-            _us_need_price = (
-                us_mode == "📊 일반 주식 검색"
-                or st.session_state.us_sector_view == "detail"
-            )
-            detail_us = None
-            if us_mode != "🎯 AI 타점 보드" and _us_need_price:
-                with st.spinner(""):
-                    detail_us = get_us_stock_detail(_us_ticker_cur)
-            _YF_TO_TV = {
-                "NMS": "NASDAQ", "NGM": "NASDAQ", "NCM": "NASDAQ",
-                "NYQ": "NYSE",   "NYS": "NYSE",   "PCX": "NYSE",   "ASE": "AMEX",
-            }
+            with st.expander("📊 종목 탐색", expanded=False):
+                _un1, _un2 = st.columns(2)
+                with _un1:
+                    if st.button("📊 일반 주식 검색", key="us_nav2_search",
+                                 type="primary" if us_mode == "📊 일반 주식 검색" else "secondary",
+                                 use_container_width=True):
+                        st.session_state.us_mode = "📊 일반 주식 검색"
+                        st.rerun()
+                with _un2:
+                    if st.button("🔥 오늘의 이슈 섹터", key="us_nav2_sector",
+                                 type="primary" if us_mode == "🔥 오늘의 이슈 섹터" else "secondary",
+                                 use_container_width=True):
+                        st.session_state.us_mode = "🔥 오늘의 이슈 섹터"
+                        st.rerun()
+                # ── 2-컬럼 레이아웃 변수 (타점 보드 이외 모드에서 사용) ──────────
+                _us_ticker_cur = st.session_state.us_selected_ticker
+                _us_name_cur   = st.session_state.us_selected_name
+                _us_need_price = (
+                    us_mode == "📊 일반 주식 검색"
+                    or st.session_state.us_sector_view == "detail"
+                )
+                detail_us = None
+                if _us_need_price:
+                    with st.spinner(""):
+                        detail_us = get_us_stock_detail(_us_ticker_cur)
+                _YF_TO_TV = {
+                    "NMS": "NASDAQ", "NGM": "NASDAQ", "NCM": "NASDAQ",
+                    "NYQ": "NYSE",   "NYS": "NYSE",   "PCX": "NYSE",   "ASE": "AMEX",
+                }
 
-            col_us_chart, col_us_right = st.columns([5, 5])
+                col_us_chart, col_us_right = st.columns([5, 5])
 
-            with col_us_chart:
-                if us_mode == "🎯 AI 타점 보드":
-                    pass  # 타점 보드는 위에서 전체폭으로 렌더링됨
-                elif us_mode == "🔥 오늘의 이슈 섹터":
-                    if st.session_state.us_sector_view == "detail":
-                        _us_dticker   = st.session_state.us_sector_detail_ticker
-                        _us_dname     = st.session_state.us_sector_detail_name
-                        _us_dexchange = st.session_state.get("us_sector_detail_exchange", "NASDAQ")
-                        _us_tv_sym    = f"{_us_dexchange}:{_us_dticker}"
+                with col_us_chart:
+                    if us_mode == "🔥 오늘의 이슈 섹터":
+                        if st.session_state.us_sector_view == "detail":
+                            _us_dticker   = st.session_state.us_sector_detail_ticker
+                            _us_dname     = st.session_state.us_sector_detail_name
+                            _us_dexchange = st.session_state.get("us_sector_detail_exchange", "NASDAQ")
+                            _us_tv_sym    = f"{_us_dexchange}:{_us_dticker}"
+                            if detail_us:
+                                _chg_cur = detail_us["change_pct"]
+                                _col_cur = "#00c853" if _chg_cur >= 0 else "#ff4b4b"
+                                _ar_cur  = "▲" if _chg_cur >= 0 else "▼"
+                                st.markdown(
+                                    f"**{_us_dname}** ({_us_dticker}) &nbsp; "
+                                    f"${detail_us['price']:,.2f} &nbsp; "
+                                    f"<span style='color:{_col_cur}'>{_ar_cur} {_chg_cur:+.2f}%</span>",
+                                    unsafe_allow_html=True,
+                                )
+                            else:
+                                st.markdown(f"**{_us_dname}** ({_us_dticker})")
+                            _tv_ivs_d = [("5분","5"),("15분","15"),("1시간","60"),("1일","D")]
+                            _tv_iv_cols_d = st.columns(len(_tv_ivs_d))
+                            for _tii, (_til, _tiv) in enumerate(_tv_ivs_d):
+                                if _tv_iv_cols_d[_tii].button(
+                                    _til, key=f"us_sec_tv_iv_{_tiv}",
+                                    type="primary" if st.session_state.us_tv_interval == _tiv else "secondary",
+                                    use_container_width=True,
+                                ):
+                                    st.session_state.us_tv_interval = _tiv
+                                    st.rerun()
+                            _tv_iv_cur = st.session_state.us_tv_interval
+                            components.html(
+                                f'''<div class="tradingview-widget-container" style="height:480px;width:100%">
+                              <div class="tradingview-widget-container__widget" style="height:100%;width:100%"></div>
+                              <script type="text/javascript"
+                                src="https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js" async>
+                              {{"autosize":true,"symbol":"{_us_tv_sym}","interval":"{_tv_iv_cur}",
+                               "timezone":"America/New_York","theme":"dark","style":"1","locale":"kr",
+                               "allow_symbol_change":false,"hide_top_toolbar":false,"save_image":false,
+                               "backgroundColor":"rgba(0,0,0,1)"}}
+                              </script></div>''', height=480)
+                        else:
+                            _US_IDX_TV = {"S&P500": "SP:SPX", "NASDAQ": "NASDAQ:IXIC", "DOW": "DJ:DJI"}
+                            _us_idx_list = list(_US_IDX_TV.keys())
+                            _it_cols = st.columns(len(_us_idx_list))
+                            for _iti, _itn in enumerate(_us_idx_list):
+                                if _it_cols[_iti].button(
+                                    _itn, key=f"us_idx_tab_{_itn}",
+                                    use_container_width=True,
+                                    type="primary" if st.session_state.us_index_tab == _itn else "secondary",
+                                ):
+                                    st.session_state.us_index_tab = _itn
+                                    st.rerun()
+                            _cur_us_tab = st.session_state.us_index_tab
+                            _cur_us_idx = (us_indices or {}).get(_cur_us_tab, {})
+                            _cur_us_val = _cur_us_idx.get("price", 0)
+                            _cur_us_chg = _cur_us_idx.get("change", 0)
+                            _cur_us_pct = _cur_us_idx.get("change_pct", 0)
+                            _lc_us = "#00c853" if _cur_us_chg >= 0 else "#ff4b4b"
+                            _sg_us = "+" if _cur_us_chg >= 0 else ""
+                            if _cur_us_val > 0:
+                                st.markdown(
+                                    f"<div style='margin:8px 0 4px 0'>"
+                                    f"<span style='font-size:1.55rem;font-weight:700'>{_cur_us_val:,.2f}</span>&nbsp;"
+                                    f"<span style='font-size:0.88rem;color:{_lc_us};font-weight:600'>"
+                                    f"{_sg_us}{_cur_us_chg:.2f}&nbsp;({_sg_us}{_cur_us_pct:.2f}%)</span>"
+                                    f"</div>",
+                                    unsafe_allow_html=True,
+                                )
+                            _tv_ivs_l = [("1분","1"),("5분","5"),("15분","15"),("1시간","60"),("1일","D")]
+                            _tv_iv_cols_l = st.columns(len(_tv_ivs_l))
+                            for _tii, (_til, _tiv) in enumerate(_tv_ivs_l):
+                                if _tv_iv_cols_l[_tii].button(
+                                    _til, key=f"us_idx_tv_{_tiv}",
+                                    type="primary" if st.session_state.us_tv_interval == _tiv else "secondary",
+                                    use_container_width=True,
+                                ):
+                                    st.session_state.us_tv_interval = _tiv
+                                    st.rerun()
+                            _us_idx_sym = _US_IDX_TV.get(_cur_us_tab, "SP:SPX")
+                            _us_idx_iv  = st.session_state.us_tv_interval
+                            components.html(
+                                f'''<div class="tradingview-widget-container" style="height:430px;width:100%">
+                              <div class="tradingview-widget-container__widget" style="height:100%;width:100%"></div>
+                              <script type="text/javascript"
+                                src="https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js" async>
+                              {{"autosize":true,"symbol":"{_us_idx_sym}","interval":"{_us_idx_iv}",
+                               "timezone":"America/New_York","theme":"dark","style":"1","locale":"kr",
+                               "allow_symbol_change":false,"hide_top_toolbar":false,"save_image":false,
+                               "backgroundColor":"rgba(0,0,0,1)"}}
+                              </script></div>''', height=430)
+                    else:
                         if detail_us:
-                            _chg_cur = detail_us["change_pct"]
-                            _col_cur = "#00c853" if _chg_cur >= 0 else "#ff4b4b"
-                            _ar_cur  = "▲" if _chg_cur >= 0 else "▼"
+                            _chg = detail_us["change_pct"]
+                            _col = "#00c853" if _chg >= 0 else "#ff4b4b"
+                            _ar  = "▲" if _chg >= 0 else "▼"
                             st.markdown(
-                                f"**{_us_dname}** ({_us_dticker}) &nbsp; "
+                                f"**{detail_us['name']}** ({_us_ticker_cur}) &nbsp; "
                                 f"${detail_us['price']:,.2f} &nbsp; "
-                                f"<span style='color:{_col_cur}'>{_ar_cur} {_chg_cur:+.2f}%</span>",
+                                f"<span style='color:{_col}'>{_ar} {_chg:+.2f}%</span>",
                                 unsafe_allow_html=True,
                             )
-                        else:
-                            st.markdown(f"**{_us_dname}** ({_us_dticker})")
-                        _tv_ivs_d = [("5분","5"),("15분","15"),("1시간","60"),("1일","D")]
-                        _tv_iv_cols_d = st.columns(len(_tv_ivs_d))
-                        for _tii, (_til, _tiv) in enumerate(_tv_ivs_d):
-                            if _tv_iv_cols_d[_tii].button(
-                                _til, key=f"us_sec_tv_iv_{_tiv}",
+                        _tv_ivs = [("1분","1"),("5분","5"),("15분","15"),("1시간","60"),("1일","D")]
+                        _tv_ivcols = st.columns(len(_tv_ivs))
+                        for _tii, (_til, _tiv) in enumerate(_tv_ivs):
+                            if _tv_ivcols[_tii].button(
+                                _til, key=f"us_tv_iv_{_tiv}",
                                 type="primary" if st.session_state.us_tv_interval == _tiv else "secondary",
                                 use_container_width=True,
                             ):
                                 st.session_state.us_tv_interval = _tiv
                                 st.rerun()
-                        _tv_iv_cur = st.session_state.us_tv_interval
+                        _yf_ex  = (detail_us or {}).get("exchange", "")
+                        _tv_ex  = _YF_TO_TV.get(_yf_ex, "NASDAQ")
+                        _tv_sym = f"{_tv_ex}:{_us_ticker_cur}"
+                        _tv_iv  = st.session_state.us_tv_interval
                         components.html(
                             f'''<div class="tradingview-widget-container" style="height:480px;width:100%">
                           <div class="tradingview-widget-container__widget" style="height:100%;width:100%"></div>
                           <script type="text/javascript"
                             src="https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js" async>
-                          {{"autosize":true,"symbol":"{_us_tv_sym}","interval":"{_tv_iv_cur}",
+                          {{"autosize":true,"symbol":"{_tv_sym}","interval":"{_tv_iv}",
                            "timezone":"America/New_York","theme":"dark","style":"1","locale":"kr",
-                           "allow_symbol_change":false,"hide_top_toolbar":false,"save_image":false,
-                           "backgroundColor":"rgba(0,0,0,1)"}}
+                           "allow_symbol_change":false,"hide_top_toolbar":false,"hide_legend":false,
+                           "save_image":false,"backgroundColor":"rgba(0,0,0,1)"}}
                           </script></div>''', height=480)
-                    else:
-                        _US_IDX_TV = {"S&P500": "SP:SPX", "NASDAQ": "NASDAQ:IXIC", "DOW": "DJ:DJI"}
-                        _us_idx_list = list(_US_IDX_TV.keys())
-                        _it_cols = st.columns(len(_us_idx_list))
-                        for _iti, _itn in enumerate(_us_idx_list):
-                            if _it_cols[_iti].button(
-                                _itn, key=f"us_idx_tab_{_itn}",
-                                use_container_width=True,
-                                type="primary" if st.session_state.us_index_tab == _itn else "secondary",
-                            ):
-                                st.session_state.us_index_tab = _itn
-                                st.rerun()
-                        _cur_us_tab = st.session_state.us_index_tab
-                        _cur_us_idx = (us_indices or {}).get(_cur_us_tab, {})
-                        _cur_us_val = _cur_us_idx.get("price", 0)
-                        _cur_us_chg = _cur_us_idx.get("change", 0)
-                        _cur_us_pct = _cur_us_idx.get("change_pct", 0)
-                        _lc_us = "#00c853" if _cur_us_chg >= 0 else "#ff4b4b"
-                        _sg_us = "+" if _cur_us_chg >= 0 else ""
-                        if _cur_us_val > 0:
-                            st.markdown(
-                                f"<div style='margin:8px 0 4px 0'>"
-                                f"<span style='font-size:1.55rem;font-weight:700'>{_cur_us_val:,.2f}</span>&nbsp;"
-                                f"<span style='font-size:0.88rem;color:{_lc_us};font-weight:600'>"
-                                f"{_sg_us}{_cur_us_chg:.2f}&nbsp;({_sg_us}{_cur_us_pct:.2f}%)</span>"
-                                f"</div>",
-                                unsafe_allow_html=True,
+
+                with col_us_right:
+                    if us_mode == "📊 일반 주식 검색":
+                        from db import load_us_sector_map as _load_us_sm
+                        _us_sm = _load_us_sm()
+                        _us_all_stk: dict = {}
+                        for _ss in _us_sm.values():
+                            for _sst in _ss.values():
+                                for _s in _sst:
+                                    _lbl = f"{_s['name']} ({_s['ticker']})"
+                                    _us_all_stk[_lbl] = {"ticker": _s["ticker"], "exchange": _s.get("exchange", "NASDAQ")}
+                        for _pn, _pt, _pe in [
+                            ("엔비디아","NVDA","NASDAQ"),("애플","AAPL","NASDAQ"),
+                            ("마이크로소프트","MSFT","NASDAQ"),("테슬라","TSLA","NASDAQ"),
+                            ("아마존","AMZN","NASDAQ"),("메타","META","NASDAQ"),
+                            ("알파벳","GOOGL","NASDAQ"),("팔란티어","PLTR","NYSE"),
+                            ("브로드컴","AVGO","NASDAQ"),("TSMC","TSM","NYSE"),
+                        ]:
+                            _pl = f"{_pn} ({_pt})"
+                            if _pl not in _us_all_stk:
+                                _us_all_stk[_pl] = {"ticker": _pt, "exchange": _pe}
+                        _us_opts    = sorted(_us_all_stk.keys())
+                        _us_def_lbl = next((l for l in _us_opts if f"({_us_ticker_cur})" in l), _us_opts[0] if _us_opts else "")
+
+                        _us_man = st.text_input(
+                            "티커 직접 입력", "", placeholder="예: TSLA",
+                            label_visibility="collapsed", key="us_manual_input",
+                        ).upper().strip()
+                        if not _us_man:
+                            _us_sel_lbl = st.selectbox(
+                                "종목 검색 (이름·티커 입력하면 필터링)",
+                                _us_opts,
+                                index=_us_opts.index(_us_def_lbl) if _us_def_lbl in _us_opts else 0,
+                                key="us_stock_search",
                             )
-                        _tv_ivs_l = [("1분","1"),("5분","5"),("15분","15"),("1시간","60"),("1일","D")]
-                        _tv_iv_cols_l = st.columns(len(_tv_ivs_l))
-                        for _tii, (_til, _tiv) in enumerate(_tv_ivs_l):
-                            if _tv_iv_cols_l[_tii].button(
-                                _til, key=f"us_idx_tv_{_tiv}",
-                                type="primary" if st.session_state.us_tv_interval == _tiv else "secondary",
+                            _new_ticker = _us_all_stk[_us_sel_lbl]["ticker"]
+                            _new_name   = _us_sel_lbl.split(" (")[0]
+                        else:
+                            _new_ticker = _us_man
+                            _new_name   = _us_man
+                        if _new_ticker != st.session_state.us_selected_ticker:
+                            st.session_state.us_selected_ticker = _new_ticker
+                            st.session_state.us_selected_name   = _new_name
+                            st.rerun()
+
+                        _rp_tabs = ["📊 시세", "💰 수급", "🧠 AI 분석"]
+                        _rp_c1, _rp_c2, _rp_c3 = st.columns(3)
+                        for _rpc, _rpt in [(_rp_c1, _rp_tabs[0]), (_rp_c2, _rp_tabs[1]), (_rp_c3, _rp_tabs[2])]:
+                            if _rpc.button(
+                                _rpt, key=f"us_rp_{_rpt}",
+                                type="primary" if st.session_state.us_right_tab == _rpt else "secondary",
                                 use_container_width=True,
                             ):
-                                st.session_state.us_tv_interval = _tiv
+                                st.session_state.us_right_tab = _rpt
                                 st.rerun()
-                        _us_idx_sym = _US_IDX_TV.get(_cur_us_tab, "SP:SPX")
-                        _us_idx_iv  = st.session_state.us_tv_interval
-                        components.html(
-                            f'''<div class="tradingview-widget-container" style="height:430px;width:100%">
-                          <div class="tradingview-widget-container__widget" style="height:100%;width:100%"></div>
-                          <script type="text/javascript"
-                            src="https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js" async>
-                          {{"autosize":true,"symbol":"{_us_idx_sym}","interval":"{_us_idx_iv}",
-                           "timezone":"America/New_York","theme":"dark","style":"1","locale":"kr",
-                           "allow_symbol_change":false,"hide_top_toolbar":false,"save_image":false,
-                           "backgroundColor":"rgba(0,0,0,1)"}}
-                          </script></div>''', height=430)
-                else:
-                    if detail_us:
-                        _chg = detail_us["change_pct"]
-                        _col = "#00c853" if _chg >= 0 else "#ff4b4b"
-                        _ar  = "▲" if _chg >= 0 else "▼"
-                        st.markdown(
-                            f"**{detail_us['name']}** ({_us_ticker_cur}) &nbsp; "
-                            f"${detail_us['price']:,.2f} &nbsp; "
-                            f"<span style='color:{_col}'>{_ar} {_chg:+.2f}%</span>",
-                            unsafe_allow_html=True,
-                        )
-                    _tv_ivs = [("1분","1"),("5분","5"),("15분","15"),("1시간","60"),("1일","D")]
-                    _tv_ivcols = st.columns(len(_tv_ivs))
-                    for _tii, (_til, _tiv) in enumerate(_tv_ivs):
-                        if _tv_ivcols[_tii].button(
-                            _til, key=f"us_tv_iv_{_tiv}",
-                            type="primary" if st.session_state.us_tv_interval == _tiv else "secondary",
-                            use_container_width=True,
-                        ):
-                            st.session_state.us_tv_interval = _tiv
-                            st.rerun()
-                    _yf_ex  = (detail_us or {}).get("exchange", "")
-                    _tv_ex  = _YF_TO_TV.get(_yf_ex, "NASDAQ")
-                    _tv_sym = f"{_tv_ex}:{_us_ticker_cur}"
-                    _tv_iv  = st.session_state.us_tv_interval
-                    components.html(
-                        f'''<div class="tradingview-widget-container" style="height:480px;width:100%">
-                      <div class="tradingview-widget-container__widget" style="height:100%;width:100%"></div>
-                      <script type="text/javascript"
-                        src="https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js" async>
-                      {{"autosize":true,"symbol":"{_tv_sym}","interval":"{_tv_iv}",
-                       "timezone":"America/New_York","theme":"dark","style":"1","locale":"kr",
-                       "allow_symbol_change":false,"hide_top_toolbar":false,"hide_legend":false,
-                       "save_image":false,"backgroundColor":"rgba(0,0,0,1)"}}
-                      </script></div>''', height=480)
 
-            with col_us_right:
-                if us_mode == "🎯 AI 타점 보드":
-                    pass  # 타점 보드는 위에서 전체폭으로 렌더링됨
-                elif us_mode == "📊 일반 주식 검색":
-                    from db import load_us_sector_map as _load_us_sm
-                    _us_sm = _load_us_sm()
-                    _us_all_stk: dict = {}
-                    for _ss in _us_sm.values():
-                        for _sst in _ss.values():
-                            for _s in _sst:
-                                _lbl = f"{_s['name']} ({_s['ticker']})"
-                                _us_all_stk[_lbl] = {"ticker": _s["ticker"], "exchange": _s.get("exchange", "NASDAQ")}
-                    for _pn, _pt, _pe in [
-                        ("엔비디아","NVDA","NASDAQ"),("애플","AAPL","NASDAQ"),
-                        ("마이크로소프트","MSFT","NASDAQ"),("테슬라","TSLA","NASDAQ"),
-                        ("아마존","AMZN","NASDAQ"),("메타","META","NASDAQ"),
-                        ("알파벳","GOOGL","NASDAQ"),("팔란티어","PLTR","NYSE"),
-                        ("브로드컴","AVGO","NASDAQ"),("TSMC","TSM","NYSE"),
-                    ]:
-                        _pl = f"{_pn} ({_pt})"
-                        if _pl not in _us_all_stk:
-                            _us_all_stk[_pl] = {"ticker": _pt, "exchange": _pe}
-                    _us_opts    = sorted(_us_all_stk.keys())
-                    _us_def_lbl = next((l for l in _us_opts if f"({_us_ticker_cur})" in l), _us_opts[0] if _us_opts else "")
+                        if detail_us:
+                            _us_chg = detail_us["change_pct"]
+                            _us_col = "#00c853" if _us_chg >= 0 else "#ff4b4b"
 
-                    _us_man = st.text_input(
-                        "티커 직접 입력", "", placeholder="예: TSLA",
-                        label_visibility="collapsed", key="us_manual_input",
-                    ).upper().strip()
-                    if not _us_man:
-                        _us_sel_lbl = st.selectbox(
-                            "종목 검색 (이름·티커 입력하면 필터링)",
-                            _us_opts,
-                            index=_us_opts.index(_us_def_lbl) if _us_def_lbl in _us_opts else 0,
-                            key="us_stock_search",
-                        )
-                        _new_ticker = _us_all_stk[_us_sel_lbl]["ticker"]
-                        _new_name   = _us_sel_lbl.split(" (")[0]
-                    else:
-                        _new_ticker = _us_man
-                        _new_name   = _us_man
-                    if _new_ticker != st.session_state.us_selected_ticker:
-                        st.session_state.us_selected_ticker = _new_ticker
-                        st.session_state.us_selected_name   = _new_name
-                        st.rerun()
-
-                    _rp_tabs = ["📊 시세", "💰 수급", "🧠 AI 분석"]
-                    _rp_c1, _rp_c2, _rp_c3 = st.columns(3)
-                    for _rpc, _rpt in [(_rp_c1, _rp_tabs[0]), (_rp_c2, _rp_tabs[1]), (_rp_c3, _rp_tabs[2])]:
-                        if _rpc.button(
-                            _rpt, key=f"us_rp_{_rpt}",
-                            type="primary" if st.session_state.us_right_tab == _rpt else "secondary",
-                            use_container_width=True,
-                        ):
-                            st.session_state.us_right_tab = _rpt
-                            st.rerun()
-
-                    if detail_us:
-                        _us_chg = detail_us["change_pct"]
-                        _us_col = "#00c853" if _us_chg >= 0 else "#ff4b4b"
-
-                        if st.session_state.us_right_tab == _rp_tabs[0]:
-                            with st.container(border=True):
-                                _us_ar = "▲" if _us_chg >= 0 else "▼"
-                                st.markdown(
-                                    f"<div style='margin:4px 0'>"
-                                    f"<span style='font-size:1.5rem;font-weight:700'>${detail_us['price']:,.2f}</span>"
-                                    f"&nbsp;<span style='font-size:0.9rem;color:{_us_col};font-weight:600'>"
-                                    f"{_us_ar} {detail_us['change']:+.2f} ({_us_chg:+.2f}%)</span>"
-                                    f"</div>",
-                                    unsafe_allow_html=True,
-                                )
-                                _um1, _um2, _um3 = st.columns(3)
-                                _um1.metric("거래량",   f"{detail_us['volume']:,}")
-                                _um2.metric("시가",     f"${detail_us['open']:,.2f}")
-                                _um3.metric("시가총액", detail_us["market_cap"])
-                                _um4, _um5, _um6 = st.columns(3)
-                                _um4.metric("고가", f"${detail_us['high']:,.2f}")
-                                _um5.metric("저가", f"${detail_us['low']:,.2f}")
-                                _um6.metric("PER",  str(detail_us["per"]))
-                                _um7, _um8, _um9 = st.columns(3)
-                                _um7.metric("52주 최고", f"${detail_us['w52_high']:,.2f}")
-                                _um8.metric("52주 최저", f"${detail_us['w52_low']:,.2f}")
-                                _um9.metric("베타",      str(detail_us["beta"]))
-                                _uwl = detail_us.get("w52_low",  0) or 0
-                                _uwh = detail_us.get("w52_high", 0) or 0
-                                _ucp = detail_us["price"]
-                                if _uwh > _uwl > 0:
-                                    _ubp = max(0, min(100, (_ucp - _uwl) / (_uwh - _uwl) * 100))
+                            if st.session_state.us_right_tab == _rp_tabs[0]:
+                                with st.container(border=True):
+                                    _us_ar = "▲" if _us_chg >= 0 else "▼"
                                     st.markdown(
-                                        f"<div style='margin:8px 0 2px 0'>"
-                                        f"<span style='font-size:0.7rem;color:#888'>52주 가격 위치</span></div>"
-                                        f"<div style='position:relative;background:rgba(255,255,255,0.08);"
-                                        f"border-radius:4px;height:6px;margin:0 0 4px 0'>"
-                                        f"<div style='background:{_us_col};border-radius:4px;height:6px;"
-                                        f"width:{_ubp:.1f}%'></div></div>"
-                                        f"<div style='display:flex;justify-content:space-between;"
-                                        f"font-size:0.65rem;color:#888'>"
-                                        f"<span>최저 ${_uwl:,.2f}</span>"
-                                        f"<span style='color:{_us_col};font-weight:700'>{_ubp:.0f}%</span>"
-                                        f"<span>최고 ${_uwh:,.2f}</span></div>",
+                                        f"<div style='margin:4px 0'>"
+                                        f"<span style='font-size:1.5rem;font-weight:700'>${detail_us['price']:,.2f}</span>"
+                                        f"&nbsp;<span style='font-size:0.9rem;color:{_us_col};font-weight:600'>"
+                                        f"{_us_ar} {detail_us['change']:+.2f} ({_us_chg:+.2f}%)</span>"
+                                        f"</div>",
                                         unsafe_allow_html=True,
                                     )
-                            if _us_chg >= 5.0:
-                                st.success(f"✅ **강력 단타 추천** {_us_chg:+.2f}% — 강한 모멘텀, 눌림목 진입 권장")
-                            elif _us_chg >= 3.0:
-                                st.success(f"✅ **단타 추천** {_us_chg:+.2f}% — 수급 확인 후 진입, 손절: 당일 저점")
-                            elif _us_chg >= 1.5:
-                                st.warning(f"⚠️ **관망** {_us_chg:+.2f}% — 3% 돌파 확인 후 진입 검토")
-                            elif _us_chg <= -3.0:
-                                st.info(f"🔵 **반등 포착 관찰** {_us_chg:+.2f}% — 지지선·거래량 확인 필수")
-                            else:
-                                st.error(f"❌ **단타 비적합** {_us_chg:+.2f}% — 수수료·세금 감안 시 실익 없음")
-
-                        elif st.session_state.us_right_tab == _rp_tabs[1]:
-                            if detail_us["institutional_pct"] > 0 or detail_us["insider_pct"] > 0:
-                                st.markdown("#### 📊 기관/내부자 보유율")
-                                _retail_p = max(0.0, 100.0 - detail_us["institutional_pct"] - detail_us["insider_pct"])
-                                fig_own = go.Figure(go.Bar(
-                                    x=["기관", "내부자", "기타"],
-                                    y=[detail_us["institutional_pct"], detail_us["insider_pct"], _retail_p],
-                                    marker_color=["#2b7cff", "#ff4b4b", "#888"],
-                                ))
-                                fig_own.update_layout(
-                                    paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-                                    font=dict(color="white"),
-                                    yaxis=dict(gridcolor="rgba(255,255,255,0.1)", title="%", range=[0, 100]),
-                                    margin=dict(l=10, r=10, t=10, b=10), height=220,
-                                )
-                                st.plotly_chart(fig_own, use_container_width=True)
-                            else:
-                                st.info("보유율 데이터가 없습니다.")
-                            st.markdown("#### 🔗 AI 관련주")
-                            if st.button("🔍 관련주 발굴", use_container_width=True, key="us_related_btn"):
-                                with st.spinner("관련주 분석 중..."):
-                                    from ai_engine import generate_related_stocks
-                                    _rel = generate_related_stocks(_us_ticker_cur, detail_us.get("sector", ""))
-                                    st.session_state[f"us_related_{_us_ticker_cur}"] = _rel
-                            if f"us_related_{_us_ticker_cur}" in st.session_state:
-                                for _r in st.session_state[f"us_related_{_us_ticker_cur}"]:
-                                    _rt = _r.get("ticker", "")
-                                    _rn = _r.get("name", _rt)
-                                    if st.button(f"{_rn} ({_rt})", key=f"goto_{_rt}_{_us_ticker_cur}",
-                                                 use_container_width=True):
-                                        st.session_state.us_selected_ticker = _rt
-                                        st.session_state.us_selected_name   = _rn
-                                        st.rerun()
-
-                        elif st.session_state.us_right_tab == _rp_tabs[2]:
-                            st.markdown(
-                                "<p style='font-size:0.78rem;font-weight:700;color:#aaa;margin:4px 0'>"
-                                "🎯 오늘의 단타 핫종목 발굴</p>",
-                                unsafe_allow_html=True,
-                            )
-                            if st.button("✨ AI 핫종목 발굴", use_container_width=True, key="us_discover_btn"):
-                                with st.spinner("세력 수급·호재 종목 탐색 중..."):
-                                    from ai_engine import discover_hot_day_trading_stock
-                                    _hs = discover_hot_day_trading_stock("")
-                                    if _hs.get("ticker") != "N/A":
-                                        st.session_state.discovered_ticker    = _hs.get("ticker")
-                                        st.session_state.discovered_name      = _hs.get("name_kr")
-                                        st.session_state.discovered_buy       = _hs.get("buy_target", "-")
-                                        st.session_state.discovered_sell      = _hs.get("sell_target", "-")
-                                        st.session_state.discovered_stop      = _hs.get("stop_loss", "-")
-                                        st.session_state.discovered_reasoning = _hs.get("reasoning")
-                                        from db import log_ai_recommendation
-                                        log_ai_recommendation(
-                                            "단타발굴", _hs.get("ticker",""), _hs.get("name_kr",""),
-                                            "AI발굴", _hs.get("buy_target","-"),
-                                            _hs.get("sell_target","-"), _hs.get("stop_loss","-")
+                                    _um1, _um2, _um3 = st.columns(3)
+                                    _um1.metric("거래량",   f"{detail_us['volume']:,}")
+                                    _um2.metric("시가",     f"${detail_us['open']:,.2f}")
+                                    _um3.metric("시가총액", detail_us["market_cap"])
+                                    _um4, _um5, _um6 = st.columns(3)
+                                    _um4.metric("고가", f"${detail_us['high']:,.2f}")
+                                    _um5.metric("저가", f"${detail_us['low']:,.2f}")
+                                    _um6.metric("PER",  str(detail_us["per"]))
+                                    _um7, _um8, _um9 = st.columns(3)
+                                    _um7.metric("52주 최고", f"${detail_us['w52_high']:,.2f}")
+                                    _um8.metric("52주 최저", f"${detail_us['w52_low']:,.2f}")
+                                    _um9.metric("베타",      str(detail_us["beta"]))
+                                    _uwl = detail_us.get("w52_low",  0) or 0
+                                    _uwh = detail_us.get("w52_high", 0) or 0
+                                    _ucp = detail_us["price"]
+                                    if _uwh > _uwl > 0:
+                                        _ubp = max(0, min(100, (_ucp - _uwl) / (_uwh - _uwl) * 100))
+                                        st.markdown(
+                                            f"<div style='margin:8px 0 2px 0'>"
+                                            f"<span style='font-size:0.7rem;color:#888'>52주 가격 위치</span></div>"
+                                            f"<div style='position:relative;background:rgba(255,255,255,0.08);"
+                                            f"border-radius:4px;height:6px;margin:0 0 4px 0'>"
+                                            f"<div style='background:{_us_col};border-radius:4px;height:6px;"
+                                            f"width:{_ubp:.1f}%'></div></div>"
+                                            f"<div style='display:flex;justify-content:space-between;"
+                                            f"font-size:0.65rem;color:#888'>"
+                                            f"<span>최저 ${_uwl:,.2f}</span>"
+                                            f"<span style='color:{_us_col};font-weight:700'>{_ubp:.0f}%</span>"
+                                            f"<span>최고 ${_uwh:,.2f}</span></div>",
+                                            unsafe_allow_html=True,
                                         )
-                                    else:
-                                        st.error(_hs.get("reasoning"))
-                            if "discovered_ticker" in st.session_state:
-                                with st.container(border=True):
-                                    st.markdown(
-                                        f"**{st.session_state.discovered_name} "
-                                        f"({st.session_state.discovered_ticker})**"
+                                if _us_chg >= 5.0:
+                                    st.success(f"✅ **강력 단타 추천** {_us_chg:+.2f}% — 강한 모멘텀, 눌림목 진입 권장")
+                                elif _us_chg >= 3.0:
+                                    st.success(f"✅ **단타 추천** {_us_chg:+.2f}% — 수급 확인 후 진입, 손절: 당일 저점")
+                                elif _us_chg >= 1.5:
+                                    st.warning(f"⚠️ **관망** {_us_chg:+.2f}% — 3% 돌파 확인 후 진입 검토")
+                                elif _us_chg <= -3.0:
+                                    st.info(f"🔵 **반등 포착 관찰** {_us_chg:+.2f}% — 지지선·거래량 확인 필수")
+                                else:
+                                    st.error(f"❌ **단타 비적합** {_us_chg:+.2f}% — 수수료·세금 감안 시 실익 없음")
+
+                            elif st.session_state.us_right_tab == _rp_tabs[1]:
+                                if detail_us["institutional_pct"] > 0 or detail_us["insider_pct"] > 0:
+                                    st.markdown("#### 📊 기관/내부자 보유율")
+                                    _retail_p = max(0.0, 100.0 - detail_us["institutional_pct"] - detail_us["insider_pct"])
+                                    fig_own = go.Figure(go.Bar(
+                                        x=["기관", "내부자", "기타"],
+                                        y=[detail_us["institutional_pct"], detail_us["insider_pct"], _retail_p],
+                                        marker_color=["#2b7cff", "#ff4b4b", "#888"],
+                                    ))
+                                    fig_own.update_layout(
+                                        paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+                                        font=dict(color="white"),
+                                        yaxis=dict(gridcolor="rgba(255,255,255,0.1)", title="%", range=[0, 100]),
+                                        margin=dict(l=10, r=10, t=10, b=10), height=220,
                                     )
-                                    _dc1, _dc2, _dc3 = st.columns(3)
-                                    _dc1.metric("매수가", st.session_state.discovered_buy)
-                                    _dc2.metric("목표가", st.session_state.discovered_sell)
-                                    _dc3.metric("손절",   st.session_state.discovered_stop)
-                                    if st.session_state.discovered_reasoning:
-                                        st.markdown(st.session_state.discovered_reasoning)
-                            st.markdown(
-                                "<hr style='margin:8px 0;border:none;border-top:1px solid rgba(255,255,255,0.07)'>",
-                                unsafe_allow_html=True,
-                            )
-                            st.markdown(
-                                "<p style='font-size:0.78rem;font-weight:700;color:#aaa;margin:4px 0'>"
-                                "🧠 세력 수급 & 타점 분석</p>",
-                                unsafe_allow_html=True,
-                            )
-                            _cur_p = detail_us["price"]
-                            _chg_p = detail_us["change_pct"]
-                            _us_ai_key  = f"report_{_us_ticker_cur}"
-                            _us_run_key = "_us_ai_pending"
-                            if st.button("🎯 AI 분석 실행", use_container_width=True,
-                                         type="primary", key="us_ai_report_btn"):
-                                st.session_state[_us_run_key] = _us_ticker_cur
-                                if _us_ai_key in st.session_state:
-                                    del st.session_state[_us_ai_key]
-                                st.rerun()
+                                    st.plotly_chart(fig_own, use_container_width=True)
+                                else:
+                                    st.info("보유율 데이터가 없습니다.")
+                                st.markdown("#### 🔗 AI 관련주")
+                                if st.button("🔍 관련주 발굴", use_container_width=True, key="us_related_btn"):
+                                    with st.spinner("관련주 분석 중..."):
+                                        from ai_engine import generate_related_stocks
+                                        _rel = generate_related_stocks(_us_ticker_cur, detail_us.get("sector", ""))
+                                        st.session_state[f"us_related_{_us_ticker_cur}"] = _rel
+                                if f"us_related_{_us_ticker_cur}" in st.session_state:
+                                    for _r in st.session_state[f"us_related_{_us_ticker_cur}"]:
+                                        _rt = _r.get("ticker", "")
+                                        _rn = _r.get("name", _rt)
+                                        if st.button(f"{_rn} ({_rt})", key=f"goto_{_rt}_{_us_ticker_cur}",
+                                                     use_container_width=True):
+                                            st.session_state.us_selected_ticker = _rt
+                                            st.session_state.us_selected_name   = _rn
+                                            st.rerun()
 
-                            if st.session_state.get(_us_run_key) == _us_ticker_cur and _us_ai_key not in st.session_state:
-                                with st.spinner("AI가 수급·뉴스·차트를 융합 분석 중..."):
-                                    try:
-                                        from ai_engine import generate_stock_report
-                                        _rep_j = generate_stock_report(_us_ticker_cur, _cur_p, _chg_p)
-                                    except Exception as _e:
-                                        _rep_j = {
-                                            "rating": "분석 실패", "buy_target": "-",
-                                            "sell_target": "-", "stop_loss": "-",
-                                            "analysis": f"오류: {_e}",
-                                        }
-                                    st.session_state[_us_ai_key] = _rep_j
-                                    st.session_state[_us_run_key] = None
-                                    try:
-                                        from db import log_ai_recommendation
-                                        log_ai_recommendation(
-                                            "미국주식분석", _us_ticker_cur,
-                                            detail_us.get("name", _us_ticker_cur),
-                                            _rep_j.get("rating","-"), _rep_j.get("buy_target","-"),
-                                            _rep_j.get("sell_target","-"), _rep_j.get("stop_loss","-"),
+                            elif st.session_state.us_right_tab == _rp_tabs[2]:
+                                st.markdown(
+                                    "<p style='font-size:0.78rem;font-weight:700;color:#aaa;margin:4px 0'>"
+                                    "🎯 오늘의 단타 핫종목 발굴</p>",
+                                    unsafe_allow_html=True,
+                                )
+                                if st.button("✨ AI 핫종목 발굴", use_container_width=True, key="us_discover_btn"):
+                                    with st.spinner("세력 수급·호재 종목 탐색 중..."):
+                                        from ai_engine import discover_hot_day_trading_stock
+                                        _hs = discover_hot_day_trading_stock("")
+                                        if _hs.get("ticker") != "N/A":
+                                            st.session_state.discovered_ticker    = _hs.get("ticker")
+                                            st.session_state.discovered_name      = _hs.get("name_kr")
+                                            st.session_state.discovered_buy       = _hs.get("buy_target", "-")
+                                            st.session_state.discovered_sell      = _hs.get("sell_target", "-")
+                                            st.session_state.discovered_stop      = _hs.get("stop_loss", "-")
+                                            st.session_state.discovered_reasoning = _hs.get("reasoning")
+                                            from db import log_ai_recommendation
+                                            log_ai_recommendation(
+                                                "단타발굴", _hs.get("ticker",""), _hs.get("name_kr",""),
+                                                "AI발굴", _hs.get("buy_target","-"),
+                                                _hs.get("sell_target","-"), _hs.get("stop_loss","-")
+                                            )
+                                        else:
+                                            st.error(_hs.get("reasoning"))
+                                if "discovered_ticker" in st.session_state:
+                                    with st.container(border=True):
+                                        st.markdown(
+                                            f"**{st.session_state.discovered_name} "
+                                            f"({st.session_state.discovered_ticker})**"
                                         )
-                                    except Exception:
-                                        pass
-                                    if ("추천" in _rep_j.get("rating","") and
-                                            "비추천" not in _rep_j.get("rating","")):
-                                        if "ai_portfolio" not in st.session_state:
-                                            st.session_state.ai_portfolio = []
+                                        _dc1, _dc2, _dc3 = st.columns(3)
+                                        _dc1.metric("매수가", st.session_state.discovered_buy)
+                                        _dc2.metric("목표가", st.session_state.discovered_sell)
+                                        _dc3.metric("손절",   st.session_state.discovered_stop)
+                                        if st.session_state.discovered_reasoning:
+                                            st.markdown(st.session_state.discovered_reasoning)
+                                st.markdown(
+                                    "<hr style='margin:8px 0;border:none;border-top:1px solid rgba(255,255,255,0.07)'>",
+                                    unsafe_allow_html=True,
+                                )
+                                st.markdown(
+                                    "<p style='font-size:0.78rem;font-weight:700;color:#aaa;margin:4px 0'>"
+                                    "🧠 세력 수급 & 타점 분석</p>",
+                                    unsafe_allow_html=True,
+                                )
+                                _cur_p = detail_us["price"]
+                                _chg_p = detail_us["change_pct"]
+                                _us_ai_key  = f"report_{_us_ticker_cur}"
+                                _us_run_key = "_us_ai_pending"
+                                if st.button("🎯 AI 분석 실행", use_container_width=True,
+                                             type="primary", key="us_ai_report_btn"):
+                                    st.session_state[_us_run_key] = _us_ticker_cur
+                                    if _us_ai_key in st.session_state:
+                                        del st.session_state[_us_ai_key]
+                                    st.rerun()
+
+                                if st.session_state.get(_us_run_key) == _us_ticker_cur and _us_ai_key not in st.session_state:
+                                    with st.spinner("AI가 수급·뉴스·차트를 융합 분석 중..."):
+                                        try:
+                                            from ai_engine import generate_stock_report
+                                            _rep_j = generate_stock_report(_us_ticker_cur, _cur_p, _chg_p)
+                                        except Exception as _e:
+                                            _rep_j = {
+                                                "rating": "분석 실패", "buy_target": "-",
+                                                "sell_target": "-", "stop_loss": "-",
+                                                "analysis": f"오류: {_e}",
+                                            }
+                                        st.session_state[_us_ai_key] = _rep_j
+                                        st.session_state[_us_run_key] = None
+                                        try:
+                                            from db import log_ai_recommendation
+                                            log_ai_recommendation(
+                                                "미국주식분석", _us_ticker_cur,
+                                                detail_us.get("name", _us_ticker_cur),
+                                                _rep_j.get("rating","-"), _rep_j.get("buy_target","-"),
+                                                _rep_j.get("sell_target","-"), _rep_j.get("stop_loss","-"),
+                                            )
+                                        except Exception:
+                                            pass
+                                        if ("추천" in _rep_j.get("rating","") and
+                                                "비추천" not in _rep_j.get("rating","")):
+                                            if "ai_portfolio" not in st.session_state:
+                                                st.session_state.ai_portfolio = []
+                                            if not any(i["ticker"] == _us_ticker_cur
+                                                       for i in st.session_state.ai_portfolio):
+                                                st.session_state.ai_portfolio.append({
+                                                    "ticker": _us_ticker_cur,
+                                                    "name": detail_us["name"],
+                                                    "buy_price": _cur_p, "quantity": 10,
+                                                    "buy_date": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                                                })
+                                                st.toast(f"AI 자동 담기: {_us_ticker_cur}")
+                                    st.rerun()
+                                if _us_ai_key in st.session_state:
+                                    _rep = st.session_state[_us_ai_key]
+                                    _re  = ("🟢" if "강력 추천" in _rep.get("rating","")
+                                            else "🟡" if "추천" in _rep.get("rating","") else "🔴")
+                                    st.markdown(f"##### {_re} {_rep.get('rating','')}")
+                                    _rt1, _rt2 = st.columns(2)
+                                    _rt1.metric("매수가", _rep.get("buy_target","-"))
+                                    _rt2.metric("목표가", _rep.get("sell_target","-"))
+                                    st.metric("손절", _rep.get("stop_loss","-"))
+                                    if st.button("🎒 포트폴리오에 담기", use_container_width=True,
+                                                 type="primary", key="us_port_btn"):
+                                        if "portfolio" not in st.session_state:
+                                            st.session_state.portfolio = []
                                         if not any(i["ticker"] == _us_ticker_cur
-                                                   for i in st.session_state.ai_portfolio):
-                                            st.session_state.ai_portfolio.append({
+                                                   for i in st.session_state.portfolio):
+                                            st.session_state.portfolio.append({
                                                 "ticker": _us_ticker_cur,
                                                 "name": detail_us["name"],
                                                 "buy_price": _cur_p, "quantity": 10,
                                                 "buy_date": datetime.now().strftime("%Y-%m-%d %H:%M"),
                                             })
-                                            st.toast(f"AI 자동 담기: {_us_ticker_cur}")
-                                st.rerun()
-                            if _us_ai_key in st.session_state:
-                                _rep = st.session_state[_us_ai_key]
-                                _re  = ("🟢" if "강력 추천" in _rep.get("rating","")
-                                        else "🟡" if "추천" in _rep.get("rating","") else "🔴")
-                                st.markdown(f"##### {_re} {_rep.get('rating','')}")
-                                _rt1, _rt2 = st.columns(2)
-                                _rt1.metric("매수가", _rep.get("buy_target","-"))
-                                _rt2.metric("목표가", _rep.get("sell_target","-"))
-                                st.metric("손절", _rep.get("stop_loss","-"))
-                                if st.button("🎒 포트폴리오에 담기", use_container_width=True,
-                                             type="primary", key="us_port_btn"):
-                                    if "portfolio" not in st.session_state:
-                                        st.session_state.portfolio = []
-                                    if not any(i["ticker"] == _us_ticker_cur
-                                               for i in st.session_state.portfolio):
-                                        st.session_state.portfolio.append({
-                                            "ticker": _us_ticker_cur,
-                                            "name": detail_us["name"],
-                                            "buy_price": _cur_p, "quantity": 10,
-                                            "buy_date": datetime.now().strftime("%Y-%m-%d %H:%M"),
-                                        })
-                                        st.success(f"{_us_ticker_cur} 포트폴리오에 추가!")
-                                    else:
-                                        st.warning("이미 포트폴리오에 있습니다.")
-                                if _rep.get("analysis"):
-                                    with st.container(border=True):
-                                        st.markdown(_rep["analysis"])
-                            st.markdown(
-                                "<hr style='margin:8px 0;border:none;border-top:1px solid rgba(255,255,255,0.07)'>",
-                                unsafe_allow_html=True,
-                            )
-                            if st.button("🌌 시장 자금 흐름 마인드맵", use_container_width=True,
-                                         key="us_mindmap_btn"):
-                                @st.dialog("🌌 실시간 시장 자금 흐름 마인드맵", width="large")
-                                def _show_mindmap():
-                                    with st.spinner("AI 마인드맵 생성 중..."):
-                                        from ai_engine import generate_mindmap_data
-                                        _mc = generate_mindmap_data()
-                                        _html = (
-                                            "<script type='module'>import mermaid from "
-                                            "'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';"
-                                            "mermaid.initialize({startOnLoad:true,theme:'dark'});</script>"
-                                            f"<div class='mermaid' style='background:#111;padding:20px;"
-                                            f"border-radius:10px'>{_mc}</div>"
-                                        )
-                                        components.html(_html, height=500, scrolling=True)
-                                _show_mindmap()
-                    else:
-                        st.warning("데이터를 불러오지 못했습니다.")
-
-                else:
-                    from db import load_us_sector_map, init_us_sector_sheet
-
-                    us_sector_map   = load_us_sector_map()
-                    us_sector_names = list(us_sector_map.keys())
-                    if st.session_state.us_selected_sector_us not in us_sector_map:
-                        st.session_state.us_selected_sector_us = us_sector_names[0]
-
-                    if st.session_state.us_sector_view == "detail":
-                        _us_dticker   = st.session_state.us_sector_detail_ticker
-                        _us_dname     = st.session_state.us_sector_detail_name
-                        _us_dexchange = st.session_state.get("us_sector_detail_exchange", "NASDAQ")
-
-                        if st.button("← 섹터 목록으로", key="us_sec_back", use_container_width=True):
-                            st.session_state.us_sector_view = "list"
-                            st.rerun()
-
-                        st.markdown(
-                            f"<h4 style='margin:4px 0 2px 0'>{_us_dname}</h4>"
-                            f"<p style='margin:0;font-size:0.78rem;color:#888'>"
-                            f"티커 {_us_dticker} · {st.session_state.us_selected_sector_us}</p>",
-                            unsafe_allow_html=True,
-                        )
-
-                        with st.spinner(""):
-                            us_detail = get_us_stock_detail(_us_dticker, _us_dexchange)
-
-                        with st.container(height=490):
-                            if us_detail:
-                                chg = us_detail["change_pct"]
-                                d_c = "normal" if chg >= 0 else "inverse"
-                                ar  = "▲" if chg >= 0 else "▼"
-                                with st.container(border=True):
-                                    m1, m2, m3 = st.columns(3)
-                                    m1.metric("현재가", f"${us_detail['price']:,.2f}",
-                                              f"{ar} {abs(us_detail['change']):.2f} ({chg:+.2f}%)",
-                                              delta_color=d_c)
-                                    m2.metric("거래량",   f"{us_detail['volume']:,}")
-                                    m3.metric("시가총액", us_detail["market_cap"])
-                                    n1, n2, n3 = st.columns(3)
-                                    n1.metric("고가", f"${us_detail['high']:,.2f}")
-                                    n2.metric("저가", f"${us_detail['low']:,.2f}")
-                                    n3.metric("PER",  str(us_detail["per"]))
-                                    n4, n5, n6 = st.columns(3)
-                                    n4.metric("52주 최고", f"${us_detail['w52_high']:,.2f}")
-                                    n5.metric("52주 최저", f"${us_detail['w52_low']:,.2f}")
-                                    n6.metric("베타",      str(us_detail["beta"]))
-                                st.markdown("#### 🎯 단타 적합성 판단")
-                                if chg >= 5.0:
-                                    st.success(f"✅ **강력 단타 추천** — 등락률 **{chg:+.2f}%**")
-                                elif chg >= 3.0:
-                                    st.success(f"✅ **단타 추천** — 등락률 **{chg:+.2f}%**")
-                                elif chg >= 1.5:
-                                    st.warning(f"⚠️ **관망** — 등락률 {chg:+.2f}%")
-                                elif chg <= -3.0:
-                                    st.info(f"🔵 **반등 포착 관찰** — 등락률 {chg:+.2f}%")
-                                else:
-                                    st.error(f"❌ **단타 비적합** — 등락률 {chg:+.2f}%")
-                                if us_detail["institutional_pct"] > 0 or us_detail["insider_pct"] > 0:
-                                    st.markdown("#### 📊 기관/내부자 보유율")
-                                    retail_p = max(0.0, 100.0 - us_detail["institutional_pct"] - us_detail["insider_pct"])
-                                    fig_own2 = go.Figure(go.Bar(
-                                        x=["기관", "내부자", "기타"],
-                                        y=[us_detail["institutional_pct"], us_detail["insider_pct"], retail_p],
-                                        marker_color=["#2b7cff", "#ff4b4b", "#888"]
-                                    ))
-                                    fig_own2.update_layout(
-                                        paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-                                        font=dict(color="white"),
-                                        yaxis=dict(gridcolor="rgba(255,255,255,0.1)", title="%", range=[0, 100]),
-                                        margin=dict(l=10, r=10, t=10, b=10), height=170
-                                    )
-                                    st.plotly_chart(fig_own2, use_container_width=True)
-                                st.markdown("#### 🧠 AI 단타 심층 분석")
-                                if st.button("🎯 AI 단타 분석 실행", type="primary",
-                                             use_container_width=True, key="us_sec_detail_ai"):
-                                    with st.spinner("AI가 수급·뉴스·차트를 융합 분석 중..."):
-                                        from ai_engine import generate_stock_report
-                                        _us_rep = generate_stock_report(_us_dticker, us_detail["price"], chg)
-                                        st.session_state[f"us_sec_rep_{_us_dticker}"] = _us_rep
-                                        from db import log_ai_recommendation
-                                        log_ai_recommendation(
-                                            "미국섹터단타", _us_dticker, _us_dname,
-                                            _us_rep.get("rating","-"), _us_rep.get("buy_target","-"),
-                                            _us_rep.get("sell_target","-"), _us_rep.get("stop_loss","-")
-                                        )
-                                if f"us_sec_rep_{_us_dticker}" in st.session_state:
-                                    _ur = st.session_state[f"us_sec_rep_{_us_dticker}"]
-                                    _urtg = _ur.get("rating","")
-                                    _ure  = "🟢" if "강력" in _urtg else "🟡" if "추천" in _urtg else "🔴"
-                                    st.markdown(f"##### {_ure} {_urtg}")
-                                    _urk1, _urk2 = st.columns(2)
-                                    _urk1.metric("매수 타점", _ur.get("buy_target","-"))
-                                    _urk2.metric("목표가",    _ur.get("sell_target","-"))
-                                    st.metric("손절가", _ur.get("stop_loss","-"))
-                                    if _ur.get("analysis"):
-                                        st.markdown("---")
+                                            st.success(f"{_us_ticker_cur} 포트폴리오에 추가!")
+                                        else:
+                                            st.warning("이미 포트폴리오에 있습니다.")
+                                    if _rep.get("analysis"):
                                         with st.container(border=True):
-                                            st.markdown(_ur["analysis"])
-                            else:
-                                st.warning("시세 데이터를 불러오지 못했습니다.")
-
-                    else:
-                        st.markdown("### 🔥 이슈 섹터")
-
-                        _us_spt_tabs = ["📊 AI 시장분석", "📚 전체 섹터 탐색"]
-                        _us_stc1, _us_stc2 = st.columns(2)
-                        for _us_stcol, _us_stn in [(_us_stc1, _us_spt_tabs[0]), (_us_stc2, _us_spt_tabs[1])]:
-                            if _us_stcol.button(
-                                _us_stn, key=f"us_spt_{_us_stn}",
-                                type="primary" if st.session_state.us_sector_panel_tab == _us_stn else "secondary",
-                                use_container_width=True,
-                            ):
-                                st.session_state.us_sector_panel_tab = _us_stn
-                                st.rerun()
-
-                        if st.session_state.us_sector_panel_tab == _us_spt_tabs[0]:
-                            from ai_engine import analyze_us_today_market, analyze_us_hot_sectors
-                            _us_am_hdr, _us_am_ref = st.columns([8, 1])
-                            _us_am_hdr.markdown(
-                                "<p style='font-size:0.75rem;color:#888;margin:4px 0'>"
-                                "급등 종목 분석 · AI 핫 섹터 통합</p>",
-                                unsafe_allow_html=True,
-                            )
-                            if st.session_state.us_ai_market_run:
-                                if _us_am_ref.button("🔄", key="us_ai_mkt_refresh", help="전체 재분석"):
-                                    try: analyze_us_today_market.clear()
-                                    except: pass
-                                    try: analyze_us_hot_sectors.clear()
-                                    except: pass
-                                    st.rerun()
-
-                            if not st.session_state.us_ai_market_run:
+                                            st.markdown(_rep["analysis"])
                                 st.markdown(
-                                    "<div style='text-align:center;padding:40px 20px'>"
-                                    "<p style='color:#888;font-size:0.85rem;margin-bottom:16px'>"
-                                    "US 급등 종목 이유 분석, AI 핫 섹터를 한번에 확인합니다</p>"
-                                    "</div>",
+                                    "<hr style='margin:8px 0;border:none;border-top:1px solid rgba(255,255,255,0.07)'>",
                                     unsafe_allow_html=True,
                                 )
-                                if st.button("🤖 AI 시장분석 실행", use_container_width=True,
-                                             type="primary", key="us_run_ai_market"):
-                                    st.session_state.us_ai_market_run = True
-                                    st.rerun()
-                            else:
-                                with st.spinner("US 시장 분석 중..."):
-                                    _us_mkt_res = analyze_us_today_market()
-                                    _us_ai_res  = analyze_us_hot_sectors()
+                                if st.button("🌌 시장 자금 흐름 마인드맵", use_container_width=True,
+                                             key="us_mindmap_btn"):
+                                    @st.dialog("🌌 실시간 시장 자금 흐름 마인드맵", width="large")
+                                    def _show_mindmap():
+                                        with st.spinner("AI 마인드맵 생성 중..."):
+                                            from ai_engine import generate_mindmap_data
+                                            _mc = generate_mindmap_data()
+                                            _html = (
+                                                "<script type='module'>import mermaid from "
+                                                "'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';"
+                                                "mermaid.initialize({startOnLoad:true,theme:'dark'});</script>"
+                                                f"<div class='mermaid' style='background:#111;padding:20px;"
+                                                f"border-radius:10px'>{_mc}</div>"
+                                            )
+                                            components.html(_html, height=500, scrolling=True)
+                                    _show_mindmap()
+                        else:
+                            st.warning("데이터를 불러오지 못했습니다.")
 
-                                _us_quota_err = (
-                                    isinstance(_us_mkt_res, dict) and _us_mkt_res.get("error") == "QUOTA"
-                                )
-                                if _us_quota_err:
-                                    st.warning(_us_mkt_res.get("message", "API 할당량 초과"))
-                                else:
-                                    # 시장 요약 배너
-                                    if isinstance(_us_mkt_res, dict) and _us_mkt_res.get("market_summary"):
-                                        st.markdown(
-                                            f"<div style='background:rgba(0,200,83,0.06);border-left:3px solid #00c853;"
-                                            f"padding:6px 12px;border-radius:4px;margin:4px 0'>"
-                                            f"<span style='font-size:0.75rem;color:#aaa'>{_us_mkt_res['market_summary']}</span>"
-                                            f"</div>",
-                                            unsafe_allow_html=True,
-                                        )
-                                    # 주도 테마 태그
-                                    _us_themes_lead = (_us_mkt_res or {}).get("leading_themes", [])
-                                    if _us_themes_lead:
-                                        _us_tag_html = " ".join(
-                                            f"<span style='background:rgba(0,200,83,0.12);border:1px solid rgba(0,200,83,0.3);"
-                                            f"border-radius:12px;padding:2px 8px;font-size:0.68rem;color:#00c853;margin:2px'>"
-                                            f"{_t}</span>"
-                                            for _t in _us_themes_lead
-                                        )
-                                        st.markdown(
-                                            f"<div style='margin:4px 0'>{_us_tag_html}</div>",
-                                            unsafe_allow_html=True,
-                                        )
+                    else:
+                        from db import load_us_sector_map, init_us_sector_sheet
 
-                                    st.markdown(
-                                        "<hr style='margin:6px 0;border:none;border-top:1px solid rgba(255,255,255,0.07)'>",
-                                        unsafe_allow_html=True,
-                                    )
+                        us_sector_map   = load_us_sector_map()
+                        us_sector_names = list(us_sector_map.keys())
+                        if st.session_state.us_selected_sector_us not in us_sector_map:
+                            st.session_state.us_selected_sector_us = us_sector_names[0]
 
-                                    # 오늘의 급등 종목
-                                    st.markdown(
-                                        "<p style='font-size:0.78rem;font-weight:700;color:#aaa;margin:4px 0'>"
-                                        "📈 오늘의 US 급등 종목</p>",
-                                        unsafe_allow_html=True,
-                                    )
-                                    _us_stk_list = (_us_mkt_res or {}).get("stocks", [])
-                                    if _us_stk_list:
-                                        for _us_stk in _us_stk_list[:8]:
-                                            _us_sc = _us_stk.get("change_pct", 0)
-                                            _us_sc_col = "#00c853" if _us_sc >= 0 else "#ff4b4b"
-                                            with st.container(border=True):
-                                                _usc1, _usc2 = st.columns([5, 1])
-                                                with _usc1:
-                                                    st.markdown(
-                                                        f"<span style='font-size:0.82rem;font-weight:700'>"
-                                                        f"{_us_stk.get('ticker','')} · {_us_stk.get('name','')}</span>"
-                                                        f"<span style='font-size:0.75rem;color:{_us_sc_col};margin-left:8px'>"
-                                                        f"{_us_sc:+.1f}%</span>",
-                                                        unsafe_allow_html=True,
-                                                    )
-                                                    if _us_stk.get("theme"):
-                                                        st.markdown(
-                                                            f"<span style='font-size:0.65rem;color:#888'>"
-                                                            f"🏷 {_us_stk['theme']}</span>",
-                                                            unsafe_allow_html=True,
-                                                        )
-                                                    if _us_stk.get("reason"):
-                                                        st.markdown(
-                                                            f"<p style='font-size:0.68rem;color:#bbb;margin:2px 0'>"
-                                                            f"{_us_stk['reason']}</p>",
-                                                            unsafe_allow_html=True,
-                                                        )
-                                                _us_cd = _us_stk.get("ticker", "")
-                                                if _usc2.button("▶", key=f"us_mkt_stk_{_us_cd}",
-                                                                use_container_width=True):
-                                                    st.session_state.us_selected_ticker      = _us_cd
-                                                    st.session_state.us_selected_name        = _us_stk.get("name", _us_cd)
-                                                    st.session_state.us_sector_detail_ticker = _us_cd
-                                                    st.session_state.us_sector_detail_name   = _us_stk.get("name", _us_cd)
-                                                    st.session_state.us_sector_view          = "detail"
-                                                    st.rerun()
-                                    elif not _us_quota_err:
-                                        st.caption("급등 종목 데이터를 불러올 수 없습니다.")
+                        if st.session_state.us_sector_view == "detail":
+                            _us_dticker   = st.session_state.us_sector_detail_ticker
+                            _us_dname     = st.session_state.us_sector_detail_name
+                            _us_dexchange = st.session_state.get("us_sector_detail_exchange", "NASDAQ")
 
-                                    st.markdown(
-                                        "<hr style='margin:8px 0;border:none;border-top:1px solid rgba(255,255,255,0.07)'>",
-                                        unsafe_allow_html=True,
-                                    )
-
-                                    # AI 핫 섹터
-                                    st.markdown(
-                                        "<p style='font-size:0.78rem;font-weight:700;color:#aaa;margin:4px 0'>"
-                                        "🔥 AI 핫 섹터</p>",
-                                        unsafe_allow_html=True,
-                                    )
-                                    _us_ai_sectors = []
-                                    if isinstance(_us_ai_res, dict) and not _us_ai_res.get("error") and _us_ai_res.get("sectors"):
-                                        _us_ai_sectors = sorted(
-                                            _us_ai_res.get("sectors", []),
-                                            key=lambda x: -x.get("hot_score", 0),
-                                        )
-                                    if _us_ai_sectors:
-                                        with st.container(height=380):
-                                            for _uas in _us_ai_sectors:
-                                                _ukw    = _uas.get("keyword", "")
-                                                _usc    = _uas.get("hot_score", 0)
-                                                _ursn   = _uas.get("reason", "")
-                                                _unews  = _uas.get("news_title", "")
-                                                _uhot_t = _uas.get("hot_tickers", [])
-                                                _ufire  = "🔥" * max(1, min(int(_usc / 2.5), 4))
-                                                _usc_col = "#ff4b4b" if _usc >= 7 else "#f5c518" if _usc >= 4 else "#888"
-                                                with st.container(border=True):
-                                                    _uah1, _uah2 = st.columns([8, 2])
-                                                    _uah1.markdown(
-                                                        f"<span style='font-size:0.88rem;font-weight:700'>"
-                                                        f"{_ufire} {_ukw}</span>"
-                                                        f"<span style='font-size:0.72rem;color:{_usc_col};"
-                                                        f"margin-left:8px'>HOT {_usc}/10</span>",
-                                                        unsafe_allow_html=True,
-                                                    )
-                                                    if _ursn:
-                                                        st.markdown(
-                                                            f"<p style='font-size:0.72rem;color:#bbb;margin:3px 0'>"
-                                                            f"{_ursn}</p>",
-                                                            unsafe_allow_html=True,
-                                                        )
-                                                    if _unews:
-                                                        st.markdown(
-                                                            f"<p style='font-size:0.68rem;color:#666;margin:2px 0'>"
-                                                            f"📰 {_unews}</p>",
-                                                            unsafe_allow_html=True,
-                                                        )
-                                                    if _uhot_t:
-                                                        st.markdown(
-                                                            " ".join(
-                                                                f"<span style='font-size:0.65rem;border:1px solid rgba(0,200,83,0.3);"
-                                                                f"border-radius:4px;padding:1px 5px;color:#00c853'>{_t}</span>"
-                                                                for _t in _uhot_t[:6]
-                                                            ),
-                                                            unsafe_allow_html=True,
-                                                        )
-                                                    # 동적 서브섹터
-                                                    for _uds in _uas.get("dynamic_subsectors", [])[:2]:
-                                                        st.markdown(
-                                                            f"<span style='font-size:0.68rem;color:#ff9800'>"
-                                                            f"📡 {_uds.get('name','')} — {_uds.get('reason','')[:50]}</span>",
-                                                            unsafe_allow_html=True,
-                                                        )
-                                                    # hot_tickers 중 섹터 DB에 있는 종목 클릭
-                                                    if _uhot_t and _uah2.button(
-                                                        "▶ 탐색", key=f"us_hot_sec_{_ukw}",
-                                                        use_container_width=True,
-                                                    ):
-                                                        if _ukw in us_sector_names:
-                                                            st.session_state.us_selected_sector_us = _ukw
-                                                            st.session_state.us_sector_panel_tab = "📚 전체 섹터 탐색"
-                                                            st.rerun()
-                                    elif not _us_quota_err:
-                                        st.caption("섹터 데이터를 불러올 수 없습니다.")
-
-                        elif st.session_state.us_sector_panel_tab == _us_spt_tabs[1]:
-                            _uh1, _uh2, _uh3 = st.columns([4, 1, 1])
-                            with _uh2:
-                                if st.button("🔄", key="us_sec_refresh", use_container_width=True, help="캐시 초기화"):
-                                    load_us_sector_map.clear()
-                                    st.rerun()
-                            with _uh3:
-                                if st.button("☁️", key="us_sec_init", use_container_width=True, help="시트 업로드"):
-                                    ok, msg_init = init_us_sector_sheet()
-                                    st.toast(msg_init if ok else f"오류: {msg_init}")
-
-                            # ── hot_score 맵 구성 (AI 시장분석 결과 재활용) ──
-                            _us_hot_score_map: dict = {}
-                            try:
-                                from ai_engine import analyze_us_hot_sectors as _auh
-                                _uh_res = _auh()
-                                if isinstance(_uh_res, dict) and _uh_res.get("sectors"):
-                                    for _uhs in _uh_res["sectors"]:
-                                        _uhkw = _uhs.get("keyword", "")
-                                        if _uhkw in us_sector_names:
-                                            _us_hot_score_map[_uhkw] = {
-                                                "score": _uhs.get("hot_score", 0),
-                                                "reason": _uhs.get("reason", ""),
-                                            }
-                            except Exception:
-                                pass
-
-                            def _us_sector_tier(name):
-                                sc = _us_hot_score_map.get(name, {}).get("score", 0)
-                                return 0 if sc >= 7 else 1 if sc >= 4 else 2
-
-                            _us_sorted_sectors = sorted(
-                                us_sector_names,
-                                key=lambda n: (_us_sector_tier(n), -_us_hot_score_map.get(n, {}).get("score", 0))
-                            )
+                            if st.button("← 섹터 목록으로", key="us_sec_back", use_container_width=True):
+                                st.session_state.us_sector_view = "list"
+                                st.rerun()
 
                             st.markdown(
-                                "<p style='font-size:0.72rem;color:#888;margin:2px 0 6px 0'>"
-                                "섹터를 클릭해 종목을 탐색하세요 · 🔥 = 오늘의 이슈 섹터</p>",
+                                f"<h4 style='margin:4px 0 2px 0'>{_us_dname}</h4>"
+                                f"<p style='margin:0;font-size:0.78rem;color:#888'>"
+                                f"티커 {_us_dticker} · {st.session_state.us_selected_sector_us}</p>",
                                 unsafe_allow_html=True,
                             )
-                            with st.container(height=180):
-                                _us_prev_tier = -1
-                                for _usn in _us_sorted_sectors:
-                                    _us_tier = _us_sector_tier(_usn)
-                                    _us_hs_info = _us_hot_score_map.get(_usn, {})
-                                    _us_sc = _us_hs_info.get("score", 0)
-                                    _us_rsn = _us_hs_info.get("reason", "")[:40]
-                                    if _us_tier != _us_prev_tier:
-                                        if _us_tier == 0:
-                                            st.markdown("<p style='font-size:0.68rem;font-weight:700;color:#00c853;margin:4px 0 2px 0'>🔥 HOT 섹터</p>", unsafe_allow_html=True)
-                                        elif _us_tier == 1:
-                                            st.markdown("<p style='font-size:0.68rem;font-weight:700;color:#f5c518;margin:6px 0 2px 0'>⭐ 관심 섹터</p>", unsafe_allow_html=True)
-                                        else:
-                                            st.markdown("<p style='font-size:0.68rem;color:#555;margin:6px 0 2px 0'>일반 섹터</p>", unsafe_allow_html=True)
-                                        _us_prev_tier = _us_tier
-                                    _us_is_sel = st.session_state.us_selected_sector_us == _usn
-                                    if _us_tier == 0:
-                                        _us_bh = f"🔥 {_usn} <span style='font-size:0.65rem;color:#ff9800'>[{_us_sc}점]</span>"
-                                        if _us_rsn:
-                                            _us_bh += f"<br><span style='font-size:0.63rem;color:#aaa'>{_us_rsn}{'…' if len(_us_hs_info.get('reason',''))>40 else ''}</span>"
-                                        _us_bg = "rgba(0,200,83,0.12)" if _us_is_sel else "rgba(0,200,83,0.06)"
-                                        _us_bd = "#00c853" if _us_is_sel else "rgba(0,200,83,0.35)"
-                                    elif _us_tier == 1:
-                                        _us_bh = f"⭐ {_usn} <span style='font-size:0.65rem;color:#888'>[{_us_sc}점]</span>"
-                                        _us_bg = "rgba(245,197,24,0.10)" if _us_is_sel else "rgba(245,197,24,0.04)"
-                                        _us_bd = "#f5c518" if _us_is_sel else "rgba(245,197,24,0.25)"
+
+                            with st.spinner(""):
+                                us_detail = get_us_stock_detail(_us_dticker, _us_dexchange)
+
+                            with st.container(height=490):
+                                if us_detail:
+                                    chg = us_detail["change_pct"]
+                                    d_c = "normal" if chg >= 0 else "inverse"
+                                    ar  = "▲" if chg >= 0 else "▼"
+                                    with st.container(border=True):
+                                        m1, m2, m3 = st.columns(3)
+                                        m1.metric("현재가", f"${us_detail['price']:,.2f}",
+                                                  f"{ar} {abs(us_detail['change']):.2f} ({chg:+.2f}%)",
+                                                  delta_color=d_c)
+                                        m2.metric("거래량",   f"{us_detail['volume']:,}")
+                                        m3.metric("시가총액", us_detail["market_cap"])
+                                        n1, n2, n3 = st.columns(3)
+                                        n1.metric("고가", f"${us_detail['high']:,.2f}")
+                                        n2.metric("저가", f"${us_detail['low']:,.2f}")
+                                        n3.metric("PER",  str(us_detail["per"]))
+                                        n4, n5, n6 = st.columns(3)
+                                        n4.metric("52주 최고", f"${us_detail['w52_high']:,.2f}")
+                                        n5.metric("52주 최저", f"${us_detail['w52_low']:,.2f}")
+                                        n6.metric("베타",      str(us_detail["beta"]))
+                                    st.markdown("#### 🎯 단타 적합성 판단")
+                                    if chg >= 5.0:
+                                        st.success(f"✅ **강력 단타 추천** — 등락률 **{chg:+.2f}%**")
+                                    elif chg >= 3.0:
+                                        st.success(f"✅ **단타 추천** — 등락률 **{chg:+.2f}%**")
+                                    elif chg >= 1.5:
+                                        st.warning(f"⚠️ **관망** — 등락률 {chg:+.2f}%")
+                                    elif chg <= -3.0:
+                                        st.info(f"🔵 **반등 포착 관찰** — 등락률 {chg:+.2f}%")
                                     else:
-                                        _us_bh = _usn
-                                        _us_bg = "rgba(255,255,255,0.06)" if _us_is_sel else "transparent"
-                                        _us_bd = "rgba(255,255,255,0.2)" if _us_is_sel else "rgba(255,255,255,0.06)"
-                                    _ubc1, _ubc2 = st.columns([5, 1])
-                                    _ubc1.markdown(
-                                        f"<div style='border:1px solid {_us_bd};background:{_us_bg};"
-                                        f"border-radius:7px;padding:5px 10px;margin:2px 0'>{_us_bh}</div>",
-                                        unsafe_allow_html=True,
-                                    )
-                                    if _ubc2.button("▶", key=f"us_sec_btn_{_usn}", use_container_width=True):
-                                        st.session_state.us_selected_sector_us = _usn
+                                        st.error(f"❌ **단타 비적합** — 등락률 {chg:+.2f}%")
+                                    if us_detail["institutional_pct"] > 0 or us_detail["insider_pct"] > 0:
+                                        st.markdown("#### 📊 기관/내부자 보유율")
+                                        retail_p = max(0.0, 100.0 - us_detail["institutional_pct"] - us_detail["insider_pct"])
+                                        fig_own2 = go.Figure(go.Bar(
+                                            x=["기관", "내부자", "기타"],
+                                            y=[us_detail["institutional_pct"], us_detail["insider_pct"], retail_p],
+                                            marker_color=["#2b7cff", "#ff4b4b", "#888"]
+                                        ))
+                                        fig_own2.update_layout(
+                                            paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+                                            font=dict(color="white"),
+                                            yaxis=dict(gridcolor="rgba(255,255,255,0.1)", title="%", range=[0, 100]),
+                                            margin=dict(l=10, r=10, t=10, b=10), height=170
+                                        )
+                                        st.plotly_chart(fig_own2, use_container_width=True)
+                                    st.markdown("#### 🧠 AI 단타 심층 분석")
+                                    if st.button("🎯 AI 단타 분석 실행", type="primary",
+                                                 use_container_width=True, key="us_sec_detail_ai"):
+                                        with st.spinner("AI가 수급·뉴스·차트를 융합 분석 중..."):
+                                            from ai_engine import generate_stock_report
+                                            _us_rep = generate_stock_report(_us_dticker, us_detail["price"], chg)
+                                            st.session_state[f"us_sec_rep_{_us_dticker}"] = _us_rep
+                                            from db import log_ai_recommendation
+                                            log_ai_recommendation(
+                                                "미국섹터단타", _us_dticker, _us_dname,
+                                                _us_rep.get("rating","-"), _us_rep.get("buy_target","-"),
+                                                _us_rep.get("sell_target","-"), _us_rep.get("stop_loss","-")
+                                            )
+                                    if f"us_sec_rep_{_us_dticker}" in st.session_state:
+                                        _ur = st.session_state[f"us_sec_rep_{_us_dticker}"]
+                                        _urtg = _ur.get("rating","")
+                                        _ure  = "🟢" if "강력" in _urtg else "🟡" if "추천" in _urtg else "🔴"
+                                        st.markdown(f"##### {_ure} {_urtg}")
+                                        _urk1, _urk2 = st.columns(2)
+                                        _urk1.metric("매수 타점", _ur.get("buy_target","-"))
+                                        _urk2.metric("목표가",    _ur.get("sell_target","-"))
+                                        st.metric("손절가", _ur.get("stop_loss","-"))
+                                        if _ur.get("analysis"):
+                                            st.markdown("---")
+                                            with st.container(border=True):
+                                                st.markdown(_ur["analysis"])
+                                else:
+                                    st.warning("시세 데이터를 불러오지 못했습니다.")
+
+                        else:
+                            st.markdown("### 🔥 이슈 섹터")
+
+                            _us_spt_tabs = ["📊 AI 시장분석", "📚 전체 섹터 탐색"]
+                            _us_stc1, _us_stc2 = st.columns(2)
+                            for _us_stcol, _us_stn in [(_us_stc1, _us_spt_tabs[0]), (_us_stc2, _us_spt_tabs[1])]:
+                                if _us_stcol.button(
+                                    _us_stn, key=f"us_spt_{_us_stn}",
+                                    type="primary" if st.session_state.us_sector_panel_tab == _us_stn else "secondary",
+                                    use_container_width=True,
+                                ):
+                                    st.session_state.us_sector_panel_tab = _us_stn
+                                    st.rerun()
+
+                            if st.session_state.us_sector_panel_tab == _us_spt_tabs[0]:
+                                from ai_engine import analyze_us_today_market, analyze_us_hot_sectors
+                                _us_am_hdr, _us_am_ref = st.columns([8, 1])
+                                _us_am_hdr.markdown(
+                                    "<p style='font-size:0.75rem;color:#888;margin:4px 0'>"
+                                    "급등 종목 분석 · AI 핫 섹터 통합</p>",
+                                    unsafe_allow_html=True,
+                                )
+                                if st.session_state.us_ai_market_run:
+                                    if _us_am_ref.button("🔄", key="us_ai_mkt_refresh", help="전체 재분석"):
+                                        try: analyze_us_today_market.clear()
+                                        except: pass
+                                        try: analyze_us_hot_sectors.clear()
+                                        except: pass
                                         st.rerun()
 
-                            _us_cur_si = (_us_sorted_sectors.index(st.session_state.us_selected_sector_us)
-                                          if st.session_state.us_selected_sector_us in _us_sorted_sectors else 0)
-                            _us_sel_sec = st.selectbox(
-                                "섹터 선택 (직접 선택)", _us_sorted_sectors, index=_us_cur_si,
-                                key="us_sector_selectbox", label_visibility="visible",
-                            )
-                            if _us_sel_sec != st.session_state.us_selected_sector_us:
-                                st.session_state.us_selected_sector_us = _us_sel_sec
-                                st.rerun()
+                                if not st.session_state.us_ai_market_run:
+                                    st.markdown(
+                                        "<div style='text-align:center;padding:40px 20px'>"
+                                        "<p style='color:#888;font-size:0.85rem;margin-bottom:16px'>"
+                                        "US 급등 종목 이유 분석, AI 핫 섹터를 한번에 확인합니다</p>"
+                                        "</div>",
+                                        unsafe_allow_html=True,
+                                    )
+                                    if st.button("🤖 AI 시장분석 실행", use_container_width=True,
+                                                 type="primary", key="us_run_ai_market"):
+                                        st.session_state.us_ai_market_run = True
+                                        st.rerun()
+                                else:
+                                    with st.spinner("US 시장 분석 중..."):
+                                        _us_mkt_res = analyze_us_today_market()
+                                        _us_ai_res  = analyze_us_hot_sectors()
 
-                            us_selected_sector = st.session_state.us_selected_sector_us
-                            us_subsectors      = us_sector_map[us_selected_sector]
-
-                            us_ticker_locations: dict = {}
-                            for _s, _subs in us_sector_map.items():
-                                for _sb, _stks in _subs.items():
-                                    for _stk in _stks:
-                                        us_ticker_locations.setdefault(_stk["ticker"], []).append(
-                                            f"{_s} › {_sb}"
-                                        )
-
-                            _us_seen: set = set()
-                            _us_unique: list = []
-                            for _stks in us_subsectors.values():
-                                for _stk in _stks:
-                                    if _stk["ticker"] not in _us_seen:
-                                        _us_seen.add(_stk["ticker"])
-                                        _us_unique.append((_stk["ticker"], _stk.get("exchange","NASDAQ")))
-
-                            _us_n   = len(_us_unique)
-                            _us_est = max(3, min(_us_n // 6, 20))
-                            _us_load_ph = st.empty()
-                            _us_load_ph.markdown(
-                                f"""<div style='display:flex;align-items:center;gap:14px;
-                                    background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);
-                                    border-radius:12px;padding:14px 18px;margin:8px 0'>
-                                  <div style='font-size:1.3rem;animation:spin 1.2s linear infinite;display:inline-block'>⏳</div>
-                                  <div>
-                                    <div style='font-size:0.85rem;font-weight:600'>실시간 시세 조회 중 ({_us_n}개 종목)</div>
-                                    <div style='font-size:0.82rem;color:#888'>약 {_us_est}초 소요</div>
-                                  </div>
-                                </div>
-                                <style>@keyframes spin{{0%{{transform:rotate(0deg)}} 100%{{transform:rotate(360deg)}}}}</style>""",
-                                unsafe_allow_html=True,
-                            )
-                            us_prices = get_us_prices_bulk_kis(tuple(_us_unique))
-                            _us_load_ph.empty()
-
-                            _us_hcols = st.columns([0.35, 2.8, 1.8, 1.4, 0.45])
-                            for _uhc, _uht in zip(_us_hcols[:4], ["단타", "종목명", "현재가($)", "등락률"]):
-                                _uhc.markdown(
-                                    f"<p style='margin:0;font-size:0.72rem;color:#888'>{_uht}</p>",
-                                    unsafe_allow_html=True,
-                                )
-
-                            def _us_sub_avg_pct(stocks, prices):
-                                vals = [prices.get(s["ticker"], {}).get("change_pct", 0.0) for s in stocks]
-                                vals = [v for v in vals if v != 0.0]
-                                return sum(vals) / len(vals) if vals else 0.0
-
-                            def _us_sub_ai_summary(parent_sector, sub_name, avg_pct, stocks, prices):
-                                from ai_engine import _call_gemini
-                                import datetime as _dt
-                                with_pct = sorted(
-                                    [(s["name"], prices.get(s["ticker"], {}).get("change_pct", 0.0))
-                                     for s in stocks if prices.get(s["ticker"], {}).get("change_pct", 0.0) != 0.0],
-                                    key=lambda x: abs(x[1]), reverse=True
-                                )
-                                stock_detail = ", ".join(f"{n}({p:+.1f}%)" for n, p in with_pct[:8])
-                                if not stock_detail:
-                                    stock_detail = ", ".join(s["name"] for s in stocks[:8])
-                                prompt = (
-                                    f"오늘({_dt.date.today()}) 미국 증시 분석 요청.\n"
-                                    f"분석 범위: '{parent_sector}' 섹터 내 '{sub_name}' 세부섹터 ({len(stocks)}개 종목)\n"
-                                    f"해당 세부섹터 종목: {stock_detail}\n"
-                                    f"세부섹터 평균 등락률: {avg_pct:+.2f}%\n\n"
-                                    f"위 {len(stocks)}개 종목으로 구성된 '{sub_name}' 세부섹터만을 대상으로, "
-                                    f"오늘 이 종목들이 이렇게 움직이는 이유를 뉴스·실적·매크로 기반으로 "
-                                    f"3~5줄 이내로 간결하게 요약해주세요. 이모지 없이 핵심만."
-                                )
-                                try:
-                                    resp = _call_gemini(prompt, use_search=True, temperature=0.4)
-                                    return resp.text.strip() if resp and resp.text else "분석 정보 없음"
-                                except Exception:
-                                    return "AI 분석을 불러올 수 없습니다."
-
-                            with st.container(height=600):
-                                for us_sub_name, us_stocks in us_subsectors.items():
-                                    us_avg_pct   = _us_sub_avg_pct(us_stocks, us_prices)
-                                    us_pct_color = "#00c853" if us_avg_pct > 0 else "#ff4b4b" if us_avg_pct < 0 else "#888"
-                                    us_tok       = f"_us_sub_open_{us_selected_sector}__{us_sub_name}"
-                                    if us_tok not in st.session_state:
-                                        st.session_state[us_tok] = False
-                                    us_is_open = st.session_state[us_tok]
-                                    us_ai_key  = f"_us_sub_ai_{us_selected_sector}__{us_sub_name}"
-
-                                    with st.container(border=True):
-                                        uh0, uh1, uh2, uh3, uh4 = st.columns([0.35, 2.8, 1.8, 1.4, 0.45])
-                                        if uh0.button(
-                                            "▼" if us_is_open else "▶",
-                                            key=f"us_tog_{us_sub_name}", use_container_width=True,
-                                        ):
-                                            st.session_state[us_tok] = not us_is_open
-                                            st.rerun()
-                                        uh1.markdown(
-                                            f"<span style='font-size:0.85rem;font-weight:600'>📌 {us_sub_name}</span>"
-                                            f"<span style='font-size:0.75rem;color:#888'>　{len(us_stocks)}개</span>",
-                                            unsafe_allow_html=True,
-                                        )
-                                        uh3.markdown(
-                                            f"<span style='font-size:0.92rem;font-weight:700;color:{us_pct_color}'>"
-                                            f"{us_avg_pct:+.2f}%</span>",
-                                            unsafe_allow_html=True,
-                                        )
-                                        if uh4.button("AI", key=f"us_ai_btn_{us_sub_name}", use_container_width=True):
-                                            st.session_state[us_ai_key] = _us_sub_ai_summary(
-                                                us_selected_sector, us_sub_name, us_avg_pct, us_stocks, us_prices
-                                            )
-
-                                        if us_is_open:
-                                            if us_ai_key in st.session_state:
-                                                st.markdown(
-                                                    f"<div style='background:rgba(255,255,255,0.05);"
-                                                    f"border-left:3px solid {us_pct_color};"
-                                                    f"border-radius:6px;padding:8px 12px;margin:4px 0 8px 0;"
-                                                    f"font-size:0.82rem;line-height:1.55;color:#ddd'>"
-                                                    f"{st.session_state[us_ai_key]}</div>",
-                                                    unsafe_allow_html=True,
-                                                )
+                                    _us_quota_err = (
+                                        isinstance(_us_mkt_res, dict) and _us_mkt_res.get("error") == "QUOTA"
+                                    )
+                                    if _us_quota_err:
+                                        st.warning(_us_mkt_res.get("message", "API 할당량 초과"))
+                                    else:
+                                        # 시장 요약 배너
+                                        if isinstance(_us_mkt_res, dict) and _us_mkt_res.get("market_summary"):
                                             st.markdown(
-                                                '<hr style="margin:4px 0 6px 0;border:none;'
-                                                'border-top:1px solid rgba(255,255,255,0.15)">',
+                                                f"<div style='background:rgba(0,200,83,0.06);border-left:3px solid #00c853;"
+                                                f"padding:6px 12px;border-radius:4px;margin:4px 0'>"
+                                                f"<span style='font-size:0.75rem;color:#aaa'>{_us_mkt_res['market_summary']}</span>"
+                                                f"</div>",
                                                 unsafe_allow_html=True,
                                             )
-                                            for _ui, _us in enumerate(us_stocks):
-                                                if _ui > 0:
+                                        # 주도 테마 태그
+                                        _us_themes_lead = (_us_mkt_res or {}).get("leading_themes", [])
+                                        if _us_themes_lead:
+                                            _us_tag_html = " ".join(
+                                                f"<span style='background:rgba(0,200,83,0.12);border:1px solid rgba(0,200,83,0.3);"
+                                                f"border-radius:12px;padding:2px 8px;font-size:0.68rem;color:#00c853;margin:2px'>"
+                                                f"{_t}</span>"
+                                                for _t in _us_themes_lead
+                                            )
+                                            st.markdown(
+                                                f"<div style='margin:4px 0'>{_us_tag_html}</div>",
+                                                unsafe_allow_html=True,
+                                            )
+
+                                        st.markdown(
+                                            "<hr style='margin:6px 0;border:none;border-top:1px solid rgba(255,255,255,0.07)'>",
+                                            unsafe_allow_html=True,
+                                        )
+
+                                        # 오늘의 급등 종목
+                                        st.markdown(
+                                            "<p style='font-size:0.78rem;font-weight:700;color:#aaa;margin:4px 0'>"
+                                            "📈 오늘의 US 급등 종목</p>",
+                                            unsafe_allow_html=True,
+                                        )
+                                        _us_stk_list = (_us_mkt_res or {}).get("stocks", [])
+                                        if _us_stk_list:
+                                            for _us_stk in _us_stk_list[:8]:
+                                                _us_sc = _us_stk.get("change_pct", 0)
+                                                _us_sc_col = "#00c853" if _us_sc >= 0 else "#ff4b4b"
+                                                with st.container(border=True):
+                                                    _usc1, _usc2 = st.columns([5, 1])
+                                                    with _usc1:
+                                                        st.markdown(
+                                                            f"<span style='font-size:0.82rem;font-weight:700'>"
+                                                            f"{_us_stk.get('ticker','')} · {_us_stk.get('name','')}</span>"
+                                                            f"<span style='font-size:0.75rem;color:{_us_sc_col};margin-left:8px'>"
+                                                            f"{_us_sc:+.1f}%</span>",
+                                                            unsafe_allow_html=True,
+                                                        )
+                                                        if _us_stk.get("theme"):
+                                                            st.markdown(
+                                                                f"<span style='font-size:0.65rem;color:#888'>"
+                                                                f"🏷 {_us_stk['theme']}</span>",
+                                                                unsafe_allow_html=True,
+                                                            )
+                                                        if _us_stk.get("reason"):
+                                                            st.markdown(
+                                                                f"<p style='font-size:0.68rem;color:#bbb;margin:2px 0'>"
+                                                                f"{_us_stk['reason']}</p>",
+                                                                unsafe_allow_html=True,
+                                                            )
+                                                    _us_cd = _us_stk.get("ticker", "")
+                                                    if _usc2.button("▶", key=f"us_mkt_stk_{_us_cd}",
+                                                                    use_container_width=True):
+                                                        st.session_state.us_selected_ticker      = _us_cd
+                                                        st.session_state.us_selected_name        = _us_stk.get("name", _us_cd)
+                                                        st.session_state.us_sector_detail_ticker = _us_cd
+                                                        st.session_state.us_sector_detail_name   = _us_stk.get("name", _us_cd)
+                                                        st.session_state.us_sector_view          = "detail"
+                                                        st.rerun()
+                                        elif not _us_quota_err:
+                                            st.caption("급등 종목 데이터를 불러올 수 없습니다.")
+
+                                        st.markdown(
+                                            "<hr style='margin:8px 0;border:none;border-top:1px solid rgba(255,255,255,0.07)'>",
+                                            unsafe_allow_html=True,
+                                        )
+
+                                        # AI 핫 섹터
+                                        st.markdown(
+                                            "<p style='font-size:0.78rem;font-weight:700;color:#aaa;margin:4px 0'>"
+                                            "🔥 AI 핫 섹터</p>",
+                                            unsafe_allow_html=True,
+                                        )
+                                        _us_ai_sectors = []
+                                        if isinstance(_us_ai_res, dict) and not _us_ai_res.get("error") and _us_ai_res.get("sectors"):
+                                            _us_ai_sectors = sorted(
+                                                _us_ai_res.get("sectors", []),
+                                                key=lambda x: -x.get("hot_score", 0),
+                                            )
+                                        if _us_ai_sectors:
+                                            with st.container(height=380):
+                                                for _uas in _us_ai_sectors:
+                                                    _ukw    = _uas.get("keyword", "")
+                                                    _usc    = _uas.get("hot_score", 0)
+                                                    _ursn   = _uas.get("reason", "")
+                                                    _unews  = _uas.get("news_title", "")
+                                                    _uhot_t = _uas.get("hot_tickers", [])
+                                                    _ufire  = "🔥" * max(1, min(int(_usc / 2.5), 4))
+                                                    _usc_col = "#ff4b4b" if _usc >= 7 else "#f5c518" if _usc >= 4 else "#888"
+                                                    with st.container(border=True):
+                                                        _uah1, _uah2 = st.columns([8, 2])
+                                                        _uah1.markdown(
+                                                            f"<span style='font-size:0.88rem;font-weight:700'>"
+                                                            f"{_ufire} {_ukw}</span>"
+                                                            f"<span style='font-size:0.72rem;color:{_usc_col};"
+                                                            f"margin-left:8px'>HOT {_usc}/10</span>",
+                                                            unsafe_allow_html=True,
+                                                        )
+                                                        if _ursn:
+                                                            st.markdown(
+                                                                f"<p style='font-size:0.72rem;color:#bbb;margin:3px 0'>"
+                                                                f"{_ursn}</p>",
+                                                                unsafe_allow_html=True,
+                                                            )
+                                                        if _unews:
+                                                            st.markdown(
+                                                                f"<p style='font-size:0.68rem;color:#666;margin:2px 0'>"
+                                                                f"📰 {_unews}</p>",
+                                                                unsafe_allow_html=True,
+                                                            )
+                                                        if _uhot_t:
+                                                            st.markdown(
+                                                                " ".join(
+                                                                    f"<span style='font-size:0.65rem;border:1px solid rgba(0,200,83,0.3);"
+                                                                    f"border-radius:4px;padding:1px 5px;color:#00c853'>{_t}</span>"
+                                                                    for _t in _uhot_t[:6]
+                                                                ),
+                                                                unsafe_allow_html=True,
+                                                            )
+                                                        # 동적 서브섹터
+                                                        for _uds in _uas.get("dynamic_subsectors", [])[:2]:
+                                                            st.markdown(
+                                                                f"<span style='font-size:0.68rem;color:#ff9800'>"
+                                                                f"📡 {_uds.get('name','')} — {_uds.get('reason','')[:50]}</span>",
+                                                                unsafe_allow_html=True,
+                                                            )
+                                                        # hot_tickers 중 섹터 DB에 있는 종목 클릭
+                                                        if _uhot_t and _uah2.button(
+                                                            "▶ 탐색", key=f"us_hot_sec_{_ukw}",
+                                                            use_container_width=True,
+                                                        ):
+                                                            if _ukw in us_sector_names:
+                                                                st.session_state.us_selected_sector_us = _ukw
+                                                                st.session_state.us_sector_panel_tab = "📚 전체 섹터 탐색"
+                                                                st.rerun()
+                                        elif not _us_quota_err:
+                                            st.caption("섹터 데이터를 불러올 수 없습니다.")
+
+                            elif st.session_state.us_sector_panel_tab == _us_spt_tabs[1]:
+                                _uh1, _uh2, _uh3 = st.columns([4, 1, 1])
+                                with _uh2:
+                                    if st.button("🔄", key="us_sec_refresh", use_container_width=True, help="캐시 초기화"):
+                                        load_us_sector_map.clear()
+                                        st.rerun()
+                                with _uh3:
+                                    if st.button("☁️", key="us_sec_init", use_container_width=True, help="시트 업로드"):
+                                        ok, msg_init = init_us_sector_sheet()
+                                        st.toast(msg_init if ok else f"오류: {msg_init}")
+
+                                # ── hot_score 맵 구성 (AI 시장분석 결과 재활용) ──
+                                _us_hot_score_map: dict = {}
+                                try:
+                                    from ai_engine import analyze_us_hot_sectors as _auh
+                                    _uh_res = _auh()
+                                    if isinstance(_uh_res, dict) and _uh_res.get("sectors"):
+                                        for _uhs in _uh_res["sectors"]:
+                                            _uhkw = _uhs.get("keyword", "")
+                                            if _uhkw in us_sector_names:
+                                                _us_hot_score_map[_uhkw] = {
+                                                    "score": _uhs.get("hot_score", 0),
+                                                    "reason": _uhs.get("reason", ""),
+                                                }
+                                except Exception:
+                                    pass
+
+                                def _us_sector_tier(name):
+                                    sc = _us_hot_score_map.get(name, {}).get("score", 0)
+                                    return 0 if sc >= 7 else 1 if sc >= 4 else 2
+
+                                _us_sorted_sectors = sorted(
+                                    us_sector_names,
+                                    key=lambda n: (_us_sector_tier(n), -_us_hot_score_map.get(n, {}).get("score", 0))
+                                )
+
+                                st.markdown(
+                                    "<p style='font-size:0.72rem;color:#888;margin:2px 0 6px 0'>"
+                                    "섹터를 클릭해 종목을 탐색하세요 · 🔥 = 오늘의 이슈 섹터</p>",
+                                    unsafe_allow_html=True,
+                                )
+                                with st.container(height=180):
+                                    _us_prev_tier = -1
+                                    for _usn in _us_sorted_sectors:
+                                        _us_tier = _us_sector_tier(_usn)
+                                        _us_hs_info = _us_hot_score_map.get(_usn, {})
+                                        _us_sc = _us_hs_info.get("score", 0)
+                                        _us_rsn = _us_hs_info.get("reason", "")[:40]
+                                        if _us_tier != _us_prev_tier:
+                                            if _us_tier == 0:
+                                                st.markdown("<p style='font-size:0.68rem;font-weight:700;color:#00c853;margin:4px 0 2px 0'>🔥 HOT 섹터</p>", unsafe_allow_html=True)
+                                            elif _us_tier == 1:
+                                                st.markdown("<p style='font-size:0.68rem;font-weight:700;color:#f5c518;margin:6px 0 2px 0'>⭐ 관심 섹터</p>", unsafe_allow_html=True)
+                                            else:
+                                                st.markdown("<p style='font-size:0.68rem;color:#555;margin:6px 0 2px 0'>일반 섹터</p>", unsafe_allow_html=True)
+                                            _us_prev_tier = _us_tier
+                                        _us_is_sel = st.session_state.us_selected_sector_us == _usn
+                                        if _us_tier == 0:
+                                            _us_bh = f"🔥 {_usn} <span style='font-size:0.65rem;color:#ff9800'>[{_us_sc}점]</span>"
+                                            if _us_rsn:
+                                                _us_bh += f"<br><span style='font-size:0.63rem;color:#aaa'>{_us_rsn}{'…' if len(_us_hs_info.get('reason',''))>40 else ''}</span>"
+                                            _us_bg = "rgba(0,200,83,0.12)" if _us_is_sel else "rgba(0,200,83,0.06)"
+                                            _us_bd = "#00c853" if _us_is_sel else "rgba(0,200,83,0.35)"
+                                        elif _us_tier == 1:
+                                            _us_bh = f"⭐ {_usn} <span style='font-size:0.65rem;color:#888'>[{_us_sc}점]</span>"
+                                            _us_bg = "rgba(245,197,24,0.10)" if _us_is_sel else "rgba(245,197,24,0.04)"
+                                            _us_bd = "#f5c518" if _us_is_sel else "rgba(245,197,24,0.25)"
+                                        else:
+                                            _us_bh = _usn
+                                            _us_bg = "rgba(255,255,255,0.06)" if _us_is_sel else "transparent"
+                                            _us_bd = "rgba(255,255,255,0.2)" if _us_is_sel else "rgba(255,255,255,0.06)"
+                                        _ubc1, _ubc2 = st.columns([5, 1])
+                                        _ubc1.markdown(
+                                            f"<div style='border:1px solid {_us_bd};background:{_us_bg};"
+                                            f"border-radius:7px;padding:5px 10px;margin:2px 0'>{_us_bh}</div>",
+                                            unsafe_allow_html=True,
+                                        )
+                                        if _ubc2.button("▶", key=f"us_sec_btn_{_usn}", use_container_width=True):
+                                            st.session_state.us_selected_sector_us = _usn
+                                            st.rerun()
+
+                                _us_cur_si = (_us_sorted_sectors.index(st.session_state.us_selected_sector_us)
+                                              if st.session_state.us_selected_sector_us in _us_sorted_sectors else 0)
+                                _us_sel_sec = st.selectbox(
+                                    "섹터 선택 (직접 선택)", _us_sorted_sectors, index=_us_cur_si,
+                                    key="us_sector_selectbox", label_visibility="visible",
+                                )
+                                if _us_sel_sec != st.session_state.us_selected_sector_us:
+                                    st.session_state.us_selected_sector_us = _us_sel_sec
+                                    st.rerun()
+
+                                us_selected_sector = st.session_state.us_selected_sector_us
+                                us_subsectors      = us_sector_map[us_selected_sector]
+
+                                us_ticker_locations: dict = {}
+                                for _s, _subs in us_sector_map.items():
+                                    for _sb, _stks in _subs.items():
+                                        for _stk in _stks:
+                                            us_ticker_locations.setdefault(_stk["ticker"], []).append(
+                                                f"{_s} › {_sb}"
+                                            )
+
+                                _us_seen: set = set()
+                                _us_unique: list = []
+                                for _stks in us_subsectors.values():
+                                    for _stk in _stks:
+                                        if _stk["ticker"] not in _us_seen:
+                                            _us_seen.add(_stk["ticker"])
+                                            _us_unique.append((_stk["ticker"], _stk.get("exchange","NASDAQ")))
+
+                                _us_n   = len(_us_unique)
+                                _us_est = max(3, min(_us_n // 6, 20))
+                                _us_load_ph = st.empty()
+                                _us_load_ph.markdown(
+                                    f"""<div style='display:flex;align-items:center;gap:14px;
+                                        background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);
+                                        border-radius:12px;padding:14px 18px;margin:8px 0'>
+                                      <div style='font-size:1.3rem;animation:spin 1.2s linear infinite;display:inline-block'>⏳</div>
+                                      <div>
+                                        <div style='font-size:0.85rem;font-weight:600'>실시간 시세 조회 중 ({_us_n}개 종목)</div>
+                                        <div style='font-size:0.82rem;color:#888'>약 {_us_est}초 소요</div>
+                                      </div>
+                                    </div>
+                                    <style>@keyframes spin{{0%{{transform:rotate(0deg)}} 100%{{transform:rotate(360deg)}}}}</style>""",
+                                    unsafe_allow_html=True,
+                                )
+                                us_prices = get_us_prices_bulk_kis(tuple(_us_unique))
+                                _us_load_ph.empty()
+
+                                _us_hcols = st.columns([0.35, 2.8, 1.8, 1.4, 0.45])
+                                for _uhc, _uht in zip(_us_hcols[:4], ["단타", "종목명", "현재가($)", "등락률"]):
+                                    _uhc.markdown(
+                                        f"<p style='margin:0;font-size:0.72rem;color:#888'>{_uht}</p>",
+                                        unsafe_allow_html=True,
+                                    )
+
+                                def _us_sub_avg_pct(stocks, prices):
+                                    vals = [prices.get(s["ticker"], {}).get("change_pct", 0.0) for s in stocks]
+                                    vals = [v for v in vals if v != 0.0]
+                                    return sum(vals) / len(vals) if vals else 0.0
+
+                                def _us_sub_ai_summary(parent_sector, sub_name, avg_pct, stocks, prices):
+                                    from ai_engine import _call_gemini
+                                    import datetime as _dt
+                                    with_pct = sorted(
+                                        [(s["name"], prices.get(s["ticker"], {}).get("change_pct", 0.0))
+                                         for s in stocks if prices.get(s["ticker"], {}).get("change_pct", 0.0) != 0.0],
+                                        key=lambda x: abs(x[1]), reverse=True
+                                    )
+                                    stock_detail = ", ".join(f"{n}({p:+.1f}%)" for n, p in with_pct[:8])
+                                    if not stock_detail:
+                                        stock_detail = ", ".join(s["name"] for s in stocks[:8])
+                                    prompt = (
+                                        f"오늘({_dt.date.today()}) 미국 증시 분석 요청.\n"
+                                        f"분석 범위: '{parent_sector}' 섹터 내 '{sub_name}' 세부섹터 ({len(stocks)}개 종목)\n"
+                                        f"해당 세부섹터 종목: {stock_detail}\n"
+                                        f"세부섹터 평균 등락률: {avg_pct:+.2f}%\n\n"
+                                        f"위 {len(stocks)}개 종목으로 구성된 '{sub_name}' 세부섹터만을 대상으로, "
+                                        f"오늘 이 종목들이 이렇게 움직이는 이유를 뉴스·실적·매크로 기반으로 "
+                                        f"3~5줄 이내로 간결하게 요약해주세요. 이모지 없이 핵심만."
+                                    )
+                                    try:
+                                        resp = _call_gemini(prompt, use_search=True, temperature=0.4)
+                                        return resp.text.strip() if resp and resp.text else "분석 정보 없음"
+                                    except Exception:
+                                        return "AI 분석을 불러올 수 없습니다."
+
+                                with st.container(height=600):
+                                    for us_sub_name, us_stocks in us_subsectors.items():
+                                        us_avg_pct   = _us_sub_avg_pct(us_stocks, us_prices)
+                                        us_pct_color = "#00c853" if us_avg_pct > 0 else "#ff4b4b" if us_avg_pct < 0 else "#888"
+                                        us_tok       = f"_us_sub_open_{us_selected_sector}__{us_sub_name}"
+                                        if us_tok not in st.session_state:
+                                            st.session_state[us_tok] = False
+                                        us_is_open = st.session_state[us_tok]
+                                        us_ai_key  = f"_us_sub_ai_{us_selected_sector}__{us_sub_name}"
+
+                                        with st.container(border=True):
+                                            uh0, uh1, uh2, uh3, uh4 = st.columns([0.35, 2.8, 1.8, 1.4, 0.45])
+                                            if uh0.button(
+                                                "▼" if us_is_open else "▶",
+                                                key=f"us_tog_{us_sub_name}", use_container_width=True,
+                                            ):
+                                                st.session_state[us_tok] = not us_is_open
+                                                st.rerun()
+                                            uh1.markdown(
+                                                f"<span style='font-size:0.85rem;font-weight:600'>📌 {us_sub_name}</span>"
+                                                f"<span style='font-size:0.75rem;color:#888'>　{len(us_stocks)}개</span>",
+                                                unsafe_allow_html=True,
+                                            )
+                                            uh3.markdown(
+                                                f"<span style='font-size:0.92rem;font-weight:700;color:{us_pct_color}'>"
+                                                f"{us_avg_pct:+.2f}%</span>",
+                                                unsafe_allow_html=True,
+                                            )
+                                            if uh4.button("AI", key=f"us_ai_btn_{us_sub_name}", use_container_width=True):
+                                                st.session_state[us_ai_key] = _us_sub_ai_summary(
+                                                    us_selected_sector, us_sub_name, us_avg_pct, us_stocks, us_prices
+                                                )
+
+                                            if us_is_open:
+                                                if us_ai_key in st.session_state:
                                                     st.markdown(
-                                                        '<hr style="margin:2px 0;border:none;'
-                                                        'border-top:1px solid rgba(255,255,255,0.1)">',
+                                                        f"<div style='background:rgba(255,255,255,0.05);"
+                                                        f"border-left:3px solid {us_pct_color};"
+                                                        f"border-radius:6px;padding:8px 12px;margin:4px 0 8px 0;"
+                                                        f"font-size:0.82rem;line-height:1.55;color:#ddd'>"
+                                                        f"{st.session_state[us_ai_key]}</div>",
                                                         unsafe_allow_html=True,
                                                     )
-                                                _updata = us_prices.get(_us["ticker"], {"price": 0.0, "change_pct": 0.0})
-                                                _upct   = _updata["change_pct"]
-                                                _upval  = _updata["price"]
-                                                _upct_c = "#00c853" if _upct > 0 else "#ff4b4b" if _upct < 0 else "#888"
-                                                _other_locs = [
-                                                    loc for loc in us_ticker_locations.get(_us["ticker"],[])
-                                                    if loc != f"{us_selected_sector} › {us_sub_name}"
-                                                ]
-                                                _uc0, _uc1, _uc2, _uc3, _uc4 = st.columns([0.35, 2.8, 1.8, 1.4, 0.45])
-                                                _uc0.markdown("✅" if _upct >= 3.0 else "&nbsp;", unsafe_allow_html=True)
-                                                _uc1.markdown(
-                                                    f"<span style='font-size:0.85rem'>{_us['name']}"
-                                                    f"{'&nbsp;🔗' if _other_locs else ''}</span>",
+                                                st.markdown(
+                                                    '<hr style="margin:4px 0 6px 0;border:none;'
+                                                    'border-top:1px solid rgba(255,255,255,0.15)">',
                                                     unsafe_allow_html=True,
                                                 )
-                                                _uc2.markdown(
-                                                    f"<span style='font-size:0.85rem'>"
-                                                    f"{'$'+f'{_upval:,.2f}' if _upval > 0 else '---'}</span>",
-                                                    unsafe_allow_html=True,
-                                                )
-                                                _uc3.markdown(
-                                                    f"<span style='font-size:0.85rem;font-weight:bold;"
-                                                    f"color:{_upct_c}'>{_upct:+.2f}%</span>",
-                                                    unsafe_allow_html=True,
-                                                )
-                                                if _uc4.button("▶", key=f"us_stk_{_us['ticker']}_{us_sub_name}_{_ui}",
-                                                               use_container_width=True):
-                                                    st.session_state.us_selected_ticker        = _us["ticker"]
-                                                    st.session_state.us_selected_name          = _us["name"]
-                                                    st.session_state.us_sector_detail_ticker   = _us["ticker"]
-                                                    st.session_state.us_sector_detail_name     = _us["name"]
-                                                    st.session_state.us_sector_detail_exchange = _us.get("exchange","NASDAQ")
-                                                    st.session_state.us_sector_view            = "detail"
-                                                    st.rerun()
+                                                for _ui, _us in enumerate(us_stocks):
+                                                    if _ui > 0:
+                                                        st.markdown(
+                                                            '<hr style="margin:2px 0;border:none;'
+                                                            'border-top:1px solid rgba(255,255,255,0.1)">',
+                                                            unsafe_allow_html=True,
+                                                        )
+                                                    _updata = us_prices.get(_us["ticker"], {"price": 0.0, "change_pct": 0.0})
+                                                    _upct   = _updata["change_pct"]
+                                                    _upval  = _updata["price"]
+                                                    _upct_c = "#00c853" if _upct > 0 else "#ff4b4b" if _upct < 0 else "#888"
+                                                    _other_locs = [
+                                                        loc for loc in us_ticker_locations.get(_us["ticker"],[])
+                                                        if loc != f"{us_selected_sector} › {us_sub_name}"
+                                                    ]
+                                                    _uc0, _uc1, _uc2, _uc3, _uc4 = st.columns([0.35, 2.8, 1.8, 1.4, 0.45])
+                                                    _uc0.markdown("✅" if _upct >= 3.0 else "&nbsp;", unsafe_allow_html=True)
+                                                    _uc1.markdown(
+                                                        f"<span style='font-size:0.85rem'>{_us['name']}"
+                                                        f"{'&nbsp;🔗' if _other_locs else ''}</span>",
+                                                        unsafe_allow_html=True,
+                                                    )
+                                                    _uc2.markdown(
+                                                        f"<span style='font-size:0.85rem'>"
+                                                        f"{'$'+f'{_upval:,.2f}' if _upval > 0 else '---'}</span>",
+                                                        unsafe_allow_html=True,
+                                                    )
+                                                    _uc3.markdown(
+                                                        f"<span style='font-size:0.85rem;font-weight:bold;"
+                                                        f"color:{_upct_c}'>{_upct:+.2f}%</span>",
+                                                        unsafe_allow_html=True,
+                                                    )
+                                                    if _uc4.button("▶", key=f"us_stk_{_us['ticker']}_{us_sub_name}_{_ui}",
+                                                                   use_container_width=True):
+                                                        st.session_state.us_selected_ticker        = _us["ticker"]
+                                                        st.session_state.us_selected_name          = _us["name"]
+                                                        st.session_state.us_sector_detail_ticker   = _us["ticker"]
+                                                        st.session_state.us_sector_detail_name     = _us["name"]
+                                                        st.session_state.us_sector_detail_exchange = _us.get("exchange","NASDAQ")
+                                                        st.session_state.us_sector_view            = "detail"
+                                                        st.rerun()
 
     with tab2:
         st.subheader("📊 성과 트래킹 보드")
