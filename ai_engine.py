@@ -277,36 +277,98 @@ def discover_hot_day_trading_stock(context=""):
 
 
 def generate_realtime_picks(market_data: dict, volume_rank: list, change_rank: list) -> dict:
-    """시장·뉴스·수급 데이터를 융합해 실시간 단타 추천 종목 3개 생성."""
+    """시장·뉴스·수급 데이터를 융합해 실시간 스캘핑 추천 종목 3개 생성.
+
+    핵심 로직: 이미 급등한 종목(상한가 근처)이 아닌,
+    거래량은 급증했으나 주가는 아직 미동인 종목(세력 초기 진입 시그널)을 필터링해 AI에 전달.
+    """
     kospi  = market_data.get("KOSPI",  {})
     kosdaq = market_data.get("KOSDAQ", {})
 
-    vol_lines = [
-        f"- {s['종목명']} ({s['종목코드']}): 거래량 {s['거래량']}, 등락률 {s['등락률(%)']:+.2f}%"
-        for s in volume_rank[:5]
-    ] if volume_rank else ["- 데이터 없음"]
+    # ── 세력 초기 진입 탐지: 거래량 급증 & 주가 아직 미동 ──
+    prebreakout  = []   # 등락률 -2% ~ +8%: 아직 진입 가능
+    already_done = []   # 등락률 >8%: 이미 급등, 진입 금지 목록
+    seen = set()
 
-    chg_lines = [
-        f"- {s['종목명']} ({s['종목코드']}): {s['등락률(%)']:+.2f}%, 현재가 {s['현재가']:,}원"
-        for s in change_rank[:5]
-    ] if change_rank else ["- 데이터 없음"]
+    def _chg(s):
+        return float(s.get("등락률(%)", 0) or 0)
 
-    prompt = f"""당신은 한국 주식시장 최고의 단타 트레이더·세력 추적 전문가입니다.
-지금 즉시 구글 검색으로 오늘의 핫이슈·급등 이유·외국인/기관 수급 흐름을 파악하세요.
+    def _fmt(s):
+        chg   = _chg(s)
+        vol   = s.get("거래량", "")
+        price = s.get("현재가", "")
+        vol   = f"{vol:,}주" if isinstance(vol, int) else str(vol)
+        price = f"₩{price:,}" if isinstance(price, int) else str(price)
+        mkt   = f" [{s['시장']}]" if "시장" in s else ""
+        return (f"- {s.get('종목명','')} ({s.get('종목코드','')}){mkt}: "
+                f"등락률 {chg:+.2f}%, 현재가 {price}, 거래량 {vol}")
+
+    # volume_rank 처리 (거래량 상위 종목 중 필터)
+    for s in (volume_rank or []):
+        code = str(s.get("종목코드", ""))
+        if not code or code in seen:
+            continue
+        seen.add(code)
+        if _chg(s) > 8:
+            already_done.append(s)
+        elif _chg(s) >= -2:
+            prebreakout.append(s)
+
+    # change_rank 처리 (KOSPI+KOSDAQ 합산)
+    for s in (change_rank or []):
+        code = str(s.get("종목코드", ""))
+        if not code or code in seen:
+            continue
+        seen.add(code)
+        if _chg(s) > 8:
+            already_done.append(s)
+        elif 1 <= _chg(s) <= 8:
+            prebreakout.append(s)
+
+    pb_lines  = [_fmt(s) for s in prebreakout[:10]] or ["- 데이터 없음"]
+    sur_lines = [
+        f"- {s.get('종목명','')} ({s.get('종목코드','')}): {_chg(s):+.1f}% ← 이미 급등 완료"
+        for s in already_done[:6]
+    ]
+
+    prompt = f"""당신은 한국 주식시장 스캘핑 전문 트레이더입니다.
+지금 즉시 구글 검색으로 오늘의 뉴스·공시·외국인/기관 수급 흐름을 파악하세요.
 
 [현재 시장]
 KOSPI : {kospi.get('index',0):,.2f}  ({kospi.get('change_pct',0):+.2f}%)
 KOSDAQ: {kosdaq.get('index',0):,.2f}  ({kosdaq.get('change_pct',0):+.2f}%)
 
-[실시간 거래량 상위 5]
-{chr(10).join(vol_lines)}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🎯 [거래량 급증 & 아직 주가 미동 종목] ← 세력 초기 진입 시그널
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+(등락률 +8% 미만 = 파동 초입, 추가 상승 여력 충분)
+{chr(10).join(pb_lines)}
 
-[실시간 급등 상위 5]
-{chr(10).join(chg_lines)}
+{"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" if sur_lines else ""}
+{"❌ [이미 급등 완료 — 절대 진입 금지 목록]" if sur_lines else ""}
+{"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" if sur_lines else ""}
+{chr(10).join(sur_lines)}
 
-위 데이터와 구글 검색 최신 뉴스를 종합해, 지금 당장 단타 진입이 가능한 종목 3개를 골라주세요.
-각 종목에 대해 구체적인 진입 근거(최신 뉴스/세력/수급)를 2줄 이내로 제시하세요.
-현재가를 기준으로 현실적인 타점/목표가/손절가를 계산하세요.
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+[스캘핑 종목 선정 절대 원칙]
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+❌ 절대 금지:
+  · 오늘 이미 10% 이상 오른 종목 추천 금지 (상한가 근처 = 들어갈 수 없음)
+  · "이미 급등 완료" 목록에 있는 종목 추천 금지
+
+✅ 추천 대상 (아래 조건 충족 종목):
+  1. 거래량이 오늘 갑자기 급증 (세력·기관 수급 유입 시그널)
+  2. 주가 등락률이 현재 +1%~+7% 사이 = 파동 초입, 추가 상승 여력 큼
+  3. 오늘 재료(뉴스/공시/테마)가 막 터졌거나, 주요 저항선 돌파 직전 상태
+  4. 위 목록에 없어도 구글 검색에서 오늘 막 이슈 터진 종목이면 포함 가능
+
+🎯 타점 기준:
+  · 진입가: 현재가 기준 소폭 눌림 또는 즉시 진입 가격
+  · 목표가: 진입가 대비 +3%~+8% (스캘핑 기준)
+  · 손절가: 진입가 대비 -2% 이내 (칼손절)
+
+구글 검색으로 각 종목의 오늘 급등 재료/이슈를 확인하고,
+현재 실시간 주가를 파악해 현실적인 타점을 산정하세요.
 
 반드시 아래 JSON 형식만 반환 (백틱·설명 없이):
 {{
@@ -317,16 +379,20 @@ KOSDAQ: {kosdaq.get('index',0):,.2f}  ({kosdaq.get('change_pct',0):+.2f}%)
       "rank": 1,
       "code": "종목코드 6자리 숫자",
       "name": "종목명",
-      "theme": "핵심 테마 키워드 1~2개 (예: AI반도체)",
-      "reason": "추천 근거 2줄 이내",
+      "theme": "핵심 테마 키워드 1~2개 (예: AI반도체·방산)",
+      "reason": "추천 근거: 거래량 급증 이유 + 아직 진입 가능한 이유 (2~3줄)",
       "current_price": 현재가_숫자,
+      "change_pct": 현재_등락률_숫자,
       "entry": 매수타점_숫자,
       "target": 목표가_숫자,
       "stop": 손절가_숫자,
       "urgency": "즉시진입 또는 눌림목대기"
     }}
   ]
-}}"""
+}}
+
+⚠️ 최종 자가검증: picks 중 change_pct가 10% 이상인 종목이 있으면 즉시 다른 종목으로 교체하세요."""
+
     try:
         response = _call_gemini(prompt, use_search=True, temperature=0.35)
         text = re.sub(r'```(?:json)?', '', response.text).strip()

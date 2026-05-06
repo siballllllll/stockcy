@@ -375,9 +375,10 @@ def main():
                         try:
                             from ai_engine import generate_realtime_picks
                             _mkt = get_kr_market_index() or {}
-                            _vol = get_kr_volume_ranking()
+                            _vol = get_kr_volume_ranking() or []
                             from data_kr import get_kr_change_ranking
-                            _chg = get_kr_change_ranking("J")
+                            # KOSPI + KOSDAQ 합산 → 더 넓은 종목 풀
+                            _chg = (get_kr_change_ranking("J") or []) + (get_kr_change_ranking("Q") or [])
                             _picks = generate_realtime_picks(_mkt, _vol, _chg)
                         except Exception as _pe:
                             _picks = {"error": str(_pe), "picks": []}
@@ -422,13 +423,21 @@ def main():
                             _target = _pick.get("target", 0)
                             _stop   = _pick.get("stop", 0)
                             _cur    = _pick.get("current_price", 0)
+                            _cpct   = float(_pick.get("change_pct", 0) or 0)
                             _upside = round((_target - _entry) / _entry * 100, 1) if _entry > 0 else 0
                             _themes = [t.strip() for t in str(_pick.get("theme","")).split(",") if t.strip()]
+                            # 이미 많이 오른 종목 경고 (AI가 지침을 어긴 경우 사용자에게 표시)
+                            _already_surged = _cpct >= 10
 
                             with _pcol:
+                                # 현재가 + 등락률 행
+                                _cpct_color = "#ff4b4b" if _cpct >= 0 else "#2b7cff"
+                                _cpct_sign  = "▲" if _cpct >= 0 else "▼"
                                 _cur_html = (
-                                    f"<div style='font-size:0.8rem;color:#aaa;margin-bottom:10px'>"
-                                    f"현재 <b style='color:#eee'>₩{int(_cur):,}</b></div>"
+                                    f"<div style='font-size:0.8rem;color:#aaa;margin-bottom:8px'>"
+                                    f"현재 <b style='color:#eee'>₩{int(_cur):,}</b>&nbsp;"
+                                    f"<span style='color:{_cpct_color};font-weight:700'>"
+                                    f"{_cpct_sign} {abs(_cpct):.2f}%</span></div>"
                                 ) if _cur > 0 else ""
                                 _theme_html = "".join(
                                     f"<span style='background:rgba(255,255,255,0.08);"
@@ -436,9 +445,16 @@ def main():
                                     f"color:#aaa;margin-right:4px'>{th}</span>"
                                     for th in _themes
                                 )
+                                # 이미 급등 경고 배너
+                                _warn_html = (
+                                    "<div style='background:rgba(255,75,75,0.15);border:1px solid #ff4b4b;"
+                                    "border-radius:8px;padding:4px 8px;font-size:0.65rem;color:#ff4b4b;"
+                                    "margin-bottom:8px'>⚠️ 이미 많이 오른 종목 — 진입 신중</div>"
+                                ) if _already_surged else ""
+                                _border_color = "rgba(255,75,75,0.3)" if _already_surged else "rgba(255,255,255,0.1)"
                                 _card_html = (
                                     f"<div style='background:rgba(255,255,255,0.035);"
-                                    f"border:1px solid rgba(255,255,255,0.1);border-radius:14px;"
+                                    f"border:1px solid {_border_color};border-radius:14px;"
                                     f"padding:14px 14px 12px 14px'>"
                                     f"<div style='display:flex;justify-content:space-between;"
                                     f"align-items:flex-start;margin-bottom:10px'>"
@@ -451,6 +467,7 @@ def main():
                                     f"border-radius:12px;padding:3px 8px;font-size:0.68rem;font-weight:700;"
                                     f"white-space:nowrap'>{_urg_icon} {_urg}</span>"
                                     f"</div>"
+                                    + _warn_html
                                     + _cur_html +
                                     f"<div style='display:grid;grid-template-columns:1fr 1fr 1fr;"
                                     f"gap:6px;margin-bottom:10px'>"
