@@ -276,6 +276,69 @@ def discover_hot_day_trading_stock(context=""):
         }
 
 
+def generate_realtime_picks(market_data: dict, volume_rank: list, change_rank: list) -> dict:
+    """시장·뉴스·수급 데이터를 융합해 실시간 단타 추천 종목 3개 생성."""
+    kospi  = market_data.get("KOSPI",  {})
+    kosdaq = market_data.get("KOSDAQ", {})
+
+    vol_lines = [
+        f"- {s['종목명']} ({s['종목코드']}): 거래량 {s['거래량']}, 등락률 {s['등락률(%)']:+.2f}%"
+        for s in volume_rank[:5]
+    ] if volume_rank else ["- 데이터 없음"]
+
+    chg_lines = [
+        f"- {s['종목명']} ({s['종목코드']}): {s['등락률(%)']:+.2f}%, 현재가 {s['현재가']:,}원"
+        for s in change_rank[:5]
+    ] if change_rank else ["- 데이터 없음"]
+
+    prompt = f"""당신은 한국 주식시장 최고의 단타 트레이더·세력 추적 전문가입니다.
+지금 즉시 구글 검색으로 오늘의 핫이슈·급등 이유·외국인/기관 수급 흐름을 파악하세요.
+
+[현재 시장]
+KOSPI : {kospi.get('index',0):,.2f}  ({kospi.get('change_pct',0):+.2f}%)
+KOSDAQ: {kosdaq.get('index',0):,.2f}  ({kosdaq.get('change_pct',0):+.2f}%)
+
+[실시간 거래량 상위 5]
+{chr(10).join(vol_lines)}
+
+[실시간 급등 상위 5]
+{chr(10).join(chg_lines)}
+
+위 데이터와 구글 검색 최신 뉴스를 종합해, 지금 당장 단타 진입이 가능한 종목 3개를 골라주세요.
+각 종목에 대해 구체적인 진입 근거(최신 뉴스/세력/수급)를 2줄 이내로 제시하세요.
+현재가를 기준으로 현실적인 타점/목표가/손절가를 계산하세요.
+
+반드시 아래 JSON 형식만 반환 (백틱·설명 없이):
+{{
+  "market_condition": "상승장 또는 하락장 또는 혼조세",
+  "market_comment": "오늘 시장을 한 문장으로 요약",
+  "picks": [
+    {{
+      "rank": 1,
+      "code": "종목코드 6자리 숫자",
+      "name": "종목명",
+      "theme": "핵심 테마 키워드 1~2개 (예: AI반도체)",
+      "reason": "추천 근거 2줄 이내",
+      "current_price": 현재가_숫자,
+      "entry": 매수타점_숫자,
+      "target": 목표가_숫자,
+      "stop": 손절가_숫자,
+      "urgency": "즉시진입 또는 눌림목대기"
+    }}
+  ]
+}}"""
+    try:
+        response = _call_gemini(prompt, use_search=True, temperature=0.35)
+        text = re.sub(r'```(?:json)?', '', response.text).strip()
+        start = text.find('{')
+        if start != -1:
+            result, _ = json.JSONDecoder().raw_decode(text, start)
+            return result
+        return json.loads(text)
+    except Exception as e:
+        return {"error": str(e), "picks": []}
+
+
 def generate_kr_stock_report(stock_code: str, name: str, price_data: dict, investor_data: list):
     """국내 주식 AI 수급 분석 및 단타 타점 리포트"""
     investor_summary = ""
