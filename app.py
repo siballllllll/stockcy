@@ -231,15 +231,10 @@ def main():
       <script type="text/javascript" src="https://s3.tradingview.com/external-embedding/embed-widget-ticker-tape.js" async>
       {
       "symbols": [
-        {"description": "삼성전자", "proName": "KRX:005930"},
-        {"description": "SK하이닉스", "proName": "KRX:000660"},
-        {"description": "현대차", "proName": "KRX:005380"},
-        {"description": "NAVER", "proName": "KRX:035420"},
-        {"description": "카카오", "proName": "KRX:035720"},
-        {"description": "삼성바이오", "proName": "KRX:207940"},
         {"description": "S&P500", "proName": "SP:SPX"},
         {"description": "나스닥100", "proName": "FOREXCOM:NSXUSD"},
         {"description": "다우존스", "proName": "DJ:DJI"},
+        {"description": "원/달러", "proName": "FX_IDC:USDKRW"},
         {"description": "엔비디아", "proName": "NASDAQ:NVDA"},
         {"description": "애플", "proName": "NASDAQ:AAPL"},
         {"description": "테슬라", "proName": "NASDAQ:TSLA"},
@@ -247,7 +242,10 @@ def main():
         {"description": "메타", "proName": "NASDAQ:META"},
         {"description": "구글", "proName": "NASDAQ:GOOGL"},
         {"description": "아마존", "proName": "NASDAQ:AMZN"},
-        {"description": "비트코인", "proName": "CRYPTO:BTCUSD"}
+        {"description": "금", "proName": "TVC:GOLD"},
+        {"description": "WTI유가", "proName": "TVC:USOIL"},
+        {"description": "비트코인", "proName": "CRYPTO:BTCUSD"},
+        {"description": "이더리움", "proName": "CRYPTO:ETHUSD"}
       ],
       "showSymbolLogo": true,
       "isTransparent": true,
