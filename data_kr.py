@@ -750,3 +750,146 @@ def get_kr_major_tickers() -> list:
         except Exception:
             continue
     return results
+
+
+# ── 미국 주식 랭킹 / 분봉 / 신호 ─────────────────────────────────────────────
+_US_WATCHLIST = [
+    "NVDA","TSLA","AAPL","MSFT","META","AMZN","GOOGL","AMD","PLTR","AVGO",
+    "COIN","MSTR","ARM","SMCI","HOOD","INTC","MU","SOFI","RBLX","SNAP",
+    "SQ","SHOP","BABA","PDD","TSM","QCOM","AMAT","JPM","BAC","LLY",
+]
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def get_us_volume_ranking() -> list:
+    """US 거래량 상위 종목 — watchlist yfinance 배치 조회"""
+    import yfinance as yf
+    results = []
+    for ticker in _US_WATCHLIST:
+        try:
+            fi = yf.Ticker(ticker).fast_info
+            price   = round(fi.get("lastPrice",              0) or 0, 2)
+            prev    = fi.get("previousClose",                0) or 0
+            vol     = int(fi.get("lastVolume",               0) or 0)
+            avg_vol = int(fi.get("threeMonthAverageVolume",  0) or 0)
+            if price <= 0 or vol <= 0:
+                continue
+            chg = round(((price - prev) / prev * 100) if prev > 0 else 0, 2)
+            results.append({
+                "티커":       ticker,
+                "현재가($)":  price,
+                "등락률(%)":  chg,
+                "거래량":     vol,
+                "거래량_비율": round(vol / avg_vol, 2) if avg_vol > 0 else 0,
+            })
+        except Exception:
+            continue
+    results.sort(key=lambda x: x["거래량"], reverse=True)
+    return results[:15]
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def get_us_change_ranking() -> list:
+    """US 등락률 상위 종목 — watchlist yfinance 배치 조회"""
+    import yfinance as yf
+    results = []
+    for ticker in _US_WATCHLIST:
+        try:
+            fi = yf.Ticker(ticker).fast_info
+            price = round(fi.get("lastPrice",     0) or 0, 2)
+            prev  = fi.get("previousClose",       0) or 0
+            vol   = int(fi.get("lastVolume",      0) or 0)
+            if price <= 0:
+                continue
+            chg = round(((price - prev) / prev * 100) if prev > 0 else 0, 2)
+            results.append({
+                "티커":      ticker,
+                "현재가($)": price,
+                "등락률(%)": chg,
+                "거래량":    vol,
+            })
+        except Exception:
+            continue
+    results.sort(key=lambda x: x["등락률(%)"], reverse=True)
+    return results
+
+
+@st.cache_data(ttl=60, show_spinner=False)
+def get_us_minute_chart(ticker: str, interval: int = 5) -> pd.DataFrame:
+    """미국 주식 분봉 데이터 (yfinance, ET 장중 시간 필터)"""
+    import yfinance as yf
+    _map = {1: "1m", 3: "5m", 5: "5m", 10: "15m", 15: "15m", 30: "30m", 60: "60m"}
+    yf_interval = _map.get(interval, "5m")
+    try:
+        raw = yf.Ticker(ticker).history(period="1d", interval=yf_interval, auto_adjust=True)
+        if raw.empty:
+            return pd.DataFrame()
+        df = raw.reset_index()
+        dt_col = next((c for c in df.columns if str(c).lower() in ("datetime", "date")), None)
+        if not dt_col:
+            return pd.DataFrame()
+        df = df.rename(columns={dt_col: "datetime"})
+        df.columns = [str(c).lower().strip() for c in df.columns]
+        needed = ["datetime", "open", "high", "low", "close", "volume"]
+        if not all(c in df.columns for c in needed):
+            return pd.DataFrame()
+        df["datetime"] = pd.to_datetime(df["datetime"])
+        if df["datetime"].dt.tz is not None:
+            df["datetime"] = df["datetime"].dt.tz_convert("America/New_York").dt.tz_localize(None)
+        import datetime as _dtm
+        _open  = _dtm.time(9, 30)
+        _close = _dtm.time(16, 0)
+        df = df[(df["datetime"].dt.time >= _open) & (df["datetime"].dt.time <= _close)]
+        return df[needed].dropna(subset=["open", "high", "low", "close"]).reset_index(drop=True)
+    except Exception:
+        return pd.DataFrame()
+
+
+@st.cache_data(ttl=90, show_spinner=False)
+def get_us_prebreakout_signal(ticker: str) -> dict:
+    """5분봉 기반 미국 주식 급등 직전 신호 (get_kr_prebreakout_signal의 US 버전)"""
+    df = get_us_minute_chart(ticker, interval=5)
+    if df.empty or len(df) < 6:
+        return {"signal_score": 0, "signal_label": "데이터 부족", "vol_accel": 0}
+
+    n = len(df)
+    recent_vol = df["volume"].iloc[max(n-6, 0):].sum()
+    prev_vol   = df["volume"].iloc[max(n-12, 0):max(n-6, 0)].sum()
+    vol_accel  = round(recent_vol / prev_vol, 2) if prev_vol > 0 else 0.0
+
+    box_high     = df["high"].iloc[max(n-7, 0):n-1].max() if n > 2 else 0
+    cur_close    = df["close"].iloc[-1]
+    consol_break = bool(cur_close > box_high) if box_high > 0 else False
+
+    ma20     = df["close"].rolling(20).mean().iloc[-1] if n >= 20 else df["close"].mean()
+    ma5      = df["close"].rolling(5).mean().iloc[-1]  if n >= 5  else df["close"].mean()
+    above_ma = bool(cur_close > ma20 and cur_close > ma5)
+
+    if n >= 3:
+        last3      = df.iloc[-3:]
+        candle_seq = bool(all(last3["close"].values > last3["open"].values))
+    else:
+        candle_seq = False
+
+    score, notes = 0, []
+    if vol_accel >= 2.5:
+        score += 2; notes.append(f"거래량가속 {vol_accel:.1f}x")
+    elif vol_accel >= 1.5:
+        score += 1; notes.append(f"거래량증가 {vol_accel:.1f}x")
+    if consol_break:
+        score += 1; notes.append("박스권돌파")
+    if candle_seq:
+        score += 1; notes.append("연속양봉")
+    if above_ma:
+        score += 1; notes.append("이평선상위")
+
+    return {
+        "ticker":       ticker,
+        "vol_accel":    vol_accel,
+        "consol_break": consol_break,
+        "above_ma":     above_ma,
+        "candle_seq":   candle_seq,
+        "signal_score": min(score, 5),
+        "signal_label": " · ".join(notes) if notes else "시그널 없음",
+        "cur_price":    round(float(cur_close), 2),
+    }

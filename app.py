@@ -2038,7 +2038,7 @@ def main():
 
             # ── 세션 상태 초기화 ──────────────────────────────────────────
             for _k, _v in [
-                ("us_mode",               "📊 일반 주식 검색"),
+                ("us_mode",               "🎯 AI 타점 보드"),
                 ("us_selected_ticker",    "NVDA"),
                 ("us_selected_name",      "엔비디아"),
                 ("us_selected_sector_us", "AI·반도체"),
@@ -2056,7 +2056,7 @@ def main():
                     st.session_state[_k] = _v
 
             # ── 모드 토글 ─────────────────────────────────────────────────
-            _us_modes = ["📊 일반 주식 검색", "🔥 오늘의 이슈 섹터"]
+            _us_modes = ["🎯 AI 타점 보드", "📊 일반 주식 검색", "🔥 오늘의 이슈 섹터"]
             _us_idx = _us_modes.index(st.session_state.us_mode) if st.session_state.us_mode in _us_modes else 0
             us_mode = st.radio(
                 "US 모드 선택", _us_modes,
@@ -2066,18 +2066,189 @@ def main():
                 st.session_state.us_mode = us_mode
                 st.rerun()
 
+            # ══════════════════════════════════════════════════════════════
+            # 🎯 US AI 타점 보드
+            # ══════════════════════════════════════════════════════════════
+            if us_mode == "🎯 AI 타점 보드":
+                _us_pb_key  = "us_picks_result"
+                _us_run_key = "_us_picks_pending"
+
+                # 3분마다 경량 신호 스캔
+                if _HAVE_AUTOREFRESH:
+                    _st_autorefresh(interval=180_000, key="us_signal_autorefresh")
+
+                def _us_quick_signal_scan() -> int:
+                    try:
+                        from ai_engine import _compute_us_prebreakout_signals
+                        from data_kr import get_us_volume_ranking, get_us_change_ranking
+                        _qvol = get_us_volume_ranking() or []
+                        _qchg = get_us_change_ranking() or []
+                        _qpre, _ = _compute_us_prebreakout_signals(_qvol, _qchg)
+                        return sum(1 for x in _qpre if x.get("_signal", {}).get("signal_score", 0) >= 3)
+                    except Exception:
+                        return 0
+
+                _us_sig_count_key = "_us_sig_count_last"
+                _us_sig_ts_key    = "_us_sig_ts_last"
+                _us_new_count = _us_quick_signal_scan()
+                _us_old_count  = st.session_state.get(_us_sig_count_key, -1)
+                if _us_new_count != _us_old_count:
+                    st.session_state[_us_sig_count_key] = _us_new_count
+                    st.session_state[_us_sig_ts_key] = datetime.now().strftime("%H:%M")
+                _us_sig_ts = st.session_state.get(_us_sig_ts_key, "")
+
+                if _us_new_count > 0 and _us_pb_key not in st.session_state:
+                    st.markdown(
+                        f"""<div style='background:linear-gradient(90deg,rgba(0,200,83,0.15),rgba(0,150,60,0.08));
+                            border:1.5px solid #00c853;border-radius:10px;padding:10px 16px;margin:6px 0;
+                            display:flex;align-items:center;gap:10px;animation:pulse 1.5s ease-in-out infinite;'>
+                          <span style='font-size:1.3rem'>🚀</span>
+                          <span style='flex:1;font-size:0.85rem;font-weight:700;color:#00c853'>
+                            {_us_new_count}개 US 급등 직전 신호 감지 ({_us_sig_ts}) — AI 타점 분석 실행 권장</span>
+                        </div>
+                        <style>@keyframes pulse{{0%,100%{{opacity:1}} 50%{{opacity:0.6}}}}</style>""",
+                        unsafe_allow_html=True,
+                    )
+                elif _us_new_count == 0 and _us_sig_ts:
+                    st.caption(f"🟢 마지막 신호 스캔: {_us_sig_ts} — 현재 고강도 신호 없음")
+
+                _us_pb_col1, _us_pb_col2 = st.columns([3, 1])
+                with _us_pb_col1:
+                    if st.button("🔄 US AI 타점 분석 실행", key="us_picks_btn",
+                                 type="primary", use_container_width=True):
+                        st.session_state[_us_run_key] = True
+                        st.session_state.pop(_us_pb_key, None)
+                        st.rerun()
+                with _us_pb_col2:
+                    if st.button("🗑 초기화", key="us_picks_clear", use_container_width=True):
+                        st.session_state.pop(_us_pb_key, None)
+                        st.rerun()
+
+                if st.session_state.get(_us_run_key) and _us_pb_key not in st.session_state:
+                    with st.spinner("AI가 US 시장·뉴스·옵션플로우를 분석 중입니다..."):
+                        try:
+                            from ai_engine import generate_us_realtime_picks
+                            from data import get_us_market_indices
+                            from data_kr import get_us_volume_ranking, get_us_change_ranking
+                            _us_mkt  = get_us_market_indices() or {}
+                            _us_vol  = get_us_volume_ranking() or []
+                            _us_chg  = get_us_change_ranking() or []
+                            _us_picks = generate_us_realtime_picks(_us_mkt, _us_vol, _us_chg)
+                        except Exception as _upe:
+                            _us_picks = {"error": str(_upe), "picks": []}
+                        _us_picks["_ts"] = datetime.now().strftime("%H:%M")
+                        st.session_state[_us_pb_key] = _us_picks
+                        st.session_state[_us_run_key] = False
+                    st.rerun()
+
+                if _us_pb_key in st.session_state:
+                    _us_res  = st.session_state[_us_pb_key]
+                    _us_ts   = _us_res.get("_ts", "")
+                    _us_cond = _us_res.get("market_condition", "")
+                    _us_comment = _us_res.get("market_comment", "")
+                    _us_cond_color = "#00c853" if "상승" in _us_cond else "#ff4b4b" if "하락" in _us_cond else "#f5c518"
+                    _us_cond_icon  = "🟢" if "상승" in _us_cond else "🔴" if "하락" in _us_cond else "🟡"
+
+                    st.markdown(
+                        f"<div style='background:rgba(255,255,255,0.04);border-left:3px solid {_us_cond_color};"
+                        f"padding:8px 14px;border-radius:4px;margin:8px 0'>"
+                        f"<span style='font-size:0.8rem;color:{_us_cond_color};font-weight:700'>"
+                        f"{_us_cond_icon} {_us_cond}</span>"
+                        f"<span style='font-size:0.75rem;color:#aaa;margin-left:10px'>{_us_comment}</span>"
+                        f"<span style='font-size:0.7rem;color:#555;float:right'>업데이트: {_us_ts}</span>"
+                        f"</div>",
+                        unsafe_allow_html=True,
+                    )
+
+                    if _us_res.get("error"):
+                        st.error(f"분석 오류: {_us_res['error']}")
+                    else:
+                        _us_pick_list = _us_res.get("picks", [])
+                        if not _us_pick_list:
+                            st.info("현재 조건에 맞는 종목이 없습니다.")
+                        else:
+                            for _up in _us_pick_list:
+                                _up_ticker = _up.get("ticker", "")
+                                _up_name   = _up.get("name", _up_ticker)
+                                _up_chg    = float(_up.get("change_pct", 0) or 0)
+                                _up_pat    = _up.get("pattern", "")
+                                _up_hrz    = _up.get("horizon", "")
+                                _up_urg    = _up.get("urgency", "")
+                                _up_theme  = _up.get("theme", "")
+                                _up_reason = _up.get("reason", "")
+                                _up_entry  = _up.get("entry", 0)
+                                _up_target = _up.get("target", 0)
+                                _up_stop   = _up.get("stop", 0)
+                                _up_rank   = _up.get("rank", "")
+                                _up_chg_col = "#00c853" if _up_chg >= 0 else "#ff4b4b"
+                                _up_chg_ar  = "▲" if _up_chg >= 0 else "▼"
+                                _up_urg_col = "#ff4b4b" if _up_urg == "즉시진입" else "#f5c518" if "눌림목" in _up_urg else "#888"
+
+                                with st.container(border=True):
+                                    _uc1, _uc2 = st.columns([8, 2])
+                                    with _uc1:
+                                        st.markdown(
+                                            f"<div style='display:flex;align-items:center;gap:8px;flex-wrap:wrap'>"
+                                            f"<span style='font-size:1.1rem;font-weight:700'>{_up_rank}. {_up_name} ({_up_ticker})</span>"
+                                            f"<span style='font-size:0.85rem;color:{_up_chg_col};font-weight:700'>"
+                                            f"{_up_chg_ar} {_up_chg:+.2f}%</span>"
+                                            + (f"<span style='font-size:0.68rem;background:rgba(0,200,83,0.15);"
+                                               f"border:1px solid #00c853;border-radius:4px;padding:1px 6px;"
+                                               f"color:#00c853'>{_up_pat}</span>" if _up_pat else "")
+                                            + (f"<span style='font-size:0.68rem;background:rgba(245,197,24,0.12);"
+                                               f"border:1px solid #f5c518;border-radius:4px;padding:1px 6px;"
+                                               f"color:#f5c518'>{_up_hrz}</span>" if _up_hrz else "")
+                                            + f"</div>",
+                                            unsafe_allow_html=True,
+                                        )
+                                        if _up_theme:
+                                            st.markdown(
+                                                f"<p style='font-size:0.72rem;color:#888;margin:2px 0'>"
+                                                f"🏷 {_up_theme}</p>",
+                                                unsafe_allow_html=True,
+                                            )
+                                        if _up_reason:
+                                            st.markdown(
+                                                f"<p style='font-size:0.75rem;color:#ccc;margin:4px 0'>"
+                                                f"{_up_reason}</p>",
+                                                unsafe_allow_html=True,
+                                            )
+                                    with _uc2:
+                                        st.markdown(
+                                            f"<div style='text-align:right'>"
+                                            f"<span style='font-size:0.72rem;color:{_up_urg_col};"
+                                            f"font-weight:700'>{_up_urg}</span></div>",
+                                            unsafe_allow_html=True,
+                                        )
+                                        if st.button("▶ 차트", key=f"us_pick_chart_{_up_ticker}_{_up_rank}",
+                                                     use_container_width=True):
+                                            st.session_state.us_selected_ticker      = _up_ticker
+                                            st.session_state.us_selected_name        = _up_name
+                                            st.session_state.us_sector_detail_ticker = _up_ticker
+                                            st.session_state.us_sector_detail_name   = _up_name
+                                            st.session_state.us_sector_view          = "detail"
+                                            st.session_state.us_mode                 = "🔥 오늘의 이슈 섹터"
+                                            st.rerun()
+
+                                    _upe1, _upe2, _upe3 = st.columns(3)
+                                    _upe1.metric("매수 타점", f"${_up_entry:,.2f}" if _up_entry else "-")
+                                    _upe2.metric("목표가",    f"${_up_target:,.2f}" if _up_target else "-")
+                                    _upe3.metric("손절가",    f"${_up_stop:,.2f}" if _up_stop else "-")
+
+                                    if _up_chg >= 12:
+                                        st.warning("⚠️ 등락률 12% 이상 — 추격 매수 금지")
+
+            # ── 2-컬럼 레이아웃 변수 (타점 보드 이외 모드에서 사용) ──────────
             _us_ticker_cur = st.session_state.us_selected_ticker
             _us_name_cur   = st.session_state.us_selected_name
-
             _us_need_price = (
                 us_mode == "📊 일반 주식 검색"
                 or st.session_state.us_sector_view == "detail"
             )
             detail_us = None
-            if _us_need_price:
+            if us_mode != "🎯 AI 타점 보드" and _us_need_price:
                 with st.spinner(""):
                     detail_us = get_us_stock_detail(_us_ticker_cur)
-
             _YF_TO_TV = {
                 "NMS": "NASDAQ", "NGM": "NASDAQ", "NCM": "NASDAQ",
                 "NYQ": "NYSE",   "NYS": "NYSE",   "PCX": "NYSE",   "ASE": "AMEX",
@@ -2086,7 +2257,9 @@ def main():
             col_us_chart, col_us_right = st.columns([5, 5])
 
             with col_us_chart:
-                if us_mode == "🔥 오늘의 이슈 섹터":
+                if us_mode == "🎯 AI 타점 보드":
+                    pass  # 타점 보드는 위에서 전체폭으로 렌더링됨
+                elif us_mode == "🔥 오늘의 이슈 섹터":
                     if st.session_state.us_sector_view == "detail":
                         _us_dticker   = st.session_state.us_sector_detail_ticker
                         _us_dname     = st.session_state.us_sector_detail_name
@@ -2212,7 +2385,9 @@ def main():
                       </script></div>''', height=480)
 
             with col_us_right:
-                if us_mode == "📊 일반 주식 검색":
+                if us_mode == "🎯 AI 타점 보드":
+                    pass  # 타점 보드는 위에서 전체폭으로 렌더링됨
+                elif us_mode == "📊 일반 주식 검색":
                     from db import load_us_sector_map as _load_us_sm
                     _us_sm = _load_us_sm()
                     _us_all_stk: dict = {}
@@ -2618,23 +2793,26 @@ def main():
                                 st.rerun()
 
                         if st.session_state.us_sector_panel_tab == _us_spt_tabs[0]:
-                            from ai_engine import discover_hot_day_trading_stock, generate_dynamic_themes
+                            from ai_engine import analyze_us_today_market, analyze_us_hot_sectors
                             _us_am_hdr, _us_am_ref = st.columns([8, 1])
                             _us_am_hdr.markdown(
                                 "<p style='font-size:0.75rem;color:#888;margin:4px 0'>"
-                                "AI 핫종목 발굴 · 핫 테마 분석 통합</p>",
+                                "급등 종목 분석 · AI 핫 섹터 통합</p>",
                                 unsafe_allow_html=True,
                             )
                             if st.session_state.us_ai_market_run:
-                                if _us_am_ref.button("🔄", key="us_ai_mkt_refresh", help="재분석"):
-                                    try: generate_dynamic_themes.clear()
+                                if _us_am_ref.button("🔄", key="us_ai_mkt_refresh", help="전체 재분석"):
+                                    try: analyze_us_today_market.clear()
+                                    except: pass
+                                    try: analyze_us_hot_sectors.clear()
                                     except: pass
                                     st.rerun()
+
                             if not st.session_state.us_ai_market_run:
                                 st.markdown(
                                     "<div style='text-align:center;padding:40px 20px'>"
                                     "<p style='color:#888;font-size:0.85rem;margin-bottom:16px'>"
-                                    "AI 핫종목 발굴과 오늘의 핫 테마를 한번에 분석합니다</p>"
+                                    "US 급등 종목 이유 분석, AI 핫 섹터를 한번에 확인합니다</p>"
                                     "</div>",
                                     unsafe_allow_html=True,
                                 )
@@ -2643,99 +2821,164 @@ def main():
                                     st.session_state.us_ai_market_run = True
                                     st.rerun()
                             else:
-                                st.markdown(
-                                    "<p style='font-size:0.78rem;font-weight:700;color:#aaa;"
-                                    "margin:6px 0 4px 0'>🎯 오늘의 AI 단타 핫종목</p>",
-                                    unsafe_allow_html=True,
+                                with st.spinner("US 시장 분석 중..."):
+                                    _us_mkt_res = analyze_us_today_market()
+                                    _us_ai_res  = analyze_us_hot_sectors()
+
+                                _us_quota_err = (
+                                    isinstance(_us_mkt_res, dict) and _us_mkt_res.get("error") == "QUOTA"
                                 )
-                                if st.button("✨ AI 핫종목 새로 발굴", key="us_sec_discover",
-                                             use_container_width=True):
-                                    with st.spinner("탐색 중..."):
-                                        _us_hs = discover_hot_day_trading_stock("")
-                                        if _us_hs.get("ticker") != "N/A":
-                                            st.session_state.us_sec_hot = _us_hs
-                                            from db import log_ai_recommendation
-                                            log_ai_recommendation(
-                                                "단타발굴(섹터)", _us_hs.get("ticker",""),
-                                                _us_hs.get("name_kr",""), "AI발굴",
-                                                _us_hs.get("buy_target","-"),
-                                                _us_hs.get("sell_target","-"),
-                                                _us_hs.get("stop_loss","-"),
-                                            )
-                                if "us_sec_hot" in st.session_state:
-                                    _sh = st.session_state.us_sec_hot
-                                    with st.container(border=True):
-                                        st.markdown(f"**{_sh.get('name_kr','')} ({_sh.get('ticker','')})**")
-                                        _shc1, _shc2, _shc3 = st.columns(3)
-                                        _shc1.metric("매수가", _sh.get("buy_target","-"))
-                                        _shc2.metric("목표가", _sh.get("sell_target","-"))
-                                        _shc3.metric("손절",   _sh.get("stop_loss","-"))
-                                        if _sh.get("reasoning"):
-                                            st.markdown(
-                                                f"<p style='font-size:0.73rem;color:#bbb;"
-                                                f"margin:4px 0'>{_sh['reasoning'][:200]}...</p>",
-                                                unsafe_allow_html=True,
-                                            )
-                                        if st.button("▶ 차트 보기", key="us_hot_chart"):
-                                            st.session_state.us_selected_ticker      = _sh.get("ticker","")
-                                            st.session_state.us_selected_name        = _sh.get("name_kr","")
-                                            st.session_state.us_sector_detail_ticker = _sh.get("ticker","")
-                                            st.session_state.us_sector_detail_name   = _sh.get("name_kr","")
-                                            st.session_state.us_sector_view          = "detail"
-                                            st.rerun()
-                                st.markdown(
-                                    "<hr style='margin:8px 0;border:none;"
-                                    "border-top:1px solid rgba(255,255,255,0.07)'>",
-                                    unsafe_allow_html=True,
-                                )
-                                st.markdown(
-                                    "<p style='font-size:0.78rem;font-weight:700;color:#aaa;"
-                                    "margin:4px 0'>🔥 오늘의 AI 핫 테마</p>",
-                                    unsafe_allow_html=True,
-                                )
-                                with st.spinner("AI가 오늘의 핫 테마 분석 중..."):
-                                    _us_themes = generate_dynamic_themes()
-                                if _us_themes.get("error"):
-                                    st.info(f"⏸ {_us_themes['error']}")
+                                if _us_quota_err:
+                                    st.warning(_us_mkt_res.get("message", "API 할당량 초과"))
                                 else:
-                                    with st.container(height=380):
-                                        for _ut in _us_themes.get("themes", []):
+                                    # 시장 요약 배너
+                                    if isinstance(_us_mkt_res, dict) and _us_mkt_res.get("market_summary"):
+                                        st.markdown(
+                                            f"<div style='background:rgba(0,200,83,0.06);border-left:3px solid #00c853;"
+                                            f"padding:6px 12px;border-radius:4px;margin:4px 0'>"
+                                            f"<span style='font-size:0.75rem;color:#aaa'>{_us_mkt_res['market_summary']}</span>"
+                                            f"</div>",
+                                            unsafe_allow_html=True,
+                                        )
+                                    # 주도 테마 태그
+                                    _us_themes_lead = (_us_mkt_res or {}).get("leading_themes", [])
+                                    if _us_themes_lead:
+                                        _us_tag_html = " ".join(
+                                            f"<span style='background:rgba(0,200,83,0.12);border:1px solid rgba(0,200,83,0.3);"
+                                            f"border-radius:12px;padding:2px 8px;font-size:0.68rem;color:#00c853;margin:2px'>"
+                                            f"{_t}</span>"
+                                            for _t in _us_themes_lead
+                                        )
+                                        st.markdown(
+                                            f"<div style='margin:4px 0'>{_us_tag_html}</div>",
+                                            unsafe_allow_html=True,
+                                        )
+
+                                    st.markdown(
+                                        "<hr style='margin:6px 0;border:none;border-top:1px solid rgba(255,255,255,0.07)'>",
+                                        unsafe_allow_html=True,
+                                    )
+
+                                    # 오늘의 급등 종목
+                                    st.markdown(
+                                        "<p style='font-size:0.78rem;font-weight:700;color:#aaa;margin:4px 0'>"
+                                        "📈 오늘의 US 급등 종목</p>",
+                                        unsafe_allow_html=True,
+                                    )
+                                    _us_stk_list = (_us_mkt_res or {}).get("stocks", [])
+                                    if _us_stk_list:
+                                        for _us_stk in _us_stk_list[:8]:
+                                            _us_sc = _us_stk.get("change_pct", 0)
+                                            _us_sc_col = "#00c853" if _us_sc >= 0 else "#ff4b4b"
                                             with st.container(border=True):
-                                                _ul  = _ut.get("leader_stock", {})
-                                                _uls = _ul.get("ticker","")
-                                                _uln = _ul.get("name_kr", _uls)
-                                                st.markdown(
-                                                    f"<span style='font-size:0.9rem;font-weight:700'>"
-                                                    f"{_ut.get('theme_name','')}</span>",
-                                                    unsafe_allow_html=True,
-                                                )
-                                                st.markdown(
-                                                    f"<p style='font-size:0.73rem;color:#aaa;"
-                                                    f"margin:2px 0'>{_ut.get('correlation','')[:120]}...</p>",
-                                                    unsafe_allow_html=True,
-                                                )
-                                                st.markdown(
-                                                    f"<span style='font-size:0.78rem;font-weight:700;"
-                                                    f"color:#f5c518'>👑 대장주: {_uln} ({_uls})</span>",
-                                                    unsafe_allow_html=True,
-                                                )
-                                                _rels = " · ".join(
-                                                    f"{r.get('name_kr','')} ({r.get('ticker','')})"
-                                                    for r in _ut.get("related_stocks",[])
-                                                )
-                                                if _rels:
+                                                _usc1, _usc2 = st.columns([5, 1])
+                                                with _usc1:
                                                     st.markdown(
-                                                        f"<p style='font-size:0.68rem;color:#888;"
-                                                        f"margin:2px 0'>관련주: {_rels}</p>",
+                                                        f"<span style='font-size:0.82rem;font-weight:700'>"
+                                                        f"{_us_stk.get('ticker','')} · {_us_stk.get('name','')}</span>"
+                                                        f"<span style='font-size:0.75rem;color:{_us_sc_col};margin-left:8px'>"
+                                                        f"{_us_sc:+.1f}%</span>",
                                                         unsafe_allow_html=True,
                                                     )
-                                                if _uls and st.button("▶ 차트", key=f"us_theme_{_uls}"):
-                                                    st.session_state.us_selected_ticker      = _uls
-                                                    st.session_state.us_selected_name        = _uln
-                                                    st.session_state.us_sector_detail_ticker = _uls
-                                                    st.session_state.us_sector_detail_name   = _uln
+                                                    if _us_stk.get("theme"):
+                                                        st.markdown(
+                                                            f"<span style='font-size:0.65rem;color:#888'>"
+                                                            f"🏷 {_us_stk['theme']}</span>",
+                                                            unsafe_allow_html=True,
+                                                        )
+                                                    if _us_stk.get("reason"):
+                                                        st.markdown(
+                                                            f"<p style='font-size:0.68rem;color:#bbb;margin:2px 0'>"
+                                                            f"{_us_stk['reason']}</p>",
+                                                            unsafe_allow_html=True,
+                                                        )
+                                                _us_cd = _us_stk.get("ticker", "")
+                                                if _usc2.button("▶", key=f"us_mkt_stk_{_us_cd}",
+                                                                use_container_width=True):
+                                                    st.session_state.us_selected_ticker      = _us_cd
+                                                    st.session_state.us_selected_name        = _us_stk.get("name", _us_cd)
+                                                    st.session_state.us_sector_detail_ticker = _us_cd
+                                                    st.session_state.us_sector_detail_name   = _us_stk.get("name", _us_cd)
                                                     st.session_state.us_sector_view          = "detail"
                                                     st.rerun()
+                                    elif not _us_quota_err:
+                                        st.caption("급등 종목 데이터를 불러올 수 없습니다.")
+
+                                    st.markdown(
+                                        "<hr style='margin:8px 0;border:none;border-top:1px solid rgba(255,255,255,0.07)'>",
+                                        unsafe_allow_html=True,
+                                    )
+
+                                    # AI 핫 섹터
+                                    st.markdown(
+                                        "<p style='font-size:0.78rem;font-weight:700;color:#aaa;margin:4px 0'>"
+                                        "🔥 AI 핫 섹터</p>",
+                                        unsafe_allow_html=True,
+                                    )
+                                    _us_ai_sectors = []
+                                    if isinstance(_us_ai_res, dict) and not _us_ai_res.get("error") and _us_ai_res.get("sectors"):
+                                        _us_ai_sectors = sorted(
+                                            _us_ai_res.get("sectors", []),
+                                            key=lambda x: -x.get("hot_score", 0),
+                                        )
+                                    if _us_ai_sectors:
+                                        with st.container(height=380):
+                                            for _uas in _us_ai_sectors:
+                                                _ukw    = _uas.get("keyword", "")
+                                                _usc    = _uas.get("hot_score", 0)
+                                                _ursn   = _uas.get("reason", "")
+                                                _unews  = _uas.get("news_title", "")
+                                                _uhot_t = _uas.get("hot_tickers", [])
+                                                _ufire  = "🔥" * max(1, min(int(_usc / 2.5), 4))
+                                                _usc_col = "#ff4b4b" if _usc >= 7 else "#f5c518" if _usc >= 4 else "#888"
+                                                with st.container(border=True):
+                                                    _uah1, _uah2 = st.columns([8, 2])
+                                                    _uah1.markdown(
+                                                        f"<span style='font-size:0.88rem;font-weight:700'>"
+                                                        f"{_ufire} {_ukw}</span>"
+                                                        f"<span style='font-size:0.72rem;color:{_usc_col};"
+                                                        f"margin-left:8px'>HOT {_usc}/10</span>",
+                                                        unsafe_allow_html=True,
+                                                    )
+                                                    if _ursn:
+                                                        st.markdown(
+                                                            f"<p style='font-size:0.72rem;color:#bbb;margin:3px 0'>"
+                                                            f"{_ursn}</p>",
+                                                            unsafe_allow_html=True,
+                                                        )
+                                                    if _unews:
+                                                        st.markdown(
+                                                            f"<p style='font-size:0.68rem;color:#666;margin:2px 0'>"
+                                                            f"📰 {_unews}</p>",
+                                                            unsafe_allow_html=True,
+                                                        )
+                                                    if _uhot_t:
+                                                        st.markdown(
+                                                            " ".join(
+                                                                f"<span style='font-size:0.65rem;border:1px solid rgba(0,200,83,0.3);"
+                                                                f"border-radius:4px;padding:1px 5px;color:#00c853'>{_t}</span>"
+                                                                for _t in _uhot_t[:6]
+                                                            ),
+                                                            unsafe_allow_html=True,
+                                                        )
+                                                    # 동적 서브섹터
+                                                    for _uds in _uas.get("dynamic_subsectors", [])[:2]:
+                                                        st.markdown(
+                                                            f"<span style='font-size:0.68rem;color:#ff9800'>"
+                                                            f"📡 {_uds.get('name','')} — {_uds.get('reason','')[:50]}</span>",
+                                                            unsafe_allow_html=True,
+                                                        )
+                                                    # hot_tickers 중 섹터 DB에 있는 종목 클릭
+                                                    if _uhot_t and _uah2.button(
+                                                        "▶ 탐색", key=f"us_hot_sec_{_ukw}",
+                                                        use_container_width=True,
+                                                    ):
+                                                        if _ukw in us_sector_names:
+                                                            st.session_state.us_selected_sector_us = _ukw
+                                                            st.session_state.us_sector_panel_tab = "📚 전체 섹터 탐색"
+                                                            st.rerun()
+                                    elif not _us_quota_err:
+                                        st.caption("섹터 데이터를 불러올 수 없습니다.")
 
                         elif st.session_state.us_sector_panel_tab == _us_spt_tabs[1]:
                             _uh1, _uh2, _uh3 = st.columns([4, 1, 1])
@@ -2748,11 +2991,81 @@ def main():
                                     ok, msg_init = init_us_sector_sheet()
                                     st.toast(msg_init if ok else f"오류: {msg_init}")
 
-                            _us_cur_si = (us_sector_names.index(st.session_state.us_selected_sector_us)
-                                          if st.session_state.us_selected_sector_us in us_sector_names else 0)
+                            # ── hot_score 맵 구성 (AI 시장분석 결과 재활용) ──
+                            _us_hot_score_map: dict = {}
+                            try:
+                                from ai_engine import analyze_us_hot_sectors as _auh
+                                _uh_res = _auh()
+                                if isinstance(_uh_res, dict) and _uh_res.get("sectors"):
+                                    for _uhs in _uh_res["sectors"]:
+                                        _uhkw = _uhs.get("keyword", "")
+                                        if _uhkw in us_sector_names:
+                                            _us_hot_score_map[_uhkw] = {
+                                                "score": _uhs.get("hot_score", 0),
+                                                "reason": _uhs.get("reason", ""),
+                                            }
+                            except Exception:
+                                pass
+
+                            def _us_sector_tier(name):
+                                sc = _us_hot_score_map.get(name, {}).get("score", 0)
+                                return 0 if sc >= 7 else 1 if sc >= 4 else 2
+
+                            _us_sorted_sectors = sorted(
+                                us_sector_names,
+                                key=lambda n: (_us_sector_tier(n), -_us_hot_score_map.get(n, {}).get("score", 0))
+                            )
+
+                            st.markdown(
+                                "<p style='font-size:0.72rem;color:#888;margin:2px 0 6px 0'>"
+                                "섹터를 클릭해 종목을 탐색하세요 · 🔥 = 오늘의 이슈 섹터</p>",
+                                unsafe_allow_html=True,
+                            )
+                            with st.container(height=180):
+                                _us_prev_tier = -1
+                                for _usn in _us_sorted_sectors:
+                                    _us_tier = _us_sector_tier(_usn)
+                                    _us_hs_info = _us_hot_score_map.get(_usn, {})
+                                    _us_sc = _us_hs_info.get("score", 0)
+                                    _us_rsn = _us_hs_info.get("reason", "")[:40]
+                                    if _us_tier != _us_prev_tier:
+                                        if _us_tier == 0:
+                                            st.markdown("<p style='font-size:0.68rem;font-weight:700;color:#00c853;margin:4px 0 2px 0'>🔥 HOT 섹터</p>", unsafe_allow_html=True)
+                                        elif _us_tier == 1:
+                                            st.markdown("<p style='font-size:0.68rem;font-weight:700;color:#f5c518;margin:6px 0 2px 0'>⭐ 관심 섹터</p>", unsafe_allow_html=True)
+                                        else:
+                                            st.markdown("<p style='font-size:0.68rem;color:#555;margin:6px 0 2px 0'>일반 섹터</p>", unsafe_allow_html=True)
+                                        _us_prev_tier = _us_tier
+                                    _us_is_sel = st.session_state.us_selected_sector_us == _usn
+                                    if _us_tier == 0:
+                                        _us_bh = f"🔥 {_usn} <span style='font-size:0.65rem;color:#ff9800'>[{_us_sc}점]</span>"
+                                        if _us_rsn:
+                                            _us_bh += f"<br><span style='font-size:0.63rem;color:#aaa'>{_us_rsn}{'…' if len(_us_hs_info.get('reason',''))>40 else ''}</span>"
+                                        _us_bg = "rgba(0,200,83,0.12)" if _us_is_sel else "rgba(0,200,83,0.06)"
+                                        _us_bd = "#00c853" if _us_is_sel else "rgba(0,200,83,0.35)"
+                                    elif _us_tier == 1:
+                                        _us_bh = f"⭐ {_usn} <span style='font-size:0.65rem;color:#888'>[{_us_sc}점]</span>"
+                                        _us_bg = "rgba(245,197,24,0.10)" if _us_is_sel else "rgba(245,197,24,0.04)"
+                                        _us_bd = "#f5c518" if _us_is_sel else "rgba(245,197,24,0.25)"
+                                    else:
+                                        _us_bh = _usn
+                                        _us_bg = "rgba(255,255,255,0.06)" if _us_is_sel else "transparent"
+                                        _us_bd = "rgba(255,255,255,0.2)" if _us_is_sel else "rgba(255,255,255,0.06)"
+                                    _ubc1, _ubc2 = st.columns([5, 1])
+                                    _ubc1.markdown(
+                                        f"<div style='border:1px solid {_us_bd};background:{_us_bg};"
+                                        f"border-radius:7px;padding:5px 10px;margin:2px 0'>{_us_bh}</div>",
+                                        unsafe_allow_html=True,
+                                    )
+                                    if _ubc2.button("▶", key=f"us_sec_btn_{_usn}", use_container_width=True):
+                                        st.session_state.us_selected_sector_us = _usn
+                                        st.rerun()
+
+                            _us_cur_si = (_us_sorted_sectors.index(st.session_state.us_selected_sector_us)
+                                          if st.session_state.us_selected_sector_us in _us_sorted_sectors else 0)
                             _us_sel_sec = st.selectbox(
-                                "섹터 선택", us_sector_names, index=_us_cur_si,
-                                key="us_sector_selectbox", label_visibility="collapsed",
+                                "섹터 선택 (직접 선택)", _us_sorted_sectors, index=_us_cur_si,
+                                key="us_sector_selectbox", label_visibility="visible",
                             )
                             if _us_sel_sec != st.session_state.us_selected_sector_us:
                                 st.session_state.us_selected_sector_us = _us_sel_sec

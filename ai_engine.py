@@ -807,3 +807,287 @@ def generate_related_stocks(ticker: str, sector: str = "") -> list:
         return []
     except Exception:
         return []
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# US STOCK — AI 타점 보드 / 시장분석 / 핫섹터 (국내 버전의 US 미러)
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _compute_us_prebreakout_signals(volume_rank: list, change_rank: list) -> tuple:
+    """US 거래량/등락률 랭킹에서 급등 직전 후보를 추출하고 분봉 신호를 계산합니다."""
+    from data_kr import get_us_prebreakout_signal
+
+    prebreakout, already_done, seen = [], [], set()
+
+    def _chg(s):
+        return float(s.get("등락률(%)", 0) or 0)
+
+    for s in (volume_rank or []):
+        t = str(s.get("티커", ""))
+        if not t or t in seen:
+            continue
+        seen.add(t)
+        if _chg(s) > 12:
+            already_done.append(s)
+        elif _chg(s) >= -2:
+            prebreakout.append(s)
+
+    for s in (change_rank or []):
+        t = str(s.get("티커", ""))
+        if not t or t in seen:
+            continue
+        seen.add(t)
+        if _chg(s) > 12:
+            already_done.append(s)
+        elif 1 <= _chg(s) <= 12:
+            prebreakout.append(s)
+
+    enriched = []
+    for s in prebreakout[:6]:
+        t = str(s.get("티커", ""))
+        try:
+            sig = get_us_prebreakout_signal(t)
+        except Exception:
+            sig = {"signal_score": 0, "signal_label": "-", "vol_accel": 0}
+        enriched.append({**s, "_signal": sig})
+
+    enriched.sort(key=lambda x: x["_signal"].get("signal_score", 0), reverse=True)
+    enriched += prebreakout[6:]
+    return enriched, already_done
+
+
+def generate_us_realtime_picks(market_data: dict, volume_rank: list, change_rank: list) -> dict:
+    """
+    US 스캘핑 종목 발굴 — 급등 직전 패턴 기준으로 진입 가능 종목 3개 추천.
+    generate_realtime_picks()의 US 버전.
+    """
+    sp500  = market_data.get("S&P500",  {})
+    nasdaq = market_data.get("NASDAQ",  {})
+    dow    = market_data.get("DOW",     {})
+
+    prebreakout, already_done = _compute_us_prebreakout_signals(volume_rank, change_rank)
+
+    def _chg(s):
+        return float(s.get("등락률(%)", 0) or 0)
+
+    def _fmt(s):
+        chg   = _chg(s)
+        vol   = s.get("거래량", 0)
+        price = s.get("현재가($)", 0)
+        sig   = s.get("_signal", {})
+        score = sig.get("signal_score", "-")
+        label = sig.get("signal_label", "")
+        accel = sig.get("vol_accel", 0)
+        signal_str = f"  ▶ 패턴점수:{score}/5 | {label}" if label and label != "-" else ""
+        return (
+            f"- {s.get('티커','')}  등락률 {chg:+.2f}%,  현재가 ${price:,.2f},  "
+            f"거래량 {vol:,}"
+            + (f"\n{signal_str}" if signal_str else "")
+        )
+
+    pb_lines  = [_fmt(s) for s in prebreakout[:8]]  or ["- 데이터 없음"]
+    sur_lines = [
+        f"- {s.get('티커','')}: {_chg(s):+.1f}% (급등 완료, 진입 불가)"
+        for s in already_done[:5]
+    ]
+
+    prompt = f"""당신은 10년 경력의 미국 주식시장 스캘핑·단타 트레이더입니다.
+지금 즉시 구글 검색으로 오늘의 뉴스·실적·SEC 공시·옵션 플로우를 파악하세요.
+
+[현재 시장]
+S&P500 : {sp500.get('price',0):,.2f}  ({sp500.get('change_pct',0):+.2f}%)
+NASDAQ : {nasdaq.get('price',0):,.2f}  ({nasdaq.get('change_pct',0):+.2f}%)
+DOW    : {dow.get('price',0):,.2f}  ({dow.get('change_pct',0):+.2f}%)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📊 [실시간 측정된 급등 직전 시그널 후보군]
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+(패턴점수 높을수록 급등 직전. 등락률 12% 미만 = 아직 진입 가능)
+{chr(10).join(pb_lines)}
+
+{"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" if sur_lines else ""}
+{"❌ [이미 급등 완료 — 진입 불가]" if sur_lines else ""}
+{chr(10).join(sur_lines)}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📚 [급등 직전 패턴 사전 — US 버전]
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+▶ 당일 스캘핑 패턴:
+  1. 거래량 가속 돌파 — 평균 대비 3x 거래량 + 주가 아직 3%↓
+  2. 박스권 돌파 + 거래량 확인 — 하루 내 박스 상단 돌파 후 리테스트
+  3. VWAP 돌파 & 재테스트 — VWAP 위로 넘은 후 지지 확인
+  4. 연속 양봉 + 거래량 증가 — 3봉↑ 연속 양봉, 각 봉 거래량 증가
+  5. 프리마켓 갭업 + 첫 5분봉 확인 — 갭업 후 첫 5분봉 종가 > 시가
+
+▶ 1~2일 스윙 패턴:
+  1. 실적 서프라이즈 + 초기 반응 미흡 — EPS 비트 but 2% 미만 반응
+  2. 섹터 로테이션 선행 종목 — 지수 약세에도 버티다가 급등 예고
+  3. 옵션 대량 콜매수 확인 — 비정상적인 콜 옵션 플로우 감지
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+[선정 기준]
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+❌ 절대 금지: 등락률 12% 이상 종목 (추격 불가)
+✅ 필수 조건:
+   · 위 패턴 최소 1개 이상 해당
+   · 구글 검색으로 오늘 실제 재료(뉴스/실적/SEC공시/옵션플로우) 확인
+   · 후보 목록 외 종목도 검색으로 발굴 가능
+🎯 타점 산정 ($달러 단위):
+   · 매수 타점: 패턴별 최적 진입가
+   · 목표가: 매수가 대비 +4%~+10%
+   · 손절가: 매수가 대비 -2%
+
+반드시 아래 JSON만 반환 (백틱·설명 없이):
+{{
+  "market_condition": "상승장 또는 하락장 또는 혼조세",
+  "market_comment": "오늘 US 시장 한 문장 요약",
+  "picks": [
+    {{
+      "rank": 1,
+      "ticker": "티커심볼",
+      "name": "영문 종목명",
+      "theme": "핵심 테마 1~2개",
+      "pattern": "해당 급등 직전 패턴명",
+      "reason": "패턴 근거 + 오늘 재료 + 진입 가능한 이유 (3줄 이내)",
+      "current_price": 현재가_달러_숫자,
+      "change_pct": 현재_등락률_숫자,
+      "entry": 매수타점_달러_숫자,
+      "target": 목표가_달러_숫자,
+      "stop": 손절가_달러_숫자,
+      "urgency": "즉시진입 또는 눌림목대기 또는 내일장초반",
+      "horizon": "당일스캘핑 또는 1~2일스윙"
+    }}
+  ]
+}}
+
+⚠️ 자가검증: change_pct ≥ 12%인 종목이 있으면 반드시 교체하세요."""
+
+    try:
+        response = _call_gemini(prompt, use_search=True, temperature=0.35)
+        text = re.sub(r'```(?:json)?', '', response.text).strip()
+        start = text.find('{')
+        if start != -1:
+            result, _ = json.JSONDecoder().raw_decode(text, start)
+            return result
+        return json.loads(text)
+    except Exception as e:
+        return {"error": str(e), "picks": []}
+
+
+@st.cache_data(ttl=1800)
+def analyze_us_today_market() -> dict:
+    """오늘 US 급등 종목 + 주도 테마 AI 분석 (analyze_today_market의 US 버전)"""
+    from data_kr import get_us_change_ranking
+    try:
+        gainers = [s for s in (get_us_change_ranking() or []) if s.get("등락률(%)", 0) > 0][:15]
+    except Exception:
+        gainers = []
+
+    if not gainers:
+        return {"error": "급등 종목 데이터 없음 (장 마감 또는 API 오류)"}
+
+    gainers_text = "\n".join(
+        f"- {g['티커']}  {g.get('등락률(%)', 0):+.1f}%  ${g.get('현재가($)', 0):,.2f}"
+        for g in gainers
+    )
+
+    prompt = f"""당신은 미국 주식시장 전문 애널리스트입니다.
+지금 즉시 구글 검색으로 아래 오늘의 US 급등 종목들의 상승 이유를 분석하세요.
+
+[오늘 급등 종목]:
+{gainers_text}
+
+반드시 아래 JSON으로만 응답하세요. 주석 없이:
+{{
+  "market_summary": "오늘 US 시장 전체 흐름 2~3문장 핵심 요약",
+  "leading_themes": ["테마1", "테마2", "테마3"],
+  "top_theme": "오늘 가장 강한 테마명",
+  "top_theme_reason": "이 테마가 오늘 주도하는 이유 2문장",
+  "stocks": [
+    {{
+      "ticker": "티커심볼",
+      "name": "종목명",
+      "change_pct": 등락률숫자,
+      "theme": "속한 테마",
+      "reason": "급등 이유 1~2문장 (뉴스·실적·SEC공시 기반)"
+    }}
+  ]
+}}"""
+
+    try:
+        response = _call_gemini(prompt, use_search=True, temperature=0.4)
+        text  = re.sub(r'```(?:json)?', '', response.text).strip()
+        start = text.find('{')
+        if start != -1:
+            result, _ = json.JSONDecoder().raw_decode(text, start)
+            return result
+        return json.loads(text)
+    except Exception as e:
+        if "QUOTA" in str(e) or "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
+            return _quota_error_result("analyze_us_today_market")
+        return {"error": str(e)}
+
+
+@st.cache_data(ttl=3600)
+def analyze_us_hot_sectors() -> dict:
+    """오늘 US 핫 섹터 AI 분석 (analyze_kr_hot_sectors의 US 버전)"""
+    from sectors_us import US_SECTOR_MAP
+    from data_kr import get_us_change_ranking
+
+    known_sectors = list(US_SECTOR_MAP.keys())
+    sectors_str   = "\n".join(f"- {s}" for s in known_sectors)
+
+    gainers_str = ""
+    try:
+        gainers = [s for s in (get_us_change_ranking() or []) if s.get("등락률(%)", 0) > 0][:10]
+        if gainers:
+            lines = [f"- {g['티커']} {g.get('등락률(%)', 0):+.1f}%" for g in gainers]
+            gainers_str = "\n[오늘 US 실시간 급등 종목]:\n" + "\n".join(lines) + "\n"
+    except Exception:
+        pass
+
+    prompt = f"""당신은 미국 주식시장 전문 섹터 애널리스트입니다.
+지금 즉시 구글 검색으로 오늘 US 증권가에서 주목받는 테마를 분석하세요.
+
+[등록된 US 섹터 DB]:
+{sectors_str}
+{gainers_str}
+[지시사항]:
+1. 위 DB에서 오늘 가장 뜨거운 섹터 5~7개를 선택하세요. keyword는 위 섹터명과 정확히 일치.
+2. DB에 없는 신규 테마도 추가 가능 (예: 핵에너지, 국방AI, 자율주행).
+3. hot_tickers: 이 섹터에서 오늘 가장 주목받는 티커 최대 10개.
+4. dynamic_subsectors: 오늘 뉴스로 새롭게 부각되는 세부테마 최대 2개.
+
+반드시 아래 JSON으로만 응답하세요:
+{{
+  "market": "US",
+  "sectors": [
+    {{
+      "keyword": "섹터명",
+      "hot_score": 1~10,
+      "reason": "오늘 이 섹터가 주목받는 이유 2문장",
+      "news_title": "관련 뉴스 제목",
+      "hot_tickers": ["NVDA", "AMD"],
+      "dynamic_subsectors": [
+        {{
+          "name": "세부테마명",
+          "reason": "부각 이유 1문장",
+          "hot_tickers": ["티커1", "티커2"]
+        }}
+      ]
+    }}
+  ]
+}}"""
+
+    try:
+        response = _call_gemini(prompt, use_search=True, temperature=0.5)
+        text  = re.sub(r'```(?:json)?', '', response.text).strip()
+        start = text.find('{')
+        if start != -1:
+            result, _ = json.JSONDecoder().raw_decode(text, start)
+            return result
+        return json.loads(text)
+    except Exception as e:
+        if "QUOTA" in str(e) or "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
+            return _quota_error_result("analyze_us_hot_sectors")
+        return {"error": f"AI 분석 오류: {type(e).__name__}"}
