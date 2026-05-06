@@ -492,6 +492,17 @@ def main():
                         "</div>",
                         unsafe_allow_html=True,
                     )
+                # AI 보드 하단 탐색 버튼
+                st.markdown("<hr class='toss-divider'>", unsafe_allow_html=True)
+                _nav_c1, _nav_c2 = st.columns(2)
+                with _nav_c1:
+                    if st.button("📊 일반 주식 검색", key="kr_nav_search", use_container_width=True):
+                        st.session_state.kr_mode = "📊 일반 주식 검색"
+                        st.rerun()
+                with _nav_c2:
+                    if st.button("🔥 오늘의 이슈 섹터", key="kr_nav_sector", use_container_width=True):
+                        st.session_state.kr_mode = "🔥 오늘의 이슈 섹터"
+                        st.rerun()
                 st.stop()
 
             # ══════════════════════════════════════════════════════════════
