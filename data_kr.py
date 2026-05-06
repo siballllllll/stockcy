@@ -449,7 +449,8 @@ def get_us_prices_bulk_kis(tickers_exchange_tuple: tuple) -> dict:
 
 @st.cache_data(ttl=300)  # 5분 캐싱
 def get_kr_volume_ranking():
-    """거래량 상위 10개 종목 (KOSPI)"""
+    """거래량 상위 10개 종목 (KIS API → pykrx 폴백)"""
+    # 1차: KIS API
     data = _get(
         "/uapi/domestic-stock/v1/ranking/volume",
         "FHPST01710000",
@@ -460,29 +461,55 @@ def get_kr_volume_ranking():
             "fid_div_cls_code": "0",
             "fid_blng_cls_code": "0",
             "fid_trgt_cls_code": "111111111",
-            "fid_trgt_exls_cls_code": "000000000",  # 9자리 (6자리 → 오류)
+            "fid_trgt_exls_cls_code": "000000000",
             "fid_input_price_1": "",
             "fid_input_price_2": "",
             "fid_vol_cnt": "",
             "fid_input_date_1": "",
         },
     )
-    if not data:
+    if data:
+        raw_list = data.get("output") or data.get("output1") or []
+        if raw_list:
+            results = []
+            for item in raw_list[:10]:
+                change_pct = float(item.get("prdy_ctrt", 0) or 0)
+                results.append({
+                    "종목코드": item.get("mksc_shrn_iscd", ""),
+                    "종목명": item.get("hts_kor_isnm", ""),
+                    "현재가": f"₩{int(item.get('stck_prpr', 0) or 0):,}",
+                    "등락률(%)": change_pct,
+                    "거래량": f"{int(item.get('acml_vol', 0) or 0):,}주",
+                    "상태": "상승 🔴" if change_pct > 0 else ("하락 🔵" if change_pct < 0 else "보합 ⚪"),
+                })
+            return results
+
+    # 2차 폴백: pykrx
+    try:
+        from pykrx import stock as _pykrx
+        import datetime as _dt2
+        today = _dt2.date.today().strftime("%Y%m%d")
+        df_v = _pykrx.get_market_ohlcv_by_ticker(today, market="KOSPI")
+        if df_v.empty:
+            return []
+        df_v = df_v.sort_values("거래량", ascending=False).head(10)
+        results = []
+        for code, row in df_v.iterrows():
+            name = _pykrx.get_market_ticker_name(code)
+            price = int(row.get("종가", 0))
+            open_p = int(row.get("시가", 0))
+            change_pct = round((price - open_p) / open_p * 100, 2) if open_p > 0 else 0.0
+            results.append({
+                "종목코드": code,
+                "종목명": name,
+                "현재가": f"₩{price:,}",
+                "등락률(%)": change_pct,
+                "거래량": f"{int(row.get('거래량', 0)):,}주",
+                "상태": "상승 🔴" if change_pct > 0 else ("하락 🔵" if change_pct < 0 else "보합 ⚪"),
+            })
+        return results
+    except Exception:
         return []
-    # KIS 거래량 랭킹 응답: output 또는 output1
-    raw_list = data.get("output") or data.get("output1") or []
-    results = []
-    for item in raw_list[:10]:
-        change_pct = float(item.get("prdy_ctrt", 0) or 0)
-        results.append({
-            "종목코드": item.get("mksc_shrn_iscd", ""),
-            "종목명": item.get("hts_kor_isnm", ""),
-            "현재가": f"₩{int(item.get('stck_prpr', 0) or 0):,}",
-            "등락률(%)": change_pct,
-            "거래량": f"{int(item.get('acml_vol', 0) or 0):,}주",
-            "상태": "상승 🔴" if change_pct > 0 else ("하락 🔵" if change_pct < 0 else "보합 ⚪"),
-        })
-    return results
 
 
 @st.cache_data(ttl=300)

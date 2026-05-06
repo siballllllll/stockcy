@@ -494,6 +494,8 @@ def main():
                             _df_idx = get_kr_index_history(_cur_symbol, _period)
 
                         if not _df_idx.empty:
+                            import pytz as _pytz_idx
+                            _now_kst_idx = datetime.now(_pytz_idx.timezone("Asia/Seoul")).replace(tzinfo=None)
                             _fig_idx = go.Figure()
                             _fig_idx.add_trace(go.Scatter(
                                 x=_df_idx["datetime"],
@@ -504,17 +506,26 @@ def main():
                                 fillcolor=_fc,
                                 hovertemplate="%{x|%m/%d %H:%M}<br><b>%{y:,.2f}</b><extra></extra>",
                             ))
+                            # 1일 뷰: 09:00~15:30 전체 장 시간 고정 (HTS 스타일)
+                            _xax_1d = _period == "1d"
+                            _xax_cfg = dict(
+                                showgrid=False, showline=False, zeroline=False,
+                                tickfont=dict(size=10, color="#666"),
+                                tickformat="%H:%M" if _xax_1d else "%m/%d",
+                            )
+                            if _xax_1d:
+                                _xax_cfg["type"] = "date"
+                                _xax_cfg["range"] = [
+                                    _now_kst_idx.strftime("%Y-%m-%d 09:00"),
+                                    _now_kst_idx.strftime("%Y-%m-%d 15:30"),
+                                ]
                             _fig_idx.update_layout(
                                 height=285,
                                 margin=dict(l=0, r=4, t=4, b=0),
                                 paper_bgcolor="rgba(0,0,0,0)",
                                 plot_bgcolor="rgba(0,0,0,0)",
                                 showlegend=False,
-                                xaxis=dict(
-                                    showgrid=False, showline=False, zeroline=False,
-                                    tickfont=dict(size=10, color="#666"),
-                                    tickformat="%H:%M" if _period == "1d" else "%m/%d",
-                                ),
+                                xaxis=_xax_cfg,
                                 yaxis=dict(
                                     showgrid=False, showline=False, zeroline=False,
                                     tickfont=dict(size=10, color="#666"),
@@ -576,9 +587,9 @@ def main():
                                     for c, o in zip(df_kr_chart["close"], df_kr_chart["open"])
                                 ]
                                 _now_kr_c = _dt_c.now(_pytz_c.timezone("Asia/Seoul")).replace(tzinfo=None)
-                                _x_close  = _dt_c.combine(_now_kr_c.date(), _dt_c.strptime("15:30", "%H:%M").time())
-                                _x_end    = min(_now_kr_c, _x_close).strftime("%Y-%m-%d %H:%M")
-                                _x_start  = df_kr_chart["datetime"].iloc[0].strftime("%Y-%m-%d 09:00")
+                                # 항상 09:00~15:30 전체 장 시간 표시 (HTS/MTS 스타일)
+                                _x_start  = _now_kr_c.strftime("%Y-%m-%d 09:00")
+                                _x_end    = _now_kr_c.strftime("%Y-%m-%d 15:30")
 
                                 fig_kr = make_subplots(rows=2, cols=1, shared_xaxes=True,
                                                        row_heights=[0.70, 0.30], vertical_spacing=0.02)
