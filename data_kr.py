@@ -255,10 +255,17 @@ def get_kr_market_index():
         )
         if data:
             o = data["output"]
+            _idx = float(o.get("bstp_nmix_prpr", 0) or 0)
+            _chg = float(o.get("bstp_nmix_prdy_vrss", 0) or 0)
+            # prdy_ctrt 필드가 0으로 오는 경우 직접 계산
+            _pct = float(o.get("bstp_nmix_prdy_ctrt", 0) or o.get("prdy_ctrt", 0) or 0)
+            if _pct == 0 and _idx > 0 and _chg != 0:
+                _prev = _idx - _chg
+                _pct = round(_chg / _prev * 100, 2) if _prev > 0 else 0.0
             result[name] = {
-                "index": float(o.get("bstp_nmix_prpr", 0) or 0),
-                "change": float(o.get("bstp_nmix_prdy_vrss", 0) or 0),
-                "change_pct": float(o.get("prdy_ctrt", 0) or 0),
+                "index": _idx,
+                "change": _chg,
+                "change_pct": _pct,
             }
     return result
 
