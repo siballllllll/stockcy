@@ -229,34 +229,42 @@ def main():
     _kr_idx   = get_kr_market_index() or {}
     _kr_ticks = get_kr_major_tickers()
     _kr_items = []
+
+    def _ticker_pill(label, price_str, pct, is_index=False):
+        c  = "#ff4b4b" if pct >= 0 else "#2b7cff"
+        bg = "rgba(255,75,75,0.12)" if pct >= 0 else "rgba(43,124,255,0.12)"
+        arrow = "▲" if pct >= 0 else "▼"
+        sign  = "+" if pct >= 0 else ""
+        badge_bg = "rgba(255,255,255,0.08)" if is_index else "rgba(255,255,255,0.04)"
+        return (
+            f'<span style="display:inline-flex;align-items:center;gap:6px;'
+            f'background:{badge_bg};border:1px solid rgba(255,255,255,0.1);'
+            f'border-radius:20px;padding:3px 10px;margin:0 6px;white-space:nowrap">'
+            f'<span style="font-size:0.72rem;color:#aaa;font-weight:600">{label}</span>'
+            f'<span style="font-size:0.8rem;color:#eee;font-weight:700">{price_str}</span>'
+            f'<span style="font-size:0.72rem;color:{c};font-weight:700;'
+            f'background:{bg};border-radius:10px;padding:1px 6px">'
+            f'{arrow} {sign}{pct:.2f}%</span>'
+            f'</span>'
+        )
+
     for _iname, _id in _kr_idx.items():
-        _ip   = _id.get("change_pct", 0)
-        _ic   = "#ff4b4b" if _ip >= 0 else "#2b7cff"
-        _is   = "+" if _ip >= 0 else ""
-        _kr_items.append(
-            f'<span style="margin:0 18px;font-size:0.78rem">'
-            f'<b style="color:#ddd">{_iname}</b>&nbsp;'
-            f'{_id.get("index", 0):,.2f}&nbsp;'
-            f'<span style="color:{_ic}">{_is}{_ip:.2f}%</span></span>'
-        )
+        _ip = _id.get("change_pct", 0)
+        _iv = _id.get("index", 0)
+        _kr_items.append(_ticker_pill(_iname, f"{_iv:,.2f}", _ip, is_index=True))
+
     for _t in _kr_ticks:
-        _tp = _t["pct"]
-        _tc = "#ff4b4b" if _tp >= 0 else "#2b7cff"
-        _ts = "+" if _tp >= 0 else ""
-        _kr_items.append(
-            f'<span style="margin:0 18px;font-size:0.78rem">'
-            f'<b style="color:#ddd">{_t["name"]}</b>&nbsp;'
-            f'₩{_t["price"]:,}&nbsp;'
-            f'<span style="color:{_tc}">{_ts}{_tp:.2f}%</span></span>'
-        )
+        _kr_items.append(_ticker_pill(_t["name"], f'₩{_t["price"]:,}', _t["pct"]))
+
     if _kr_items:
-        _kr_body = " · ".join(_kr_items)
+        _kr_body = "".join(_kr_items)
         components.html(f"""
-        <div style="background:rgba(255,75,75,0.06);border:1px solid rgba(255,75,75,0.15);
-                    border-radius:8px;overflow:hidden;padding:5px 0;margin-bottom:4px">
-          <div style="display:inline-block;white-space:nowrap;
-                      animation:krtick 40s linear infinite">
-            {_kr_body}&nbsp;&nbsp;&nbsp;&nbsp;{_kr_body}
+        <div style="background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.07);
+                    border-radius:10px;overflow:hidden;padding:4px 0;margin-bottom:4px;height:36px;
+                    display:flex;align-items:center">
+          <div style="display:inline-flex;align-items:center;white-space:nowrap;
+                      animation:krtick 50s linear infinite">
+            {_kr_body}{_kr_body}
           </div>
         </div>
         <style>
@@ -264,7 +272,7 @@ def main():
             from {{ transform: translateX(0); }}
             to   {{ transform: translateX(-50%); }}
           }}
-        </style>""", height=38)
+        </style>""", height=44)
 
     # ── 미국·글로벌 TradingView 티커 ────────────────────────────────────
     components.html("""
