@@ -871,23 +871,48 @@ def main():
 
                         # ── 탭 3: AI 분석 ─────────────────────────────────
                         elif st.session_state.kr_right_tab == _rp_tabs[2]:
+                            _ai_key  = f"kr_report_{selected_code_kr}"
+                            _run_key = "_kr_ai_pending"
+
+                            # 버튼 클릭 → 플래그만 세우고 rerun (핸들러 내 긴 작업 방지)
                             if st.button("🎯 AI 수급 & 타점 분석 실행", key="kr_ai_btn",
                                          use_container_width=True, type="primary"):
+                                st.session_state[_run_key] = selected_code_kr
+                                if _ai_key in st.session_state:
+                                    del st.session_state[_ai_key]
+                                st.rerun()
+
+                            # 플래그가 서 있으면 분석 실행
+                            if st.session_state.get(_run_key) == selected_code_kr and _ai_key not in st.session_state:
                                 with st.spinner("AI가 수급과 뉴스를 융합 분석 중..."):
-                                    from ai_engine import generate_kr_stock_report
-                                    inv_for_ai = get_kr_investor_trend(selected_code_kr)
-                                    kr_rep = generate_kr_stock_report(
-                                        selected_code_kr, price_kr["name"], price_kr, inv_for_ai
-                                    )
-                                    st.session_state[f"kr_report_{selected_code_kr}"] = kr_rep
-                                    from db import log_ai_recommendation
-                                    log_ai_recommendation(
-                                        "국내주식분석", selected_code_kr, price_kr["name"],
-                                        kr_rep.get("rating", "-"), kr_rep.get("buy_target", "-"),
-                                        kr_rep.get("sell_target", "-"), kr_rep.get("stop_loss", "-")
-                                    )
-                            if f"kr_report_{selected_code_kr}" in st.session_state:
-                                rep_kr = st.session_state[f"kr_report_{selected_code_kr}"]
+                                    try:
+                                        from ai_engine import generate_kr_stock_report
+                                        inv_for_ai = get_kr_investor_trend(selected_code_kr)
+                                        kr_rep = generate_kr_stock_report(
+                                            selected_code_kr, price_kr["name"], price_kr, inv_for_ai
+                                        )
+                                    except Exception as _e:
+                                        kr_rep = {
+                                            "rating": "분석 실패",
+                                            "buy_target": "-", "sell_target": "-", "stop_loss": "-",
+                                            "세력분석": "-",
+                                            "analysis": f"오류가 발생했습니다: {_e}",
+                                        }
+                                    st.session_state[_ai_key] = kr_rep
+                                    st.session_state[_run_key] = None
+                                    try:
+                                        from db import log_ai_recommendation
+                                        log_ai_recommendation(
+                                            "국내주식분석", selected_code_kr, price_kr["name"],
+                                            kr_rep.get("rating", "-"), kr_rep.get("buy_target", "-"),
+                                            kr_rep.get("sell_target", "-"), kr_rep.get("stop_loss", "-")
+                                        )
+                                    except Exception:
+                                        pass
+                                st.rerun()
+
+                            if _ai_key in st.session_state:
+                                rep_kr = st.session_state[_ai_key]
                                 rating_kr = rep_kr.get("rating", "")
                                 r_emoji = "🟢" if "강력" in rating_kr else "🟡" if "추천" in rating_kr else "🔴"
                                 st.markdown(f"##### {r_emoji} {rating_kr}")
@@ -1995,19 +2020,38 @@ def main():
                             )
                             _cur_p = detail_us["price"]
                             _chg_p = detail_us["change_pct"]
+                            _us_ai_key  = f"report_{_us_ticker_cur}"
+                            _us_run_key = "_us_ai_pending"
                             if st.button("🎯 AI 분석 실행", use_container_width=True,
                                          type="primary", key="us_ai_report_btn"):
+                                st.session_state[_us_run_key] = _us_ticker_cur
+                                if _us_ai_key in st.session_state:
+                                    del st.session_state[_us_ai_key]
+                                st.rerun()
+
+                            if st.session_state.get(_us_run_key) == _us_ticker_cur and _us_ai_key not in st.session_state:
                                 with st.spinner("AI가 수급·뉴스·차트를 융합 분석 중..."):
-                                    from ai_engine import generate_stock_report
-                                    _rep_j = generate_stock_report(_us_ticker_cur, _cur_p, _chg_p)
-                                    st.session_state[f"report_{_us_ticker_cur}"] = _rep_j
-                                    from db import log_ai_recommendation
-                                    log_ai_recommendation(
-                                        "미국주식분석", _us_ticker_cur,
-                                        detail_us.get("name", _us_ticker_cur),
-                                        _rep_j.get("rating","-"), _rep_j.get("buy_target","-"),
-                                        _rep_j.get("sell_target","-"), _rep_j.get("stop_loss","-"),
-                                    )
+                                    try:
+                                        from ai_engine import generate_stock_report
+                                        _rep_j = generate_stock_report(_us_ticker_cur, _cur_p, _chg_p)
+                                    except Exception as _e:
+                                        _rep_j = {
+                                            "rating": "분석 실패", "buy_target": "-",
+                                            "sell_target": "-", "stop_loss": "-",
+                                            "analysis": f"오류: {_e}",
+                                        }
+                                    st.session_state[_us_ai_key] = _rep_j
+                                    st.session_state[_us_run_key] = None
+                                    try:
+                                        from db import log_ai_recommendation
+                                        log_ai_recommendation(
+                                            "미국주식분석", _us_ticker_cur,
+                                            detail_us.get("name", _us_ticker_cur),
+                                            _rep_j.get("rating","-"), _rep_j.get("buy_target","-"),
+                                            _rep_j.get("sell_target","-"), _rep_j.get("stop_loss","-"),
+                                        )
+                                    except Exception:
+                                        pass
                                     if ("추천" in _rep_j.get("rating","") and
                                             "비추천" not in _rep_j.get("rating","")):
                                         if "ai_portfolio" not in st.session_state:
@@ -2021,8 +2065,9 @@ def main():
                                                 "buy_date": datetime.now().strftime("%Y-%m-%d %H:%M"),
                                             })
                                             st.toast(f"AI 자동 담기: {_us_ticker_cur}")
-                            if f"report_{_us_ticker_cur}" in st.session_state:
-                                _rep = st.session_state[f"report_{_us_ticker_cur}"]
+                                st.rerun()
+                            if _us_ai_key in st.session_state:
+                                _rep = st.session_state[_us_ai_key]
                                 _re  = ("🟢" if "강력 추천" in _rep.get("rating","")
                                         else "🟡" if "추천" in _rep.get("rating","") else "🔴")
                                 st.markdown(f"##### {_re} {_rep.get('rating','')}")
