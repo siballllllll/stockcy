@@ -2128,7 +2128,6 @@ def main():
                     with st.spinner("AI가 US 시장·뉴스·옵션플로우를 분석 중입니다..."):
                         try:
                             from ai_engine import generate_us_realtime_picks
-                            from data import get_us_market_indices
                             from data_kr import get_us_volume_ranking, get_us_change_ranking
                             _us_mkt  = get_us_market_indices() or {}
                             _us_vol  = get_us_volume_ranking() or []
