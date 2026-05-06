@@ -2,7 +2,6 @@ import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
 from datetime import datetime
-from streamlit_autorefresh import st_autorefresh
 from data import get_us_stock_data, get_us_market_indices, get_us_stock_detail
 from data_kr import (get_us_prices_bulk_kis, get_kr_index_history,
                      get_kr_market_index, get_kr_stock_price,
@@ -188,7 +187,10 @@ def show_daily_briefing():
         st.rerun()
 
 def main():
-    st_autorefresh(interval=60000, limit=None, key="stockcy_refresh")
+    st.components.v1.html(
+        "<script>setTimeout(function(){window.parent.location.reload();},60000);</script>",
+        height=0
+    )
     init_session_state()
     inject_custom_css()
     
