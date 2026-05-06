@@ -308,7 +308,7 @@ def main():
     </div>""", height=75)
     
     # --- 메인 탭 구성 ---
-    tab1, tab2, tab3 = st.tabs(["📊 실시간 타점 보드", "📈 성과 트래킹", "🔧 관리자"])
+    tab1, tab2, tab3 = st.tabs(["🎯 AI 타점 보드", "📈 성과 트래킹", "🔧 관리자"])
     
     with tab1:
         if "국내" in st.session_state.market:
@@ -321,33 +321,8 @@ def main():
                 st.code("[kis]\napp_key = \"발급받은_앱키\"\napp_secret = \"발급받은_앱시크릿\"", language="toml")
                 st.stop()
 
-            # KOSPI / KOSDAQ 지수 (Toss 스타일 인라인 배너)
             with st.spinner(""):
                 indices = get_kr_market_index()
-
-            _banner_parts = []
-            for _iname in ["KOSPI", "KOSDAQ"]:
-                _id = indices.get(_iname, {})
-                _iv  = _id.get("index", 0)
-                _ic  = _id.get("change", 0)
-                _ip  = _id.get("change_pct", 0)
-                _col = "#ff4b4b" if _ic >= 0 else "#2b7cff"
-                _sg  = "+" if _ic >= 0 else ""
-                if _iv > 0:
-                    _banner_parts.append(
-                        f"<div class='index-item'>"
-                        f"<span class='index-name'>{_iname}</span>"
-                        f"<span class='index-val' style='color:{_col}'>{_iv:,.2f}</span>"
-                        f"<span class='index-chg' style='color:{_col}'>{_sg}{_ic:.2f}p ({_sg}{_ip:.2f}%)</span>"
-                        f"</div>"
-                    )
-            _banner_parts = [p for p in _banner_parts if p]
-            if _banner_parts:
-                st.markdown(
-                    f"<div class='index-banner'>{''.join(_banner_parts)}</div>",
-                    unsafe_allow_html=True,
-                )
-            st.markdown("<hr class='toss-divider'>", unsafe_allow_html=True)
 
             # 세션 상태 초기화
             for _k, _v in [
@@ -369,19 +344,7 @@ def main():
                 if _k not in st.session_state:
                     st.session_state[_k] = _v
 
-            # 모드 토글 (key 없이 index로 제어 → 프로그램에서 자유롭게 변경 가능)
-            _kr_modes = ["🎯 AI 타점 보드", "📊 일반 주식 검색", "🔥 오늘의 이슈 섹터"]
-            _kr_idx = _kr_modes.index(st.session_state.kr_mode) if st.session_state.kr_mode in _kr_modes else 0
-            kr_mode = st.radio(
-                "모드 선택",
-                _kr_modes,
-                horizontal=True,
-                label_visibility="collapsed",
-                index=_kr_idx,
-            )
-            if kr_mode != st.session_state.kr_mode:
-                st.session_state.kr_mode = kr_mode
-                st.rerun()
+            kr_mode = st.session_state.kr_mode
 
             selected_code_kr = st.session_state.kr_selected_code
 
@@ -532,6 +495,12 @@ def main():
                 st.stop()
 
             # ══════════════════════════════════════════════════════════════
+
+            # 비-AI 모드일 때 상단에 뒤로가기 버튼 표시
+            if st.button("← AI 타점 보드로", key="kr_back_to_board", type="secondary"):
+                st.session_state.kr_mode = "🎯 AI 타점 보드"
+                st.rerun()
+            st.markdown("<hr class='toss-divider'>", unsafe_allow_html=True)
 
             # 시세 조회: 일반 모드 또는 섹터 상세 뷰에서만 필요
             _need_price = (
