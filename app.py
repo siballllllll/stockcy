@@ -231,11 +231,24 @@ def main():
       <script type="text/javascript" src="https://s3.tradingview.com/external-embedding/embed-widget-ticker-tape.js" async>
       {
       "symbols": [
+        {"description": "KOSPI", "proName": "KRX:KOSPI"},
+        {"description": "KOSDAQ", "proName": "KRX:KOSDAQ"},
+        {"description": "삼성전자", "proName": "KRX:005930"},
+        {"description": "SK하이닉스", "proName": "KRX:000660"},
+        {"description": "LG에너지솔루션", "proName": "KRX:373220"},
+        {"description": "현대차", "proName": "KRX:005380"},
+        {"description": "NAVER", "proName": "KRX:035420"},
+        {"description": "카카오", "proName": "KRX:035720"},
+        {"description": "셀트리온", "proName": "KRX:068270"},
+        {"description": "S&P500", "proName": "SP:SPX"},
+        {"description": "나스닥", "proName": "FOREXCOM:NSXUSD"},
         {"description": "엔비디아", "proName": "NASDAQ:NVDA"},
         {"description": "애플", "proName": "NASDAQ:AAPL"},
         {"description": "테슬라", "proName": "NASDAQ:TSLA"},
         {"description": "마이크로소프트", "proName": "NASDAQ:MSFT"},
-        {"description": "나스닥 100", "proName": "FOREXCOM:NSXUSD"},
+        {"description": "메타", "proName": "NASDAQ:META"},
+        {"description": "구글", "proName": "NASDAQ:GOOGL"},
+        {"description": "아마존", "proName": "NASDAQ:AMZN"},
         {"description": "비트코인", "proName": "CRYPTO:BTCUSD"}
       ],
       "showSymbolLogo": true,
@@ -248,7 +261,6 @@ def main():
     </div>
     <!-- TradingView Widget END -->
     """
-    # HTML 컴포넌트를 화면에 렌더링 (높이 75px 지정, 잘림 방지)
     components.html(ticker_html, height=75)
     
     # --- 메인 탭 구성 ---
