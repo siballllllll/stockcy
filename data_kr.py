@@ -339,6 +339,105 @@ def get_kr_minute_chart(stock_code: str, interval: int = 5):
     return df
 
 
+@st.cache_data(ttl=90, show_spinner=False)
+def get_kr_prebreakout_signal(stock_code: str) -> dict:
+    """
+    5분봉 데이터로 급등 직전 신호를 계산합니다.
+
+    반환 필드:
+      vol_accel   - 최근 30분 거래량 / 직전 30분 거래량 비율 (>2.0이면 급증)
+      vol_ratio   - 오늘 전체 거래량 / 전일 동시간대 거래량 비율
+      consol_break- 박스권 돌파 여부 (최근 6봉 고점 대비 현재가 위치)
+      ma5_cross   - 현재가 > 5분봉 MA20 여부 (단기 추세 전환)
+      candle_seq  - 최근 3봉 연속 양봉 여부
+      signal_score- 0~5 점수 (높을수록 급등 직전 패턴)
+      signal_label- 패턴 요약 텍스트
+    """
+    df = get_kr_minute_chart(stock_code, interval=5)
+    if df.empty or len(df) < 12:
+        return {"signal_score": 0, "signal_label": "데이터 부족", "vol_accel": 0}
+
+    # ── 오늘 장중 데이터만 사용 ──
+    from datetime import datetime as _dt
+    import pytz as _pytz
+    _now  = _dt.now(_pytz.timezone("Asia/Seoul")).replace(tzinfo=None)
+    today = df[df["datetime"].dt.date == _now.date()].copy()
+    if today.empty or len(today) < 6:
+        return {"signal_score": 0, "signal_label": "장중 데이터 부족", "vol_accel": 0}
+
+    today = today.reset_index(drop=True)
+    n = len(today)
+
+    # 1. 거래량 가속도: 최근 6봉(30분) vs 직전 6봉(30분)
+    recent_vol = today["volume"].iloc[max(n-6, 0):].sum()
+    prev_vol   = today["volume"].iloc[max(n-12, 0):max(n-6, 0)].sum()
+    vol_accel  = round(recent_vol / prev_vol, 2) if prev_vol > 0 else 0.0
+
+    # 2. 오늘 전체 거래량 vs 직전 데이터 평균 (같은 시간대 비교)
+    all_today_vol = today["volume"].sum()
+    prev_days = df[df["datetime"].dt.date < _now.date()]
+    vol_ratio = 0.0
+    if not prev_days.empty:
+        cutoff_time = today["datetime"].iloc[-1].time()
+        prev_same   = prev_days[prev_days["datetime"].dt.time <= cutoff_time]
+        if not prev_same.empty:
+            avg_prev = prev_same.groupby(prev_same["datetime"].dt.date)["volume"].sum().mean()
+            vol_ratio = round(all_today_vol / avg_prev, 2) if avg_prev > 0 else 0.0
+
+    # 3. 박스권 돌파 여부 (최근 6봉 고점 vs 현재가)
+    box_high     = today["high"].iloc[max(n-7, 0):n-1].max() if n > 2 else 0
+    cur_close    = today["close"].iloc[-1]
+    consol_break = cur_close > box_high if box_high > 0 else False
+
+    # 4. 단기 이평선(MA20봉) 위에 있는지
+    ma20      = today["close"].rolling(20).mean().iloc[-1] if n >= 20 else today["close"].mean()
+    ma5       = today["close"].rolling(5).mean().iloc[-1]  if n >= 5  else today["close"].mean()
+    above_ma  = cur_close > ma20 and cur_close > ma5
+
+    # 5. 최근 3봉 연속 양봉
+    if n >= 3:
+        last3 = today.iloc[-3:]
+        candle_seq = all(last3["close"].values > last3["open"].values)
+    else:
+        candle_seq = False
+
+    # 6. 종합 점수 (0~5)
+    score = 0
+    notes = []
+    if vol_accel >= 2.5:
+        score += 2
+        notes.append(f"거래량가속 {vol_accel:.1f}x")
+    elif vol_accel >= 1.5:
+        score += 1
+        notes.append(f"거래량증가 {vol_accel:.1f}x")
+
+    if vol_ratio >= 3.0:
+        score += 1
+        notes.append(f"전일比 {vol_ratio:.1f}x")
+
+    if consol_break:
+        score += 1
+        notes.append("박스권돌파")
+
+    if candle_seq:
+        score += 1
+        notes.append("연속양봉")
+
+    label = " · ".join(notes) if notes else "시그널 없음"
+
+    return {
+        "code":          stock_code,
+        "vol_accel":     vol_accel,
+        "vol_ratio":     vol_ratio,
+        "consol_break":  consol_break,
+        "above_ma":      above_ma,
+        "candle_seq":    candle_seq,
+        "signal_score":  score,
+        "signal_label":  label,
+        "cur_price":     int(cur_close),
+    }
+
+
 @st.cache_data(ttl=60, show_spinner=False)
 def get_kr_prices_bulk(tickers_tuple: tuple) -> dict:
     """섹터 패널용 종목 일괄 시세 조회 (code → {price, change_pct})"""

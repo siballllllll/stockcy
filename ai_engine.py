@@ -276,34 +276,21 @@ def discover_hot_day_trading_stock(context=""):
         }
 
 
-def generate_realtime_picks(market_data: dict, volume_rank: list, change_rank: list) -> dict:
-    """시장·뉴스·수급 데이터를 융합해 실시간 스캘핑 추천 종목 3개 생성.
-
-    핵심 로직: 이미 급등한 종목(상한가 근처)이 아닌,
-    거래량은 급증했으나 주가는 아직 미동인 종목(세력 초기 진입 시그널)을 필터링해 AI에 전달.
+def _compute_prebreakout_signals(volume_rank: list, change_rank: list) -> tuple:
     """
-    kospi  = market_data.get("KOSPI",  {})
-    kosdaq = market_data.get("KOSDAQ", {})
+    거래량/등락률 랭킹 데이터에서 급등 직전 후보군을 추출하고,
+    상위 후보에 대해 분봉 기반 기술적 시그널을 계산합니다.
+    반환: (prebreakout_with_signals, already_done)
+    """
+    from data_kr import get_kr_prebreakout_signal
 
-    # ── 세력 초기 진입 탐지: 거래량 급증 & 주가 아직 미동 ──
-    prebreakout  = []   # 등락률 -2% ~ +8%: 아직 진입 가능
-    already_done = []   # 등락률 >8%: 이미 급등, 진입 금지 목록
+    prebreakout  = []
+    already_done = []
     seen = set()
 
     def _chg(s):
         return float(s.get("등락률(%)", 0) or 0)
 
-    def _fmt(s):
-        chg   = _chg(s)
-        vol   = s.get("거래량", "")
-        price = s.get("현재가", "")
-        vol   = f"{vol:,}주" if isinstance(vol, int) else str(vol)
-        price = f"₩{price:,}" if isinstance(price, int) else str(price)
-        mkt   = f" [{s['시장']}]" if "시장" in s else ""
-        return (f"- {s.get('종목명','')} ({s.get('종목코드','')}){mkt}: "
-                f"등락률 {chg:+.2f}%, 현재가 {price}, 거래량 {vol}")
-
-    # volume_rank 처리 (거래량 상위 종목 중 필터)
     for s in (volume_rank or []):
         code = str(s.get("종목코드", ""))
         if not code or code in seen:
@@ -314,7 +301,6 @@ def generate_realtime_picks(market_data: dict, volume_rank: list, change_rank: l
         elif _chg(s) >= -2:
             prebreakout.append(s)
 
-    # change_rank 처리 (KOSPI+KOSDAQ 합산)
     for s in (change_rank or []):
         code = str(s.get("종목코드", ""))
         if not code or code in seen:
@@ -325,73 +311,170 @@ def generate_realtime_picks(market_data: dict, volume_rank: list, change_rank: l
         elif 1 <= _chg(s) <= 8:
             prebreakout.append(s)
 
-    pb_lines  = [_fmt(s) for s in prebreakout[:10]] or ["- 데이터 없음"]
+    # 상위 6종목에 분봉 시그널 계산 (API 과호출 방지)
+    enriched = []
+    for s in prebreakout[:6]:
+        code = str(s.get("종목코드", ""))
+        try:
+            sig = get_kr_prebreakout_signal(code)
+        except Exception:
+            sig = {"signal_score": 0, "signal_label": "-", "vol_accel": 0}
+        enriched.append({**s, "_signal": sig})
+
+    # 시그널 점수 높은 순 정렬
+    enriched.sort(key=lambda x: x["_signal"].get("signal_score", 0), reverse=True)
+    # 시그널 미계산 종목 뒤에 붙임
+    enriched += prebreakout[6:]
+
+    return enriched, already_done
+
+
+def generate_realtime_picks(market_data: dict, volume_rank: list, change_rank: list) -> dict:
+    """
+    스캘핑 종목 발굴 — 과거 급등 직전 패턴을 기준으로 현재 진입 가능 종목을 탐지합니다.
+
+    동작 방식:
+    1. 거래량 랭킹 + 등락률 랭킹에서 이미 급등한 종목(>8%) 제거
+    2. 남은 후보군의 5분봉 데이터로 기술적 시그널 계산
+       (거래량가속도, 박스권돌파, 연속양봉 등)
+    3. 시그널 점수가 높은 순으로 정렬하여 AI에 전달
+    4. AI는 구글 검색으로 재료·수급을 확인 후 최종 3종목 선정
+    """
+    kospi  = market_data.get("KOSPI",  {})
+    kosdaq = market_data.get("KOSDAQ", {})
+
+    prebreakout, already_done = _compute_prebreakout_signals(volume_rank, change_rank)
+
+    def _chg(s):
+        return float(s.get("등락률(%)", 0) or 0)
+
+    def _fmt_candidate(s):
+        chg   = _chg(s)
+        vol   = s.get("거래량", "")
+        price = s.get("현재가", "")
+        vol   = f"{vol:,}주" if isinstance(vol, int) else str(vol)
+        price = f"₩{price:,}" if isinstance(price, int) else str(price)
+        mkt   = f"[{s['시장']}]" if "시장" in s else ""
+        sig   = s.get("_signal", {})
+        score = sig.get("signal_score", "-")
+        label = sig.get("signal_label", "")
+        accel = sig.get("vol_accel", 0)
+        accel_str = f"거래량가속 {accel:.1f}x" if accel > 0 else ""
+        signal_str = f"  ▶ 패턴점수:{score}/5 | {label}" if label and label != "-" else ""
+        return (
+            f"- {s.get('종목명','')} ({s.get('종목코드','')}) {mkt} "
+            f"등락률 {chg:+.2f}%, 현재가 {price}, 거래량 {vol}"
+            + (f"\n{signal_str}" if signal_str else "")
+        )
+
+    pb_lines  = [_fmt_candidate(s) for s in prebreakout[:8]] or ["- 데이터 없음"]
     sur_lines = [
-        f"- {s.get('종목명','')} ({s.get('종목코드','')}): {_chg(s):+.1f}% ← 이미 급등 완료"
+        f"- {s.get('종목명','')} ({s.get('종목코드','')}): {_chg(s):+.1f}% (진입 금지)"
         for s in already_done[:6]
     ]
 
-    prompt = f"""당신은 한국 주식시장 스캘핑 전문 트레이더입니다.
+    prompt = f"""당신은 10년 경력의 한국 주식시장 스캘핑·단타 트레이더입니다.
 지금 즉시 구글 검색으로 오늘의 뉴스·공시·외국인/기관 수급 흐름을 파악하세요.
 
 [현재 시장]
 KOSPI : {kospi.get('index',0):,.2f}  ({kospi.get('change_pct',0):+.2f}%)
 KOSDAQ: {kosdaq.get('index',0):,.2f}  ({kosdaq.get('change_pct',0):+.2f}%)
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-🎯 [거래량 급증 & 아직 주가 미동 종목] ← 세력 초기 진입 시그널
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-(등락률 +8% 미만 = 파동 초입, 추가 상승 여력 충분)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📊 [실시간 측정된 급등 직전 시그널 후보군]
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+(패턴점수 높을수록 급등 직전 상태. 등락률 8% 미만 = 아직 진입 가능)
 {chr(10).join(pb_lines)}
 
-{"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" if sur_lines else ""}
-{"❌ [이미 급등 완료 — 절대 진입 금지 목록]" if sur_lines else ""}
-{"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" if sur_lines else ""}
+{"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" if sur_lines else ""}
+{"❌ [이미 급등 완료 — 진입 불가 목록]" if sur_lines else ""}
 {chr(10).join(sur_lines)}
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-[스캘핑 종목 선정 절대 원칙]
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-❌ 절대 금지:
-  · 오늘 이미 10% 이상 오른 종목 추천 금지 (상한가 근처 = 들어갈 수 없음)
-  · "이미 급등 완료" 목록에 있는 종목 추천 금지
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📚 [급등 직전 종목의 실증적 패턴 사전] ← 이 기준으로 판단하세요
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-✅ 추천 대상 (아래 조건 충족 종목):
-  1. 거래량이 오늘 갑자기 급증 (세력·기관 수급 유입 시그널)
-  2. 주가 등락률이 현재 +1%~+7% 사이 = 파동 초입, 추가 상승 여력 큼
-  3. 오늘 재료(뉴스/공시/테마)가 막 터졌거나, 주요 저항선 돌파 직전 상태
-  4. 위 목록에 없어도 구글 검색에서 오늘 막 이슈 터진 종목이면 포함 가능
+▶ 당일 수분~수십분 내 급등 패턴:
+  1. 거래량 가속 돌파 (Volume Acceleration Breakout)
+     - 최근 15~30분 거래량이 직전 동일 시간 대비 3배 이상 갑자기 터짐
+     - 주가는 아직 1~5% 상승에 그쳤지만 거래량이 먼저 급증 = 세력 진입 초기
+     - 실제 패턴: 거래량 폭발 → 주가 가속 급등 (수분~10분 시차)
 
-🎯 타점 기준:
-  · 진입가: 현재가 기준 소폭 눌림 또는 즉시 진입 가격
-  · 목표가: 진입가 대비 +3%~+8% (스캘핑 기준)
-  · 손절가: 진입가 대비 -2% 이내 (칼손절)
+  2. 박스권 돌파 + 거래량 (Consolidation Breakout)
+     - 수십분~수시간 좁은 박스권에서 횡보하다가 상단 저항선 돌파
+     - 돌파 시 거래량이 박스권 내 평균의 2배 이상 = 세력이 저항을 뚫는 것
+     - 돌파 직후 1봉이 핵심 진입 타이밍 (추격 금지)
 
-구글 검색으로 각 종목의 오늘 급등 재료/이슈를 확인하고,
-현재 실시간 주가를 파악해 현실적인 타점을 산정하세요.
+  3. 눌림목 반등 + 거래량 확인 (Pullback with Volume Confirmation)
+     - 급등 후 자연스런 눌림목(2~5% 조정) → 지지선에서 반등
+     - 반등 시 거래량이 눌림목 구간보다 많으면 재진입 기회
+     - 스캘핑: 지지선 +0.3~0.5% 위에서 매수
 
-반드시 아래 JSON 형식만 반환 (백틱·설명 없이):
+  4. 5분봉 연속 양봉 + 거래량 증가 (Consecutive Bullish Candles)
+     - 3봉 이상 연속 양봉이면서 각 봉의 거래량이 이전 봉보다 증가
+     - 매도 압력 없이 매수세 지속 = 추가 상승 가능성 높음
+     - 4번째 봉 시작 시 진입하면 리스크/리워드 유리
+
+  5. VWAP 돌파 + 재테스트 성공 (VWAP Breakout & Retest)
+     - 장중 VWAP(당일 평균 가중치 가격) 위로 돌파 후 눌려서 VWAP 재테스트
+     - VWAP이 지지로 작동하면서 반등 = 기관 매수 우위
+     - 매수: VWAP 재테스트 성공 확인 후
+
+▶ 1~2일 후 급등 패턴:
+  1. 장 마감 전 거래량 폭발 (End-of-Day Volume Spike)
+     - 오후 2:30~3:20 사이 거래량이 전일 같은 시간대의 3배 이상
+     - 세력이 내일 상승을 위한 물량 매집 중 = 다음날 갭상승 또는 장 초반 급등
+     - 이 패턴은 당일보다 다음날 오전 9:00~9:30 사이 진입이 유리
+
+  2. 거래량 점진적 증가 + 주가 횡보 (Accumulation Pattern)
+     - 3~5일간 거래량이 조금씩 늘면서 주가가 좁은 범위에서 횡보
+     - "바닥 다지기" = 세력 매집 완료 단계, 곧 급등 가능
+     - 횡보 범위 상단 돌파 시 진입
+
+  3. 뉴스/공시 발생 + 초기 반응 미흡 (Catalyst Lag Effect)
+     - 긍정적 뉴스나 공시가 나왔는데 주가가 5% 미만 상승에 그침
+     - 시장이 아직 뉴스를 소화하지 못한 상태 = 다음날 추가 상승 가능
+     - 조건: 뉴스의 임팩트가 실질적(실적 개선, 수주, M&A 등)이어야 함
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+[선정 기준 — 반드시 준수]
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+❌ 절대 금지: 현재 등락률 10% 이상 종목 (이미 급등 완료, 진입 불가)
+✅ 필수 조건:
+   · 위 패턴 사전 중 최소 1개 이상 해당
+   · 구글 검색으로 오늘 실제 재료(뉴스/공시/테마) 확인 필수
+   · 현재 등락률 0%~8% 사이 종목 우선
+   · 후보 목록에 없어도 구글 검색에서 패턴 일치 종목 발굴 가능
+
+🎯 타점 산정 (구글 검색으로 현재가 확인 후):
+   · 매수 타점: 패턴별 최적 진입가 (위 패턴 기준 적용)
+   · 목표가: 매수가 대비 +3%~+8%
+   · 손절가: 매수가 대비 -2% (칼손절)
+
+반드시 아래 JSON만 반환 (백틱·설명 없이):
 {{
   "market_condition": "상승장 또는 하락장 또는 혼조세",
-  "market_comment": "오늘 시장을 한 문장으로 요약",
+  "market_comment": "오늘 시장 한 문장 요약",
   "picks": [
     {{
       "rank": 1,
-      "code": "종목코드 6자리 숫자",
+      "code": "종목코드 6자리",
       "name": "종목명",
-      "theme": "핵심 테마 키워드 1~2개 (예: AI반도체·방산)",
-      "reason": "추천 근거: 거래량 급증 이유 + 아직 진입 가능한 이유 (2~3줄)",
+      "theme": "핵심 테마 1~2개",
+      "pattern": "해당하는 급등 직전 패턴명 (예: 거래량가속돌파, 박스권돌파, 눌림목반등 등)",
+      "reason": "패턴 근거 + 오늘 재료 + 진입 가능한 이유 (3줄 이내)",
       "current_price": 현재가_숫자,
       "change_pct": 현재_등락률_숫자,
       "entry": 매수타점_숫자,
       "target": 목표가_숫자,
       "stop": 손절가_숫자,
-      "urgency": "즉시진입 또는 눌림목대기"
+      "urgency": "즉시진입 또는 눌림목대기 또는 내일장초반",
+      "horizon": "당일스캘핑 또는 1~2일스윙"
     }}
   ]
 }}
 
-⚠️ 최종 자가검증: picks 중 change_pct가 10% 이상인 종목이 있으면 즉시 다른 종목으로 교체하세요."""
+⚠️ 자가검증: change_pct ≥ 10%인 종목이 있으면 반드시 교체하세요."""
 
     try:
         response = _call_gemini(prompt, use_search=True, temperature=0.35)

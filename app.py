@@ -415,10 +415,21 @@ def main():
                     else:
                         _pick_cols = st.columns(len(_res["picks"]))
                         for _ci, (_pick, _pcol) in enumerate(zip(_res["picks"], _pick_cols)):
-                            _urg = _pick.get("urgency", "")
-                            _urg_icon  = "⚡" if "즉시" in _urg else "🕐"
-                            _urg_color = "#ff9800" if "즉시" in _urg else "#888"
-                            _urg_bg    = "rgba(255,152,0,0.15)" if "즉시" in _urg else "rgba(255,255,255,0.06)"
+                            _urg     = _pick.get("urgency", "")
+                            _horizon = _pick.get("horizon", "")
+                            _pattern = _pick.get("pattern", "")
+
+                            # 긴급도 배지
+                            _urg_icon  = "⚡" if "즉시" in _urg else ("🌙" if "내일" in _urg else "🕐")
+                            _urg_color = "#ff9800" if "즉시" in _urg else ("#a78bfa" if "내일" in _urg else "#888")
+                            _urg_bg    = ("rgba(255,152,0,0.15)" if "즉시" in _urg
+                                          else "rgba(167,139,250,0.15)" if "내일" in _urg
+                                          else "rgba(255,255,255,0.06)")
+
+                            # 시간축 배지 (당일스캘핑 / 1~2일스윙)
+                            _hz_color = "#00c853" if "스캘핑" in _horizon or "당일" in _horizon else "#f5c518"
+                            _hz_label = "⚡당일" if "스캘핑" in _horizon or "당일" in _horizon else "📅1~2일"
+
                             _entry  = _pick.get("entry", 0)
                             _target = _pick.get("target", 0)
                             _stop   = _pick.get("stop", 0)
@@ -426,49 +437,67 @@ def main():
                             _cpct   = float(_pick.get("change_pct", 0) or 0)
                             _upside = round((_target - _entry) / _entry * 100, 1) if _entry > 0 else 0
                             _themes = [t.strip() for t in str(_pick.get("theme","")).split(",") if t.strip()]
-                            # 이미 많이 오른 종목 경고 (AI가 지침을 어긴 경우 사용자에게 표시)
                             _already_surged = _cpct >= 10
 
                             with _pcol:
-                                # 현재가 + 등락률 행
                                 _cpct_color = "#ff4b4b" if _cpct >= 0 else "#2b7cff"
                                 _cpct_sign  = "▲" if _cpct >= 0 else "▼"
+
+                                # 현재가 + 등락률
                                 _cur_html = (
                                     f"<div style='font-size:0.8rem;color:#aaa;margin-bottom:8px'>"
                                     f"현재 <b style='color:#eee'>₩{int(_cur):,}</b>&nbsp;"
                                     f"<span style='color:{_cpct_color};font-weight:700'>"
                                     f"{_cpct_sign} {abs(_cpct):.2f}%</span></div>"
                                 ) if _cur > 0 else ""
+
+                                # 감지된 패턴 배지
+                                _pattern_html = (
+                                    f"<div style='font-size:0.62rem;color:#7dd3fc;"
+                                    f"background:rgba(125,211,252,0.08);border-radius:6px;"
+                                    f"padding:3px 8px;margin-bottom:8px;display:inline-block'>"
+                                    f"📊 {_pattern}</div>"
+                                ) if _pattern else ""
+
+                                # 테마 태그
                                 _theme_html = "".join(
                                     f"<span style='background:rgba(255,255,255,0.08);"
                                     f"border-radius:10px;padding:2px 7px;font-size:0.63rem;"
                                     f"color:#aaa;margin-right:4px'>{th}</span>"
                                     for th in _themes
                                 )
-                                # 이미 급등 경고 배너
+
+                                # 이미 급등 경고
                                 _warn_html = (
                                     "<div style='background:rgba(255,75,75,0.15);border:1px solid #ff4b4b;"
                                     "border-radius:8px;padding:4px 8px;font-size:0.65rem;color:#ff4b4b;"
                                     "margin-bottom:8px'>⚠️ 이미 많이 오른 종목 — 진입 신중</div>"
                                 ) if _already_surged else ""
+
                                 _border_color = "rgba(255,75,75,0.3)" if _already_surged else "rgba(255,255,255,0.1)"
+
                                 _card_html = (
                                     f"<div style='background:rgba(255,255,255,0.035);"
                                     f"border:1px solid {_border_color};border-radius:14px;"
                                     f"padding:14px 14px 12px 14px'>"
+                                    # 헤더: 종목명 + 긴급도 배지
                                     f"<div style='display:flex;justify-content:space-between;"
-                                    f"align-items:flex-start;margin-bottom:10px'>"
+                                    f"align-items:flex-start;margin-bottom:6px'>"
                                     f"<div>"
                                     f"<span style='font-size:0.7rem;color:#888'>#{_pick.get('rank',_ci+1)}</span>&nbsp;"
                                     f"<span style='font-size:1rem;font-weight:700'>{_pick.get('name','')}</span><br>"
                                     f"<span style='font-size:0.68rem;color:#666'>{_pick.get('code','')}</span>"
                                     f"</div>"
+                                    f"<div style='text-align:right'>"
                                     f"<span style='background:{_urg_bg};color:{_urg_color};"
-                                    f"border-radius:12px;padding:3px 8px;font-size:0.68rem;font-weight:700;"
-                                    f"white-space:nowrap'>{_urg_icon} {_urg}</span>"
-                                    f"</div>"
+                                    f"border-radius:10px;padding:2px 7px;font-size:0.65rem;font-weight:700;"
+                                    f"display:block;margin-bottom:3px'>{_urg_icon} {_urg}</span>"
+                                    f"<span style='color:{_hz_color};font-size:0.6rem;font-weight:600'>{_hz_label}</span>"
+                                    f"</div></div>"
                                     + _warn_html
+                                    + _pattern_html
                                     + _cur_html +
+                                    # 타점 그리드
                                     f"<div style='display:grid;grid-template-columns:1fr 1fr 1fr;"
                                     f"gap:6px;margin-bottom:10px'>"
                                     f"<div style='background:rgba(255,255,255,0.06);border-radius:8px;"
@@ -487,10 +516,11 @@ def main():
                                     f"<div style='font-size:0.85rem;font-weight:700;color:#2b7cff'>"
                                     f"₩{int(_stop):,}</div></div>"
                                     f"</div>"
-                                    f"<div style='font-size:0.72rem;color:#bbb;line-height:1.55;"
+                                    # 추천 근거
+                                    f"<div style='font-size:0.72rem;color:#bbb;line-height:1.6;"
                                     f"margin-bottom:8px'>{_pick.get('reason','')}</div>"
-                                    + _theme_html +
-                                    "</div>"
+                                    + _theme_html
+                                    + "</div>"
                                 )
                                 st.markdown(_card_html, unsafe_allow_html=True)
                                 if st.button("상세 분석 →", key=f"pk_detail_{_pick.get('code',_ci)}",
