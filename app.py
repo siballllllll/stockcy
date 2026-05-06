@@ -354,6 +354,49 @@ def main():
                 _pb_key  = "kr_picks_result"
                 _run_key = "_kr_picks_pending"
 
+                # ── 신호 알림: 3분마다 경량 스캔 ──────────────────────────
+                if _HAVE_AUTOREFRESH:
+                    _st_autorefresh(interval=180_000, key="kr_signal_autorefresh")
+
+                def _quick_signal_scan() -> int:
+                    """AI 없이 분봉 시그널만 체크 → 점수 3 이상 후보 수 반환."""
+                    try:
+                        from ai_engine import _compute_prebreakout_signals
+                        from data_kr import get_kr_change_ranking
+                        _qvol = get_kr_volume_ranking() or []
+                        _qchg = (get_kr_change_ranking("J") or []) + (get_kr_change_ranking("Q") or [])
+                        _qpre, _ = _compute_prebreakout_signals(_qvol, _qchg)
+                        return sum(1 for x in _qpre if x.get("_signal", {}).get("signal_score", 0) >= 3)
+                    except Exception:
+                        return 0
+
+                _sig_count_key  = "_kr_sig_count_last"
+                _sig_ts_key     = "_kr_sig_ts_last"
+                _new_count = _quick_signal_scan()
+                _old_count  = st.session_state.get(_sig_count_key, -1)
+                if _new_count != _old_count:
+                    st.session_state[_sig_count_key] = _new_count
+                    st.session_state[_sig_ts_key] = datetime.now().strftime("%H:%M")
+                _sig_ts = st.session_state.get(_sig_ts_key, "")
+
+                # 신호 배너 (후보가 있고 아직 AI 결과가 없을 때)
+                if _new_count > 0 and _pb_key not in st.session_state:
+                    st.markdown(
+                        f"""<div style='background:linear-gradient(90deg,rgba(255,75,75,0.18),rgba(255,152,0,0.12));
+                            border:1.5px solid #ff4b4b;border-radius:10px;padding:10px 16px;margin:6px 0;
+                            display:flex;align-items:center;gap:10px;animation:pulse 1.5s ease-in-out infinite;'>
+                          <span style='font-size:1.3rem'>🔥</span>
+                          <span style='flex:1;font-size:0.85rem;font-weight:700;color:#ff6b6b'>
+                            {_new_count}개 급등 직전 신호 감지 ({_sig_ts}) — AI 타점 분석 실행 권장</span>
+                        </div>
+                        <style>@keyframes pulse{{
+                          0%,100%{{opacity:1}} 50%{{opacity:0.6}}
+                        }}</style>""",
+                        unsafe_allow_html=True,
+                    )
+                elif _new_count == 0 and _sig_ts:
+                    st.caption(f"🟢 마지막 신호 스캔: {_sig_ts} — 현재 고강도 신호 없음")
+
                 # 상단: 버튼 + 마지막 업데이트
                 _ph_top = st.empty()
                 _pb_col1, _pb_col2 = st.columns([3, 1])
@@ -1692,15 +1735,125 @@ def main():
                                     load_sector_map.clear()
                                     st.rerun()
 
-                                # 섹터 선택 드롭다운
-                                _cur_idx = sector_names.index(st.session_state.kr_selected_sector) \
-                                    if st.session_state.kr_selected_sector in sector_names else 0
-                                _sel_sector = st.selectbox(
-                                    "섹터 선택",
+                                # ── hot_score 맵 구성 (AI 시장분석 결과 재활용) ──
+                                _hot_score_map: dict = {}  # {sector_name: {score, reason, news}}
+                                try:
+                                    from ai_engine import analyze_kr_hot_sectors
+                                    _hs_res = analyze_kr_hot_sectors()
+                                    if isinstance(_hs_res, dict) and _hs_res.get("sectors"):
+                                        for _hs in _hs_res["sectors"]:
+                                            _kw = _hs.get("keyword", "")
+                                            if _kw in sector_names:
+                                                _hot_score_map[_kw] = {
+                                                    "score": _hs.get("hot_score", 0),
+                                                    "reason": _hs.get("reason", ""),
+                                                    "news": _hs.get("news_title", ""),
+                                                }
+                                except Exception:
+                                    pass
+
+                                def _sector_tier(name):
+                                    sc = _hot_score_map.get(name, {}).get("score", 0)
+                                    if sc >= 7: return 0
+                                    if sc >= 4: return 1
+                                    return 2
+
+                                _sorted_sector_names = sorted(
                                     sector_names,
+                                    key=lambda n: (_sector_tier(n), -_hot_score_map.get(n, {}).get("score", 0))
+                                )
+
+                                # ── 섹터 배지 목록 ─────────────────────────────────
+                                st.markdown(
+                                    "<p style='font-size:0.72rem;color:#888;margin:2px 0 6px 0'>"
+                                    "섹터를 클릭해 종목을 탐색하세요 · 🔥 = 오늘의 이슈 섹터</p>",
+                                    unsafe_allow_html=True,
+                                )
+                                with st.container(height=190):
+                                    _prev_tier = -1
+                                    for _sn in _sorted_sector_names:
+                                        _tier = _sector_tier(_sn)
+                                        _hs_info = _hot_score_map.get(_sn, {})
+                                        _sc = _hs_info.get("score", 0)
+                                        _reason_short = _hs_info.get("reason", "")[:40]
+                                        _news_short   = _hs_info.get("news",   "")[:35]
+
+                                        if _tier != _prev_tier:
+                                            if _tier == 0:
+                                                st.markdown(
+                                                    "<p style='font-size:0.68rem;font-weight:700;color:#ff4b4b;"
+                                                    "margin:4px 0 2px 0;letter-spacing:0.05em'>🔥 HOT 섹터</p>",
+                                                    unsafe_allow_html=True,
+                                                )
+                                            elif _tier == 1:
+                                                st.markdown(
+                                                    "<p style='font-size:0.68rem;font-weight:700;color:#f5c518;"
+                                                    "margin:6px 0 2px 0;letter-spacing:0.05em'>⭐ 관심 섹터</p>",
+                                                    unsafe_allow_html=True,
+                                                )
+                                            else:
+                                                st.markdown(
+                                                    "<p style='font-size:0.68rem;color:#555;"
+                                                    "margin:6px 0 2px 0;letter-spacing:0.05em'>일반 섹터</p>",
+                                                    unsafe_allow_html=True,
+                                                )
+                                            _prev_tier = _tier
+
+                                        _is_sel = st.session_state.kr_selected_sector == _sn
+                                        if _tier == 0:
+                                            _badge_html = (
+                                                f"🔥 {_sn} <span style='font-size:0.65rem;color:#ff9800'>"
+                                                f"[{_sc}점]</span>"
+                                            )
+                                            if _reason_short:
+                                                _badge_html += (
+                                                    f"<br><span style='font-size:0.63rem;color:#aaa'>"
+                                                    f"{_reason_short}{'…' if len(_hs_info.get('reason',''))>40 else ''}</span>"
+                                                )
+                                            if _news_short:
+                                                _badge_html += (
+                                                    f"<span style='font-size:0.62rem;color:#666'>"
+                                                    f" · {_news_short}</span>"
+                                                )
+                                            _bg = "rgba(255,75,75,0.12)" if _is_sel else "rgba(255,75,75,0.06)"
+                                            _border = "#ff4b4b" if _is_sel else "rgba(255,75,75,0.35)"
+                                        elif _tier == 1:
+                                            _badge_html = (
+                                                f"⭐ {_sn} <span style='font-size:0.65rem;color:#888'>"
+                                                f"[{_sc}점]</span>"
+                                            )
+                                            if _reason_short:
+                                                _badge_html += (
+                                                    f"<br><span style='font-size:0.63rem;color:#888'>"
+                                                    f"{_reason_short}{'…' if len(_hs_info.get('reason',''))>40 else ''}</span>"
+                                                )
+                                            _bg = "rgba(245,197,24,0.10)" if _is_sel else "rgba(245,197,24,0.04)"
+                                            _border = "#f5c518" if _is_sel else "rgba(245,197,24,0.25)"
+                                        else:
+                                            _badge_html = f"{_sn}"
+                                            _bg = "rgba(255,255,255,0.06)" if _is_sel else "transparent"
+                                            _border = "rgba(255,255,255,0.2)" if _is_sel else "rgba(255,255,255,0.06)"
+
+                                        _bc1, _bc2 = st.columns([5, 1])
+                                        _bc1.markdown(
+                                            f"<div style='border:1px solid {_border};background:{_bg};"
+                                            f"border-radius:7px;padding:5px 10px;margin:2px 0'>"
+                                            f"{_badge_html}</div>",
+                                            unsafe_allow_html=True,
+                                        )
+                                        if _bc2.button("▶", key=f"sec_btn_{_sn}", use_container_width=True):
+                                            st.session_state.kr_selected_sector = _sn
+                                            st.rerun()
+
+                                # 선택된 섹터 표시 (드롭다운 폴백 + 확인용)
+                                _cur_idx = _sorted_sector_names.index(st.session_state.kr_selected_sector) \
+                                    if st.session_state.kr_selected_sector in _sorted_sector_names else 0
+                                _sel_sector = st.selectbox(
+                                    "섹터 선택 (직접 선택)",
+                                    _sorted_sector_names,
                                     index=_cur_idx,
                                     key="kr_sector_selectbox",
-                                    label_visibility="collapsed",
+                                    label_visibility="visible",
                                 )
                                 if _sel_sector != st.session_state.kr_selected_sector:
                                     st.session_state.kr_selected_sector = _sel_sector
