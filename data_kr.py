@@ -294,12 +294,25 @@ def get_kr_minute_chart(stock_code: str, interval: int = 5):
             raw = yf.Ticker(f"{stock_code}{suffix}").history(
                 period=period, interval=yf_interval, auto_adjust=True
             )
-            if not raw.empty:
-                raw.index = raw.index.tz_convert("Asia/Seoul")
-                raw.index = raw.index.tz_localize(None)
-                df = raw.reset_index()[["Datetime", "Open", "High", "Low", "Close", "Volume"]]
-                df.columns = ["datetime", "open", "high", "low", "close", "volume"]
-                break
+            if raw.empty:
+                continue
+            # timezone → Asia/Seoul → naive
+            if raw.index.tz is not None:
+                raw.index = raw.index.tz_convert("Asia/Seoul").tz_localize(None)
+            tmp = raw.reset_index()
+            # 날짜 컬럼 이름 정규화
+            dt_col = next(
+                (c for c in tmp.columns if str(c).lower() in ("datetime", "date", "index")), None
+            )
+            if dt_col is None:
+                continue
+            tmp = tmp.rename(columns={dt_col: "datetime"})
+            tmp.columns = [str(c).lower().strip() for c in tmp.columns]
+            needed = ["datetime", "open", "high", "low", "close", "volume"]
+            if not all(c in tmp.columns for c in needed):
+                continue
+            df = tmp[needed].copy()
+            break
         except Exception:
             continue
 
@@ -557,26 +570,28 @@ def get_kr_daily_chart(stock_code: str, period: str = "3mo") -> pd.DataFrame:
     import yfinance as yf
     for suffix in [".KS", ".KQ"]:
         try:
-            df = yf.download(
-                f"{stock_code}{suffix}", period=period, interval="1d",
-                auto_adjust=True, progress=False, group_by="ticker",
+            raw = yf.Ticker(f"{stock_code}{suffix}").history(
+                period=period, interval="1d", auto_adjust=True
             )
-            if df.empty:
+            if raw.empty:
                 continue
-            df = df.reset_index()
-            # yfinance 0.2.50+ 는 MultiIndex 컬럼 반환 → 첫 번째 레벨만 사용
-            if isinstance(df.columns, pd.MultiIndex):
-                df.columns = [c[0].lower().strip() for c in df.columns]
-            else:
-                df.columns = [str(c).lower().strip() for c in df.columns]
-            if "date" in df.columns:
-                df.rename(columns={"date": "datetime"}, inplace=True)
-            df["datetime"] = pd.to_datetime(df["datetime"])
+            df = raw.reset_index()
+            # 날짜 컬럼 이름 정규화 (Date / Datetime 모두 처리)
+            dt_col = next(
+                (c for c in df.columns if str(c).lower() in ("date", "datetime")), None
+            )
+            if dt_col is None:
+                continue
+            df = df.rename(columns={dt_col: "datetime"})
+            df.columns = [str(c).lower().strip() for c in df.columns]
             needed = ["datetime", "open", "high", "low", "close", "volume"]
             if not all(c in df.columns for c in needed):
                 continue
-            df = df[needed].dropna(subset=["open", "high", "low", "close"]).copy()
-            return df
+            df["datetime"] = pd.to_datetime(df["datetime"])
+            # timezone 제거
+            if df["datetime"].dt.tz is not None:
+                df["datetime"] = df["datetime"].dt.tz_localize(None)
+            return df[needed].dropna(subset=["open", "high", "low", "close"]).copy()
         except Exception:
             continue
     return pd.DataFrame()
