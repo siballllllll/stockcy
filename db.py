@@ -249,7 +249,13 @@ def load_sector_map() -> dict:
 
 @st.cache_data(ttl=300)
 def load_us_sector_map() -> dict:
-    """Google Sheets 섹터DB_US 탭에서 미국 섹터 맵 로드. 없거나 실패 시 sectors_us.py 폴백."""
+    """Google Sheets 섹터DB_US 탭 → sectors_us.py → FDR 전종목 업종 순으로 병합.
+
+    1. 구글 시트 / sectors_us.py 로 큐레이션 섹터맵 로드
+    2. FDR(FinanceDataReader) 업종 분류로 전종목 자동 보강
+       - 기존 섹터에 없는 업종만 추가 (중복 방지)
+       - 기존 세부섹터에 없는 종목만 추가
+    """
     try:
         sh, _ = _get_spreadsheet()
         if sh is None:
@@ -275,10 +281,41 @@ def load_us_sector_map() -> dict:
             )
         if not sector_map:
             raise Exception("파싱 결과 빈 맵")
-        return sector_map
+        raw = sector_map
     except Exception:
         from sectors_us import US_SECTOR_MAP
-        return US_SECTOR_MAP
+        raw = US_SECTOR_MAP
+
+    # ── FDR 전종목 업종 자동 병합 ────────────────────────────────────────
+    try:
+        from data_kr import get_us_fdr_sector_map
+        fdr_map = get_us_fdr_sector_map()
+        if fdr_map:
+            existing_tickers: set = {
+                s["ticker"]
+                for subs in raw.values()
+                for stocks in subs.values()
+                for s in stocks
+                if isinstance(s, dict) and s.get("ticker")
+            }
+            for sector, subs in fdr_map.items():
+                for sub, stocks in subs.items():
+                    new_stocks = [
+                        s for s in stocks
+                        if s.get("ticker") and s["ticker"] not in existing_tickers
+                    ]
+                    if not new_stocks:
+                        continue
+                    if sector not in raw:
+                        raw[sector] = {}
+                    if sub not in raw[sector]:
+                        raw[sector][sub] = []
+                    raw[sector][sub].extend(new_stocks)
+                    existing_tickers.update(s["ticker"] for s in new_stocks)
+    except Exception:
+        pass
+
+    return raw
 
 
 def init_us_sector_sheet():

@@ -57,27 +57,30 @@ def get_kr_fdr_sector_map() -> dict:
     """FDR 업종 컬럼으로 KOSPI+KOSDAQ 전종목 자동 섹터맵 생성.
 
     반환: {업종대분류: {업종소분류: [{name, code, suffix}]}}
-    섹터/업종 컬럼이 없으면 빈 dict 반환.
+    섹터 컬럼이 없어도 전종목을 '기타'로 포함.
     """
     try:
         import FinanceDataReader as fdr
         import pandas as pd
         frames = []
         for market, suffix in [("KOSPI", ".KS"), ("KOSDAQ", ".KQ")]:
-            df = fdr.StockListing(market).copy()
-            df["_suffix"] = suffix
-            frames.append(df)
+            try:
+                df = fdr.StockListing(market).copy()
+                df["_suffix"] = suffix
+                frames.append(df)
+            except Exception:
+                continue
         if not frames:
             return {}
         all_df = pd.concat(frames, ignore_index=True)
 
         cols = {c.lower(): c for c in all_df.columns}
-        name_col    = cols.get("name",     cols.get("종목명", None))
-        code_col    = cols.get("code",     cols.get("symbol", cols.get("종목코드", None)))
-        sector_col  = cols.get("sector",   cols.get("업종",   None))
-        ind_col     = cols.get("industry", cols.get("세부업종", None))
+        name_col   = cols.get("name",     cols.get("종목명", None))
+        code_col   = cols.get("code",     cols.get("symbol", cols.get("종목코드", None)))
+        sector_col = cols.get("sector",   cols.get("업종",   None))
+        ind_col    = cols.get("industry", cols.get("세부업종", None))
 
-        if not name_col or not code_col or not sector_col:
+        if not name_col or not code_col:
             return {}
 
         result: dict = {}
@@ -85,7 +88,7 @@ def get_kr_fdr_sector_map() -> dict:
             name   = str(row.get(name_col, "")).strip()
             code   = str(row.get(code_col, "")).strip()
             suffix = str(row.get("_suffix", ".KS"))
-            sector = str(row.get(sector_col, "")).strip() or "기타"
+            sector = str(row.get(sector_col, "") if sector_col else "").strip() or "기타"
             sub    = str(row.get(ind_col, "") if ind_col else "").strip() or sector
 
             if not name or not code or len(code) != 6 or not code.isdigit():
@@ -858,6 +861,142 @@ def get_us_change_ranking() -> list:
             continue
     results.sort(key=lambda x: x["등락률(%)"], reverse=True)
     return results
+
+
+@st.cache_data(ttl=86400, show_spinner=False)
+def get_us_ticker_map() -> dict:
+    """NASDAQ + NYSE + AMEX 전종목 티커→{name, exchange} 맵 반환 (24시간 캐시).
+
+    FinanceDataReader StockListing → yfinance 인기종목 폴백 순으로 시도.
+    """
+    result: dict = {}
+
+    # 1차: FinanceDataReader (일반주식 + ETF)
+    try:
+        import FinanceDataReader as fdr
+        for market, exch in [("NASDAQ", "NASDAQ"), ("NYSE", "NYSE"), ("AMEX", "AMEX")]:
+            try:
+                df = fdr.StockListing(market)
+                if df is None or df.empty:
+                    continue
+                df.columns = [str(c).strip() for c in df.columns]
+                sym_col  = next((c for c in df.columns if c.upper() in ("SYMBOL", "CODE", "TICKER")), None)
+                name_col = next((c for c in df.columns if c.upper() in ("NAME", "LONGNAME", "SHORTNAME")), None)
+                if not sym_col:
+                    continue
+                for _, row in df.iterrows():
+                    sym  = str(row.get(sym_col, "")).strip().upper()
+                    name = str(row.get(name_col, sym)).strip() if name_col else sym
+                    if sym and 1 <= len(sym) <= 5 and sym.isalpha():
+                        result[sym] = {"name": name, "exchange": exch}
+            except Exception:
+                continue
+        # ETF
+        try:
+            etf_df = fdr.StockListing("ETF/US")
+            if etf_df is not None and not etf_df.empty:
+                etf_df.columns = [str(c).strip() for c in etf_df.columns]
+                sym_col  = next((c for c in etf_df.columns if c.upper() in ("SYMBOL", "CODE", "TICKER")), None)
+                name_col = next((c for c in etf_df.columns if c.upper() in ("NAME", "LONGNAME", "SHORTNAME")), None)
+                if sym_col:
+                    for _, row in etf_df.iterrows():
+                        sym  = str(row.get(sym_col, "")).strip().upper()
+                        name = str(row.get(name_col, sym)).strip() if name_col else sym
+                        if sym and 1 <= len(sym) <= 5:
+                            result[sym] = {"name": name, "exchange": "ETF"}
+        except Exception:
+            pass
+        if result:
+            return result
+    except Exception:
+        pass
+
+    # 폴백: 주요 종목 하드코딩
+    fallback = [
+        ("NVDA","엔비디아","NASDAQ"),("AAPL","애플","NASDAQ"),("MSFT","마이크로소프트","NASDAQ"),
+        ("GOOGL","알파벳","NASDAQ"),("AMZN","아마존","NASDAQ"),("META","메타","NASDAQ"),
+        ("TSLA","테슬라","NASDAQ"),("AVGO","브로드컴","NASDAQ"),("PLTR","팔란티어","NYSE"),
+        ("AMD","AMD","NASDAQ"),("NFLX","넷플릭스","NASDAQ"),("CRM","세일즈포스","NYSE"),
+        ("ORCL","오라클","NYSE"),("NOW","서비스나우","NYSE"),("COST","코스트코","NASDAQ"),
+        ("JPM","JP모건","NYSE"),("V","비자","NYSE"),("MA","마스터카드","NYSE"),
+        ("LLY","일라이릴리","NYSE"),("UNH","유나이티드헬스","NYSE"),
+    ]
+    for sym, name, exch in fallback:
+        result[sym] = {"name": name, "exchange": exch}
+    return result
+
+
+@st.cache_data(ttl=86400, show_spinner=False)
+def get_us_fdr_sector_map() -> dict:
+    """FDR StockListing으로 NASDAQ+NYSE+AMEX+ETF 전종목 섹터맵 생성 (24시간 캐시).
+
+    반환: {섹터: {세부섹터: [{name, ticker, exchange}]}}
+    Sector/Industry 컬럼 없으면 빈 dict 반환.
+    """
+    try:
+        import FinanceDataReader as fdr
+        import pandas as pd
+        frames = []
+        # 일반 주식
+        for market, exch in [("NASDAQ", "NASDAQ"), ("NYSE", "NYSE"), ("AMEX", "AMEX")]:
+            try:
+                df = fdr.StockListing(market).copy()
+                df["_exchange"] = exch
+                df["_is_etf"] = False
+                frames.append(df)
+            except Exception:
+                continue
+        # ETF
+        try:
+            etf_df = fdr.StockListing("ETF/US").copy()
+            etf_df["_exchange"] = "ETF"
+            etf_df["_is_etf"] = True
+            frames.append(etf_df)
+        except Exception:
+            pass
+
+        if not frames:
+            return {}
+        all_df = pd.concat(frames, ignore_index=True)
+        all_df.columns = [str(c).strip() for c in all_df.columns]
+        cols = {c.lower(): c for c in all_df.columns}
+
+        sym_col    = cols.get("symbol",   cols.get("code",     cols.get("ticker",   None)))
+        name_col   = cols.get("name",     cols.get("longname", cols.get("shortname", None)))
+        sector_col = cols.get("sector",   None)
+        ind_col    = cols.get("industry", cols.get("industrycode", None))
+
+        if not sym_col:
+            return {}
+
+        result: dict = {}
+        for _, row in all_df.iterrows():
+            sym     = str(row.get(sym_col, "")).strip().upper()
+            name    = str(row.get(name_col, sym)).strip() if name_col else sym
+            exch    = str(row.get("_exchange", "NASDAQ"))
+            is_etf  = bool(row.get("_is_etf", False))
+            sector  = str(row.get(sector_col, "") if sector_col else "").strip()
+            sub     = str(row.get(ind_col, "") if ind_col else "").strip()
+
+            if not sym or not (1 <= len(sym) <= 5):
+                continue
+            # ETF는 알파벳+숫자 허용, 일반주식은 알파벳만
+            if not is_etf and not sym.isalpha():
+                continue
+
+            if is_etf:
+                sector = sector or "ETF"
+                sub    = sub    or "ETF 전체"
+            else:
+                sector = sector or "기타"
+                sub    = sub    or sector
+
+            result.setdefault(sector, {}).setdefault(sub, []).append(
+                {"name": name, "ticker": sym, "exchange": exch}
+            )
+        return result
+    except Exception:
+        return {}
 
 
 @st.cache_data(ttl=3600, show_spinner=False)
