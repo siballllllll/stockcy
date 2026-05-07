@@ -2,7 +2,7 @@
 # yfinance sector/industry + 종목명 키워드를 이용해 테마 섹터 자동 배정
 
 # ── yfinance industry → 우리 섹터 매핑 테이블 (US) ─────────────────────────
-_US_INDUSTRY_SECTOR_MAP: dict[str, tuple[str, str]] = {
+_US_INDUSTRY_SECTOR_MAP = {  # type: dict
     # (섹터, 세부섹터) 매핑
     # AI·반도체
     "Semiconductors":                        ("AI·반도체", "AI 가속기·GPU"),
@@ -89,7 +89,7 @@ _US_INDUSTRY_SECTOR_MAP: dict[str, tuple[str, str]] = {
 }
 
 # ── 종목명 키워드 → 섹터 자동 배정 (US) ─────────────────────────────────────
-_US_NAME_KEYWORDS: list[tuple[list[str], str, str]] = [
+_US_NAME_KEYWORDS = [  # type: list
     # ([키워드목록], 섹터, 세부섹터)
     (["quantum", "quant"],                    "양자컴퓨터·암호",  "순수 양자컴퓨팅"),
     (["cyber", "security", "secure", "hack"], "사이버보안",       "엔드포인트 보안"),
@@ -114,7 +114,7 @@ _US_NAME_KEYWORDS: list[tuple[list[str], str, str]] = [
 ]
 
 # ── FDR 업종명 → KR 섹터 매핑 테이블 ────────────────────────────────────────
-_KR_INDUSTRY_SECTOR_MAP: dict[str, tuple[str, str]] = {
+_KR_INDUSTRY_SECTOR_MAP = {  # type: dict
     # (섹터, 세부섹터) 매핑
     "반도체":                   ("반도체", "반도체 공정"),
     "반도체 및 반도체장비":      ("반도체", "반도체 장비"),
@@ -152,7 +152,7 @@ _KR_INDUSTRY_SECTOR_MAP: dict[str, tuple[str, str]] = {
 }
 
 # ── 종목명 키워드 → KR 섹터 자동 배정 ───────────────────────────────────────
-_KR_NAME_KEYWORDS: list[tuple[list[str], str, str]] = [
+_KR_NAME_KEYWORDS = [  # type: list
     (["양자", "퀀텀"],            "양자컴퓨터·암호",  "양자 보안·암호화"),
     (["보안", "시큐"],            "양자컴퓨터·암호",  "포스트퀀텀·사이버보안"),
     (["인증", "암호"],            "양자컴퓨터·암호",  "정보보호·인증"),
@@ -174,7 +174,7 @@ _KR_NAME_KEYWORDS: list[tuple[list[str], str, str]] = [
 ]
 
 
-def classify_us_stock(ticker: str, name: str, yf_sector: str = "", yf_industry: str = "") -> tuple[str, str] | None:
+def classify_us_stock(ticker, name, yf_sector="", yf_industry=""):
     """US 종목을 섹터·세부섹터로 자동 분류. 분류 불가 시 None 반환."""
     # 1차: yfinance industry 기반
     if yf_industry and yf_industry in _US_INDUSTRY_SECTOR_MAP:
@@ -192,7 +192,7 @@ def classify_us_stock(ticker: str, name: str, yf_sector: str = "", yf_industry: 
     return None
 
 
-def classify_kr_stock(name: str, fdr_industry: str = "") -> tuple[str, str] | None:
+def classify_kr_stock(name, fdr_industry=""):
     """KR 종목을 섹터·세부섹터로 자동 분류. 분류 불가 시 None 반환."""
     # 1차: FDR 업종 기반
     if fdr_industry:

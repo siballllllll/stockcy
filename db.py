@@ -297,45 +297,6 @@ def load_us_sector_map() -> dict:
         from sectors_us import US_SECTOR_MAP
         raw = US_SECTOR_MAP
 
-    # ── FDR 전종목 업종 자동 병합 ────────────────────────────────────────
-    try:
-        from data_kr import get_us_fdr_sector_map
-        fdr_map = get_us_fdr_sector_map()
-        if fdr_map:
-            existing_tickers: set = {
-                s["ticker"]
-                for subs in raw.values()
-                for stocks in subs.values()
-                for s in stocks
-                if isinstance(s, dict) and s.get("ticker")
-            }
-            for sector, subs in fdr_map.items():
-                for sub, stocks in subs.items():
-                    new_stocks = [
-                        s for s in stocks
-                        if s.get("ticker") and s["ticker"] not in existing_tickers
-                    ]
-                    if not new_stocks:
-                        continue
-                    if sector not in raw:
-                        raw[sector] = {}
-                    if sub not in raw[sector]:
-                        raw[sector][sub] = []
-                    raw[sector][sub].extend(new_stocks)
-                    existing_tickers.update(s["ticker"] for s in new_stocks)
-    except Exception:
-        pass
-
-    # ── 키워드 자동 분류 (테마 섹터 보강) ────────────────────────────────
-    try:
-        from data_kr import get_us_ticker_map as _get_us_tm
-        from sector_auto_classifier import enrich_sector_map_us
-        _us_tm = _get_us_tm()
-        if _us_tm:
-            raw = enrich_sector_map_us(raw, _us_tm)
-    except Exception:
-        pass
-
     return raw
 
 

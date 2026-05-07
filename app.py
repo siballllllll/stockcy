@@ -26,6 +26,19 @@ st.set_page_config(
 # --- CSS 디자인 시스템 (다크모드 및 색상) ---
 # PRD 가이드: 다크모드, 국내(상승 Red/하락 Blue), 미국(상승 Green/하락 Red)
 def inject_custom_css():
+    # 라이트 모드 오버라이드 (별도 주입)
+    if st.session_state.get("_sc_theme", "dark") == "light":
+        st.markdown("""<style>
+        .stApp,[data-testid="stAppViewContainer"]{background:#f8f9fa!important;color:#111!important}
+        [data-testid="stMarkdownContainer"] *{color:#222!important}
+        .stButton>button{color:#111!important}
+        [data-testid="stMetricValue"]{color:#111!important}
+        </style>""", unsafe_allow_html=True)
+    # selectbox 드롭다운 위치 보정 (zoom 오프셋)
+    st.markdown("""<style>
+        [data-baseweb="popover"],[data-baseweb="select"]+[data-baseweb="popover"]
+        {zoom:1.3!important;transform-origin:top left!important}
+    </style>""", unsafe_allow_html=True)
     st.markdown("""
         <style>
         /* ── 77% 축소 — zoom + 높이 보정으로 클리핑 방지 ── */
@@ -540,8 +553,8 @@ def main():
     _nav_sig_n = st.session_state.get(_nav_sig_k, 0)
     _picks_label = f"🎯 타점보드" + (f" {_nav_sig_n}" if _nav_sig_n > 0 else "")
 
-    _hdr_l, _hn1, _hn2, _hn3, _hn4, _sp, _hm1, _hm2 = st.columns(
-        [0.9, 0.5, 0.5, 0.5, 0.4, 2.5, 0.65, 0.65], gap="small"
+    _hdr_l, _hn1, _hn2, _hn3, _hn4, _sp, _hm1, _hm2, _hset = st.columns(
+        [0.9, 0.5, 0.5, 0.5, 0.4, 2.5, 0.65, 0.65, 0.35], gap="small"
     )
     with _hdr_l:
         st.markdown(
@@ -584,6 +597,20 @@ def main():
             if _is_kr_nav:
                 st.session_state.market = "미국 주식 🇺🇸"
                 st.rerun()
+    with _hset:
+        with st.popover("⚙️", use_container_width=True):
+            st.markdown("**설정**")
+            _theme_key = "_sc_theme"
+            if _theme_key not in st.session_state:
+                st.session_state[_theme_key] = "dark"
+            if st.button("☀️ 라이트 / 🌙 다크 전환", key="setting_theme", use_container_width=True):
+                st.session_state[_theme_key] = "light" if st.session_state[_theme_key] == "dark" else "dark"
+                st.rerun()
+            st.divider()
+            if st.button("🔄 캐시 초기화 & 새로고침", key="setting_reboot", use_container_width=True):
+                st.cache_data.clear()
+                st.rerun()
+            st.caption("캐시를 초기화하면 모든 데이터를 새로 불러옵니다.")
 
     st.markdown("<hr class='toss-divider' style='margin:2px 0'>", unsafe_allow_html=True)
 
