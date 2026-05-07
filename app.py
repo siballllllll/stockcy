@@ -2950,6 +2950,7 @@ def main():
                 ("us_ai_market_run", False),
                 ("us_sector_panel_tab", "📊 AI 시장분석"),
                 ("us_index_tab",     "S&P500"),
+                ("us_selected_pick_idx", 0),
             ]:
                 if _k not in st.session_state:
                     st.session_state[_k] = _v
@@ -2985,33 +2986,7 @@ def main():
                 _us_pb_key  = "us_picks_result"
                 _us_run_key = "_us_picks_pending"
 
-                if _us_new_count > 0 and _us_pb_key not in st.session_state:
-                    st.markdown(
-                        f"""<div style='background:linear-gradient(90deg,rgba(0,200,83,0.15),rgba(0,150,60,0.08));
-                            border:1.5px solid #00c853;border-radius:10px;padding:10px 16px;margin:6px 0;
-                            display:flex;align-items:center;gap:10px;animation:pulse 1.5s ease-in-out infinite;'>
-                          <span style='font-size:1.3rem'>🚀</span>
-                          <span style='flex:1;font-size:0.85rem;font-weight:700;color:#00c853'>
-                            {_us_new_count}개 US 급등 직전 신호 감지 ({_us_sig_ts}) — AI 타점 분석 실행 권장</span>
-                        </div>
-                        <style>@keyframes pulse{{0%,100%{{opacity:1}} 50%{{opacity:0.6}}}}</style>""",
-                        unsafe_allow_html=True,
-                    )
-                elif _us_new_count == 0 and _us_sig_ts:
-                    st.caption(f"🟢 마지막 신호 스캔: {_us_sig_ts} — 현재 고강도 신호 없음")
-
-                _us_pb_col1, _us_pb_col2 = st.columns([3, 1])
-                with _us_pb_col1:
-                    if st.button("🔄 US AI 타점 분석 실행", key="us_picks_btn",
-                                 type="primary", use_container_width=True):
-                        st.session_state[_us_run_key] = True
-                        st.session_state.pop(_us_pb_key, None)
-                        st.rerun()
-                with _us_pb_col2:
-                    if st.button("🗑 초기화", key="us_picks_clear", use_container_width=True):
-                        st.session_state.pop(_us_pb_key, None)
-                        st.rerun()
-
+                # AI 호출 — 버튼 클릭 후 rerun 시 실행 (패널 렌더 전에 처리)
                 if st.session_state.get(_us_run_key) and _us_pb_key not in st.session_state:
                     with st.spinner("AI가 US 시장·뉴스·옵션플로우를 분석 중입니다..."):
                         try:
@@ -3028,102 +3003,252 @@ def main():
                         st.session_state[_us_run_key] = False
                     st.rerun()
 
-                if _us_pb_key in st.session_state:
-                    _us_res  = st.session_state[_us_pb_key]
-                    _us_ts   = _us_res.get("_ts", "")
-                    _us_cond = _us_res.get("market_condition", "")
-                    _us_comment = _us_res.get("market_comment", "")
-                    _us_cond_color = "#00c853" if "상승" in _us_cond else "#ff4b4b" if "하락" in _us_cond else "#f5c518"
-                    _us_cond_icon  = "🟢" if "상승" in _us_cond else "🔴" if "하락" in _us_cond else "🟡"
+                # ── 좌/우 2패널 레이아웃 ─────────────────────────────────
+                _us_pb_left, _us_pb_right = st.columns([4, 6], gap="small")
 
-                    st.markdown(
-                        f"<div style='background:rgba(255,255,255,0.04);border-left:3px solid {_us_cond_color};"
-                        f"padding:8px 14px;border-radius:4px;margin:8px 0'>"
-                        f"<span style='font-size:0.8rem;color:{_us_cond_color};font-weight:700'>"
-                        f"{_us_cond_icon} {_us_cond}</span>"
-                        f"<span style='font-size:0.75rem;color:#aaa;margin-left:10px'>{_us_comment}</span>"
-                        f"<span style='font-size:0.7rem;color:#555;float:right'>업데이트: {_us_ts}</span>"
-                        f"</div>",
-                        unsafe_allow_html=True,
-                    )
+                # ── 좌 패널: 컨트롤 + 종목 목록 ─────────────────────────
+                with _us_pb_left:
+                    with st.container(height=920):
+                        # 신호 배너
+                        if _us_new_count > 0 and _us_pb_key not in st.session_state:
+                            st.markdown(
+                                f"""<div style='background:linear-gradient(90deg,rgba(0,200,83,0.15),rgba(0,150,60,0.08));
+                                    border:1.5px solid #00c853;border-radius:10px;padding:8px 14px;margin-bottom:8px;
+                                    display:flex;align-items:center;gap:8px;animation:pulse 1.5s ease-in-out infinite;'>
+                                  <span style='font-size:1rem'>🚀</span>
+                                  <span style='flex:1;font-size:0.75rem;font-weight:700;color:#00c853'>
+                                    {_us_new_count}개 US 신호 감지 ({_us_sig_ts})</span>
+                                </div>
+                                <style>@keyframes pulse{{0%,100%{{opacity:1}}50%{{opacity:0.6}}}}</style>""",
+                                unsafe_allow_html=True,
+                            )
+                        elif _us_new_count == 0 and _us_sig_ts:
+                            st.caption(f"🟢 스캔: {_us_sig_ts} — 신호 없음")
 
-                    if _us_res.get("error"):
-                        st.error(f"분석 오류: {_us_res['error']}")
-                    else:
-                        _us_pick_list = _us_res.get("picks", [])
-                        if not _us_pick_list:
-                            st.info("현재 조건에 맞는 종목이 없습니다.")
+                        # 실행 / 초기화 버튼
+                        _us_pb_c1, _us_pb_c2 = st.columns([3, 1])
+                        with _us_pb_c1:
+                            if st.button("🔄 US AI 타점 분석 실행", key="us_picks_btn",
+                                         type="primary", use_container_width=True):
+                                st.session_state[_us_run_key] = True
+                                st.session_state.pop(_us_pb_key, None)
+                                st.session_state["us_selected_pick_idx"] = 0
+                                st.rerun()
+                        with _us_pb_c2:
+                            if st.button("🗑", key="us_picks_clear", use_container_width=True):
+                                st.session_state.pop(_us_pb_key, None)
+                                st.session_state["us_selected_pick_idx"] = 0
+                                st.rerun()
+
+                        if _us_pb_key in st.session_state:
+                            _us_res  = st.session_state[_us_pb_key]
+                            _us_cond = _us_res.get("market_condition", "")
+                            _us_cond_color = "#00c853" if "상승" in _us_cond else "#ff4b4b" if "하락" in _us_cond else "#f5c518"
+                            _us_cond_icon  = "🟢" if "상승" in _us_cond else "🔴" if "하락" in _us_cond else "🟡"
+                            st.markdown(
+                                f"<div style='font-size:0.7rem;padding:4px 8px;margin:6px 0;"
+                                f"border-left:3px solid {_us_cond_color};border-radius:0 6px 6px 0'>"
+                                f"{_us_cond_icon} <b style='color:{_us_cond_color}'>{_us_cond}</b>"
+                                f"&nbsp;<span style='color:#666;font-size:0.62rem'>{_us_res.get('_ts','')}</span></div>",
+                                unsafe_allow_html=True,
+                            )
+                            if _us_res.get("error") and not _us_res.get("picks"):
+                                st.error(f"분석 오류: {_us_res['error']}")
+                            elif not _us_res.get("picks"):
+                                st.info("추천 종목이 없습니다.")
+                            else:
+                                _us_sel = st.session_state.get("us_selected_pick_idx", 0)
+                                st.markdown(
+                                    f"<div style='font-size:0.65rem;color:#666;margin-bottom:4px'>"
+                                    f"총 {len(_us_res['picks'])}개 종목 — 클릭하여 상세 확인</div>",
+                                    unsafe_allow_html=True,
+                                )
+                                for _uci, _up in enumerate(_us_res["picks"]):
+                                    _up_ticker  = _up.get("ticker", "")
+                                    _up_name    = _up.get("name", _up_ticker)
+                                    _up_chg     = float(_up.get("change_pct", 0) or 0)
+                                    _up_entry   = _up.get("entry", 0)
+                                    _up_target  = _up.get("target", 0)
+                                    _up_urg     = _up.get("urgency", "")
+                                    _up_upside  = round((_up_target - _up_entry) / _up_entry * 100, 1) if _up_entry > 0 else 0
+                                    _up_urg_icon  = "⚡" if "즉시" in _up_urg else ("🌙" if "내일" in _up_urg or "스윙" in _up_urg else "🕐")
+                                    _up_urg_color = "#ff9800" if "즉시" in _up_urg else ("#a78bfa" if "스윙" in _up_urg else "#888")
+                                    _up_chg_c   = "#ff4b4b" if _up_chg >= 0 else "#2b7cff"
+                                    _up_is_sel  = (_uci == _us_sel)
+                                    _up_row_bg  = "rgba(0,200,83,0.10)" if _up_is_sel else "rgba(255,255,255,0.03)"
+                                    _up_row_bdr = "1px solid rgba(0,200,83,0.5)" if _up_is_sel else "1px solid rgba(255,255,255,0.07)"
+                                    st.markdown(
+                                        f"<div style='background:{_up_row_bg};border:{_up_row_bdr};"
+                                        f"border-radius:8px;padding:8px 10px;margin-bottom:2px'>"
+                                        f"<div style='display:flex;justify-content:space-between;align-items:center'>"
+                                        f"<span style='font-size:0.8rem;font-weight:700'>{_up_name} <span style='font-size:0.65rem;color:#666'>({_up_ticker})</span></span>"
+                                        f"<span style='font-size:0.68rem;color:{_up_urg_color};font-weight:600'>"
+                                        f"{_up_urg_icon} {_up_urg}</span>"
+                                        f"</div>"
+                                        f"<div style='display:flex;justify-content:space-between;margin-top:3px'>"
+                                        f"<span style='font-size:0.65rem;color:#777'>"
+                                        f"진입 ${_up_entry:,.2f} → +{_up_upside}%</span>"
+                                        f"<span style='font-size:0.68rem;color:{_up_chg_c};font-weight:600'>"
+                                        f"{'▲' if _up_chg>=0 else '▼'}{abs(_up_chg):.1f}%</span>"
+                                        f"</div></div>",
+                                        unsafe_allow_html=True,
+                                    )
+                                    if st.button(
+                                        "✓ 선택됨" if _up_is_sel else "▶ 상세보기",
+                                        key=f"us_sel_pick_{_uci}",
+                                        use_container_width=True,
+                                        type="primary" if _up_is_sel else "secondary",
+                                    ):
+                                        st.session_state["us_selected_pick_idx"] = _uci
+                                        st.rerun()
                         else:
-                            for _up in _us_pick_list:
-                                _up_ticker = _up.get("ticker", "")
-                                _up_name   = _up.get("name", _up_ticker)
-                                _up_chg    = float(_up.get("change_pct", 0) or 0)
-                                _up_pat    = _up.get("pattern", "")
-                                _up_hrz    = _up.get("horizon", "")
-                                _up_urg    = _up.get("urgency", "")
-                                _up_theme  = _up.get("theme", "")
-                                _up_reason = _up.get("reason", "")
-                                _up_entry  = _up.get("entry", 0)
-                                _up_target = _up.get("target", 0)
-                                _up_stop   = _up.get("stop", 0)
-                                _up_rank   = _up.get("rank", "")
-                                _up_chg_col = "#00c853" if _up_chg >= 0 else "#ff4b4b"
-                                _up_chg_ar  = "▲" if _up_chg >= 0 else "▼"
-                                _up_urg_col = "#ff4b4b" if _up_urg == "즉시진입" else "#f5c518" if "눌림목" in _up_urg else "#888"
+                            st.markdown(
+                                "<div style='text-align:center;padding:50px 0;color:#555'>"
+                                "<div style='font-size:2rem'>🎯</div>"
+                                "<div style='margin-top:8px;font-size:0.85rem'>AI 분석을 실행하면<br>"
+                                "종목 목록이 여기에 표시됩니다</div>"
+                                "</div>",
+                                unsafe_allow_html=True,
+                            )
 
-                                with st.container(border=True):
-                                    _uc1, _uc2 = st.columns([8, 2])
-                                    with _uc1:
-                                        st.markdown(
-                                            f"<div style='display:flex;align-items:center;gap:8px;flex-wrap:wrap'>"
-                                            f"<span style='font-size:1.1rem;font-weight:700'>{_up_rank}. {_up_name} ({_up_ticker})</span>"
-                                            f"<span style='font-size:0.85rem;color:{_up_chg_col};font-weight:700'>"
-                                            f"{_up_chg_ar} {_up_chg:+.2f}%</span>"
-                                            + (f"<span style='font-size:0.68rem;background:rgba(0,200,83,0.15);"
-                                               f"border:1px solid #00c853;border-radius:4px;padding:1px 6px;"
-                                               f"color:#00c853'>{_up_pat}</span>" if _up_pat else "")
-                                            + (f"<span style='font-size:0.68rem;background:rgba(245,197,24,0.12);"
-                                               f"border:1px solid #f5c518;border-radius:4px;padding:1px 6px;"
-                                               f"color:#f5c518'>{_up_hrz}</span>" if _up_hrz else "")
-                                            + f"</div>",
-                                            unsafe_allow_html=True,
-                                        )
-                                        if _up_theme:
-                                            st.markdown(
-                                                f"<p style='font-size:0.72rem;color:#888;margin:2px 0'>"
-                                                f"🏷 {_up_theme}</p>",
-                                                unsafe_allow_html=True,
-                                            )
-                                        if _up_reason:
-                                            st.markdown(
-                                                f"<p style='font-size:0.75rem;color:#ccc;margin:4px 0'>"
-                                                f"{_up_reason}</p>",
-                                                unsafe_allow_html=True,
-                                            )
-                                    with _uc2:
-                                        st.markdown(
-                                            f"<div style='text-align:right'>"
-                                            f"<span style='font-size:0.72rem;color:{_up_urg_col};"
-                                            f"font-weight:700'>{_up_urg}</span></div>",
-                                            unsafe_allow_html=True,
-                                        )
-                                        if st.button("▶ 차트", key=f"us_pick_chart_{_up_ticker}_{_up_rank}",
-                                                     use_container_width=True):
-                                            st.session_state.us_selected_ticker      = _up_ticker
-                                            st.session_state.us_selected_name        = _up_name
-                                            st.session_state.us_sector_detail_ticker = _up_ticker
-                                            st.session_state.us_sector_detail_name   = _up_name
-                                            st.session_state.us_sector_view          = "detail"
-                                            st.session_state.us_mode                 = "🔥 오늘의 이슈 섹터"
-                                            st.rerun()
+                # ── 우 패널: 선택 종목 상세 카드 ─────────────────────────
+                with _us_pb_right:
+                    with st.container(height=920):
+                        if _us_pb_key not in st.session_state or not st.session_state[_us_pb_key].get("picks"):
+                            st.markdown(
+                                "<div style='display:flex;flex-direction:column;align-items:center;"
+                                "justify-content:center;height:200px;color:#444'>"
+                                "<div style='font-size:3rem'>📊</div>"
+                                "<div style='margin-top:12px;font-size:0.88rem;text-align:center;line-height:1.6'>"
+                                "좌측에서 AI 분석을 실행하면<br>선택 종목 상세가 여기에 표시됩니다</div>"
+                                "</div>",
+                                unsafe_allow_html=True,
+                            )
+                        else:
+                            _us_res     = st.session_state[_us_pb_key]
+                            _us_sel_idx = st.session_state.get("us_selected_pick_idx", 0)
+                            _us_sel_idx = min(_us_sel_idx, len(_us_res["picks"]) - 1)
+                            _up         = _us_res["picks"][_us_sel_idx]
 
-                                    _upe1, _upe2, _upe3 = st.columns(3)
-                                    _upe1.metric("매수 타점", f"${_up_entry:,.2f}" if _up_entry else "-")
-                                    _upe2.metric("목표가",    f"${_up_target:,.2f}" if _up_target else "-")
-                                    _upe3.metric("손절가",    f"${_up_stop:,.2f}" if _up_stop else "-")
+                            _up_ticker  = _up.get("ticker", "")
+                            _up_name    = _up.get("name", _up_ticker)
+                            _up_chg     = float(_up.get("change_pct", 0) or 0)
+                            _up_pat     = _up.get("pattern", "")
+                            _up_hrz     = _up.get("horizon", "")
+                            _up_urg     = _up.get("urgency", "")
+                            _up_theme   = _up.get("theme", "")
+                            _up_reason  = _up.get("reason", "")
+                            _up_entry   = _up.get("entry", 0)
+                            _up_target  = _up.get("target", 0)
+                            _up_stop    = _up.get("stop", 0)
+                            _up_cur     = _up.get("current_price", 0)
+                            _up_rank    = _up.get("rank", _us_sel_idx + 1)
+                            _up_upside  = round((_up_target - _up_entry) / _up_entry * 100, 1) if _up_entry > 0 else 0
+                            _up_themes  = [t.strip() for t in str(_up_theme).split(",") if t.strip()]
+                            _up_chg_col = "#ff4b4b" if _up_chg >= 0 else "#2b7cff"
+                            _up_chg_sign = "▲" if _up_chg >= 0 else "▼"
+                            _up_urg_icon  = "⚡" if "즉시" in _up_urg else ("🌙" if "스윙" in _up_urg else "🕐")
+                            _up_urg_color = "#ff9800" if "즉시" in _up_urg else ("#a78bfa" if "스윙" in _up_urg else "#888")
+                            _up_urg_bg    = ("rgba(255,152,0,0.15)" if "즉시" in _up_urg
+                                             else "rgba(167,139,250,0.15)" if "스윙" in _up_urg
+                                             else "rgba(255,255,255,0.06)")
+                            _up_hz_color = "#00c853" if "당일" in _up_hrz or "스캘핑" in _up_hrz else "#f5c518"
+                            _up_already_surged = _up_chg >= 12
 
-                                    if _up_chg >= 12:
-                                        st.warning("⚠️ 등락률 12% 이상 — 추격 매수 금지")
+                            _up_cur_html = (
+                                f"<div style='font-size:0.8rem;color:#aaa;margin-bottom:8px'>"
+                                f"현재 <b style='color:#eee'>${_up_cur:,.2f}</b>&nbsp;"
+                                f"<span style='color:{_up_chg_col};font-weight:700'>"
+                                f"{_up_chg_sign} {abs(_up_chg):.2f}%</span></div>"
+                            ) if _up_cur > 0 else ""
+
+                            _up_pattern_html = (
+                                f"<div style='font-size:0.62rem;color:#7dd3fc;"
+                                f"background:rgba(125,211,252,0.08);border-radius:6px;"
+                                f"padding:3px 8px;margin-bottom:6px;display:inline-block'>"
+                                f"📊 {_up_pat}</div>"
+                            ) if _up_pat else ""
+
+                            _up_theme_html = "".join(
+                                f"<span style='background:rgba(255,255,255,0.08);"
+                                f"border-radius:10px;padding:2px 7px;font-size:0.63rem;"
+                                f"color:#aaa;margin-right:4px'>{th}</span>"
+                                for th in _up_themes
+                            )
+
+                            _up_warn_html = (
+                                "<div style='background:rgba(255,75,75,0.15);border:1px solid #ff4b4b;"
+                                "border-radius:8px;padding:4px 8px;font-size:0.65rem;color:#ff4b4b;"
+                                "margin-bottom:8px'>⚠️ 이미 많이 오른 종목 — 진입 신중</div>"
+                            ) if _up_already_surged else ""
+
+                            _up_border_color = "rgba(255,75,75,0.3)" if _up_already_surged else "rgba(255,255,255,0.1)"
+
+                            _up_card_html = (
+                                f"<div class='toss-card sc-card' style='"
+                                f"border-color:{_up_border_color};padding:14px 14px 12px 14px'>"
+                                f"<div style='display:flex;justify-content:space-between;"
+                                f"align-items:flex-start;margin-bottom:6px'>"
+                                f"<div>"
+                                f"<span style='font-size:0.7rem;color:#888'>#{_up_rank}</span>&nbsp;"
+                                f"<span style='font-size:1rem;font-weight:700'>{_up_name}</span><br>"
+                                f"<span style='font-size:0.68rem;color:#666'>{_up_ticker}</span>"
+                                f"</div>"
+                                f"<div style='text-align:right'>"
+                                f"<span style='background:{_up_urg_bg};color:{_up_urg_color};"
+                                f"border-radius:10px;padding:2px 7px;font-size:0.65rem;font-weight:700;"
+                                f"display:block;margin-bottom:3px'>{_up_urg_icon} {_up_urg}</span>"
+                                f"<span style='color:{_up_hz_color};font-size:0.6rem;font-weight:600'>{_up_hrz}</span>"
+                                f"</div></div>"
+                                + _up_warn_html
+                                + _up_pattern_html
+                                + _up_cur_html +
+                                f"<div style='display:grid;grid-template-columns:1fr 1fr 1fr;"
+                                f"gap:6px;margin-bottom:10px'>"
+                                f"<div style='background:rgba(255,255,255,0.07);"
+                                f"border:1px solid rgba(255,255,255,0.12);border-radius:8px;"
+                                f"padding:6px;text-align:center'>"
+                                f"<div style='font-size:0.6rem;color:#888'>매수 타점</div>"
+                                f"<div style='font-size:0.85rem;font-weight:700'>${_up_entry:,.2f}</div></div>"
+                                f"<div style='background:rgba(0,200,83,0.12);"
+                                f"border:1px solid rgba(0,200,83,0.25);border-radius:8px;"
+                                f"padding:6px;text-align:center'>"
+                                f"<div style='font-size:0.6rem;color:#888'>목표가</div>"
+                                f"<div style='font-size:0.85rem;font-weight:700;color:#00c853'>"
+                                f"${_up_target:,.2f}</div>"
+                                f"<div style='font-size:0.6rem;color:#00c853'>+{_up_upside}%</div></div>"
+                                f"<div style='background:rgba(43,124,255,0.12);"
+                                f"border:1px solid rgba(43,124,255,0.25);border-radius:8px;"
+                                f"padding:6px;text-align:center'>"
+                                f"<div style='font-size:0.6rem;color:#888'>손절가</div>"
+                                f"<div style='font-size:0.85rem;font-weight:700;color:#2b7cff'>"
+                                f"${_up_stop:,.2f}</div></div>"
+                                f"</div>"
+                                f"<div style='font-size:0.72rem;color:#bbb;line-height:1.6;"
+                                f"margin-bottom:8px'>{_up.get('reason','')}</div>"
+                                + _up_theme_html
+                                + "</div>"
+                            )
+                            st.markdown(_up_card_html, unsafe_allow_html=True)
+
+                            _up_btn_c1, _up_btn_c2 = st.columns(2)
+                            with _up_btn_c1:
+                                if st.button("상세 분석 →", key=f"us_pk_detail_{_up_ticker}_{_us_sel_idx}",
+                                             use_container_width=True):
+                                    st.session_state.us_selected_ticker      = _up_ticker
+                                    st.session_state.us_selected_name        = _up_name
+                                    st.session_state.us_mode                 = "📊 일반 주식 검색"
+                                    st.rerun()
+                            with _up_btn_c2:
+                                if st.button("▶ 차트 보기", key=f"us_pk_chart_{_up_ticker}_{_us_sel_idx}",
+                                             use_container_width=True):
+                                    st.session_state.us_selected_ticker      = _up_ticker
+                                    st.session_state.us_selected_name        = _up_name
+                                    st.session_state.us_sector_detail_ticker = _up_ticker
+                                    st.session_state.us_sector_detail_name   = _up_name
+                                    st.session_state.us_sector_view          = "detail"
+                                    st.session_state.us_mode                 = "🔥 오늘의 이슈 섹터"
+                                    st.rerun()
 
             # ══════════════════════════════════════════════════════════════
             # 📊 종목검색 / 🔥 섹터분석 (상단 네비로 전환)
@@ -3145,8 +3270,11 @@ def main():
                 }
 
                 col_us_chart, col_us_right = st.columns([5, 5])
-
                 with col_us_chart:
+                    _us_chart_ctr = st.container(height=920)
+                with col_us_right:
+                    _us_right_ctr = st.container(height=920)
+                with _us_chart_ctr:
                     if us_mode == "🔥 오늘의 이슈 섹터":
                         if st.session_state.us_sector_view == "detail":
                             _us_dticker   = st.session_state.us_sector_detail_ticker
@@ -3272,7 +3400,7 @@ def main():
                            "save_image":false,"backgroundColor":"rgba(0,0,0,1)"}}
                           </script></div>''', height=480)
 
-                with col_us_right:
+                with _us_right_ctr:
                     if us_mode == "📊 일반 주식 검색":
                         from db import load_us_sector_map as _load_us_sm
                         _us_sm = _load_us_sm()
