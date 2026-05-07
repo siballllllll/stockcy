@@ -679,21 +679,21 @@ def main():
             background: var(--tk-wrap-bg);
             border: 1px solid var(--tk-wrap-bdr);
             border-radius:8px; overflow:hidden;
-            padding:2px 0; height:30px; display:flex; align-items:center;
+            padding:3px 0; height:38px; display:flex; align-items:center;
           }}
           .track {{
             display:inline-flex; align-items:center; white-space:nowrap;
             animation:krtick {speed}s linear infinite;
           }}
           .pill {{
-            display:inline-flex; align-items:center; gap:6px;
+            display:inline-flex; align-items:center; gap:7px;
             background:var(--tk-pill-bg);
             border:1px solid var(--tk-pill-bdr);
-            border-radius:20px; padding:3px 10px; margin:0 6px;
+            border-radius:20px; padding:4px 13px; margin:0 7px;
           }}
           .pill-idx {{ background:var(--tk-pill-idx); }}
-          .pl {{ font-size:0.72rem; color:var(--tk-label); font-weight:600; }}
-          .pp {{ font-size:0.80rem; color:var(--tk-price); font-weight:700; }}
+          .pl {{ font-size:0.82rem; color:var(--tk-label); font-weight:600; }}
+          .pp {{ font-size:0.90rem; color:var(--tk-price); font-weight:700; }}
           @keyframes krtick {{
             from {{ transform: translateX(0); }}
             to   {{ transform: translateX(-50%); }}
@@ -701,7 +701,7 @@ def main():
         </style>
         <div class="wrap">
           <div class="track">{body}{body}</div>
-        </div>""", height=34)
+        </div>""", height=42)
 
     _is_us_mode = "미국" in st.session_state.get("market", "")
 
