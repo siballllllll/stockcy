@@ -860,6 +860,31 @@ def get_us_change_ranking() -> list:
     return results
 
 
+@st.cache_data(ttl=3600, show_spinner=False)
+def get_us_daily_chart(ticker: str, period: str = "3mo") -> pd.DataFrame:
+    """미국 주식 일봉 데이터 (yfinance)"""
+    import yfinance as yf
+    try:
+        raw = yf.Ticker(ticker).history(period=period, interval="1d", auto_adjust=True)
+        if raw.empty:
+            return pd.DataFrame()
+        df = raw.reset_index()
+        dt_col = next((c for c in df.columns if str(c).lower() in ("datetime", "date")), None)
+        if not dt_col:
+            return pd.DataFrame()
+        df = df.rename(columns={dt_col: "datetime"})
+        df.columns = [str(c).lower().strip() for c in df.columns]
+        needed = ["datetime", "open", "high", "low", "close", "volume"]
+        if not all(c in df.columns for c in needed):
+            return pd.DataFrame()
+        df["datetime"] = pd.to_datetime(df["datetime"])
+        if df["datetime"].dt.tz is not None:
+            df["datetime"] = df["datetime"].dt.tz_localize(None)
+        return df[needed].dropna(subset=["open", "high", "low", "close"]).reset_index(drop=True)
+    except Exception:
+        return pd.DataFrame()
+
+
 @st.cache_data(ttl=60, show_spinner=False)
 def get_us_minute_chart(ticker: str, interval: int = 5) -> pd.DataFrame:
     """미국 주식 분봉 데이터 (yfinance, ET 장중 시간 필터)"""
