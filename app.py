@@ -659,8 +659,8 @@ def main():
             f'<span class="{cls}">'
             f'<span class="pl">{label}</span>'
             f'<span class="pp">{price_str}</span>'
-            f'<span style="font-size:0.72rem;color:{c};font-weight:700;'
-            f'background:{bg};border-radius:10px;padding:1px 6px">'
+            f'<span style="font-size:0.88rem;color:{c};font-weight:700;'
+            f'background:{bg};border-radius:10px;padding:2px 8px">'
             f'{arrow} {sign}{pct:.2f}%</span>'
             f'</span>'
         )
@@ -695,21 +695,21 @@ def main():
             border: 1px solid var(--tk-wrap-bdr);
             border-radius:8px; overflow:hidden;
             box-sizing:border-box;
-            padding:4px 0; height:70px; display:flex; align-items:center;
+            padding:4px 0; height:75px; display:flex; align-items:center;
           }}
           .track {{
             display:inline-flex; align-items:center; white-space:nowrap;
             animation:krtick {speed}s linear infinite;
           }}
           .pill {{
-            display:inline-flex; align-items:center; gap:7px;
+            display:inline-flex; align-items:center; gap:9px;
             background:var(--tk-pill-bg);
             border:1px solid var(--tk-pill-bdr);
-            border-radius:20px; padding:4px 13px; margin:0 7px;
+            border-radius:20px; padding:5px 15px; margin:0 8px;
           }}
           .pill-idx {{ background:var(--tk-pill-idx); }}
-          .pl {{ font-size:0.82rem; color:var(--tk-label); font-weight:600; }}
-          .pp {{ font-size:0.90rem; color:var(--tk-price); font-weight:700; }}
+          .pl {{ font-size:0.96rem; color:var(--tk-label); font-weight:600; }}
+          .pp {{ font-size:1.05rem; color:var(--tk-price); font-weight:700; }}
           @keyframes krtick {{
             from {{ transform: translateX(0); }}
             to   {{ transform: translateX(-50%); }}
@@ -717,7 +717,7 @@ def main():
         </style>
         <div class="wrap">
           <div class="track">{body}{body}</div>
-        </div>""", height=74)
+        </div>""", height=80)
 
     _is_us_mode = "미국" in st.session_state.get("market", "")
 
@@ -762,8 +762,8 @@ def main():
     # ── 미국·글로벌 TradingView 티커 ────────────────────────────────────
     components.html("""
     <style>body{margin:0;padding:0;overflow:hidden}
-    .tradingview-widget-container{margin:0;padding:0;height:70px}
-    .tradingview-widget-container__widget{height:70px}
+    .tradingview-widget-container{margin:0;padding:0;height:75px}
+    .tradingview-widget-container__widget{height:75px}
     </style>
     <div class="tradingview-widget-container">
       <div class="tradingview-widget-container__widget"></div>
@@ -794,7 +794,7 @@ def main():
         "locale": "kr"
       }
       </script>
-    </div>""", height=70)
+    </div>""", height=75)
     
     # --- 메인 콘텐츠 (탭 없이 섹션으로 구성) ---
     tab1 = st.container()
