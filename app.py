@@ -102,47 +102,49 @@ def inject_custom_css():
         }
 
         /* ── 네비 탭 버튼 (JS가 data-navbtn 속성 부여) ── */
-        button[data-navbtn] {
+        div[data-testid="stButton"] > button[data-navbtn] {
             background: transparent !important;
             border: none !important;
             border-bottom: 2px solid transparent !important;
             border-radius: 6px 6px 0 0 !important;
             font-size: 0.83rem !important;
             font-weight: 500 !important;
-            color: #666 !important;
+            color: #777 !important;
             padding: 6px 18px !important;
             transition: color 0.15s, border-color 0.15s !important;
             width: 100% !important;
+            box-shadow: none !important;
         }
-        button[data-navbtn]:hover {
-            color: #bbb !important;
-            background: rgba(255,255,255,0.03) !important;
+        div[data-testid="stButton"] > button[data-navbtn]:hover {
+            color: #ccc !important;
+            background: rgba(255,255,255,0.04) !important;
         }
-        button[data-navbtn="active"] {
+        div[data-testid="stButton"] > button[data-navbtn="active"] {
             color: #ff9800 !important;
             font-weight: 700 !important;
             border-bottom: 2px solid #ff9800 !important;
-            background: rgba(255,152,0,0.06) !important;
+            background: rgba(255,152,0,0.07) !important;
         }
 
         /* ── 마켓 pill 버튼 (JS가 data-mktbtn 속성 부여) ── */
-        button[data-mktbtn] {
+        div[data-testid="stButton"] > button[data-mktbtn] {
             background: transparent !important;
-            border: 1px solid rgba(255,255,255,0.08) !important;
+            border: 1px solid rgba(255,255,255,0.10) !important;
             border-radius: 20px !important;
             font-size: 0.77rem !important;
             font-weight: 400 !important;
-            color: #555 !important;
+            color: #666 !important;
             padding: 3px 12px !important;
             transition: all 0.15s !important;
+            box-shadow: none !important;
         }
-        button[data-mktbtn]:hover {
-            color: #aaa !important;
-            border-color: rgba(255,255,255,0.2) !important;
-        }
-        button[data-mktbtn="active"] {
-            background: rgba(255,255,255,0.10) !important;
+        div[data-testid="stButton"] > button[data-mktbtn]:hover {
+            color: #bbb !important;
             border-color: rgba(255,255,255,0.22) !important;
+        }
+        div[data-testid="stButton"] > button[data-mktbtn="active"] {
+            background: rgba(255,255,255,0.12) !important;
+            border-color: rgba(255,255,255,0.28) !important;
             color: #fff !important;
             font-weight: 700 !important;
         }
@@ -155,6 +157,9 @@ def inject_custom_css():
             padding-top: 20px;
             border-top: 1px solid rgba(255,255,255,0.07);
         }
+
+        /* JS 주입용 1px iframe 숨김 */
+        iframe[height="1"] { display:block; height:1px !important; margin:-4px 0 -4px 0; opacity:0; pointer-events:none; }
         </style>
     """, unsafe_allow_html=True)
 
@@ -310,31 +315,30 @@ def main():
 
     import streamlit.components.v1 as components
     # JS: 버튼에 data 속성 부여 → CSS가 탭/pill 스타일로 렌더링
-    components.html("""<script>
+    # height=1: 최소 높이로 iframe 렌더링 보장 (height=0 은 일부 환경에서 스크립트 미실행)
+    components.html("""<style>body{margin:0;overflow:hidden}</style><script>
 (function(){
   var NAV = ['타점보드','종목검색','섹터분석','브리핑'];
   var MKT = ['🇰🇷','🇺🇸'];
+  function isActive(b){
+    return b.getAttribute('kind')==='primary'
+        || b.getAttribute('data-testid')==='baseButton-primary';
+  }
   function tag(){
     try{
       var doc = window.parent.document;
       doc.querySelectorAll('button').forEach(function(b){
-        var t = b.textContent||'';
+        var t = (b.textContent||'').trim();
         var isNav = NAV.some(function(k){return t.indexOf(k)>=0;});
         var isMkt = MKT.some(function(k){return t.indexOf(k)>=0;});
-        if(isNav){
-          b.setAttribute('data-navbtn',
-            b.getAttribute('data-testid')==='baseButton-primary'?'active':'1');
-        }
-        if(isMkt){
-          b.setAttribute('data-mktbtn',
-            b.getAttribute('data-testid')==='baseButton-primary'?'active':'1');
-        }
+        if(isNav) b.setAttribute('data-navbtn', isActive(b)?'active':'1');
+        if(isMkt) b.setAttribute('data-mktbtn', isActive(b)?'active':'1');
       });
     }catch(e){}
   }
-  tag(); setInterval(tag,250);
+  tag(); setInterval(tag,200);
 })();
-</script>""", height=0)
+</script>""", height=1, scrolling=False)
 
     # ── 상단 슬라이딩 티커 (KR/US 조건부) ──────────────────────────────
     def _ticker_pill(label, price_str, pct, is_index=False):
