@@ -1091,3 +1091,180 @@ def analyze_us_hot_sectors() -> dict:
         if "QUOTA" in str(e) or "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
             return _quota_error_result("analyze_us_hot_sectors")
         return {"error": f"AI 분석 오류: {type(e).__name__}"}
+
+
+def analyze_sector_theme_linkage(sector_name: str, stocks_with_data: list) -> dict:
+    """섹터 테마 연동 종합 분석.
+
+    대장주 식별 → 추종주 순서 → 수급/세력 동향 → 현재 단계 → 역사적 패턴 → 매매 전략
+
+    Args:
+        sector_name: 섹터명 (예: "반도체", "방산")
+        stocks_with_data: [{name, code, price, change_pct, volume}]
+
+    Returns: dict with keys:
+        leader_name, leader_code, leader_reason,
+        chain_explanation, supply_signal, supply_detail,
+        sector_stage, stage_reason,
+        followers:[{name, code, reason, timing}],
+        historical_pattern, leader_strategy, follower_strategy, risk_factors
+    """
+    if not stocks_with_data:
+        return {"error": "종목 데이터 없음"}
+
+    sorted_stk = sorted(stocks_with_data, key=lambda x: x.get("change_pct", 0), reverse=True)
+    stock_lines = "\n".join([
+        f"- {s['name']} (코드:{s.get('code','?')})  등락률:{s.get('change_pct',0):+.2f}%  "
+        f"현재가:{s.get('price',0):,}원  거래량:{s.get('volume',0):,}주"
+        for s in sorted_stk[:20]
+    ])
+
+    prompt = f"""당신은 한국 주식시장 세력·테마 전문가입니다.
+오늘 [{sector_name}] 섹터의 테마 연동 흐름을 완전 분석해주세요.
+
+[오늘 [{sector_name}] 섹터 종목 현황 — 등락률 내림차순]
+{stock_lines}
+
+구글 검색으로 오늘 이 섹터와 관련된 뉴스·공시·수급·외국인/기관 동향을 반드시 확인하고 아래를 분석하세요.
+
+1. 대장주: 오늘 이 테마를 이끄는 종목 1개, 이유 (시가총액·모멘텀·뉴스 종합)
+2. 밸류체인: 대장주와 추종주들이 왜 같이 오르는지 산업 연결고리 설명
+3. 수급·세력: 외국인/기관/큰손의 현재 유입 또는 이탈 신호와 의미
+4. 섹터 단계: 지금 이 테마가 [초기 형성 / 확산 / 과열 / 냉각] 중 어느 단계이고 이유
+5. 추종주 순서: 대장주 다음에 오를 가능성 높은 종목들을 순위별로 이유와 예상 타이밍 포함
+6. 역사적 패턴: 과거 이 섹터 또는 유사 테마가 같은 단계에서 어떻게 전개됐는지
+7. 매매 전략: 대장주 접근법 vs 추종주 접근법 각각
+8. 리스크: 이 테마가 꺾일 수 있는 핵심 요인
+
+아래 JSON으로만 응답 (설명 없이):
+{{
+  "leader_name": "대장주 종목명",
+  "leader_code": "종목코드 6자리",
+  "leader_reason": "대장주인 이유 2~3문장",
+  "chain_explanation": "밸류체인·연동 설명 3~4문장",
+  "supply_signal": "세력 강하게 유입 | 기관 매집 | 외국인 매집 | 세력 이탈 | 관망",
+  "supply_detail": "수급 세부 설명 2~3문장",
+  "sector_stage": "초기 형성 | 확산 | 과열 | 냉각",
+  "stage_reason": "단계 판단 이유 1~2문장",
+  "followers": [
+    {{"name": "종목명", "code": "6자리코드", "reason": "추종 이유", "timing": "즉시/1~3일/3일이후"}}
+  ],
+  "historical_pattern": "역사적 유사 패턴 2~3문장",
+  "leader_strategy": "대장주 매매 전략 2문장",
+  "follower_strategy": "추종주 매매 전략 2문장",
+  "risk_factors": "리스크 요인 1~2문장"
+}}"""
+
+    try:
+        resp = _call_gemini(prompt, use_search=True, temperature=0.3)
+        text = re.sub(r'```(?:json)?', '', resp.text).strip()
+        start = text.find('{')
+        if start != -1:
+            result, _ = json.JSONDecoder().raw_decode(text, start)
+            return result
+        return json.loads(text)
+    except Exception as e:
+        if "QUOTA" in str(e) or "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
+            return _quota_error_result("analyze_sector_theme_linkage")
+        return {"error": f"분석 오류: {type(e).__name__}: {str(e)[:100]}"}
+
+
+def analyze_stock_theme_position(
+    code: str,
+    name: str,
+    price_data: dict,
+    investor_data: list,
+    sector_name: str,
+    sector_stocks: list,
+) -> dict:
+    """개별 종목의 테마 내 포지션 + 수급·세력·차트·역사 종합 분석.
+
+    Args:
+        code, name: 종목 코드·이름
+        price_data: {price, change_pct, volume, open, high, low, w52_high, w52_low, per, pbr, amount}
+        investor_data: [{날짜, 외국인, 기관, 개인}] 최신순
+        sector_name: 속한 섹터명
+        sector_stocks: [{name, code, price, change_pct}] 섹터 전체 종목
+
+    Returns: dict with position, leader_name, supply_analysis, chart_pattern, etc.
+    """
+    chg    = price_data.get("change_pct", 0)
+    price  = price_data.get("price", 0)
+    volume = price_data.get("volume", 0)
+
+    # 섹터 내 순위
+    srt = sorted(sector_stocks, key=lambda x: x.get("change_pct", 0), reverse=True)
+    rank = next((i + 1 for i, s in enumerate(srt) if s.get("code") == code), "?")
+    sector_top = "\n".join([
+        f"  {i+1}위. {s['name']} ({s.get('code','')})  {s.get('change_pct',0):+.2f}%"
+        for i, s in enumerate(srt[:8])
+    ])
+
+    # 수급 요약
+    inv_lines = ""
+    if investor_data:
+        for row in investor_data[:5]:
+            inv_lines += (
+                f"  {row.get('날짜','')}: "
+                f"외국인 {row.get('외국인',0):+,}주  기관 {row.get('기관',0):+,}주  "
+                f"개인 {row.get('개인',0):+,}주\n"
+            )
+
+    prompt = f"""당신은 한국 주식시장 세력 추적·테마 분석 전문가입니다.
+[{name} ({code})]를 [{sector_name}] 테마 관점에서 완전 분석해주세요.
+
+[종목 현황]
+현재가: {price:,}원  등락률: {chg:+.2f}%  거래량: {volume:,}주
+시가: {price_data.get('open',0):,}  고가: {price_data.get('high',0):,}  저가: {price_data.get('low',0):,}
+52주 최고: {price_data.get('w52_high',0):,}  52주 최저: {price_data.get('w52_low',0):,}
+PER: {price_data.get('per','-')}  PBR: {price_data.get('pbr','-')}
+
+[{sector_name} 섹터 내 순위 (오늘 등락률 기준)]
+이 종목 현재 {rank}위
+{sector_top}
+
+[최근 수급 (기관/외국인/개인 순매수량)]
+{inv_lines if inv_lines else "  데이터 없음"}
+
+구글 검색으로 오늘 이 종목·섹터 관련 뉴스·공시·수급 흐름을 반드시 확인하고 분석하세요.
+
+분석 항목:
+1. 테마 내 포지션: 대장주/선도추종주/후발추종주/소외주 판별 및 이유
+2. 세력 분석: 외국인·기관·큰손의 매매 패턴, 의도, 누적 방향
+3. 차트 패턴: 현재 기술적 패턴 (돌파/눌림목/과매수/축적/매집 등)
+4. 모멘텀 단계: 상승 초기/중반/과열/하락 전환 등 현재 위치
+5. 대장주와의 연동: 이 섹터 대장주와 이 종목의 연동성, 후행 여부
+6. 역사적 패턴: 이 종목 또는 이 테마 과거 유사 상황에서의 전개 방식
+7. 매매 전략: 지금 들어가야 하는가, 최적 타이밍, 목표·손절
+
+아래 JSON으로만 응답:
+{{
+  "position": "대장주 | 선도추종주 | 후발추종주 | 소외주",
+  "position_reason": "포지션 판단 이유 2문장",
+  "leader_name": "이 섹터 오늘의 대장주 이름",
+  "leader_correlation": "대장주와 연동 관계·후행 여부 설명 2문장",
+  "supply_analysis": "수급·세력 분석 3~4문장 (기관/외국인 동향 포함)",
+  "force_direction": "강하게 유입 | 분산 매집 | 관망 | 이탈 | 혼조",
+  "chart_pattern": "현재 차트 패턴 명칭과 설명",
+  "momentum_stage": "돌파 직전 | 상승 초기 | 상승 중반 | 과열 구간 | 조정 중 | 하락 전환 | 바닥 다지기",
+  "historical_pattern": "역사적 유사 흐름과 결과 2~3문장",
+  "entry_timing": "즉시 진입 | 눌림목 대기 | 돌파 확인 후 | 관망 권고",
+  "entry_reason": "진입 타이밍 판단 이유 2문장",
+  "buy_target": "매수 타점 (예: 72,500원)",
+  "sell_target": "목표가 (예: 78,000원)",
+  "stop_loss": "손절가 (예: 70,000원)",
+  "risk_factors": "주의사항 1~2문장"
+}}"""
+
+    try:
+        resp = _call_gemini(prompt, use_search=True, temperature=0.3)
+        text = re.sub(r'```(?:json)?', '', resp.text).strip()
+        start = text.find('{')
+        if start != -1:
+            result, _ = json.JSONDecoder().raw_decode(text, start)
+            return result
+        return json.loads(text)
+    except Exception as e:
+        if "QUOTA" in str(e) or "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
+            return _quota_error_result("analyze_stock_theme_position")
+        return {"error": f"분석 오류: {type(e).__name__}: {str(e)[:100]}"}

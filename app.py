@@ -594,12 +594,71 @@ def main():
                                     + "</div>"
                                 )
                                 st.markdown(_card_html, unsafe_allow_html=True)
-                                if st.button("상세 분석 →", key=f"pk_detail_{_pick.get('code',_ci)}",
-                                             use_container_width=True):
-                                    st.session_state.kr_selected_code = _pick.get("code", "005930")
-                                    st.session_state.kr_selected_name = _pick.get("name", "")
-                                    st.session_state.kr_mode = "📊 일반 주식 검색"
+                                _pk_btn_c1, _pk_btn_c2 = st.columns(2)
+                                with _pk_btn_c1:
+                                    if _pk_btn_c1.button("상세 분석 →", key=f"pk_detail_{_pick.get('code',_ci)}",
+                                                 use_container_width=True):
+                                        st.session_state.kr_selected_code = _pick.get("code", "005930")
+                                        st.session_state.kr_selected_name = _pick.get("name", "")
+                                        st.session_state.kr_mode = "📊 일반 주식 검색"
+                                        st.rerun()
+                                with _pk_btn_c2:
+                                    if _pk_btn_c2.button("🔗 테마 연동", key=f"pk_theme_{_pick.get('code',_ci)}",
+                                                 use_container_width=True):
+                                        st.session_state[f"pk_thm_run_{_pick.get('code','')}"] = True
+                                        st.rerun()
+
+                                _pk_thm_run = f"pk_thm_run_{_pick.get('code','')}"
+                                _pk_thm_res = f"pk_thm_res_{_pick.get('code','')}"
+                                if st.session_state.get(_pk_thm_run) and _pk_thm_res not in st.session_state:
+                                    with st.spinner("🔗 테마 연동 분석 중..."):
+                                        try:
+                                            from ai_engine import analyze_stock_theme_position
+                                            _pk_theme_name = _themes[0] if _themes else ""
+                                            _pk_sec_stocks = []
+                                            try:
+                                                _sm = load_sector_map()
+                                                for _sv in _sm.get(_pk_theme_name, {}).values():
+                                                    _pk_sec_stocks.extend([
+                                                        {"name": s["name"], "code": s["code"], "change_pct": 0.0}
+                                                        for s in _sv
+                                                    ])
+                                            except Exception:
+                                                pass
+                                            _pk_price_d = {
+                                                "price": _cur, "change_pct": _cpct,
+                                                "volume": 0, "open": 0, "high": 0, "low": 0,
+                                                "w52_high": 0, "w52_low": 0, "per": "-", "pbr": "-",
+                                            }
+                                            st.session_state[_pk_thm_res] = analyze_stock_theme_position(
+                                                _pick.get("code", ""), _pick.get("name", ""),
+                                                _pk_price_d, [], _pk_theme_name, _pk_sec_stocks,
+                                            )
+                                        except Exception as _pte:
+                                            st.session_state[_pk_thm_res] = {"error": str(_pte)}
+                                        st.session_state[_pk_thm_run] = False
                                     st.rerun()
+
+                                if _pk_thm_res in st.session_state:
+                                    _pktr = st.session_state[_pk_thm_res]
+                                    if "error" in _pktr:
+                                        st.caption(f"⚠️ {str(_pktr['error'])[:80]}")
+                                    else:
+                                        _pos   = _pktr.get("position", "")
+                                        _pos_c = {"대장주": "#ff4b4b", "선도추종주": "#f5c518", "후발추종주": "#2b7cff", "소외주": "#888"}.get(_pos, "#888")
+                                        _mstg  = _pktr.get("momentum_stage", "")
+                                        _etim  = _pktr.get("entry_timing", "")
+                                        _etim_c = "#00c853" if "즉시" in _etim else "#f5c518" if "대기" in _etim or "확인" in _etim else "#ff4b4b"
+                                        st.markdown(
+                                            f"<div style='background:rgba(255,255,255,0.04);border-radius:8px;"
+                                            f"padding:8px 10px;margin-top:4px;font-size:0.72rem'>"
+                                            f"<b style='color:{_pos_c}'>{_pos}</b>"
+                                            f"<span style='color:#aaa;margin-left:6px'>{_mstg}</span><br>"
+                                            f"<span style='color:{_etim_c}'>⏱ {_etim}</span>"
+                                            f"<span style='color:#888;margin-left:6px'>{_pktr.get('entry_reason','')[:60]}</span>"
+                                            f"</div>",
+                                            unsafe_allow_html=True,
+                                        )
                 else:
                     st.markdown(
                         "<div style='text-align:center;padding:60px 0;color:#555'>"
@@ -1231,6 +1290,110 @@ def main():
                                 else:
                                     st.info("버튼을 눌러 AI 분석을 실행하세요.")
 
+                                # ── 테마 연동 분석 ──────────────────────────────────
+                                st.markdown("---")
+                                st.markdown("#### 🔗 테마 연동 분석")
+                                st.caption("이 종목의 테마 내 포지션·수급·세력·역사 패턴을 분석합니다")
+                                _ktp_key     = f"kr_theme_pos_{selected_code_kr}"
+                                _ktp_run_key = f"_ktp_run_{selected_code_kr}"
+                                if st.button("🔗 테마 연동 분석 실행", key="kr_theme_btn",
+                                             use_container_width=True):
+                                    st.session_state[_ktp_run_key] = True
+                                    st.session_state.pop(_ktp_key, None)
+                                    st.rerun()
+                                if st.session_state.get(_ktp_run_key) and _ktp_key not in st.session_state:
+                                    with st.spinner("AI가 테마·수급·세력·역사 흐름 분석 중..."):
+                                        try:
+                                            from ai_engine import analyze_stock_theme_position
+                                            from db import load_sector_map as _lsm_tp
+                                            _tp_sm = _lsm_tp()
+                                            # 이 종목이 속한 섹터 찾기
+                                            _tp_sec = "기타"
+                                            _tp_stk = []
+                                            for _s, _subs in _tp_sm.items():
+                                                for _sb, _sl in _subs.items():
+                                                    for _st in _sl:
+                                                        if _st.get("code") == selected_code_kr:
+                                                            _tp_sec = _s
+                                                        _tp_stk.append({**_st, "price":0,"change_pct":0})
+                                                if _tp_sec != "기타":
+                                                    break
+                                            _ktp_inv = get_kr_investor_trend(selected_code_kr)
+                                            _ktp_res = analyze_stock_theme_position(
+                                                selected_code_kr, price_kr.get("name", ""),
+                                                price_kr or {}, _ktp_inv,
+                                                _tp_sec, _tp_stk
+                                            )
+                                        except Exception as _ktp_e:
+                                            _ktp_res = {"error": str(_ktp_e)}
+                                        st.session_state[_ktp_key]     = _ktp_res
+                                        st.session_state[_ktp_run_key] = False
+                                    st.rerun()
+                                if _ktp_key in st.session_state:
+                                    _ktr = st.session_state[_ktp_key]
+                                    if _ktr.get("error"):
+                                        st.error(f"분석 오류: {_ktr['error']}")
+                                    else:
+                                        _kpos = _ktr.get("position", "")
+                                        _kpc = {"대장주":"#ff4b4b","선도추종주":"#f5c518","후발추종주":"#2b7cff","소외주":"#888"}.get(_kpos, "#aaa")
+                                        st.markdown(
+                                            f"<div style='display:inline-block;background:{_kpc}22;"
+                                            f"border:1px solid {_kpc};border-radius:8px;"
+                                            f"padding:4px 12px;font-size:0.82rem;font-weight:700;"
+                                            f"color:{_kpc};margin-bottom:6px'>📍 {_kpos}</div>"
+                                            + (f" <span style='font-size:0.72rem;color:#aaa'>{_tp_sec}</span>" if "_tp_sec" in dir() else ""),
+                                            unsafe_allow_html=True,
+                                        )
+                                        if _ktr.get("position_reason"):
+                                            st.caption(_ktr["position_reason"])
+                                        _ktc1, _ktc2 = st.columns(2)
+                                        _ktc1.markdown(
+                                            f"<div style='font-size:0.68rem;color:#888'>섹터 대장주</div>"
+                                            f"<div style='font-weight:700'>{_ktr.get('leader_name','?')}</div>",
+                                            unsafe_allow_html=True,
+                                        )
+                                        _kfd = _ktr.get("force_direction","")
+                                        _kfdc = "#00c853" if "유입" in _kfd or "매집" in _kfd else "#ff4b4b" if "이탈" in _kfd else "#888"
+                                        _ktc2.markdown(
+                                            f"<div style='font-size:0.68rem;color:#888'>세력 방향</div>"
+                                            f"<div style='font-weight:700;color:{_kfdc}'>{_kfd}</div>",
+                                            unsafe_allow_html=True,
+                                        )
+                                        if _ktr.get("momentum_stage") or _ktr.get("chart_pattern"):
+                                            st.markdown(
+                                                f"<div style='background:rgba(255,255,255,0.04);border-radius:8px;"
+                                                f"padding:8px 12px;margin:6px 0;font-size:0.8rem'>"
+                                                f"<b>📈 {_ktr.get('momentum_stage','')}</b>"
+                                                + (f" · {_ktr.get('chart_pattern','')}" if _ktr.get('chart_pattern') else "")
+                                                + "</div>",
+                                                unsafe_allow_html=True,
+                                            )
+                                        if _ktr.get("leader_correlation"):
+                                            st.info(f"🔗 **연동:** {_ktr['leader_correlation']}")
+                                        if _ktr.get("supply_analysis"):
+                                            with st.expander("💰 수급·세력 분석"):
+                                                st.markdown(_ktr["supply_analysis"])
+                                        if _ktr.get("historical_pattern"):
+                                            with st.expander("📜 역사적 유사 패턴"):
+                                                st.markdown(_ktr["historical_pattern"])
+                                        _ket = _ktr.get("entry_timing","")
+                                        _ketc = {"즉시 진입":"#00c853","눌림목 대기":"#f5c518","돌파 확인 후":"#f5c518","관망 권고":"#ff4b4b"}.get(_ket,"#888")
+                                        if _ket:
+                                            st.markdown(
+                                                f"<div style='background:{_ketc}15;border:1px solid {_ketc}50;"
+                                                f"border-radius:8px;padding:8px 12px;margin:4px 0'>"
+                                                f"<span style='color:{_ketc};font-weight:700'>⏱ {_ket}</span>"
+                                                + (f" — {_ktr.get('entry_reason','')}" if _ktr.get('entry_reason') else "")
+                                                + "</div>",
+                                                unsafe_allow_html=True,
+                                            )
+                                        _kta1, _kta2, _kta3 = st.columns(3)
+                                        _kta1.metric("매수 타점", _ktr.get("buy_target", "-"))
+                                        _kta2.metric("목표가",    _ktr.get("sell_target", "-"))
+                                        _kta3.metric("손절가",    _ktr.get("stop_loss", "-"))
+                                        if _ktr.get("risk_factors"):
+                                            st.warning(f"⚠️ {_ktr['risk_factors']}")
+
                     else:  # 🔥 오늘의 이슈 섹터
                         from db import load_sector_map, init_sector_sheet
                         from data_kr import get_kr_prices_bulk
@@ -1372,6 +1535,102 @@ def main():
                                         st.markdown("---")
                                         with st.container(border=True):
                                             st.markdown(_r["analysis"])
+
+                                # ── 테마 연동 분석 (대장주·추종주·수급·역사) ─────────
+                                st.markdown("#### 🔗 테마 연동 분석")
+                                st.caption("대장주·추종주 순서·수급·세력·역사 패턴을 종합 분석합니다")
+                                _thm_key = f"theme_pos_{detail_code}"
+                                _thm_run_key = f"_thm_run_{detail_code}"
+                                if st.button("🔗 테마 연동 분석 실행", key="sec_theme_btn",
+                                             use_container_width=True):
+                                    st.session_state[_thm_run_key] = True
+                                    st.session_state.pop(_thm_key, None)
+                                    st.rerun()
+                                if st.session_state.get(_thm_run_key) and _thm_key not in st.session_state:
+                                    with st.spinner("AI가 테마 흐름·수급·역사 패턴을 분석 중..."):
+                                        try:
+                                            from ai_engine import analyze_stock_theme_position
+                                            _cur_sec = st.session_state.kr_selected_sector
+                                            _sec_stk_flat = [
+                                                {**s, "price": 0, "change_pct": 0}
+                                                for subs in sector_map.get(_cur_sec, {}).values()
+                                                for s in subs
+                                            ]
+                                            _thm_inv = get_kr_investor_trend(detail_code)
+                                            _thm_res = analyze_stock_theme_position(
+                                                detail_code, detail_name,
+                                                price_kr or {}, _thm_inv,
+                                                _cur_sec, _sec_stk_flat
+                                            )
+                                        except Exception as _te:
+                                            _thm_res = {"error": str(_te)}
+                                        st.session_state[_thm_key] = _thm_res
+                                        st.session_state[_thm_run_key] = False
+                                    st.rerun()
+                                if _thm_key in st.session_state:
+                                    _tr = st.session_state[_thm_key]
+                                    if _tr.get("error"):
+                                        st.error(f"분석 오류: {_tr['error']}")
+                                    else:
+                                        _pos = _tr.get("position", "")
+                                        _pos_c = {"대장주":"#ff4b4b","선도추종주":"#f5c518","후발추종주":"#2b7cff","소외주":"#888"}.get(_pos, "#aaa")
+                                        st.markdown(
+                                            f"<div style='display:inline-block;background:{_pos_c}22;"
+                                            f"border:1px solid {_pos_c};border-radius:8px;"
+                                            f"padding:4px 12px;font-size:0.82rem;font-weight:700;"
+                                            f"color:{_pos_c};margin-bottom:6px'>📍 {_pos}</div>",
+                                            unsafe_allow_html=True,
+                                        )
+                                        if _tr.get("position_reason"):
+                                            st.caption(_tr["position_reason"])
+                                        _tc1, _tc2 = st.columns(2)
+                                        _tc1.markdown(
+                                            f"<div style='font-size:0.68rem;color:#888'>오늘의 대장주</div>"
+                                            f"<div style='font-weight:700'>{_tr.get('leader_name','?')}</div>",
+                                            unsafe_allow_html=True,
+                                        )
+                                        _fd = _tr.get("force_direction", "")
+                                        _fd_c = "#00c853" if "유입" in _fd or "매집" in _fd else "#ff4b4b" if "이탈" in _fd else "#888"
+                                        _tc2.markdown(
+                                            f"<div style='font-size:0.68rem;color:#888'>세력 방향</div>"
+                                            f"<div style='font-weight:700;color:{_fd_c}'>{_fd}</div>",
+                                            unsafe_allow_html=True,
+                                        )
+                                        _ms = _tr.get("momentum_stage", "")
+                                        _cp = _tr.get("chart_pattern", "")
+                                        if _ms or _cp:
+                                            st.markdown(
+                                                f"<div style='background:rgba(255,255,255,0.04);border-radius:8px;"
+                                                f"padding:8px 12px;margin:6px 0;font-size:0.8rem'>"
+                                                f"<b>📈 {_ms}</b>"
+                                                + (f" · {_cp}" if _cp else "") + "</div>",
+                                                unsafe_allow_html=True,
+                                            )
+                                        if _tr.get("leader_correlation"):
+                                            st.info(f"🔗 **연동:** {_tr['leader_correlation']}")
+                                        if _tr.get("supply_analysis"):
+                                            with st.expander("💰 수급·세력 분석 상세"):
+                                                st.markdown(_tr["supply_analysis"])
+                                        if _tr.get("historical_pattern"):
+                                            with st.expander("📜 역사적 유사 패턴"):
+                                                st.markdown(_tr["historical_pattern"])
+                                        _et = _tr.get("entry_timing", "")
+                                        _et_c = {"즉시 진입":"#00c853","눌림목 대기":"#f5c518","돌파 확인 후":"#f5c518","관망 권고":"#ff4b4b"}.get(_et, "#888")
+                                        if _et:
+                                            st.markdown(
+                                                f"<div style='background:{_et_c}15;border:1px solid {_et_c}50;"
+                                                f"border-radius:8px;padding:8px 12px;margin:4px 0'>"
+                                                f"<span style='color:{_et_c};font-weight:700'>⏱ {_et}</span>"
+                                                + (f" — {_tr.get('entry_reason','')}" if _tr.get('entry_reason') else "")
+                                                + "</div>",
+                                                unsafe_allow_html=True,
+                                            )
+                                        _ta1, _ta2, _ta3 = st.columns(3)
+                                        _ta1.metric("매수 타점", _tr.get("buy_target", "-"))
+                                        _ta2.metric("목표가",    _tr.get("sell_target", "-"))
+                                        _ta3.metric("손절가",    _tr.get("stop_loss", "-"))
+                                        if _tr.get("risk_factors"):
+                                            st.warning(f"⚠️ {_tr['risk_factors']}")
 
                         # ── 섹터 목록 뷰 (기본) ───────────────────────────────────
                         else:
@@ -1748,9 +2007,79 @@ def main():
                                                                 unsafe_allow_html=True,
                                                             )
 
-                                                    if st.button("📊 역사적 패턴", key=f"pat_btn_{_asi}", help=f"{_kw} 섹터 과거 패턴 기반 미래 예측"):
-                                                        st.session_state["ai_pattern_kw"] = _kw
+                                                    _sbtn_c1, _sbtn_c2 = st.columns(2)
+                                                    with _sbtn_c1:
+                                                        if st.button("📊 역사적 패턴", key=f"pat_btn_{_asi}", help=f"{_kw} 섹터 과거 패턴 기반 미래 예측"):
+                                                            st.session_state["ai_pattern_kw"] = _kw
+                                                            st.rerun()
+                                                    with _sbtn_c2:
+                                                        if st.button("🔗 테마 연동", key=f"thm_btn_{_asi}", help=f"{_kw} 대장주·추종주·수급·역사 분석"):
+                                                            st.session_state[f"thm_run_{_kw}"] = True
+                                                            st.rerun()
+
+                                                    _thm_run_key = f"thm_run_{_kw}"
+                                                    _thm_res_key = f"thm_res_{_kw}"
+                                                    if st.session_state.get(_thm_run_key) and _thm_res_key not in st.session_state:
+                                                        with st.spinner(f"🔍 {_kw} 테마 연동 분석 중..."):
+                                                            _stk_with_data = [
+                                                                {
+                                                                    "name": s["name"], "code": s["code"],
+                                                                    "price": _ai_prices.get(s["code"], {}).get("price", 0),
+                                                                    "change_pct": _ai_prices.get(s["code"], {}).get("change_pct", 0.0),
+                                                                    "volume": 0,
+                                                                }
+                                                                for s in (_display or [])
+                                                            ]
+                                                            from ai_engine import analyze_sector_theme_linkage
+                                                            st.session_state[_thm_res_key] = analyze_sector_theme_linkage(_kw, _stk_with_data)
+                                                            st.session_state[_thm_run_key] = False
                                                         st.rerun()
+
+                                                    if _thm_res_key in st.session_state:
+                                                        _tl = st.session_state[_thm_res_key]
+                                                        if "error" in _tl:
+                                                            st.error(_tl.get("error", "분석 오류"))
+                                                        else:
+                                                            with st.expander("🔗 테마 연동 분석 결과", expanded=True):
+                                                                _tl_c1, _tl_c2 = st.columns(2)
+                                                                _tl_c1.markdown(
+                                                                    f"**대장주:** {_tl.get('leader_name','?')}  \n"
+                                                                    f"<span style='font-size:0.75rem;color:#aaa'>{_tl.get('leader_reason','')}</span>",
+                                                                    unsafe_allow_html=True,
+                                                                )
+                                                                _stage = _tl.get("sector_stage", "")
+                                                                _stage_color = {"초기 형성": "#4caf50", "확산": "#ff9800", "과열": "#ff4b4b", "냉각": "#2b7cff"}.get(_stage, "#888")
+                                                                _tl_c2.markdown(
+                                                                    f"**섹터 단계:** <span style='color:{_stage_color};font-weight:700'>{_stage}</span>  \n"
+                                                                    f"<span style='font-size:0.75rem;color:#aaa'>{_tl.get('stage_reason','')}</span>",
+                                                                    unsafe_allow_html=True,
+                                                                )
+                                                                _sup_sig = _tl.get("supply_signal", "")
+                                                                _sup_color = "#00c853" if "유입" in _sup_sig or "매집" in _sup_sig else "#ff4b4b" if "이탈" in _sup_sig else "#f5c518"
+                                                                st.markdown(
+                                                                    f"<div style='background:rgba(255,255,255,0.04);border-left:3px solid {_sup_color};"
+                                                                    f"border-radius:0 6px 6px 0;padding:6px 10px;margin:6px 0'>"
+                                                                    f"<span style='font-size:0.72rem;font-weight:700;color:{_sup_color}'>📡 {_sup_sig}</span>"
+                                                                    f"<span style='font-size:0.72rem;color:#aaa;margin-left:8px'>{_tl.get('supply_detail','')}</span>"
+                                                                    f"</div>",
+                                                                    unsafe_allow_html=True,
+                                                                )
+                                                                _followers = _tl.get("followers", [])
+                                                                if _followers:
+                                                                    st.markdown("**다음 추종주 순서:**")
+                                                                    for _fi, _fw in enumerate(_followers[:5]):
+                                                                        st.markdown(
+                                                                            f"<span class='sector-pill'>{_fi+1}위. "
+                                                                            f"{_fw.get('name','')} — {_fw.get('reason','')} "
+                                                                            f"⏱ {_fw.get('timing','')}</span>",
+                                                                            unsafe_allow_html=True,
+                                                                        )
+                                                                with st.expander("📖 역사 패턴 · 매매 전략"):
+                                                                    st.markdown(f"**역사적 패턴:** {_tl.get('historical_pattern','')}")
+                                                                    st.markdown(f"**대장주 전략:** {_tl.get('leader_strategy','')}")
+                                                                    st.markdown(f"**추종주 전략:** {_tl.get('follower_strategy','')}")
+                                                                    if _tl.get("risk_factors"):
+                                                                        st.warning(_tl["risk_factors"])
                                     elif not _quota_err:
                                         st.caption("섹터 데이터를 불러올 수 없습니다.")
 
