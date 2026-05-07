@@ -28,6 +28,74 @@ st.set_page_config(
 def inject_custom_css():
     st.markdown("""
         <style>
+        /* ══════════════════════════════════════════════════════════
+           CSS 변수 — 다크 모드 기본값
+           라이트 모드는 @media (prefers-color-scheme: light) 에서 재정의
+        ══════════════════════════════════════════════════════════ */
+        :root {
+            --sc-divider:      rgba(255,255,255,0.11);
+            --sc-divider-str:  rgba(255,255,255,0.20);
+            --sc-card-bg:      rgba(255,255,255,0.04);
+            --sc-card-border:  rgba(255,255,255,0.09);
+            --sc-card-bg-sm:   rgba(255,255,255,0.025);
+            --sc-text-muted:   #999;
+            --sc-text-subtle:  #666;
+            --sc-pill-bg:      rgba(255,255,255,0.07);
+            --sc-pill-color:   #bbb;
+            --sc-row-hover:    rgba(255,255,255,0.04);
+            --sc-nav-inactive: #888;
+            --sc-nav-hover:    #ccc;
+            --sc-nav-hover-bg: rgba(255,255,255,0.04);
+            --sc-mkt-border:   rgba(255,255,255,0.12);
+            --sc-mkt-inactive: #777;
+            --sc-mkt-act-bg:   rgba(255,255,255,0.13);
+            --sc-mkt-act-fg:   #fff;
+            --sc-mkt-act-bdr:  rgba(255,255,255,0.28);
+            --sc-btn-border:   rgba(255,255,255,0.13);
+            --sc-btn-pri-bg:   rgba(255,255,255,0.12);
+            --sc-btn-pri-fg:   #f0f0f0;
+            --sc-btn-hover-bg: rgba(255,255,255,0.09);
+        }
+
+        /* ── 라이트 모드 재정의 (시스템 설정 또는 Streamlit 수동 설정) ── */
+        @media (prefers-color-scheme: light) { :root { --sc-light: 1; } }
+        @media (prefers-color-scheme: light),
+               html.sc-light {
+            :root, html.sc-light {
+                --sc-divider:      rgba(0,0,0,0.11);
+                --sc-divider-str:  rgba(0,0,0,0.20);
+                --sc-card-bg:      rgba(0,0,0,0.03);
+                --sc-card-border:  rgba(0,0,0,0.09);
+                --sc-card-bg-sm:   rgba(0,0,0,0.018);
+                --sc-text-muted:   #555;
+                --sc-text-subtle:  #888;
+                --sc-pill-bg:      rgba(0,0,0,0.06);
+                --sc-pill-color:   #444;
+                --sc-row-hover:    rgba(0,0,0,0.04);
+                --sc-nav-inactive: #555;
+                --sc-nav-hover:    #111;
+                --sc-nav-hover-bg: rgba(0,0,0,0.04);
+                --sc-mkt-border:   rgba(0,0,0,0.14);
+                --sc-mkt-inactive: #555;
+                --sc-mkt-act-bg:   rgba(0,0,0,0.08);
+                --sc-mkt-act-fg:   #111;
+                --sc-mkt-act-bdr:  rgba(0,0,0,0.22);
+                --sc-btn-border:   rgba(0,0,0,0.14);
+                --sc-btn-pri-bg:   rgba(0,0,0,0.07);
+                --sc-btn-pri-fg:   #111;
+                --sc-btn-hover-bg: rgba(0,0,0,0.06);
+            }
+        }
+
+        /* ══════════════════════════════════════════════════════════
+           글로벌 hr 오버라이드 — 인라인 스타일도 덮어씀(!important)
+           → 앱 전체 구분선이 라이트/다크 모두 자동 대응
+        ══════════════════════════════════════════════════════════ */
+        hr {
+            border: none !important;
+            border-top: 1px solid var(--sc-divider) !important;
+        }
+
         /* ── 색상 ── */
         .up-kr   { color: #ff4b4b; font-weight: 700; }
         .down-kr { color: #2b7cff; font-weight: 700; }
@@ -39,30 +107,30 @@ def inject_custom_css():
             border-radius: 20px !important;
             font-size: 0.82rem !important;
             padding: 4px 14px !important;
-            border: 1px solid rgba(255,255,255,0.12) !important;
+            border: 1px solid var(--sc-btn-border) !important;
             transition: all 0.15s ease !important;
         }
         div[data-testid="stButton"] > button[kind="primary"] {
-            background: rgba(255,255,255,0.12) !important;
-            color: #fff !important;
-            border-color: rgba(255,255,255,0.25) !important;
+            background: var(--sc-btn-pri-bg) !important;
+            color: var(--sc-btn-pri-fg) !important;
+            border-color: var(--sc-divider-str) !important;
         }
         div[data-testid="stButton"] > button:hover {
-            background: rgba(255,255,255,0.1) !important;
-            border-color: rgba(255,255,255,0.3) !important;
+            background: var(--sc-btn-hover-bg) !important;
+            border-color: var(--sc-divider-str) !important;
         }
 
         /* ── Toss 스타일 카드 ── */
         .toss-card {
-            background: rgba(255,255,255,0.035);
-            border: 1px solid rgba(255,255,255,0.07);
+            background: var(--sc-card-bg);
+            border: 1px solid var(--sc-card-border);
             border-radius: 14px;
             padding: 14px 16px;
             margin: 6px 0;
         }
         .toss-card-sm {
-            background: rgba(255,255,255,0.025);
-            border: 1px solid rgba(255,255,255,0.06);
+            background: var(--sc-card-bg-sm);
+            border: 1px solid var(--sc-card-border);
             border-radius: 10px;
             padding: 8px 12px;
             margin: 3px 0;
@@ -76,29 +144,35 @@ def inject_custom_css():
             padding: 8px 4px 4px 2px;
         }
         .index-item { display: flex; flex-direction: column; }
-        .index-name { font-size: 0.7rem; color: #888; letter-spacing: 0.04em; }
+        .index-name { font-size: 0.7rem; color: var(--sc-text-muted); letter-spacing: 0.04em; }
         .index-val  { font-size: 1.05rem; font-weight: 700; line-height: 1.2; }
         .index-chg  { font-size: 0.72rem; margin-top: 1px; }
 
         /* ── 종목 행 hover ── */
-        .stock-row:hover { background: rgba(255,255,255,0.04); border-radius: 8px; }
+        .stock-row:hover { background: var(--sc-row-hover); border-radius: 8px; }
 
         /* ── 섹터 태그 ── */
         .sector-pill {
             display: inline-block;
-            background: rgba(255,255,255,0.07);
+            background: var(--sc-pill-bg);
             border-radius: 20px;
             padding: 2px 10px;
             font-size: 0.72rem;
-            color: #bbb;
+            color: var(--sc-pill-color);
             margin: 1px;
         }
 
-        /* ── 구분선 ── */
+        /* ── 구분선 클래스 ── */
         .toss-divider {
             border: none;
-            border-top: 1px solid rgba(255,255,255,0.07);
+            border-top: 1px solid var(--sc-divider);
             margin: 8px 0;
+        }
+        /* 더 진한 섹션 구분선 */
+        .sc-section-divider {
+            border: none;
+            border-top: 1px solid var(--sc-divider-str);
+            margin: 14px 0;
         }
 
         /* ── 네비 탭 버튼 (JS가 data-navbtn 속성 부여) ── */
@@ -109,53 +183,65 @@ def inject_custom_css():
             border-radius: 6px 6px 0 0 !important;
             font-size: 0.83rem !important;
             font-weight: 500 !important;
-            color: #777 !important;
+            color: var(--sc-nav-inactive) !important;
             padding: 6px 18px !important;
             transition: color 0.15s, border-color 0.15s !important;
             width: 100% !important;
             box-shadow: none !important;
         }
         div[data-testid="stButton"] > button[data-navbtn]:hover {
-            color: #ccc !important;
-            background: rgba(255,255,255,0.04) !important;
+            color: var(--sc-nav-hover) !important;
+            background: var(--sc-nav-hover-bg) !important;
         }
         div[data-testid="stButton"] > button[data-navbtn="active"] {
             color: #ff9800 !important;
             font-weight: 700 !important;
             border-bottom: 2px solid #ff9800 !important;
-            background: rgba(255,152,0,0.07) !important;
+            background: rgba(255,152,0,0.08) !important;
         }
 
         /* ── 마켓 pill 버튼 (JS가 data-mktbtn 속성 부여) ── */
         div[data-testid="stButton"] > button[data-mktbtn] {
             background: transparent !important;
-            border: 1px solid rgba(255,255,255,0.10) !important;
+            border: 1px solid var(--sc-mkt-border) !important;
             border-radius: 20px !important;
             font-size: 0.77rem !important;
             font-weight: 400 !important;
-            color: #666 !important;
+            color: var(--sc-mkt-inactive) !important;
             padding: 3px 12px !important;
             transition: all 0.15s !important;
             box-shadow: none !important;
         }
         div[data-testid="stButton"] > button[data-mktbtn]:hover {
-            color: #bbb !important;
-            border-color: rgba(255,255,255,0.22) !important;
+            color: var(--sc-nav-hover) !important;
+            border-color: var(--sc-divider-str) !important;
         }
         div[data-testid="stButton"] > button[data-mktbtn="active"] {
-            background: rgba(255,255,255,0.12) !important;
-            border-color: rgba(255,255,255,0.28) !important;
-            color: #fff !important;
+            background: var(--sc-mkt-act-bg) !important;
+            border-color: var(--sc-mkt-act-bdr) !important;
+            color: var(--sc-mkt-act-fg) !important;
             font-weight: 700 !important;
+        }
+
+        /* ── 섹션 제목 공통 ── */
+        .sc-section-title {
+            font-size: 0.78rem;
+            font-weight: 600;
+            color: var(--sc-text-muted);
+            letter-spacing: 0.05em;
+            text-transform: uppercase;
+            margin: 14px 0 6px 2px;
+            padding-left: 8px;
+            border-left: 3px solid var(--sc-divider-str);
         }
 
         .disclaimer {
             font-size: 0.78rem;
-            color: #666;
+            color: var(--sc-text-subtle);
             text-align: center;
             margin-top: 50px;
             padding-top: 20px;
-            border-top: 1px solid rgba(255,255,255,0.07);
+            border-top: 1px solid var(--sc-divider);
         }
 
         /* JS 주입용 1px iframe 숨김 */
@@ -308,10 +394,7 @@ def main():
                 st.session_state.market = "미국 주식 🇺🇸"
                 st.rerun()
 
-    st.markdown(
-        "<hr style='border:none;border-top:1px solid rgba(255,255,255,0.09);margin:0 0 6px 0'>",
-        unsafe_allow_html=True,
-    )
+    st.markdown("<hr class='toss-divider' style='margin:0 0 6px 0'>", unsafe_allow_html=True)
 
     import streamlit.components.v1 as components
     # JS: 버튼에 data 속성 부여 → CSS가 탭/pill 스타일로 렌더링
@@ -320,10 +403,27 @@ def main():
 (function(){
   var NAV = ['타점보드','종목검색','섹터분석','브리핑'];
   var MKT = ['🇰🇷','🇺🇸'];
+
   function isActive(b){
     return b.getAttribute('kind')==='primary'
         || b.getAttribute('data-testid')==='baseButton-primary';
   }
+
+  /* Streamlit 수동 테마 감지 → 부모 <html>에 sc-light 클래스 토글 */
+  function syncTheme(){
+    try{
+      var doc = window.parent.document;
+      var root = doc.documentElement;
+      var bg = getComputedStyle(root)
+                .getPropertyValue('--background-color').trim()
+             || getComputedStyle(doc.body).backgroundColor;
+      /* 밝은 배경이면 sc-light 클래스 부여 */
+      var isLight = /^#f|^#e|^rgb[(]2[0-9]{2}|^rgba[(]2[0-9]{2}/.test(bg)
+                 || bg === '#ffffff' || bg === 'white';
+      root.classList.toggle('sc-light', isLight);
+    }catch(e){}
+  }
+
   function tag(){
     try{
       var doc = window.parent.document;
@@ -336,23 +436,23 @@ def main():
       });
     }catch(e){}
   }
-  tag(); setInterval(tag,200);
+
+  syncTheme(); tag();
+  setInterval(function(){ syncTheme(); tag(); }, 300);
 })();
 </script>""", height=1, scrolling=False)
 
     # ── 상단 슬라이딩 티커 (KR/US 조건부) ──────────────────────────────
     def _ticker_pill(label, price_str, pct, is_index=False):
-        c  = "#ff4b4b" if pct >= 0 else "#2b7cff"
-        bg = "rgba(255,75,75,0.12)" if pct >= 0 else "rgba(43,124,255,0.12)"
+        c     = "#ff4b4b" if pct >= 0 else "#2b7cff"
+        bg    = "rgba(255,75,75,0.14)" if pct >= 0 else "rgba(43,124,255,0.14)"
         arrow = "▲" if pct >= 0 else "▼"
         sign  = "+" if pct >= 0 else ""
-        badge_bg = "rgba(255,255,255,0.08)" if is_index else "rgba(255,255,255,0.04)"
+        cls   = "pill pill-idx" if is_index else "pill"
         return (
-            f'<span style="display:inline-flex;align-items:center;gap:6px;'
-            f'background:{badge_bg};border:1px solid rgba(255,255,255,0.1);'
-            f'border-radius:20px;padding:3px 10px;margin:0 6px;white-space:nowrap">'
-            f'<span style="font-size:0.72rem;color:#aaa;font-weight:600">{label}</span>'
-            f'<span style="font-size:0.8rem;color:#eee;font-weight:700">{price_str}</span>'
+            f'<span class="{cls}">'
+            f'<span class="pl">{label}</span>'
+            f'<span class="pp">{price_str}</span>'
             f'<span style="font-size:0.72rem;color:{c};font-weight:700;'
             f'background:{bg};border-radius:10px;padding:1px 6px">'
             f'{arrow} {sign}{pct:.2f}%</span>'
@@ -362,20 +462,55 @@ def main():
     def _render_scroll_ticker(items, speed=50):
         body = "".join(items)
         components.html(f"""
-        <div style="background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.07);
-                    border-radius:10px;overflow:hidden;padding:4px 0;margin-bottom:4px;height:36px;
-                    display:flex;align-items:center">
-          <div style="display:inline-flex;align-items:center;white-space:nowrap;
-                      animation:krtick {speed}s linear infinite">
-            {body}{body}
-          </div>
-        </div>
         <style>
+          :root {{
+            --tk-wrap-bg:  rgba(255,255,255,0.02);
+            --tk-wrap-bdr: rgba(255,255,255,0.08);
+            --tk-pill-bg:  rgba(255,255,255,0.05);
+            --tk-pill-idx: rgba(255,255,255,0.09);
+            --tk-pill-bdr: rgba(255,255,255,0.11);
+            --tk-label:    #aaa;
+            --tk-price:    #eee;
+          }}
+          @media (prefers-color-scheme: light) {{
+            :root {{
+              --tk-wrap-bg:  rgba(0,0,0,0.02);
+              --tk-wrap-bdr: rgba(0,0,0,0.09);
+              --tk-pill-bg:  rgba(0,0,0,0.04);
+              --tk-pill-idx: rgba(0,0,0,0.07);
+              --tk-pill-bdr: rgba(0,0,0,0.10);
+              --tk-label:    #666;
+              --tk-price:    #111;
+            }}
+          }}
+          body {{ margin:0; overflow:hidden; background:transparent; }}
+          .wrap {{
+            background: var(--tk-wrap-bg);
+            border: 1px solid var(--tk-wrap-bdr);
+            border-radius:10px; overflow:hidden;
+            padding:4px 0; height:36px; display:flex; align-items:center;
+          }}
+          .track {{
+            display:inline-flex; align-items:center; white-space:nowrap;
+            animation:krtick {speed}s linear infinite;
+          }}
+          .pill {{
+            display:inline-flex; align-items:center; gap:6px;
+            background:var(--tk-pill-bg);
+            border:1px solid var(--tk-pill-bdr);
+            border-radius:20px; padding:3px 10px; margin:0 6px;
+          }}
+          .pill-idx {{ background:var(--tk-pill-idx); }}
+          .pl {{ font-size:0.72rem; color:var(--tk-label); font-weight:600; }}
+          .pp {{ font-size:0.80rem; color:var(--tk-price); font-weight:700; }}
           @keyframes krtick {{
             from {{ transform: translateX(0); }}
             to   {{ transform: translateX(-50%); }}
           }}
-        </style>""", height=44)
+        </style>
+        <div class="wrap">
+          <div class="track">{body}{body}</div>
+        </div>""", height=44)
 
     _is_us_mode = "미국" in st.session_state.get("market", "")
 
@@ -1891,7 +2026,7 @@ def main():
                                     else:
                                         st.caption("거래량 데이터를 불러올 수 없습니다.")
 
-                                    st.markdown("<hr style='margin:8px 0;border:none;border-top:1px solid rgba(255,255,255,0.07)'>", unsafe_allow_html=True)
+                                    st.markdown("<hr class='toss-divider' style='margin:8px 0'>", unsafe_allow_html=True)
 
                                     # ── 오늘의 급등 종목 ──────────────────────────
                                     st.markdown(
@@ -1946,7 +2081,7 @@ def main():
                                     elif not _quota_err:
                                         st.caption("급등 종목 데이터를 불러올 수 없습니다.")
 
-                                    st.markdown("<hr style='margin:8px 0;border:none;border-top:1px solid rgba(255,255,255,0.07)'>", unsafe_allow_html=True)
+                                    st.markdown("<hr class='toss-divider' style='margin:8px 0'>", unsafe_allow_html=True)
 
                                     # ── AI 핫 섹터 ───────────────────────────────
                                     st.markdown(
@@ -2018,7 +2153,7 @@ def main():
                                                         unsafe_allow_html=True,
                                                     )
                                                     _iss_idx += 1
-                                            st.markdown("<hr style='margin:6px 0;border:none;border-top:1px solid rgba(255,255,255,0.07)'>", unsafe_allow_html=True)
+                                            st.markdown("<hr class='toss-divider' style='margin:6px 0'>", unsafe_allow_html=True)
 
                                         # 역사적 패턴 분석 결과 패널
                                         _pat_kw = st.session_state.get("ai_pattern_kw", "")
@@ -2100,7 +2235,7 @@ def main():
                                                     for _si, _stk in enumerate(_display[:10]):
                                                         if _si > 0:
                                                             st.markdown(
-                                                                '<hr style="margin:1px 0;border:none;border-top:1px solid rgba(255,255,255,0.07)">',
+                                                                '<hr class="toss-divider" style="margin:1px 0">',
                                                                 unsafe_allow_html=True,
                                                             )
                                                         _pd  = _ai_prices.get(_stk["code"], {"price": 0, "change_pct": 0.0})
@@ -2402,7 +2537,7 @@ def main():
                                 def _render_sector_stocks(sub_name, stocks, prices, code_locations, selected_sector):
                                     for i, s in enumerate(stocks):
                                         if i > 0:
-                                            st.markdown('<hr style="margin:2px 0;border:none;border-top:1px solid rgba(255,255,255,0.1)">', unsafe_allow_html=True)
+                                            st.markdown('<hr class="toss-divider" style="margin:2px 0">', unsafe_allow_html=True)
                                         pdata = prices.get(s["code"], {"price": 0, "change_pct": 0.0})
                                         pct   = pdata["change_pct"]
                                         pval  = pdata["price"]
@@ -2500,7 +2635,7 @@ def main():
                                                         f"{st.session_state[ai_key]}</div>",
                                                         unsafe_allow_html=True,
                                                     )
-                                                st.markdown('<hr style="margin:4px 0 6px 0;border:none;border-top:1px solid rgba(255,255,255,0.15)">', unsafe_allow_html=True)
+                                                st.markdown('<hr class="toss-divider" style="margin:4px 0 6px 0">', unsafe_allow_html=True)
                                                 _render_sector_stocks(sub_name, stocks, prices, code_locations, selected_sector)
 
 
@@ -3121,7 +3256,7 @@ def main():
                                         if st.session_state.discovered_reasoning:
                                             st.markdown(st.session_state.discovered_reasoning)
                                 st.markdown(
-                                    "<hr style='margin:8px 0;border:none;border-top:1px solid rgba(255,255,255,0.07)'>",
+                                    "<hr class='toss-divider' style='margin:8px 0'>",
                                     unsafe_allow_html=True,
                                 )
                                 st.markdown(
@@ -3205,7 +3340,7 @@ def main():
                                         with st.container(border=True):
                                             st.markdown(_rep["analysis"])
                                 st.markdown(
-                                    "<hr style='margin:8px 0;border:none;border-top:1px solid rgba(255,255,255,0.07)'>",
+                                    "<hr class='toss-divider' style='margin:8px 0'>",
                                     unsafe_allow_html=True,
                                 )
                                 if st.button("🌌 시장 자금 흐름 마인드맵", use_container_width=True,
@@ -3441,7 +3576,7 @@ def main():
                                             )
 
                                         st.markdown(
-                                            "<hr style='margin:6px 0;border:none;border-top:1px solid rgba(255,255,255,0.07)'>",
+                                            "<hr class='toss-divider' style='margin:6px 0'>",
                                             unsafe_allow_html=True,
                                         )
 
@@ -3491,7 +3626,7 @@ def main():
                                             st.caption("급등 종목 데이터를 불러올 수 없습니다.")
 
                                         st.markdown(
-                                            "<hr style='margin:8px 0;border:none;border-top:1px solid rgba(255,255,255,0.07)'>",
+                                            "<hr class='toss-divider' style='margin:8px 0'>",
                                             unsafe_allow_html=True,
                                         )
 
@@ -3777,15 +3912,13 @@ def main():
                                                         unsafe_allow_html=True,
                                                     )
                                                 st.markdown(
-                                                    '<hr style="margin:4px 0 6px 0;border:none;'
-                                                    'border-top:1px solid rgba(255,255,255,0.15)">',
+                                                    '<hr class="toss-divider" style="margin:4px 0 6px 0">',
                                                     unsafe_allow_html=True,
                                                 )
                                                 for _ui, _us in enumerate(us_stocks):
                                                     if _ui > 0:
                                                         st.markdown(
-                                                            '<hr style="margin:2px 0;border:none;'
-                                                            'border-top:1px solid rgba(255,255,255,0.1)">',
+                                                            '<hr class="toss-divider" style="margin:2px 0">',
                                                             unsafe_allow_html=True,
                                                         )
                                                     _updata = us_prices.get(_us["ticker"], {"price": 0.0, "change_pct": 0.0})
