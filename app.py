@@ -77,8 +77,7 @@ def inject_custom_css():
         }
 
         /* ══════════════════════════════════════════════════════════
-           라이트 모드 — 페이지 배경 #f0f2f6, 카드 #ffffff
-           흰 카드 + 진한 그림자 = 확실한 입체감
+           라이트 모드 — CSS 변수 재정의
         ══════════════════════════════════════════════════════════ */
         @media (prefers-color-scheme: light) { :root { --sc-_lm: 1; } }
         @media (prefers-color-scheme: light), html.sc-light {
@@ -86,28 +85,27 @@ def inject_custom_css():
                 --sc-divider:       rgba(0,0,0,0.10);
                 --sc-divider-str:   rgba(0,0,0,0.18);
                 --sc-card-bg:       #ffffff;
-                --sc-card-bg-sm:    #f8f9fb;
-                --sc-card-border:   rgba(0,0,0,0.07);
+                --sc-card-bg-sm:    #f4f5f8;
+                --sc-card-border:   rgba(0,0,0,0.08);
                 --sc-card-hi:       #ffffff;
-                /* 라이트: 그림자를 충분히 진하게 — 이게 핵심 */
                 --sc-shadow-card:
-                    0 0 0 1px rgba(0,0,0,0.06),
-                    0 4px 16px rgba(0,0,0,0.14),
-                    0 1px 4px  rgba(0,0,0,0.10);
+                    0 0 0 1px rgba(0,0,0,0.07),
+                    0 4px 20px rgba(0,0,0,0.13),
+                    0 1px 4px  rgba(0,0,0,0.09);
                 --sc-shadow-sm:
                     0 0 0 1px rgba(0,0,0,0.05),
-                    0 2px 8px  rgba(0,0,0,0.11),
-                    0 1px 2px  rgba(0,0,0,0.07);
-                --sc-text-muted:    #555;
-                --sc-text-subtle:   #888;
-                --sc-pill-bg:       rgba(0,0,0,0.06);
-                --sc-pill-color:    #444;
+                    0 2px 10px rgba(0,0,0,0.10),
+                    0 1px 2px  rgba(0,0,0,0.06);
+                --sc-text-muted:    #4a4e5c;
+                --sc-text-subtle:   #6b7080;
+                --sc-pill-bg:       rgba(0,0,0,0.07);
+                --sc-pill-color:    #3a3d4a;
                 --sc-row-hover:     rgba(0,0,0,0.04);
-                --sc-nav-inactive:  #555;
+                --sc-nav-inactive:  #4a4e5c;
                 --sc-nav-hover:     #111;
                 --sc-nav-hover-bg:  rgba(0,0,0,0.04);
                 --sc-mkt-border:    rgba(0,0,0,0.15);
-                --sc-mkt-inactive:  #555;
+                --sc-mkt-inactive:  #4a4e5c;
                 --sc-mkt-act-bg:    rgba(0,0,0,0.08);
                 --sc-mkt-act-fg:    #111;
                 --sc-mkt-act-bdr:   rgba(0,0,0,0.24);
@@ -116,6 +114,78 @@ def inject_custom_css():
                 --sc-btn-pri-fg:    #111;
                 --sc-btn-hover-bg:  rgba(0,0,0,0.05);
                 --sc-accent:        #e65100;
+            }
+        }
+
+        /* ══════════════════════════════════════════════════════════
+           라이트 모드 — 페이지 배경 강제 회색
+           + 인라인 스타일 밝은 텍스트 → 어두운 색으로 일괄 덮어쓰기
+        ══════════════════════════════════════════════════════════ */
+        @media (prefers-color-scheme: light), html.sc-light {
+
+            /* ① 페이지 배경 전체를 연회색으로 — 카드가 떠 보이는 핵심 */
+            .stApp,
+            [data-testid="stAppViewContainer"],
+            [data-testid="stMain"],
+            [data-testid="stMainBlockContainer"],
+            section.main, section.main .block-container,
+            .main .block-container,
+            html.sc-light .stApp,
+            html.sc-light [data-testid="stAppViewContainer"],
+            html.sc-light [data-testid="stMain"],
+            html.sc-light [data-testid="stMainBlockContainer"] {
+                background-color: #eef0f5 !important;
+            }
+
+            /* ② 흰/밝은 텍스트(다크모드용) → 라이트모드에서 어두운 색으로
+                  CSS 속성 선택자: [style*="color:#xxx"] 로 인라인 스타일 일괄 처리 */
+
+            /* 거의 흰색 계열 (#eee #fff #ddd #ccc #f0f0f0) */
+            [style*="color:#eee"],[style*="color: #eee"],
+            [style*="color:#eeeeee"],[style*="color: #eeeeee"],
+            [style*="color:#f0f0f0"],[style*="color: #f0f0f0"],
+            [style*="color:#fafafa"],[style*="color: #fafafa"],
+            [style*="color:#fff"],[style*="color: #fff"],
+            [style*="color:#ffffff"],[style*="color: #ffffff"],
+            [style*="color:white"],[style*="color: white"],
+            [style*="color:#ddd"],[style*="color: #ddd"],
+            [style*="color:#ccc"],[style*="color: #ccc"] {
+                color: #1a1d2a !important;
+            }
+
+            /* 중간 밝기 회색 (#aaa #bbb #999 #888 #a0a4b8 #c0c4d8) */
+            [style*="color:#aaa"],[style*="color: #aaa"],
+            [style*="color:#aaaa"],[style*="color:#aaaaaa"],
+            [style*="color:#bbb"],[style*="color: #bbb"],
+            [style*="color:#bbbbbb"],
+            [style*="color:#999"],[style*="color: #999"],
+            [style*="color:#999999"],
+            [style*="color:#888"],[style*="color: #888"],
+            [style*="color:#888888"],
+            [style*="color:#a0a4b8"],[style*="color:#c0c4d8"] {
+                color: #3a3d4a !important;
+            }
+
+            /* 어두운 회색 (#777 #666 #555 #6b7080) */
+            [style*="color:#777"],[style*="color: #777"],
+            [style*="color:#777777"],
+            [style*="color:#666"],[style*="color: #666"],
+            [style*="color:#666666"],
+            [style*="color:#555"],[style*="color: #555"],
+            [style*="color:#555555"],
+            [style*="color:#6b7080"] {
+                color: #2a2d3a !important;
+            }
+
+            /* ③ Streamlit 기본 텍스트도 어둡게 */
+            .stMarkdown, .stMarkdown p,
+            [data-testid="stText"] {
+                color: #1a1d2a;
+            }
+
+            /* ④ expander 제목 */
+            [data-testid="stExpander"] summary p {
+                color: #1a1d2a !important;
             }
         }
 
