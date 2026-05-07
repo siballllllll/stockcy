@@ -132,9 +132,39 @@ def get_us_stock_detail(ticker: str, exchange: str = "NASDAQ"):
             "sector":           info.get('sector', ''),
             "beta":             round(info.get('beta', 0) or 0, 2),
             "exchange":         info.get('exchange', exchange),
+            "pre_price":        round(info.get('preMarketPrice', 0) or 0, 2),
+            "pre_change":       round(info.get('preMarketChange', 0) or 0, 2),
+            "pre_pct":          round((info.get('preMarketChangePercent', 0) or 0) * 100, 2),
+            "post_price":       round(info.get('postMarketPrice', 0) or 0, 2),
+            "post_change":      round(info.get('postMarketChange', 0) or 0, 2),
+            "post_pct":         round((info.get('postMarketChangePercent', 0) or 0) * 100, 2),
         }
     except Exception:
         return kis_data  # yfinance 실패 시 KIS 데이터라도 반환
+
+
+def get_us_market_session() -> dict:
+    """현재 미국 시장 세션 상태 반환 (ET 기준)"""
+    from datetime import datetime
+    try:
+        import pytz
+        et = datetime.now(pytz.timezone('America/New_York'))
+    except Exception:
+        from datetime import timezone, timedelta
+        et = datetime.now(timezone(timedelta(hours=-4)))  # EDT 근사
+    h, m, wd = et.hour, et.minute, et.weekday()
+    t = h * 60 + m
+    et_str = et.strftime("%I:%M %p ET")
+    if wd >= 5:
+        return {"session": "closed", "label": "⛔ 주말 휴장", "color": "#555", "et_time": et_str}
+    if 4*60 <= t < 9*60+30:
+        return {"session": "pre",     "label": "🌅 프리마켓",    "color": "#f5c518", "et_time": et_str}
+    elif 9*60+30 <= t < 16*60:
+        return {"session": "regular", "label": "🟢 정규 마켓",   "color": "#00c853", "et_time": et_str}
+    elif 16*60 <= t < 20*60:
+        return {"session": "after",   "label": "🌙 애프터마켓",  "color": "#7b61ff", "et_time": et_str}
+    else:
+        return {"session": "closed",  "label": "⛔ 장 마감",     "color": "#555",    "et_time": et_str}
 
 
 @st.cache_data(ttl=60)

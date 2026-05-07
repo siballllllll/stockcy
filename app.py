@@ -7,7 +7,7 @@ try:
     _HAVE_AUTOREFRESH = True
 except ImportError:
     _HAVE_AUTOREFRESH = False
-from data import get_us_stock_data, get_us_market_indices, get_us_stock_detail
+from data import get_us_stock_data, get_us_market_indices, get_us_stock_detail, get_us_market_session
 from data_kr import (get_us_prices_bulk_kis, get_kr_index_history,
                      get_kr_market_index, get_kr_stock_price,
                      get_kr_investor_trend, get_kr_volume_ranking,
@@ -222,11 +222,7 @@ def main():
     
     import streamlit.components.v1 as components
 
-    # ── 국내 주요 종목 티커 (CSS 마키, KIS/yfinance 직접 호출) ──────────
-    _kr_idx   = get_kr_market_index() or {}
-    _kr_ticks = get_kr_major_tickers()
-    _kr_items = []
-
+    # ── 상단 슬라이딩 티커 (KR/US 조건부) ──────────────────────────────
     def _ticker_pill(label, price_str, pct, is_index=False):
         c  = "#ff4b4b" if pct >= 0 else "#2b7cff"
         bg = "rgba(255,75,75,0.12)" if pct >= 0 else "rgba(43,124,255,0.12)"
@@ -245,23 +241,15 @@ def main():
             f'</span>'
         )
 
-    for _iname, _id in _kr_idx.items():
-        _ip = _id.get("change_pct", 0)
-        _iv = _id.get("index", 0)
-        _kr_items.append(_ticker_pill(_iname, f"{_iv:,.2f}", _ip, is_index=True))
-
-    for _t in _kr_ticks:
-        _kr_items.append(_ticker_pill(_t["name"], f'₩{_t["price"]:,}', _t["pct"]))
-
-    if _kr_items:
-        _kr_body = "".join(_kr_items)
+    def _render_scroll_ticker(items, speed=50):
+        body = "".join(items)
         components.html(f"""
         <div style="background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.07);
                     border-radius:10px;overflow:hidden;padding:4px 0;margin-bottom:4px;height:36px;
                     display:flex;align-items:center">
           <div style="display:inline-flex;align-items:center;white-space:nowrap;
-                      animation:krtick 50s linear infinite">
-            {_kr_body}{_kr_body}
+                      animation:krtick {speed}s linear infinite">
+            {body}{body}
           </div>
         </div>
         <style>
@@ -270,6 +258,46 @@ def main():
             to   {{ transform: translateX(-50%); }}
           }}
         </style>""", height=44)
+
+    _is_us_mode = "미국" in st.session_state.get("market", "")
+
+    if _is_us_mode:
+        # ── 미국 주식 슬라이딩 티커 ──
+        try:
+            from data_kr import get_us_change_ranking
+            _us_tick_data = get_us_change_ranking() or []
+        except Exception:
+            _us_tick_data = []
+        _us_idx_data = get_us_market_indices() or {}
+        _us_tick_items = []
+        for _in, _id in [("S&P 500", _us_idx_data.get("S&P 500", {})),
+                          ("NASDAQ",  _us_idx_data.get("NASDAQ", {})),
+                          ("DOW",     _us_idx_data.get("DOW", {}))]:
+            _iv = _id.get("price", 0)
+            _ip = _id.get("change_pct", 0)
+            if _iv > 0:
+                _us_tick_items.append(_ticker_pill(_in, f"{_iv:,.2f}", _ip, is_index=True))
+        for _t in _us_tick_data[:18]:
+            _us_tick_items.append(_ticker_pill(
+                _t.get("name", _t.get("ticker", "")),
+                f'${_t.get("price", 0):,.2f}',
+                _t.get("change_pct", 0)
+            ))
+        if _us_tick_items:
+            _render_scroll_ticker(_us_tick_items, speed=60)
+    else:
+        # ── 국내 주식 슬라이딩 티커 ──
+        _kr_idx   = get_kr_market_index() or {}
+        _kr_ticks = get_kr_major_tickers()
+        _kr_items = []
+        for _iname, _id in _kr_idx.items():
+            _ip = _id.get("change_pct", 0)
+            _iv = _id.get("index", 0)
+            _kr_items.append(_ticker_pill(_iname, f"{_iv:,.2f}", _ip, is_index=True))
+        for _t in _kr_ticks:
+            _kr_items.append(_ticker_pill(_t["name"], f'₩{_t["price"]:,}', _t["pct"]))
+        if _kr_items:
+            _render_scroll_ticker(_kr_items, speed=50)
 
     # ── 미국·글로벌 TradingView 티커 ────────────────────────────────────
     components.html("""
@@ -2009,17 +2037,27 @@ def main():
 
 
         else:
-            # ── 미국 시장 지수 배너 (Toss 스타일) ──────────────────────────
+            # ── 미국 시장 지수 배너 + 마켓 세션 ─────────────────────────────
             with st.spinner(""):
                 us_indices = get_us_market_indices()
+            _us_session = get_us_market_session()
 
+            # 마켓 세션 배지
+            _sess_col   = _us_session["color"]
+            _sess_label = _us_session["label"]
+            _sess_time  = _us_session["et_time"]
+            _sess_id    = _us_session["session"]
+
+            # 지수 배너
             _us_banner = []
-            for _in in ["S&P500", "NASDAQ", "DOW"]:
-                _id  = (us_indices or {}).get(_in, {})
+            for _in, _key in [("S&P 500", "S&P 500"), ("NASDAQ", "NASDAQ"), ("DOW", "DOW"), ("VIX", "VIX")]:
+                _id  = (us_indices or {}).get(_key, {})
                 _iv  = _id.get("price", 0)
                 _ic  = _id.get("change", 0)
                 _ip  = _id.get("change_pct", 0)
                 _col = "#00c853" if _ic >= 0 else "#ff4b4b"
+                if _in == "VIX":
+                    _col = "#f5c518" if _iv < 20 else "#ff4b4b"
                 _sg  = "+" if _ic >= 0 else ""
                 if _iv > 0:
                     _us_banner.append(
@@ -2029,9 +2067,29 @@ def main():
                         f"<span class='index-chg' style='color:{_col}'>{_sg}{_ic:.2f} ({_sg}{_ip:.2f}%)</span>"
                         f"</div>"
                     )
+
+            _sess_html = (
+                f"<div style='display:flex;flex-direction:column;align-items:center;"
+                f"background:rgba(255,255,255,0.04);border:1px solid {_sess_col}40;"
+                f"border-radius:8px;padding:4px 12px;margin-left:auto'>"
+                f"<span style='font-size:0.82rem;font-weight:700;color:{_sess_col}'>{_sess_label}</span>"
+                f"<span style='font-size:0.65rem;color:#888'>{_sess_time}</span>"
+                f"</div>"
+            )
+            if _sess_id in ("pre", "after"):
+                _sess_html += (
+                    f"<div style='font-size:0.68rem;color:#888;margin-left:8px;align-self:flex-end;"
+                    f"padding-bottom:4px'>연장 시간 — 유동성 낮음, 가격 급변 주의</div>"
+                )
+
             if _us_banner:
                 st.markdown(
-                    f"<div class='index-banner'>{''.join(_us_banner)}</div>",
+                    f"<div class='index-banner' style='flex-wrap:wrap;gap:16px'>{''.join(_us_banner)}{_sess_html}</div>",
+                    unsafe_allow_html=True,
+                )
+            else:
+                st.markdown(
+                    f"<div style='display:flex'>{_sess_html}</div>",
                     unsafe_allow_html=True,
                 )
             st.markdown("<hr class='toss-divider'>", unsafe_allow_html=True)
@@ -2487,6 +2545,43 @@ def main():
                                             f"<span>최고 ${_uwh:,.2f}</span></div>",
                                             unsafe_allow_html=True,
                                         )
+                                # ── 연장 거래 시간 (프리/애프터마켓) ──
+                                _pre_p  = detail_us.get("pre_price", 0) or 0
+                                _pre_c  = detail_us.get("pre_pct", 0) or 0
+                                _post_p = detail_us.get("post_price", 0) or 0
+                                _post_c = detail_us.get("post_pct", 0) or 0
+                                if _pre_p > 0 or _post_p > 0:
+                                    st.markdown(
+                                        "<div style='font-size:0.72rem;color:#888;margin:10px 0 4px 0;"
+                                        "font-weight:600;letter-spacing:0.04em'>⏱ 연장 거래 시간</div>",
+                                        unsafe_allow_html=True,
+                                    )
+                                    _ext_cols = st.columns(2)
+                                    if _pre_p > 0:
+                                        _pc = "#f5c518"
+                                        _par = "▲" if _pre_c >= 0 else "▼"
+                                        _ext_cols[0].markdown(
+                                            f"<div style='background:rgba(245,197,24,0.08);border:1px solid"
+                                            f" rgba(245,197,24,0.3);border-radius:8px;padding:8px 10px'>"
+                                            f"<div style='font-size:0.65rem;color:#888;margin-bottom:2px'>🌅 프리마켓</div>"
+                                            f"<div style='font-size:1rem;font-weight:700'>${_pre_p:,.2f}</div>"
+                                            f"<div style='font-size:0.72rem;color:{_pc};font-weight:600'>"
+                                            f"{_par} {_pre_c:+.2f}%</div></div>",
+                                            unsafe_allow_html=True,
+                                        )
+                                    if _post_p > 0:
+                                        _poc = "#7b61ff"
+                                        _poar = "▲" if _post_c >= 0 else "▼"
+                                        _ext_cols[1].markdown(
+                                            f"<div style='background:rgba(123,97,255,0.08);border:1px solid"
+                                            f" rgba(123,97,255,0.3);border-radius:8px;padding:8px 10px'>"
+                                            f"<div style='font-size:0.65rem;color:#888;margin-bottom:2px'>🌙 애프터마켓</div>"
+                                            f"<div style='font-size:1rem;font-weight:700'>${_post_p:,.2f}</div>"
+                                            f"<div style='font-size:0.72rem;color:{_poc};font-weight:600'>"
+                                            f"{_poar} {_post_c:+.2f}%</div></div>",
+                                            unsafe_allow_html=True,
+                                        )
+
                                 if _us_chg >= 5.0:
                                     st.success(f"✅ **강력 단타 추천** {_us_chg:+.2f}% — 강한 모멘텀, 눌림목 진입 권장")
                                 elif _us_chg >= 3.0:
@@ -2723,6 +2818,41 @@ def main():
                                         n4.metric("52주 최고", f"${us_detail['w52_high']:,.2f}")
                                         n5.metric("52주 최저", f"${us_detail['w52_low']:,.2f}")
                                         n6.metric("베타",      str(us_detail["beta"]))
+                                    # ── 연장 거래 시간 ──
+                                    _d_pre_p  = us_detail.get("pre_price", 0) or 0
+                                    _d_pre_c  = us_detail.get("pre_pct", 0) or 0
+                                    _d_post_p = us_detail.get("post_price", 0) or 0
+                                    _d_post_c = us_detail.get("post_pct", 0) or 0
+                                    if _d_pre_p > 0 or _d_post_p > 0:
+                                        st.markdown(
+                                            "<div style='font-size:0.72rem;color:#888;margin:8px 0 4px 0;"
+                                            "font-weight:600'>⏱ 연장 거래 시간</div>",
+                                            unsafe_allow_html=True,
+                                        )
+                                        _dc1, _dc2 = st.columns(2)
+                                        if _d_pre_p > 0:
+                                            _dpar = "▲" if _d_pre_c >= 0 else "▼"
+                                            _dc1.markdown(
+                                                f"<div style='background:rgba(245,197,24,0.08);border:1px solid"
+                                                f" rgba(245,197,24,0.3);border-radius:8px;padding:8px 10px'>"
+                                                f"<div style='font-size:0.65rem;color:#888'>🌅 프리마켓</div>"
+                                                f"<div style='font-size:0.95rem;font-weight:700'>${_d_pre_p:,.2f}</div>"
+                                                f"<div style='font-size:0.72rem;color:#f5c518'>"
+                                                f"{_dpar} {_d_pre_c:+.2f}%</div></div>",
+                                                unsafe_allow_html=True,
+                                            )
+                                        if _d_post_p > 0:
+                                            _dpoar = "▲" if _d_post_c >= 0 else "▼"
+                                            _dc2.markdown(
+                                                f"<div style='background:rgba(123,97,255,0.08);border:1px solid"
+                                                f" rgba(123,97,255,0.3);border-radius:8px;padding:8px 10px'>"
+                                                f"<div style='font-size:0.65rem;color:#888'>🌙 애프터마켓</div>"
+                                                f"<div style='font-size:0.95rem;font-weight:700'>${_d_post_p:,.2f}</div>"
+                                                f"<div style='font-size:0.72rem;color:#7b61ff'>"
+                                                f"{_dpoar} {_d_post_c:+.2f}%</div></div>",
+                                                unsafe_allow_html=True,
+                                            )
+
                                     st.markdown("#### 🎯 단타 적합성 판단")
                                     if chg >= 5.0:
                                         st.success(f"✅ **강력 단타 추천** — 등락률 **{chg:+.2f}%**")
