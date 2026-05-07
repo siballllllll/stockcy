@@ -190,11 +190,16 @@ def inject_custom_css():
         }
 
         /* ══════════════════════════════════════════════════════════
-           Streamlit 컨테이너 — 전체 배경 레이어 구조
+           Streamlit 컨테이너 — 상하 여백 최소화
         ══════════════════════════════════════════════════════════ */
-        /* 메인 컨텐츠 블록에 살짝 다른 배경을 줘서 레이어 느낌 */
         .stMainBlockContainer, section.main .block-container {
-            padding-top: 0.5rem !important;
+            padding-top: 0 !important;
+            padding-bottom: 0.5rem !important;
+        }
+        /* 최상단 element-container 들 (헤더~티커) 사이 여백 제거 */
+        [data-testid="stVerticalBlock"] > [data-testid="element-container"] {
+            margin-top: 0 !important;
+            margin-bottom: 0 !important;
         }
         /* Streamlit expander에 카드 느낌 */
         [data-testid="stExpander"] {
@@ -559,7 +564,7 @@ def main():
                 st.session_state.market = "미국 주식 🇺🇸"
                 st.rerun()
 
-    st.markdown("<hr class='toss-divider' style='margin:0 0 6px 0'>", unsafe_allow_html=True)
+    st.markdown("<hr class='toss-divider' style='margin:2px 0'>", unsafe_allow_html=True)
 
     import streamlit.components.v1 as components
     # JS: 버튼에 data 속성 부여 → CSS가 탭/pill 스타일로 렌더링
@@ -652,8 +657,8 @@ def main():
           .wrap {{
             background: var(--tk-wrap-bg);
             border: 1px solid var(--tk-wrap-bdr);
-            border-radius:10px; overflow:hidden;
-            padding:4px 0; height:36px; display:flex; align-items:center;
+            border-radius:8px; overflow:hidden;
+            padding:2px 0; height:30px; display:flex; align-items:center;
           }}
           .track {{
             display:inline-flex; align-items:center; white-space:nowrap;
@@ -675,7 +680,7 @@ def main():
         </style>
         <div class="wrap">
           <div class="track">{body}{body}</div>
-        </div>""", height=44)
+        </div>""", height=34)
 
     _is_us_mode = "미국" in st.session_state.get("market", "")
 
@@ -720,8 +725,8 @@ def main():
     # ── 미국·글로벌 TradingView 티커 ────────────────────────────────────
     components.html("""
     <style>body{margin:0;padding:0;overflow:hidden}
-    .tradingview-widget-container{margin:0;padding:0;height:46px}
-    .tradingview-widget-container__widget{height:46px}
+    .tradingview-widget-container{margin:0;padding:0;height:38px}
+    .tradingview-widget-container__widget{height:38px}
     </style>
     <div class="tradingview-widget-container">
       <div class="tradingview-widget-container__widget"></div>
@@ -752,7 +757,7 @@ def main():
         "locale": "kr"
       }
       </script>
-    </div>""", height=46)
+    </div>""", height=38)
     
     # --- 메인 콘텐츠 (탭 없이 섹션으로 구성) ---
     tab1 = st.container()
