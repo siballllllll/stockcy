@@ -28,15 +28,18 @@ st.set_page_config(
 def inject_custom_css():
     st.markdown("""
         <style>
-        /* ── 컴팩트 모드 — 폰트·패딩 축소로 화면 밀도 증가 ── */
-        html, body { font-size: 12px !important; }
-        [data-testid="stMainBlockContainer"] {
-            padding: 0.5rem 1rem 1.5rem !important;
-            max-width: 100% !important;
+        /* ── 77% 축소 — zoom + 높이 보정으로 클리핑 방지 ── */
+        html { zoom: 0.77; }
+        .stApp,
+        [data-testid="stAppViewContainer"],
+        [data-testid="stMain"] {
+            height: calc(100vh / 0.77) !important;
+            min-height: calc(100vh / 0.77) !important;
+            overflow-y: auto !important;
         }
-        /* Streamlit 기본 위젯 폰트 상속 */
-        button, input, select, textarea, label, p, span, div {
-            font-size: inherit;
+        [data-testid="stMainBlockContainer"] {
+            padding: 0.5rem 1rem 2rem !important;
+            max-width: 100% !important;
         }
 
         /* ── Streamlit 기본 헤더(share·별·메뉴) 숨김 ── */
@@ -879,7 +882,7 @@ def main():
 
                 # ── 좌 패널: 컨트롤 + 종목 목록 ─────────────────────────
                 with _pb_left:
-                    with st.container(height=720):
+                    with st.container(height=920):
                         # 신호 배너
                         if _new_count > 0 and _pb_key not in st.session_state:
                             st.markdown(
@@ -982,7 +985,7 @@ def main():
 
                 # ── 우 패널: 선택 종목 상세 카드 ─────────────────────────
                 with _pb_right:
-                    with st.container(height=720):
+                    with st.container(height=920):
                         if _pb_key not in st.session_state or not st.session_state[_pb_key].get("picks"):
                             st.markdown(
                                 "<div style='display:flex;flex-direction:column;align-items:center;"
@@ -1219,9 +1222,9 @@ def main():
 
                 col_chart, col_right = st.columns([5, 5])
                 with col_chart:
-                    _chart_ctr = st.container(height=720)
+                    _chart_ctr = st.container(height=920)
                 with col_right:
-                    _right_ctr = st.container(height=720)
+                    _right_ctr = st.container(height=920)
                 with _chart_ctr:
                     # ── 이슈 섹터 모드 ──────────────────────────────────────
                     if kr_mode == "🔥 오늘의 이슈 섹터":
