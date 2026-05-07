@@ -29,7 +29,7 @@ def inject_custom_css():
     st.markdown("""
         <style>
         /* ── 77% 축소 — zoom + 높이 보정으로 클리핑 방지 ── */
-        html { zoom: 0.77; }
+        html { zoom: 0.77; font-size: 19px; }
         .stApp,
         [data-testid="stAppViewContainer"],
         [data-testid="stMain"] {
