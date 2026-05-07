@@ -332,19 +332,20 @@ def inject_custom_css():
             margin: 16px 0 8px 0;
         }
 
-        /* ── 네비 탭 버튼 ── */
+        /* ── 네비 탭 버튼 — 컴팩트 ── */
         div[data-testid="stButton"] > button[data-navbtn] {
             background: transparent !important;
             border: none !important;
             border-bottom: 2px solid transparent !important;
-            border-radius: 6px 6px 0 0 !important;
-            font-size: 0.83rem !important;
+            border-radius: 4px 4px 0 0 !important;
+            font-size: 0.72rem !important;
             font-weight: 500 !important;
             color: var(--sc-nav-inactive) !important;
-            padding: 6px 18px !important;
+            padding: 3px 6px !important;
             transition: color 0.15s, border-color 0.15s !important;
             width: 100% !important;
             box-shadow: none !important;
+            white-space: nowrap !important;
         }
         div[data-testid="stButton"] > button[data-navbtn]:hover {
             color: var(--sc-nav-hover) !important;
@@ -354,19 +355,20 @@ def inject_custom_css():
             color: #ff9800 !important;
             font-weight: 700 !important;
             border-bottom: 2px solid #ff9800 !important;
-            background: rgba(255,152,0,0.09) !important;
+            background: rgba(255,152,0,0.08) !important;
         }
 
-        /* ── 마켓 pill 버튼 ── */
+        /* ── 마켓 pill 버튼 — 컴팩트 ── */
         div[data-testid="stButton"] > button[data-mktbtn] {
             background: transparent !important;
             border: 1px solid var(--sc-mkt-border) !important;
             border-radius: 20px !important;
-            font-size: 0.77rem !important;
+            font-size: 0.68rem !important;
             color: var(--sc-mkt-inactive) !important;
-            padding: 3px 12px !important;
+            padding: 2px 7px !important;
             transition: all 0.15s !important;
             box-shadow: none !important;
+            white-space: nowrap !important;
         }
         div[data-testid="stButton"] > button[data-mktbtn]:hover {
             color: var(--sc-nav-hover) !important;
@@ -377,7 +379,6 @@ def inject_custom_css():
             border-color: var(--sc-mkt-act-bdr) !important;
             color: var(--sc-mkt-act-fg) !important;
             font-weight: 700 !important;
-            box-shadow: var(--sc-shadow-sm) !important;
         }
 
         .disclaimer {
@@ -519,11 +520,11 @@ def main():
     _picks_label = f"🎯 타점보드" + (f" {_nav_sig_n}" if _nav_sig_n > 0 else "")
 
     _hdr_l, _hn1, _hn2, _hn3, _hn4, _sp, _hm1, _hm2 = st.columns(
-        [1.0, 1.35, 1.25, 1.25, 1.0, 0.7, 0.9, 0.9]
+        [0.9, 1.0, 1.0, 1.0, 0.8, 0.6, 0.65, 0.65], gap="small"
     )
     with _hdr_l:
         st.markdown(
-            "<p style='margin:9px 0 0 0;font-size:1.18rem;font-weight:800;"
+            "<p style='margin:6px 0 0 0;font-size:1.05rem;font-weight:800;"
             "letter-spacing:-0.5px;white-space:nowrap'>📈 Stockcy</p>",
             unsafe_allow_html=True,
         )
@@ -548,7 +549,6 @@ def main():
     with _hn4:
         if st.button("📰 브리핑", key="top_nav_briefing", use_container_width=True):
             show_daily_briefing()
-    # _sp: 빈 스페이서
     with _hm1:
         if st.button("🇰🇷 국내", key="top_mkt_kr",
                      type="primary" if _is_kr_nav else "secondary",
