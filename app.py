@@ -30,45 +30,61 @@ def inject_custom_css():
         <style>
         /* ══════════════════════════════════════════════════════════
            CSS 변수 — 다크 모드 기본값
-           라이트 모드는 @media (prefers-color-scheme: light) 에서 재정의
         ══════════════════════════════════════════════════════════ */
         :root {
-            --sc-divider:      rgba(255,255,255,0.11);
-            --sc-divider-str:  rgba(255,255,255,0.20);
-            --sc-card-bg:      rgba(255,255,255,0.04);
-            --sc-card-border:  rgba(255,255,255,0.09);
-            --sc-card-bg-sm:   rgba(255,255,255,0.025);
+            /* 구분선 */
+            --sc-divider:      rgba(255,255,255,0.10);
+            --sc-divider-str:  rgba(255,255,255,0.18);
+            /* 카드 */
+            --sc-card-bg:      rgba(255,255,255,0.055);
+            --sc-card-border:  rgba(255,255,255,0.11);
+            --sc-card-bg-sm:   rgba(255,255,255,0.035);
+            --sc-card-hi:      rgba(255,255,255,0.13);   /* 상단 하이라이트 엣지 */
+            /* 그림자 (엠보싱) */
+            --sc-shadow-sm:    0 1px 4px rgba(0,0,0,0.45), 0 1px 2px rgba(0,0,0,0.35);
+            --sc-shadow-md:    0 2px 10px rgba(0,0,0,0.55), 0 1px 3px rgba(0,0,0,0.40);
+            --sc-shadow-inset: inset 0 1px 0 rgba(255,255,255,0.10);
+            /* 텍스트 */
             --sc-text-muted:   #999;
             --sc-text-subtle:  #666;
-            --sc-pill-bg:      rgba(255,255,255,0.07);
+            /* 기타 컴포넌트 */
+            --sc-pill-bg:      rgba(255,255,255,0.08);
             --sc-pill-color:   #bbb;
-            --sc-row-hover:    rgba(255,255,255,0.04);
+            --sc-row-hover:    rgba(255,255,255,0.05);
             --sc-nav-inactive: #888;
-            --sc-nav-hover:    #ccc;
-            --sc-nav-hover-bg: rgba(255,255,255,0.04);
-            --sc-mkt-border:   rgba(255,255,255,0.12);
+            --sc-nav-hover:    #ddd;
+            --sc-nav-hover-bg: rgba(255,255,255,0.05);
+            --sc-mkt-border:   rgba(255,255,255,0.14);
             --sc-mkt-inactive: #777;
-            --sc-mkt-act-bg:   rgba(255,255,255,0.13);
+            --sc-mkt-act-bg:   rgba(255,255,255,0.14);
             --sc-mkt-act-fg:   #fff;
-            --sc-mkt-act-bdr:  rgba(255,255,255,0.28);
+            --sc-mkt-act-bdr:  rgba(255,255,255,0.30);
             --sc-btn-border:   rgba(255,255,255,0.13);
             --sc-btn-pri-bg:   rgba(255,255,255,0.12);
             --sc-btn-pri-fg:   #f0f0f0;
             --sc-btn-hover-bg: rgba(255,255,255,0.09);
         }
 
-        /* ── 라이트 모드 재정의 (시스템 설정 또는 Streamlit 수동 설정) ── */
+        /* ── 라이트 모드 재정의 (시스템 + Streamlit 수동 전환) ── */
         @media (prefers-color-scheme: light) { :root { --sc-light: 1; } }
-        @media (prefers-color-scheme: light),
-               html.sc-light {
+        @media (prefers-color-scheme: light), html.sc-light {
             :root, html.sc-light {
-                --sc-divider:      rgba(0,0,0,0.11);
-                --sc-divider-str:  rgba(0,0,0,0.20);
-                --sc-card-bg:      rgba(0,0,0,0.03);
-                --sc-card-border:  rgba(0,0,0,0.09);
-                --sc-card-bg-sm:   rgba(0,0,0,0.018);
+                /* 구분선 */
+                --sc-divider:      rgba(0,0,0,0.09);
+                --sc-divider-str:  rgba(0,0,0,0.17);
+                /* 카드 — 라이트모드에서 순백 배경 + 그림자로 float 느낌 */
+                --sc-card-bg:      #ffffff;
+                --sc-card-border:  rgba(0,0,0,0.08);
+                --sc-card-bg-sm:   #f8f9fa;
+                --sc-card-hi:      rgba(255,255,255,1);
+                /* 그림자: 라이트모드는 얕고 부드럽게 */
+                --sc-shadow-sm:    0 1px 3px rgba(0,0,0,0.09), 0 1px 2px rgba(0,0,0,0.06);
+                --sc-shadow-md:    0 2px 8px rgba(0,0,0,0.11), 0 1px 3px rgba(0,0,0,0.07);
+                --sc-shadow-inset: inset 0 1px 0 rgba(255,255,255,0.80);
+                /* 텍스트 */
                 --sc-text-muted:   #555;
                 --sc-text-subtle:  #888;
+                /* 기타 */
                 --sc-pill-bg:      rgba(0,0,0,0.06);
                 --sc-pill-color:   #444;
                 --sc-row-hover:    rgba(0,0,0,0.04);
@@ -80,16 +96,15 @@ def inject_custom_css():
                 --sc-mkt-act-bg:   rgba(0,0,0,0.08);
                 --sc-mkt-act-fg:   #111;
                 --sc-mkt-act-bdr:  rgba(0,0,0,0.22);
-                --sc-btn-border:   rgba(0,0,0,0.14);
+                --sc-btn-border:   rgba(0,0,0,0.13);
                 --sc-btn-pri-bg:   rgba(0,0,0,0.07);
                 --sc-btn-pri-fg:   #111;
-                --sc-btn-hover-bg: rgba(0,0,0,0.06);
+                --sc-btn-hover-bg: rgba(0,0,0,0.05);
             }
         }
 
         /* ══════════════════════════════════════════════════════════
-           글로벌 hr 오버라이드 — 인라인 스타일도 덮어씀(!important)
-           → 앱 전체 구분선이 라이트/다크 모두 자동 대응
+           글로벌 hr — 앱 전체 구분선 테마 자동 대응
         ══════════════════════════════════════════════════════════ */
         hr {
             border: none !important;
@@ -102,7 +117,7 @@ def inject_custom_css():
         .up-us   { color: #00c853; font-weight: 700; }
         .down-us { color: #ff4b4b; font-weight: 700; }
 
-        /* ── Toss 스타일 버튼 (pill) ── */
+        /* ── 버튼 (pill) ── */
         div[data-testid="stButton"] > button {
             border-radius: 20px !important;
             font-size: 0.82rem !important;
@@ -120,27 +135,31 @@ def inject_custom_css():
             border-color: var(--sc-divider-str) !important;
         }
 
-        /* ── Toss 스타일 카드 ── */
+        /* ══════════════════════════════════════════════════════════
+           카드 — 엠보싱 (shadow + highlight edge)
+        ══════════════════════════════════════════════════════════ */
         .toss-card {
             background: var(--sc-card-bg);
             border: 1px solid var(--sc-card-border);
+            border-top-color: var(--sc-card-hi);   /* 상단 밝은 엣지 */
             border-radius: 14px;
             padding: 14px 16px;
             margin: 6px 0;
+            box-shadow: var(--sc-shadow-md), var(--sc-shadow-inset);
         }
         .toss-card-sm {
             background: var(--sc-card-bg-sm);
             border: 1px solid var(--sc-card-border);
+            border-top-color: var(--sc-card-hi);
             border-radius: 10px;
             padding: 8px 12px;
             margin: 3px 0;
+            box-shadow: var(--sc-shadow-sm), var(--sc-shadow-inset);
         }
 
-        /* ── 상단 지수 배너 ── */
+        /* ── 지수 배너 ── */
         .index-banner {
-            display: flex;
-            gap: 28px;
-            align-items: center;
+            display: flex; gap: 28px; align-items: center;
             padding: 8px 4px 4px 2px;
         }
         .index-item { display: flex; flex-direction: column; }
@@ -162,20 +181,19 @@ def inject_custom_css():
             margin: 1px;
         }
 
-        /* ── 구분선 클래스 ── */
+        /* ── 구분선 ── */
         .toss-divider {
             border: none;
             border-top: 1px solid var(--sc-divider);
             margin: 8px 0;
         }
-        /* 더 진한 섹션 구분선 */
         .sc-section-divider {
             border: none;
-            border-top: 1px solid var(--sc-divider-str);
-            margin: 14px 0;
+            border-top: 2px solid var(--sc-divider-str);
+            margin: 16px 0;
         }
 
-        /* ── 네비 탭 버튼 (JS가 data-navbtn 속성 부여) ── */
+        /* ── 네비 탭 버튼 ── */
         div[data-testid="stButton"] > button[data-navbtn] {
             background: transparent !important;
             border: none !important;
@@ -197,10 +215,10 @@ def inject_custom_css():
             color: #ff9800 !important;
             font-weight: 700 !important;
             border-bottom: 2px solid #ff9800 !important;
-            background: rgba(255,152,0,0.08) !important;
+            background: rgba(255,152,0,0.09) !important;
         }
 
-        /* ── 마켓 pill 버튼 (JS가 data-mktbtn 속성 부여) ── */
+        /* ── 마켓 pill 버튼 ── */
         div[data-testid="stButton"] > button[data-mktbtn] {
             background: transparent !important;
             border: 1px solid var(--sc-mkt-border) !important;
@@ -221,9 +239,20 @@ def inject_custom_css():
             border-color: var(--sc-mkt-act-bdr) !important;
             color: var(--sc-mkt-act-fg) !important;
             font-weight: 700 !important;
+            box-shadow: var(--sc-shadow-sm) !important;
         }
 
-        /* ── 섹션 제목 공통 ── */
+        /* ── 범용 elevation 유틸리티 (인라인 스타일 위에 shadow 덮음) ── */
+        .sc-card {
+            box-shadow: var(--sc-shadow-md), var(--sc-shadow-inset) !important;
+            border-top-color: var(--sc-card-hi) !important;
+        }
+        .sc-card-sm {
+            box-shadow: var(--sc-shadow-sm), var(--sc-shadow-inset) !important;
+            border-top-color: var(--sc-card-hi) !important;
+        }
+
+        /* ── 섹션 제목 ── */
         .sc-section-title {
             font-size: 0.78rem;
             font-weight: 600;
@@ -844,7 +873,7 @@ def main():
                                 _border_color = "rgba(255,75,75,0.3)" if _already_surged else f"rgba(255,255,255,0.1)"
 
                                 _card_html = (
-                                    f"<div style='background:rgba(255,255,255,0.035);"
+                                    f"<div class='sc-card' style='background:rgba(255,255,255,0.055);"
                                     f"border:1px solid {_border_color};border-radius:14px;"
                                     f"padding:14px 14px 12px 14px'>"
                                     # 헤더: 종목명 + 긴급도 배지
@@ -869,24 +898,27 @@ def main():
                                     # 타점 그리드
                                     f"<div style='display:grid;grid-template-columns:1fr 1fr 1fr;"
                                     f"gap:6px;margin-bottom:10px'>"
-                                    f"<div style='background:rgba(255,255,255,0.06);border-radius:8px;"
+                                    f"<div class='sc-card-sm' style='background:rgba(255,255,255,0.07);"
+                                    f"border:1px solid rgba(255,255,255,0.12);border-radius:8px;"
                                     f"padding:6px;text-align:center'>"
-                                    f"<div style='font-size:0.6rem;color:#888'>매수 타점</div>"
+                                    f"<div style='font-size:0.6rem;color:var(--sc-text-muted,#888)'>매수 타점</div>"
                                     f"<div style='font-size:0.85rem;font-weight:700'>₩{int(_entry):,}</div></div>"
-                                    f"<div style='background:rgba(0,200,83,0.1);border-radius:8px;"
+                                    f"<div class='sc-card-sm' style='background:rgba(0,200,83,0.12);"
+                                    f"border:1px solid rgba(0,200,83,0.25);border-radius:8px;"
                                     f"padding:6px;text-align:center'>"
-                                    f"<div style='font-size:0.6rem;color:#888'>목표가</div>"
+                                    f"<div style='font-size:0.6rem;color:var(--sc-text-muted,#888)'>목표가</div>"
                                     f"<div style='font-size:0.85rem;font-weight:700;color:#00c853'>"
                                     f"₩{int(_target):,}</div>"
                                     f"<div style='font-size:0.6rem;color:#00c853'>+{_upside}%</div></div>"
-                                    f"<div style='background:rgba(43,124,255,0.1);border-radius:8px;"
+                                    f"<div class='sc-card-sm' style='background:rgba(43,124,255,0.12);"
+                                    f"border:1px solid rgba(43,124,255,0.25);border-radius:8px;"
                                     f"padding:6px;text-align:center'>"
-                                    f"<div style='font-size:0.6rem;color:#888'>손절가</div>"
+                                    f"<div style='font-size:0.6rem;color:var(--sc-text-muted,#888)'>손절가</div>"
                                     f"<div style='font-size:0.85rem;font-weight:700;color:#2b7cff'>"
                                     f"₩{int(_stop):,}</div></div>"
                                     f"</div>"
                                     # 추천 근거
-                                    f"<div style='font-size:0.72rem;color:#bbb;line-height:1.6;"
+                                    f"<div style='font-size:0.72rem;color:var(--sc-text-muted,#bbb);line-height:1.6;"
                                     f"margin-bottom:8px'>{_pick.get('reason','')}</div>"
                                     + _theme_html
                                     + "</div>"
@@ -948,7 +980,7 @@ def main():
                                         _etim  = _pktr.get("entry_timing", "")
                                         _etim_c = "#00c853" if "즉시" in _etim else "#f5c518" if "대기" in _etim or "확인" in _etim else "#ff4b4b"
                                         st.markdown(
-                                            f"<div style='background:rgba(255,255,255,0.04);border-radius:8px;"
+                                            f"<div class='sc-card-sm' style='background:rgba(255,255,255,0.04);border-radius:8px;"
                                             f"padding:8px 10px;margin-top:4px;font-size:0.72rem'>"
                                             f"<b style='color:{_pos_c}'>{_pos}</b>"
                                             f"<span style='color:#aaa;margin-left:6px'>{_mstg}</span><br>"
@@ -1637,7 +1669,7 @@ def main():
                                         )
                                         if _ktr.get("momentum_stage") or _ktr.get("chart_pattern"):
                                             st.markdown(
-                                                f"<div style='background:rgba(255,255,255,0.04);border-radius:8px;"
+                                                f"<div class='sc-card-sm' style='background:rgba(255,255,255,0.04);border-radius:8px;"
                                                 f"padding:8px 12px;margin:6px 0;font-size:0.8rem'>"
                                                 f"<b>📈 {_ktr.get('momentum_stage','')}</b>"
                                                 + (f" · {_ktr.get('chart_pattern','')}" if _ktr.get('chart_pattern') else "")
@@ -1876,7 +1908,7 @@ def main():
                                         _cp = _tr.get("chart_pattern", "")
                                         if _ms or _cp:
                                             st.markdown(
-                                                f"<div style='background:rgba(255,255,255,0.04);border-radius:8px;"
+                                                f"<div class='sc-card-sm' style='background:rgba(255,255,255,0.04);border-radius:8px;"
                                                 f"padding:8px 12px;margin:6px 0;font-size:0.8rem'>"
                                                 f"<b>📈 {_ms}</b>"
                                                 + (f" · {_cp}" if _cp else "") + "</div>",
