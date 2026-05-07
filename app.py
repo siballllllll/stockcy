@@ -688,7 +688,7 @@ def main():
             border: 1px solid var(--tk-wrap-bdr);
             border-radius:8px; overflow:hidden;
             box-sizing:border-box;
-            padding:4px 0; height:52px; display:flex; align-items:center;
+            padding:4px 0; height:60px; display:flex; align-items:center;
           }}
           .track {{
             display:inline-flex; align-items:center; white-space:nowrap;
@@ -710,7 +710,7 @@ def main():
         </style>
         <div class="wrap">
           <div class="track">{body}{body}</div>
-        </div>""", height=56)
+        </div>""", height=64)
 
     _is_us_mode = "미국" in st.session_state.get("market", "")
 
@@ -755,8 +755,8 @@ def main():
     # ── 미국·글로벌 TradingView 티커 ────────────────────────────────────
     components.html("""
     <style>body{margin:0;padding:0;overflow:hidden}
-    .tradingview-widget-container{margin:0;padding:0;height:52px}
-    .tradingview-widget-container__widget{height:52px}
+    .tradingview-widget-container{margin:0;padding:0;height:60px}
+    .tradingview-widget-container__widget{height:60px}
     </style>
     <div class="tradingview-widget-container">
       <div class="tradingview-widget-container__widget"></div>
@@ -787,7 +787,7 @@ def main():
         "locale": "kr"
       }
       </script>
-    </div>""", height=52)
+    </div>""", height=60)
     
     # --- 메인 콘텐츠 (탭 없이 섹션으로 구성) ---
     tab1 = st.container()
