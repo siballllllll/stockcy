@@ -2713,6 +2713,7 @@ def main():
                                         )
                                         if _bc2.button("▶", key=f"sec_btn_{_sn}", use_container_width=True):
                                             st.session_state.kr_selected_sector = _sn
+                                            st.session_state["kr_sector_selectbox"] = _sn
                                             st.rerun()
 
                                 # 선택된 섹터 표시 (드롭다운 폴백 + 확인용)
@@ -4258,6 +4259,7 @@ def main():
                                         )
                                         if _ubc2.button("▶", key=f"us_sec_btn_{_usn}", use_container_width=True):
                                             st.session_state.us_selected_sector_us = _usn
+                                            st.session_state["us_sector_selectbox"] = _usn
                                             st.rerun()
 
                                 _us_cur_si = (_us_sorted_sectors.index(st.session_state.us_selected_sector_us)
