@@ -404,7 +404,7 @@ def main():
                 _old_count  = st.session_state.get(_sig_count_key, -1)
                 if _new_count != _old_count:
                     st.session_state[_sig_count_key] = _new_count
-                    st.session_state[_sig_ts_key] = datetime.now().strftime("%H:%M")
+                st.session_state[_sig_ts_key] = datetime.now().strftime("%H:%M")
                 _sig_ts = st.session_state.get(_sig_ts_key, "")
 
                 # 신호 배너 (후보가 있고 아직 AI 결과가 없을 때)
@@ -2143,7 +2143,7 @@ def main():
                 _us_old_count  = st.session_state.get(_us_sig_count_key, -1)
                 if _us_new_count != _us_old_count:
                     st.session_state[_us_sig_count_key] = _us_new_count
-                    st.session_state[_us_sig_ts_key] = datetime.now().strftime("%H:%M")
+                st.session_state[_us_sig_ts_key] = datetime.now().strftime("%H:%M")
                 _us_sig_ts = st.session_state.get(_us_sig_ts_key, "")
 
                 if _us_new_count > 0 and _us_pb_key not in st.session_state:
