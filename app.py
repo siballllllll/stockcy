@@ -520,7 +520,7 @@ def main():
     _picks_label = f"🎯 타점보드" + (f" {_nav_sig_n}" if _nav_sig_n > 0 else "")
 
     _hdr_l, _hn1, _hn2, _hn3, _hn4, _sp, _hm1, _hm2 = st.columns(
-        [0.9, 1.0, 1.0, 1.0, 0.8, 0.6, 0.65, 0.65], gap="small"
+        [0.9, 0.5, 0.5, 0.5, 0.4, 2.5, 0.65, 0.65], gap="small"
     )
     with _hdr_l:
         st.markdown(
