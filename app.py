@@ -28,6 +28,13 @@ st.set_page_config(
 def inject_custom_css():
     st.markdown("""
         <style>
+        /* ── Streamlit 기본 헤더(share·별·메뉴) 숨김 ── */
+        [data-testid="stHeader"],
+        [data-testid="stToolbar"],
+        [data-testid="stDecoration"] {
+            display: none !important;
+        }
+
         /* ══════════════════════════════════════════════════════════
            다크 모드 — 기본값
            핵심 원리: 카드가 배경보다 충분히 밝아야 입체감이 생김
