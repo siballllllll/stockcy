@@ -217,7 +217,6 @@ def load_sector_map() -> dict:
         from data_kr import get_kr_fdr_sector_map
         fdr_map = get_kr_fdr_sector_map()
         if fdr_map:
-            # 기존 맵에 등록된 종목 코드 세트 (중복 방지)
             existing_codes: set = {
                 s["code"]
                 for subs in raw.values()
@@ -233,14 +232,26 @@ def load_sector_map() -> dict:
                     ]
                     if not new_stocks:
                         continue
-                    # 기존 동일 세부섹터가 있으면 append, 없으면 새 섹터로
-                    target_sec = sector
                     if sector not in raw:
                         raw[sector] = {}
                     if sub not in raw[sector]:
                         raw[sector][sub] = []
                     raw[sector][sub].extend(new_stocks)
                     existing_codes.update(s["code"] for s in new_stocks)
+    except Exception:
+        pass
+
+    # ── 키워드 자동 분류 (테마 섹터 보강) ────────────────────────────────
+    try:
+        from data_kr import get_kr_fdr_sector_map as _fdr_kr
+        from sector_auto_classifier import enrich_sector_map_kr
+        fdr_all_list: list = []
+        fdr_raw = _fdr_kr()
+        for _sec, _subs in fdr_raw.items():
+            for _sub, _stks in _subs.items():
+                for _s in _stks:
+                    fdr_all_list.append({**_s, "industry": _sec})
+        raw = enrich_sector_map_kr(raw, fdr_all_list)
     except Exception:
         pass
 
@@ -312,6 +323,16 @@ def load_us_sector_map() -> dict:
                         raw[sector][sub] = []
                     raw[sector][sub].extend(new_stocks)
                     existing_tickers.update(s["ticker"] for s in new_stocks)
+    except Exception:
+        pass
+
+    # ── 키워드 자동 분류 (테마 섹터 보강) ────────────────────────────────
+    try:
+        from data_kr import get_us_ticker_map as _get_us_tm
+        from sector_auto_classifier import enrich_sector_map_us
+        _us_tm = _get_us_tm()
+        if _us_tm:
+            raw = enrich_sector_map_us(raw, _us_tm)
     except Exception:
         pass
 

@@ -1691,18 +1691,112 @@ def main():
                                             unsafe_allow_html=True,
                                         )
 
-                                # 단타 적합성 판단
-                                _chg = price_kr["change_pct"]
-                                if _chg >= 5.0:
-                                    st.success(f"✅ **강력 단타 추천** {_chg:+.2f}% — 강한 모멘텀, 눌림목 진입 권장")
+                                # ── 단기 / 중기 / 장기 추천 분석 ─────────────────
+                                _chg  = price_kr.get("change_pct", 0) or 0
+                                _vol  = price_kr.get("volume", 0) or 0
+                                _cp   = price_kr.get("price", 0) or 0
+                                _wl   = price_kr.get("w52_low",  0) or 0
+                                _wh   = price_kr.get("w52_high", 0) or 0
+                                _per  = price_kr.get("per", "-")
+                                _pbr  = price_kr.get("pbr", "-")
+
+                                # 52주 위치 계산
+                                _band_pos = (_cp - _wl) / (_wh - _wl) * 100 if _wh > _wl > 0 else 50
+
+                                # 단기 판정 (당일 등락률 + 거래량)
+                                if abs(_chg) < 0.1:
+                                    _st_label = "⚪ 관망"
+                                    _st_color = "#888"
+                                    _st_desc  = f"등락 미미({_chg:+.2f}%) — 장 마감·거래 없음 상태 가능"
+                                elif _chg >= 5.0:
+                                    _st_label = "🟢 강력 단기 추천"
+                                    _st_color = "#00c853"
+                                    _st_desc  = f"강한 모멘텀 {_chg:+.2f}% — 눌림목 진입 권장"
                                 elif _chg >= 3.0:
-                                    st.success(f"✅ **단타 추천** {_chg:+.2f}% — 수급 확인 후 진입, 손절: 당일 저점")
-                                elif _chg >= 1.5:
-                                    st.warning(f"⚠️ **관망** {_chg:+.2f}% — 3% 돌파 확인 후 진입 검토")
-                                elif _chg <= -3.0:
-                                    st.info(f"🔵 **반등 포착 관찰** {_chg:+.2f}% — 지지선·거래량 확인 필수")
+                                    _st_label = "🟢 단기 추천"
+                                    _st_color = "#00c853"
+                                    _st_desc  = f"상승세 {_chg:+.2f}% — 손절: 당일 저점"
+                                elif _chg >= 1.0:
+                                    _st_label = "🟡 단기 관망"
+                                    _st_color = "#ffd600"
+                                    _st_desc  = f"소폭 상승 {_chg:+.2f}% — 3% 돌파 확인 후 진입"
+                                elif _chg <= -5.0:
+                                    _st_label = "🔵 반등 관찰"
+                                    _st_color = "#2b7cff"
+                                    _st_desc  = f"급락 {_chg:+.2f}% — 지지선·거래량 확인 필수"
+                                elif _chg <= -2.0:
+                                    _st_label = "🔴 단기 비추천"
+                                    _st_color = "#ff4b4b"
+                                    _st_desc  = f"하락세 {_chg:+.2f}% — 추가 하락 가능"
                                 else:
-                                    st.error(f"❌ **단타 비적합** {_chg:+.2f}% — 수수료·세금 감안 시 실익 없음")
+                                    _st_label = "🔴 단기 비추천"
+                                    _st_color = "#ff4b4b"
+                                    _st_desc  = f"등락 {_chg:+.2f}% — 수수료 감안 시 실익 없음"
+
+                                # 중기 판정 (52주 위치 + PBR)
+                                try:
+                                    _pbr_f = float(str(_pbr).replace(",",""))
+                                except Exception:
+                                    _pbr_f = 1.5
+                                if _band_pos <= 30:
+                                    _mt_label = "🟢 중기 매수 관심"
+                                    _mt_color = "#00c853"
+                                    _mt_desc  = f"52주 저점 근처({_band_pos:.0f}%) — 중기 분할 매수 고려"
+                                elif _band_pos >= 80:
+                                    _mt_label = "🔴 중기 고평가"
+                                    _mt_color = "#ff4b4b"
+                                    _mt_desc  = f"52주 고점 근처({_band_pos:.0f}%) — 신규 진입 부담"
+                                elif _pbr_f < 1.0:
+                                    _mt_label = "🟢 중기 저평가"
+                                    _mt_color = "#00c853"
+                                    _mt_desc  = f"PBR {_pbr_f:.2f} (자산가치 이하) — 중기 가치투자 유리"
+                                else:
+                                    _mt_label = "🟡 중기 중립"
+                                    _mt_color = "#ffd600"
+                                    _mt_desc  = f"52주 중간대({_band_pos:.0f}%) — 방향성 확인 후 대응"
+
+                                # 장기 판정 (PER + 섹터 포지션)
+                                try:
+                                    _per_f = float(str(_per).replace(",",""))
+                                except Exception:
+                                    _per_f = 20.0
+                                if _per_f <= 0:
+                                    _lt_label = "🟡 장기 중립"
+                                    _lt_color = "#ffd600"
+                                    _lt_desc  = "PER 음수(적자) — 수익성 개선 추이 확인 필요"
+                                elif _per_f < 10:
+                                    _lt_label = "🟢 장기 저평가"
+                                    _lt_color = "#00c853"
+                                    _lt_desc  = f"PER {_per_f:.1f} — 업종 대비 저평가, 장기 보유 유리"
+                                elif _per_f < 20:
+                                    _lt_label = "🟢 장기 적정"
+                                    _lt_color = "#00c853"
+                                    _lt_desc  = f"PER {_per_f:.1f} — 적정 밸류에이션"
+                                elif _per_f < 40:
+                                    _lt_label = "🟡 장기 중립"
+                                    _lt_color = "#ffd600"
+                                    _lt_desc  = f"PER {_per_f:.1f} — 성장 프리미엄 반영, 모니터링 필요"
+                                else:
+                                    _lt_label = "🔴 장기 고평가"
+                                    _lt_color = "#ff4b4b"
+                                    _lt_desc  = f"PER {_per_f:.1f} — 고평가 구간, 장기 진입 신중"
+
+                                _rc1, _rc2, _rc3 = st.columns(3)
+                                for _rcol, _rl, _rc_color, _rdesc, _rtitle in [
+                                    (_rc1, _st_label, _st_color, _st_desc, "단기"),
+                                    (_rc2, _mt_label, _mt_color, _mt_desc, "중기"),
+                                    (_rc3, _lt_label, _lt_color, _lt_desc, "장기"),
+                                ]:
+                                    with _rcol:
+                                        st.markdown(
+                                            f"<div style='background:rgba(255,255,255,0.05);border-left:3px solid {_rc_color};"
+                                            f"border-radius:6px;padding:8px 10px;margin:4px 0'>"
+                                            f"<div style='font-size:0.65rem;color:#888;margin-bottom:2px'>{_rtitle}</div>"
+                                            f"<div style='font-size:0.8rem;font-weight:700;color:{_rc_color}'>{_rl}</div>"
+                                            f"<div style='font-size:0.68rem;color:#ccc;margin-top:3px'>{_rdesc}</div>"
+                                            f"</div>",
+                                            unsafe_allow_html=True,
+                                        )
 
                             # ── 탭 2: 수급 ────────────────────────────────────
                             elif st.session_state.kr_right_tab == _rp_tabs[1]:
@@ -3658,16 +3752,100 @@ def main():
                                             unsafe_allow_html=True,
                                         )
 
-                                if _us_chg >= 5.0:
-                                    st.success(f"✅ **강력 단타 추천** {_us_chg:+.2f}% — 강한 모멘텀, 눌림목 진입 권장")
-                                elif _us_chg >= 3.0:
-                                    st.success(f"✅ **단타 추천** {_us_chg:+.2f}% — 수급 확인 후 진입, 손절: 당일 저점")
-                                elif _us_chg >= 1.5:
-                                    st.warning(f"⚠️ **관망** {_us_chg:+.2f}% — 3% 돌파 확인 후 진입 검토")
-                                elif _us_chg <= -3.0:
-                                    st.info(f"🔵 **반등 포착 관찰** {_us_chg:+.2f}% — 지지선·거래량 확인 필수")
+                                # ── 단기 / 중기 / 장기 추천 분석 (US) ───────────
+                                _us_chg2  = detail_us.get("change_pct", 0) or 0
+                                _us_cp    = detail_us.get("price", 0) or 0
+                                _us_wl    = detail_us.get("w52_low",  0) or 0
+                                _us_wh    = detail_us.get("w52_high", 0) or 0
+                                _us_per   = detail_us.get("per", "-")
+                                _us_beta  = detail_us.get("beta", 1.0) or 1.0
+
+                                _us_band  = (_us_cp - _us_wl) / (_us_wh - _us_wl) * 100 if _us_wh > _us_wl > 0 else 50
+
+                                if abs(_us_chg2) < 0.1:
+                                    _ust_label = "⚪ 관망"
+                                    _ust_color = "#888"
+                                    _ust_desc  = f"등락 미미({_us_chg2:+.2f}%) — 장 마감·프리마켓 상태 가능"
+                                elif _us_chg2 >= 5.0:
+                                    _ust_label = "🟢 강력 단기 추천"
+                                    _ust_color = "#00c853"
+                                    _ust_desc  = f"강한 모멘텀 {_us_chg2:+.2f}% — 눌림목 진입 권장"
+                                elif _us_chg2 >= 3.0:
+                                    _ust_label = "🟢 단기 추천"
+                                    _ust_color = "#00c853"
+                                    _ust_desc  = f"상승세 {_us_chg2:+.2f}% — 손절: 당일 저점"
+                                elif _us_chg2 >= 1.0:
+                                    _ust_label = "🟡 단기 관망"
+                                    _ust_color = "#ffd600"
+                                    _ust_desc  = f"소폭 상승 {_us_chg2:+.2f}% — 3% 돌파 확인 후 진입"
+                                elif _us_chg2 <= -5.0:
+                                    _ust_label = "🔵 반등 관찰"
+                                    _ust_color = "#2b7cff"
+                                    _ust_desc  = f"급락 {_us_chg2:+.2f}% — 지지선·거래량 확인 필수"
+                                elif _us_chg2 <= -2.0:
+                                    _ust_label = "🔴 단기 비추천"
+                                    _ust_color = "#ff4b4b"
+                                    _ust_desc  = f"하락세 {_us_chg2:+.2f}% — 추가 하락 가능"
                                 else:
-                                    st.error(f"❌ **단타 비적합** {_us_chg:+.2f}% — 수수료·세금 감안 시 실익 없음")
+                                    _ust_label = "🔴 단기 비추천"
+                                    _ust_color = "#ff4b4b"
+                                    _ust_desc  = f"등락 {_us_chg2:+.2f}% — 수수료 감안 시 실익 없음"
+
+                                if _us_band <= 30:
+                                    _usm_label = "🟢 중기 매수 관심"
+                                    _usm_color = "#00c853"
+                                    _usm_desc  = f"52주 저점 근처({_us_band:.0f}%) — 중기 분할 매수 고려"
+                                elif _us_band >= 80:
+                                    _usm_label = "🔴 중기 고평가"
+                                    _usm_color = "#ff4b4b"
+                                    _usm_desc  = f"52주 고점 근처({_us_band:.0f}%) — 신규 진입 부담"
+                                else:
+                                    _usm_label = "🟡 중기 중립"
+                                    _usm_color = "#ffd600"
+                                    _usm_desc  = f"52주 중간대({_us_band:.0f}%) — 방향성 확인 후 대응"
+
+                                try:
+                                    _us_per_f = float(str(_us_per).replace(",",""))
+                                except Exception:
+                                    _us_per_f = 25.0
+                                _us_beta_f = float(_us_beta) if _us_beta else 1.0
+                                if _us_per_f <= 0:
+                                    _usl_label = "🟡 장기 중립"
+                                    _usl_color = "#ffd600"
+                                    _usl_desc  = f"PER 음수(적자) 베타{_us_beta_f:.1f} — 수익성 확인 필요"
+                                elif _us_per_f < 15:
+                                    _usl_label = "🟢 장기 저평가"
+                                    _usl_color = "#00c853"
+                                    _usl_desc  = f"PER {_us_per_f:.1f} — 저평가, 장기 보유 유리"
+                                elif _us_per_f < 30:
+                                    _usl_label = "🟢 장기 적정"
+                                    _usl_color = "#00c853"
+                                    _usl_desc  = f"PER {_us_per_f:.1f} — 적정 밸류에이션"
+                                elif _us_per_f < 60:
+                                    _usl_label = "🟡 장기 중립"
+                                    _usl_color = "#ffd600"
+                                    _usl_desc  = f"PER {_us_per_f:.1f} — 성장 프리미엄 구간"
+                                else:
+                                    _usl_label = "🔴 장기 고평가"
+                                    _usl_color = "#ff4b4b"
+                                    _usl_desc  = f"PER {_us_per_f:.1f} — 고평가, 장기 진입 신중"
+
+                                _urc1, _urc2, _urc3 = st.columns(3)
+                                for _urcol, _url, _urc_c, _urd, _urt in [
+                                    (_urc1, _ust_label, _ust_color, _ust_desc, "단기"),
+                                    (_urc2, _usm_label, _usm_color, _usm_desc, "중기"),
+                                    (_urc3, _usl_label, _usl_color, _usl_desc, "장기"),
+                                ]:
+                                    with _urcol:
+                                        st.markdown(
+                                            f"<div style='background:rgba(255,255,255,0.05);border-left:3px solid {_urc_c};"
+                                            f"border-radius:6px;padding:8px 10px;margin:4px 0'>"
+                                            f"<div style='font-size:0.65rem;color:#888;margin-bottom:2px'>{_urt}</div>"
+                                            f"<div style='font-size:0.8rem;font-weight:700;color:{_urc_c}'>{_url}</div>"
+                                            f"<div style='font-size:0.68rem;color:#ccc;margin-top:3px'>{_urd}</div>"
+                                            f"</div>",
+                                            unsafe_allow_html=True,
+                                        )
 
                             elif st.session_state.us_right_tab == _rp_tabs[1]:
                                 _inst_pct   = detail_us.get("institutional_pct", 0) or 0
