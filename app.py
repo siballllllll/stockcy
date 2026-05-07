@@ -544,8 +544,8 @@ def main():
     _nav_sig_n = st.session_state.get(_nav_sig_k, 0)
     _picks_label = f"🎯 타점보드" + (f" {_nav_sig_n}" if _nav_sig_n > 0 else "")
 
-    _hdr_l, _hn1, _hn2, _hn3, _hn4, _sp, _hm1, _hm2, _hset = st.columns(
-        [0.9, 0.5, 0.5, 0.5, 0.4, 2.5, 0.65, 0.65, 0.35], gap="small"
+    _hdr_l, _hn1, _hn2, _hn3, _hn4, _sp, _hm1, _hm2, _hset, _hcache = st.columns(
+        [0.9, 0.5, 0.5, 0.5, 0.4, 2.1, 0.65, 0.65, 0.35, 0.35], gap="small"
     )
     with _hdr_l:
         st.markdown(
@@ -589,51 +589,35 @@ def main():
                 st.session_state.market = "미국 주식 🇺🇸"
                 st.rerun()
     with _hset:
-        with st.popover("⚙️", use_container_width=True):
-            st.markdown("**설정**")
-            if st.button("☀️/🌙 테마 전환", key="setting_theme", use_container_width=True):
-                st.session_state["_sc_do_theme_js"] = True
-                st.rerun()
-            st.divider()
-            if st.button("🔄 캐시 초기화 & 새로고침", key="setting_reboot", use_container_width=True):
-                st.cache_data.clear()
-                st.rerun()
-            st.caption("캐시를 초기화하면 모든 데이터를 새로 불러옵니다.")
+        if st.button("⚙️", key="btn_settings_menu", use_container_width=True, help="설정 / 테마 변경"):
+            st.session_state["_sc_open_native_menu"] = True
+            st.rerun()
+    with _hcache:
+        if st.button("🔄", key="btn_cache_clear", use_container_width=True, help="캐시 초기화"):
+            st.cache_data.clear()
+            st.rerun()
 
-    # ── Streamlit 내장 테마 버튼을 JS로 클릭 (숨겨진 툴바 활용) ──────────
-    if st.session_state.pop("_sc_do_theme_js", False):
-        import streamlit.components.v1 as _cmp_theme
-        _cmp_theme.html("""<script>
+    # ── ⚙️ 버튼 → Streamlit 기본 메뉴 열기 (JS로 햄버거 버튼 클릭) ──────
+    if st.session_state.pop("_sc_open_native_menu", False):
+        import streamlit.components.v1 as _cmp_menu
+        _cmp_menu.html("""<script>
 (function(){
   var doc = window.parent.document;
-  /* 1. 툴바를 잠깐 보이게 */
-  var tmp = doc.createElement('style');
-  tmp.id = '_sc_th_tmp';
-  tmp.textContent = '[data-testid="stToolbar"],[data-testid="stHeader"]{'
-    + 'display:flex!important;visibility:visible!important;opacity:1!important}';
-  doc.head.appendChild(tmp);
-
   setTimeout(function(){
-    /* 2. 테마 버튼 찾아서 클릭 */
-    var found = false;
-    /* aria-label / title 기반 탐색 */
-    doc.querySelectorAll('button').forEach(function(b){
-      var lbl = (b.getAttribute('aria-label')||b.getAttribute('title')||'').toLowerCase();
-      if(!found && (lbl.includes('theme') || lbl.includes('dark') || lbl.includes('light')
-                    || lbl.includes('night') || lbl.includes('mode'))){
-        b.click(); found = true;
+    /* Streamlit 기본 메뉴(햄버거) 버튼 — 숨겨져 있어도 DOM에 존재 */
+    var btn = doc.querySelector('[data-testid="stMainMenu"] button');
+    if (!btn) {
+      /* 헤더 내 마지막 버튼으로 폴백 */
+      var hdr = doc.querySelector('[data-testid="stHeader"]');
+      if (hdr) {
+        var btns = hdr.querySelectorAll('button');
+        if (btns.length) btn = btns[btns.length - 1];
       }
-    });
-    /* 못 찾으면 stToolbarActions 내 첫 번째 버튼 클릭 */
-    if(!found){
-      var actions = doc.querySelector('[data-testid="stToolbarActions"]');
-      if(actions){ var btns = actions.querySelectorAll('button'); if(btns[0]) btns[0].click(); }
     }
-    /* 3. 다시 숨기기 */
-    setTimeout(function(){ var s=doc.getElementById('_sc_th_tmp'); if(s) s.remove(); }, 400);
-  }, 120);
+    if (btn) { btn.click(); }
+  }, 150);
 })();
-</script>""", height=0)
+</script>""", height=1)
 
     st.markdown("<hr class='toss-divider' style='margin:2px 0'>", unsafe_allow_html=True)
 
@@ -729,7 +713,8 @@ def main():
             background: var(--tk-wrap-bg);
             border: 1px solid var(--tk-wrap-bdr);
             border-radius:8px; overflow:hidden;
-            padding:3px 0; height:38px; display:flex; align-items:center;
+            box-sizing:border-box;
+            padding:4px 0; height:46px; display:flex; align-items:center;
           }}
           .track {{
             display:inline-flex; align-items:center; white-space:nowrap;
@@ -751,7 +736,7 @@ def main():
         </style>
         <div class="wrap">
           <div class="track">{body}{body}</div>
-        </div>""", height=42)
+        </div>""", height=50)
 
     _is_us_mode = "미국" in st.session_state.get("market", "")
 
@@ -796,8 +781,8 @@ def main():
     # ── 미국·글로벌 TradingView 티커 ────────────────────────────────────
     components.html("""
     <style>body{margin:0;padding:0;overflow:hidden}
-    .tradingview-widget-container{margin:0;padding:0;height:38px}
-    .tradingview-widget-container__widget{height:38px}
+    .tradingview-widget-container{margin:0;padding:0;height:46px}
+    .tradingview-widget-container__widget{height:46px}
     </style>
     <div class="tradingview-widget-container">
       <div class="tradingview-widget-container__widget"></div>
@@ -828,7 +813,7 @@ def main():
         "locale": "kr"
       }
       </script>
-    </div>""", height=38)
+    </div>""", height=46)
     
     # --- 메인 콘텐츠 (탭 없이 섹션으로 구성) ---
     tab1 = st.container()
@@ -3151,7 +3136,7 @@ def main():
                     st.rerun()
 
                 # ── 좌/우 2패널 레이아웃 ─────────────────────────────────
-                _us_pb_left, _us_pb_right = st.columns([4, 6], gap="small")
+                _us_pb_left, _us_pb_right = st.columns([4.5, 5.5], gap="small")
 
                 # ── 좌 패널: 컨트롤 + 종목 목록 ─────────────────────────
                 with _us_pb_left:
@@ -3416,7 +3401,7 @@ def main():
                     "NYQ": "NYSE",   "NYS": "NYSE",   "PCX": "NYSE",   "ASE": "AMEX",
                 }
 
-                col_us_chart, col_us_right = st.columns([5, 5])
+                col_us_chart, col_us_right = st.columns([5.5, 4.5])
                 with col_us_chart:
                     _us_chart_ctr = st.container(height=920)
                 with col_us_right:
