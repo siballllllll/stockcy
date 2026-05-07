@@ -26,18 +26,9 @@ st.set_page_config(
 # --- CSS 디자인 시스템 (다크모드 및 색상) ---
 # PRD 가이드: 다크모드, 국내(상승 Red/하락 Blue), 미국(상승 Green/하락 Red)
 def inject_custom_css():
-    # 라이트 모드 오버라이드 (별도 주입)
-    if st.session_state.get("_sc_theme", "dark") == "light":
-        st.markdown("""<style>
-        .stApp,[data-testid="stAppViewContainer"]{background:#f8f9fa!important;color:#111!important}
-        [data-testid="stMarkdownContainer"] *{color:#222!important}
-        .stButton>button{color:#111!important}
-        [data-testid="stMetricValue"]{color:#111!important}
-        </style>""", unsafe_allow_html=True)
     # selectbox 드롭다운 위치 보정 (zoom 오프셋)
     st.markdown("""<style>
-        [data-baseweb="popover"],[data-baseweb="select"]+[data-baseweb="popover"]
-        {zoom:1.3!important;transform-origin:top left!important}
+        [data-baseweb="popover"]{zoom:1.3!important;transform-origin:top left!important}
     </style>""", unsafe_allow_html=True)
     st.markdown("""
         <style>
@@ -600,17 +591,49 @@ def main():
     with _hset:
         with st.popover("⚙️", use_container_width=True):
             st.markdown("**설정**")
-            _theme_key = "_sc_theme"
-            if _theme_key not in st.session_state:
-                st.session_state[_theme_key] = "dark"
-            if st.button("☀️ 라이트 / 🌙 다크 전환", key="setting_theme", use_container_width=True):
-                st.session_state[_theme_key] = "light" if st.session_state[_theme_key] == "dark" else "dark"
+            if st.button("☀️/🌙 테마 전환", key="setting_theme", use_container_width=True):
+                st.session_state["_sc_do_theme_js"] = True
                 st.rerun()
             st.divider()
             if st.button("🔄 캐시 초기화 & 새로고침", key="setting_reboot", use_container_width=True):
                 st.cache_data.clear()
                 st.rerun()
             st.caption("캐시를 초기화하면 모든 데이터를 새로 불러옵니다.")
+
+    # ── Streamlit 내장 테마 버튼을 JS로 클릭 (숨겨진 툴바 활용) ──────────
+    if st.session_state.pop("_sc_do_theme_js", False):
+        import streamlit.components.v1 as _cmp_theme
+        _cmp_theme.html("""<script>
+(function(){
+  var doc = window.parent.document;
+  /* 1. 툴바를 잠깐 보이게 */
+  var tmp = doc.createElement('style');
+  tmp.id = '_sc_th_tmp';
+  tmp.textContent = '[data-testid="stToolbar"],[data-testid="stHeader"]{'
+    + 'display:flex!important;visibility:visible!important;opacity:1!important}';
+  doc.head.appendChild(tmp);
+
+  setTimeout(function(){
+    /* 2. 테마 버튼 찾아서 클릭 */
+    var found = false;
+    /* aria-label / title 기반 탐색 */
+    doc.querySelectorAll('button').forEach(function(b){
+      var lbl = (b.getAttribute('aria-label')||b.getAttribute('title')||'').toLowerCase();
+      if(!found && (lbl.includes('theme') || lbl.includes('dark') || lbl.includes('light')
+                    || lbl.includes('night') || lbl.includes('mode'))){
+        b.click(); found = true;
+      }
+    });
+    /* 못 찾으면 stToolbarActions 내 첫 번째 버튼 클릭 */
+    if(!found){
+      var actions = doc.querySelector('[data-testid="stToolbarActions"]');
+      if(actions){ var btns = actions.querySelectorAll('button'); if(btns[0]) btns[0].click(); }
+    }
+    /* 3. 다시 숨기기 */
+    setTimeout(function(){ var s=doc.getElementById('_sc_th_tmp'); if(s) s.remove(); }, 400);
+  }, 120);
+})();
+</script>""", height=0)
 
     st.markdown("<hr class='toss-divider' style='margin:2px 0'>", unsafe_allow_html=True)
 
