@@ -87,22 +87,25 @@ def _call_gemini(prompt, use_search=False, temperature=0.7, response_mime_type=N
     last_err = None
     exhausted_count = 0
     for model in _MODEL_FALLBACK:
-        for attempt in range(2):
+        for attempt in range(3):
             try:
                 response = client.models.generate_content(
                     model=model,
                     contents=prompt,
                     config=config,
                 )
-                _QUOTA_EXHAUSTED = False  # 성공 시 플래그 초기화
+                _QUOTA_EXHAUSTED = False
                 return response
             except Exception as api_err:
                 err_str = str(api_err)
                 last_err = api_err
-                if ("503" in err_str or "UNAVAILABLE" in err_str) and attempt == 0:
-                    time.sleep(3)
-                    continue
-                if ("400" in err_str or "INVALID_ARGUMENT" in err_str):
+                if "503" in err_str or "UNAVAILABLE" in err_str:
+                    if attempt < 2:
+                        time.sleep(3 * (attempt + 1))  # 3s → 6s 대기 후 재시도
+                        continue
+                    else:
+                        break  # 3회 모두 실패 → 다음 모델로
+                if "400" in err_str or "INVALID_ARGUMENT" in err_str:
                     break  # 잘못된 요청 — 재시도 불필요
                 if ("429" in err_str or "RESOURCE_EXHAUSTED" in err_str
                         or "404" in err_str or "NOT_FOUND" in err_str):
