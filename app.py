@@ -3471,20 +3471,20 @@ def main():
                                         unsafe_allow_html=True,
                                     )
                                     _um1, _um2, _um3 = st.columns(3)
-                                    _um1.metric("거래량",   f"{detail_us['volume']:,}")
-                                    _um2.metric("시가",     f"${detail_us['open']:,.2f}")
-                                    _um3.metric("시가총액", detail_us["market_cap"])
+                                    _um1.metric("거래량",   f"{detail_us.get('volume', 0):,}")
+                                    _um2.metric("시가",     f"${detail_us.get('open', 0):,.2f}")
+                                    _um3.metric("시가총액", detail_us.get("market_cap", "-"))
                                     _um4, _um5, _um6 = st.columns(3)
-                                    _um4.metric("고가", f"${detail_us['high']:,.2f}")
-                                    _um5.metric("저가", f"${detail_us['low']:,.2f}")
-                                    _um6.metric("PER",  str(detail_us["per"]))
+                                    _um4.metric("고가", f"${detail_us.get('high', 0):,.2f}")
+                                    _um5.metric("저가", f"${detail_us.get('low', 0):,.2f}")
+                                    _um6.metric("PER",  str(detail_us.get("per", "-")))
                                     _um7, _um8, _um9 = st.columns(3)
-                                    _um7.metric("52주 최고", f"${detail_us['w52_high']:,.2f}")
-                                    _um8.metric("52주 최저", f"${detail_us['w52_low']:,.2f}")
-                                    _um9.metric("베타",      str(detail_us["beta"]))
+                                    _um7.metric("52주 최고", f"${detail_us.get('w52_high', 0):,.2f}")
+                                    _um8.metric("52주 최저", f"${detail_us.get('w52_low', 0):,.2f}")
+                                    _um9.metric("베타",      str(detail_us.get("beta", "-")))
                                     _uwl = detail_us.get("w52_low",  0) or 0
                                     _uwh = detail_us.get("w52_high", 0) or 0
-                                    _ucp = detail_us["price"]
+                                    _ucp = detail_us.get("price", 0)
                                     if _uwh > _uwl > 0:
                                         _ubp = max(0, min(100, (_ucp - _uwl) / (_uwh - _uwl) * 100))
                                         st.markdown(
@@ -3550,12 +3550,14 @@ def main():
                                     st.error(f"❌ **단타 비적합** {_us_chg:+.2f}% — 수수료·세금 감안 시 실익 없음")
 
                             elif st.session_state.us_right_tab == _rp_tabs[1]:
-                                if detail_us["institutional_pct"] > 0 or detail_us["insider_pct"] > 0:
+                                _inst_pct   = detail_us.get("institutional_pct", 0) or 0
+                                _insider_pct = detail_us.get("insider_pct", 0) or 0
+                                if _inst_pct > 0 or _insider_pct > 0:
                                     st.markdown("#### 📊 기관/내부자 보유율")
-                                    _retail_p = max(0.0, 100.0 - detail_us["institutional_pct"] - detail_us["insider_pct"])
+                                    _retail_p = max(0.0, 100.0 - _inst_pct - _insider_pct)
                                     fig_own = go.Figure(go.Bar(
                                         x=["기관", "내부자", "기타"],
-                                        y=[detail_us["institutional_pct"], detail_us["insider_pct"], _retail_p],
+                                        y=[_inst_pct, _insider_pct, _retail_p],
                                         marker_color=["#2b7cff", "#ff4b4b", "#888"],
                                     ))
                                     fig_own.update_layout(
