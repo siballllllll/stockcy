@@ -29,82 +29,119 @@ def inject_custom_css():
     st.markdown("""
         <style>
         /* ══════════════════════════════════════════════════════════
-           CSS 변수 — 다크 모드 기본값
+           다크 모드 — 기본값
+           핵심 원리: 카드가 배경보다 충분히 밝아야 입체감이 생김
         ══════════════════════════════════════════════════════════ */
         :root {
-            /* 구분선 */
-            --sc-divider:      rgba(255,255,255,0.10);
-            --sc-divider-str:  rgba(255,255,255,0.18);
-            /* 카드 */
-            --sc-card-bg:      rgba(255,255,255,0.055);
-            --sc-card-border:  rgba(255,255,255,0.11);
-            --sc-card-bg-sm:   rgba(255,255,255,0.035);
-            --sc-card-hi:      rgba(255,255,255,0.13);   /* 상단 하이라이트 엣지 */
-            /* 그림자 (엠보싱) */
-            --sc-shadow-sm:    0 1px 4px rgba(0,0,0,0.45), 0 1px 2px rgba(0,0,0,0.35);
-            --sc-shadow-md:    0 2px 10px rgba(0,0,0,0.55), 0 1px 3px rgba(0,0,0,0.40);
-            --sc-shadow-inset: inset 0 1px 0 rgba(255,255,255,0.10);
+            --sc-divider:       rgba(255,255,255,0.10);
+            --sc-divider-str:   rgba(255,255,255,0.20);
+            /* 카드: 배경보다 확실히 밝게 */
+            --sc-card-bg:       #1e2130;
+            --sc-card-bg-sm:    #1a1d2e;
+            --sc-card-border:   rgba(255,255,255,0.13);
+            --sc-card-hi:       rgba(255,255,255,0.20);  /* 상단 하이라이트 */
+            /* 그림자: 카드 가장자리 주변을 더 어둡게 → 카드가 떠 보임 */
+            --sc-shadow-card:
+                0 0 0 1px rgba(0,0,0,0.40),
+                0 4px 16px rgba(0,0,0,0.60),
+                0 1px 3px  rgba(0,0,0,0.50),
+                inset 0 1px 0 rgba(255,255,255,0.12);
+            --sc-shadow-sm:
+                0 0 0 1px rgba(0,0,0,0.35),
+                0 2px 8px  rgba(0,0,0,0.50),
+                inset 0 1px 0 rgba(255,255,255,0.09);
             /* 텍스트 */
-            --sc-text-muted:   #999;
-            --sc-text-subtle:  #666;
-            /* 기타 컴포넌트 */
-            --sc-pill-bg:      rgba(255,255,255,0.08);
-            --sc-pill-color:   #bbb;
-            --sc-row-hover:    rgba(255,255,255,0.05);
-            --sc-nav-inactive: #888;
-            --sc-nav-hover:    #ddd;
-            --sc-nav-hover-bg: rgba(255,255,255,0.05);
-            --sc-mkt-border:   rgba(255,255,255,0.14);
-            --sc-mkt-inactive: #777;
-            --sc-mkt-act-bg:   rgba(255,255,255,0.14);
-            --sc-mkt-act-fg:   #fff;
-            --sc-mkt-act-bdr:  rgba(255,255,255,0.30);
-            --sc-btn-border:   rgba(255,255,255,0.13);
-            --sc-btn-pri-bg:   rgba(255,255,255,0.12);
-            --sc-btn-pri-fg:   #f0f0f0;
-            --sc-btn-hover-bg: rgba(255,255,255,0.09);
+            --sc-text-muted:    #a0a4b8;
+            --sc-text-subtle:   #6b7080;
+            /* 태그/pill */
+            --sc-pill-bg:       rgba(255,255,255,0.09);
+            --sc-pill-color:    #c0c4d8;
+            --sc-row-hover:     rgba(255,255,255,0.05);
+            /* 네비 */
+            --sc-nav-inactive:  #888;
+            --sc-nav-hover:     #ddd;
+            --sc-nav-hover-bg:  rgba(255,255,255,0.05);
+            /* 마켓 버튼 */
+            --sc-mkt-border:    rgba(255,255,255,0.16);
+            --sc-mkt-inactive:  #777;
+            --sc-mkt-act-bg:    rgba(255,255,255,0.16);
+            --sc-mkt-act-fg:    #fff;
+            --sc-mkt-act-bdr:   rgba(255,255,255,0.32);
+            /* 일반 버튼 */
+            --sc-btn-border:    rgba(255,255,255,0.14);
+            --sc-btn-pri-bg:    rgba(255,255,255,0.13);
+            --sc-btn-pri-fg:    #f0f0f0;
+            --sc-btn-hover-bg:  rgba(255,255,255,0.09);
+            /* 섹션 구분 강조색 */
+            --sc-accent:        #ff9800;
         }
 
-        /* ── 라이트 모드 재정의 (시스템 + Streamlit 수동 전환) ── */
-        @media (prefers-color-scheme: light) { :root { --sc-light: 1; } }
+        /* ══════════════════════════════════════════════════════════
+           라이트 모드 — 페이지 배경 #f0f2f6, 카드 #ffffff
+           흰 카드 + 진한 그림자 = 확실한 입체감
+        ══════════════════════════════════════════════════════════ */
+        @media (prefers-color-scheme: light) { :root { --sc-_lm: 1; } }
         @media (prefers-color-scheme: light), html.sc-light {
             :root, html.sc-light {
-                /* 구분선 */
-                --sc-divider:      rgba(0,0,0,0.09);
-                --sc-divider-str:  rgba(0,0,0,0.17);
-                /* 카드 — 라이트모드에서 순백 배경 + 그림자로 float 느낌 */
-                --sc-card-bg:      #ffffff;
-                --sc-card-border:  rgba(0,0,0,0.08);
-                --sc-card-bg-sm:   #f8f9fa;
-                --sc-card-hi:      rgba(255,255,255,1);
-                /* 그림자: 라이트모드는 얕고 부드럽게 */
-                --sc-shadow-sm:    0 1px 3px rgba(0,0,0,0.09), 0 1px 2px rgba(0,0,0,0.06);
-                --sc-shadow-md:    0 2px 8px rgba(0,0,0,0.11), 0 1px 3px rgba(0,0,0,0.07);
-                --sc-shadow-inset: inset 0 1px 0 rgba(255,255,255,0.80);
-                /* 텍스트 */
-                --sc-text-muted:   #555;
-                --sc-text-subtle:  #888;
-                /* 기타 */
-                --sc-pill-bg:      rgba(0,0,0,0.06);
-                --sc-pill-color:   #444;
-                --sc-row-hover:    rgba(0,0,0,0.04);
-                --sc-nav-inactive: #555;
-                --sc-nav-hover:    #111;
-                --sc-nav-hover-bg: rgba(0,0,0,0.04);
-                --sc-mkt-border:   rgba(0,0,0,0.14);
-                --sc-mkt-inactive: #555;
-                --sc-mkt-act-bg:   rgba(0,0,0,0.08);
-                --sc-mkt-act-fg:   #111;
-                --sc-mkt-act-bdr:  rgba(0,0,0,0.22);
-                --sc-btn-border:   rgba(0,0,0,0.13);
-                --sc-btn-pri-bg:   rgba(0,0,0,0.07);
-                --sc-btn-pri-fg:   #111;
-                --sc-btn-hover-bg: rgba(0,0,0,0.05);
+                --sc-divider:       rgba(0,0,0,0.10);
+                --sc-divider-str:   rgba(0,0,0,0.18);
+                --sc-card-bg:       #ffffff;
+                --sc-card-bg-sm:    #f8f9fb;
+                --sc-card-border:   rgba(0,0,0,0.07);
+                --sc-card-hi:       #ffffff;
+                /* 라이트: 그림자를 충분히 진하게 — 이게 핵심 */
+                --sc-shadow-card:
+                    0 0 0 1px rgba(0,0,0,0.06),
+                    0 4px 16px rgba(0,0,0,0.14),
+                    0 1px 4px  rgba(0,0,0,0.10);
+                --sc-shadow-sm:
+                    0 0 0 1px rgba(0,0,0,0.05),
+                    0 2px 8px  rgba(0,0,0,0.11),
+                    0 1px 2px  rgba(0,0,0,0.07);
+                --sc-text-muted:    #555;
+                --sc-text-subtle:   #888;
+                --sc-pill-bg:       rgba(0,0,0,0.06);
+                --sc-pill-color:    #444;
+                --sc-row-hover:     rgba(0,0,0,0.04);
+                --sc-nav-inactive:  #555;
+                --sc-nav-hover:     #111;
+                --sc-nav-hover-bg:  rgba(0,0,0,0.04);
+                --sc-mkt-border:    rgba(0,0,0,0.15);
+                --sc-mkt-inactive:  #555;
+                --sc-mkt-act-bg:    rgba(0,0,0,0.08);
+                --sc-mkt-act-fg:    #111;
+                --sc-mkt-act-bdr:   rgba(0,0,0,0.24);
+                --sc-btn-border:    rgba(0,0,0,0.13);
+                --sc-btn-pri-bg:    rgba(0,0,0,0.07);
+                --sc-btn-pri-fg:    #111;
+                --sc-btn-hover-bg:  rgba(0,0,0,0.05);
+                --sc-accent:        #e65100;
             }
         }
 
         /* ══════════════════════════════════════════════════════════
-           글로벌 hr — 앱 전체 구분선 테마 자동 대응
+           Streamlit 컨테이너 — 전체 배경 레이어 구조
+        ══════════════════════════════════════════════════════════ */
+        /* 메인 컨텐츠 블록에 살짝 다른 배경을 줘서 레이어 느낌 */
+        .stMainBlockContainer, section.main .block-container {
+            padding-top: 0.5rem !important;
+        }
+        /* Streamlit expander에 카드 느낌 */
+        [data-testid="stExpander"] {
+            border: 1px solid var(--sc-card-border) !important;
+            border-radius: 12px !important;
+            box-shadow: var(--sc-shadow-sm) !important;
+            overflow: hidden !important;
+        }
+        /* dataframe 컨테이너 */
+        [data-testid="stDataFrame"] {
+            border-radius: 10px !important;
+            overflow: hidden !important;
+            box-shadow: var(--sc-shadow-sm) !important;
+        }
+
+        /* ══════════════════════════════════════════════════════════
+           글로벌 hr — 전체 구분선
         ══════════════════════════════════════════════════════════ */
         hr {
             border: none !important;
@@ -117,7 +154,7 @@ def inject_custom_css():
         .up-us   { color: #00c853; font-weight: 700; }
         .down-us { color: #ff4b4b; font-weight: 700; }
 
-        /* ── 버튼 (pill) ── */
+        /* ── 버튼 ── */
         div[data-testid="stButton"] > button {
             border-radius: 20px !important;
             font-size: 0.82rem !important;
@@ -136,25 +173,36 @@ def inject_custom_css():
         }
 
         /* ══════════════════════════════════════════════════════════
-           카드 — 엠보싱 (shadow + highlight edge)
+           카드 클래스 — 진짜 입체감
+           핵심: shadow 레이어 3개 + 상단 하이라이트
         ══════════════════════════════════════════════════════════ */
         .toss-card {
             background: var(--sc-card-bg);
             border: 1px solid var(--sc-card-border);
-            border-top-color: var(--sc-card-hi);   /* 상단 밝은 엣지 */
+            border-top: 1px solid var(--sc-card-hi);
             border-radius: 14px;
             padding: 14px 16px;
             margin: 6px 0;
-            box-shadow: var(--sc-shadow-md), var(--sc-shadow-inset);
+            box-shadow: var(--sc-shadow-card);
         }
         .toss-card-sm {
             background: var(--sc-card-bg-sm);
             border: 1px solid var(--sc-card-border);
-            border-top-color: var(--sc-card-hi);
+            border-top: 1px solid var(--sc-card-hi);
             border-radius: 10px;
             padding: 8px 12px;
             margin: 3px 0;
-            box-shadow: var(--sc-shadow-sm), var(--sc-shadow-inset);
+            box-shadow: var(--sc-shadow-sm);
+        }
+
+        /* ── elevation 유틸리티 (인라인 스타일 위에 shadow 강제 적용) ── */
+        .sc-card {
+            box-shadow: var(--sc-shadow-card) !important;
+            border-top-color: var(--sc-card-hi) !important;
+        }
+        .sc-card-sm {
+            box-shadow: var(--sc-shadow-sm) !important;
+            border-top-color: var(--sc-card-hi) !important;
         }
 
         /* ── 지수 배너 ── */
@@ -187,10 +235,26 @@ def inject_custom_css():
             border-top: 1px solid var(--sc-divider);
             margin: 8px 0;
         }
+        /* 섹션 간 강한 구분선 */
         .sc-section-divider {
             border: none;
             border-top: 2px solid var(--sc-divider-str);
-            margin: 16px 0;
+            margin: 18px 0;
+        }
+
+        /* ══════════════════════════════════════════════════════════
+           섹션 헤더 — 오렌지 왼쪽 바 + 배경 블록으로 구역 명확히
+        ══════════════════════════════════════════════════════════ */
+        .sc-section-label {
+            display: inline-block;
+            font-size: 0.72rem;
+            font-weight: 700;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: var(--sc-accent);
+            border-left: 3px solid var(--sc-accent);
+            padding: 2px 0 2px 8px;
+            margin: 16px 0 8px 0;
         }
 
         /* ── 네비 탭 버튼 ── */
@@ -224,7 +288,6 @@ def inject_custom_css():
             border: 1px solid var(--sc-mkt-border) !important;
             border-radius: 20px !important;
             font-size: 0.77rem !important;
-            font-weight: 400 !important;
             color: var(--sc-mkt-inactive) !important;
             padding: 3px 12px !important;
             transition: all 0.15s !important;
@@ -240,28 +303,6 @@ def inject_custom_css():
             color: var(--sc-mkt-act-fg) !important;
             font-weight: 700 !important;
             box-shadow: var(--sc-shadow-sm) !important;
-        }
-
-        /* ── 범용 elevation 유틸리티 (인라인 스타일 위에 shadow 덮음) ── */
-        .sc-card {
-            box-shadow: var(--sc-shadow-md), var(--sc-shadow-inset) !important;
-            border-top-color: var(--sc-card-hi) !important;
-        }
-        .sc-card-sm {
-            box-shadow: var(--sc-shadow-sm), var(--sc-shadow-inset) !important;
-            border-top-color: var(--sc-card-hi) !important;
-        }
-
-        /* ── 섹션 제목 ── */
-        .sc-section-title {
-            font-size: 0.78rem;
-            font-weight: 600;
-            color: var(--sc-text-muted);
-            letter-spacing: 0.05em;
-            text-transform: uppercase;
-            margin: 14px 0 6px 2px;
-            padding-left: 8px;
-            border-left: 3px solid var(--sc-divider-str);
         }
 
         .disclaimer {
@@ -873,9 +914,8 @@ def main():
                                 _border_color = "rgba(255,75,75,0.3)" if _already_surged else f"rgba(255,255,255,0.1)"
 
                                 _card_html = (
-                                    f"<div class='sc-card' style='background:rgba(255,255,255,0.055);"
-                                    f"border:1px solid {_border_color};border-radius:14px;"
-                                    f"padding:14px 14px 12px 14px'>"
+                                    f"<div class='toss-card sc-card' style='"
+                                    f"border-color:{_border_color};padding:14px 14px 12px 14px'>"
                                     # 헤더: 종목명 + 긴급도 배지
                                     f"<div style='display:flex;justify-content:space-between;"
                                     f"align-items:flex-start;margin-bottom:6px'>"
