@@ -175,9 +175,12 @@ def _enrich_with_krx(raw_map: dict) -> dict:
 
 @st.cache_data(ttl=300)
 def load_sector_map() -> dict:
-    """Google Sheets 섹터DB 탭에서 섹터 맵 로드.
-    sectors_kr.py가 더 많은 섹터를 가지면 항상 파일 우선.
-    FinanceDataReader(KRX)로 코드 자동 보정.
+    """Google Sheets 섹터DB 탭 → sectors_kr.py → FDR 전종목 업종 순으로 병합.
+
+    1. 구글 시트 / sectors_kr.py 로 테마 섹터맵 로드
+    2. FDR(FinanceDataReader) 업종 분류로 전종목 자동 보강
+       - 기존 섹터에 없는 업종만 추가 (중복 방지)
+       - 기존 세부섹터에 없는 종목만 추가
     """
     from sectors_kr import KR_SECTOR_MAP
     try:
@@ -208,6 +211,39 @@ def load_sector_map() -> dict:
         raw = KR_SECTOR_MAP if len(KR_SECTOR_MAP) >= len(sector_map) else sector_map
     except Exception:
         raw = KR_SECTOR_MAP
+
+    # ── FDR 전종목 업종 자동 병합 ────────────────────────────────────────
+    try:
+        from data_kr import get_kr_fdr_sector_map
+        fdr_map = get_kr_fdr_sector_map()
+        if fdr_map:
+            # 기존 맵에 등록된 종목 코드 세트 (중복 방지)
+            existing_codes: set = {
+                s["code"]
+                for subs in raw.values()
+                for stocks in subs.values()
+                for s in stocks
+                if isinstance(s, dict) and s.get("code")
+            }
+            for sector, subs in fdr_map.items():
+                for sub, stocks in subs.items():
+                    new_stocks = [
+                        s for s in stocks
+                        if s.get("code") and s["code"] not in existing_codes
+                    ]
+                    if not new_stocks:
+                        continue
+                    # 기존 동일 세부섹터가 있으면 append, 없으면 새 섹터로
+                    target_sec = sector
+                    if sector not in raw:
+                        raw[sector] = {}
+                    if sub not in raw[sector]:
+                        raw[sector][sub] = []
+                    raw[sector][sub].extend(new_stocks)
+                    existing_codes.update(s["code"] for s in new_stocks)
+    except Exception:
+        pass
+
     return _enrich_with_krx(raw)
 
 
