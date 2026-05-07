@@ -800,6 +800,7 @@ def main():
                 ("kr_chart_type", "일봉"),
                 ("kr_daily_period", "3mo"),
                 ("kr_right_tab", "📊 시세"),
+                ("kr_selected_pick_idx", 0),
             ]:
                 if _k not in st.session_state:
                     st.session_state[_k] = _v
@@ -837,40 +838,7 @@ def main():
                 _pb_key  = "kr_picks_result"
                 _run_key = "_kr_picks_pending"
 
-                # 신호 배너 (후보가 있고 아직 AI 결과가 없을 때)
-                if _new_count > 0 and _pb_key not in st.session_state:
-                    st.markdown(
-                        f"""<div style='background:linear-gradient(90deg,rgba(255,75,75,0.18),rgba(255,152,0,0.12));
-                            border:1.5px solid #ff4b4b;border-radius:10px;padding:10px 16px;margin:6px 0;
-                            display:flex;align-items:center;gap:10px;animation:pulse 1.5s ease-in-out infinite;'>
-                          <span style='font-size:1.3rem'>🔥</span>
-                          <span style='flex:1;font-size:0.85rem;font-weight:700;color:#ff6b6b'>
-                            {_new_count}개 급등 직전 신호 감지 ({_sig_ts}) — AI 타점 분석 실행 권장</span>
-                        </div>
-                        <style>@keyframes pulse{{
-                          0%,100%{{opacity:1}} 50%{{opacity:0.6}}
-                        }}</style>""",
-                        unsafe_allow_html=True,
-                    )
-                elif _new_count == 0 and _sig_ts:
-                    st.caption(f"🟢 마지막 신호 스캔: {_sig_ts} — 현재 고강도 신호 없음")
-
-                # 상단: 버튼 + 마지막 업데이트
-                _ph_top = st.empty()
-                _pb_col1, _pb_col2 = st.columns([3, 1])
-                with _pb_col1:
-                    if st.button("🔄 AI 타점 분석 실행", key="kr_picks_btn",
-                                 type="primary", use_container_width=True):
-                        st.session_state[_run_key] = True
-                        if _pb_key in st.session_state:
-                            del st.session_state[_pb_key]
-                        st.rerun()
-                with _pb_col2:
-                    if st.button("🗑 초기화", key="kr_picks_clear", use_container_width=True):
-                        st.session_state.pop(_pb_key, None)
-                        st.rerun()
-
-                # 플래그 서 있으면 AI 호출
+                # AI 호출 — 버튼 클릭 후 rerun 시 실행 (패널 렌더 전에 처리)
                 if st.session_state.get(_run_key) and _pb_key not in st.session_state:
                     with st.spinner("AI가 시장·테마·수급·뉴스를 종합 분석 중입니다..."):
                         try:
@@ -879,8 +847,6 @@ def main():
                             _vol = get_kr_volume_ranking() or []
                             from data_kr import get_kr_change_ranking
                             _chg = (get_kr_change_ranking("J") or []) + (get_kr_change_ranking("Q") or [])
-
-                            # 핫 섹터 컨텍스트 (@st.cache_data 1h TTL 적용 — 추가 API 비용 없음)
                             _hot_secs = []
                             try:
                                 from ai_engine import analyze_kr_hot_sectors
@@ -889,7 +855,6 @@ def main():
                                     _hot_secs = _hs_res.get("sectors", [])
                             except Exception:
                                 pass
-
                             _picks = generate_realtime_picks(_mkt, _vol, _chg, hot_sectors=_hot_secs)
                         except Exception as _pe:
                             _picks = {"error": str(_pe), "picks": []}
@@ -898,49 +863,141 @@ def main():
                         st.session_state[_run_key] = False
                     st.rerun()
 
-                # 결과 표시
-                if _pb_key in st.session_state:
-                    _res = st.session_state[_pb_key]
-                    _ts  = _res.get("_ts", "")
-                    _cond = _res.get("market_condition", "")
-                    _comment = _res.get("market_comment", "")
-                    _cond_color = "#ff4b4b" if "상승" in _cond else "#2b7cff" if "하락" in _cond else "#f5c518"
-                    _cond_icon  = "🟢" if "상승" in _cond else "🔴" if "하락" in _cond else "🟡"
+                # ── 좌/우 2패널 레이아웃 ─────────────────────────────────
+                _pb_left, _pb_right = st.columns([4, 6], gap="small")
 
-                    # 시장 컨디션 배너
-                    st.markdown(
-                        f"<div style='background:rgba(255,255,255,0.04);border-left:3px solid {_cond_color};"
-                        f"border-radius:8px;padding:8px 14px;margin-bottom:12px;display:flex;"
-                        f"justify-content:space-between;align-items:center'>"
-                        f"<span>{_cond_icon} <b style='color:{_cond_color}'>{_cond}</b>"
-                        f"&nbsp;&nbsp;<span style='color:#ccc;font-size:0.83rem'>{_comment}</span></span>"
-                        f"<span style='font-size:0.72rem;color:#666'>업데이트 {_ts}</span>"
-                        f"</div>",
-                        unsafe_allow_html=True,
-                    )
+                # ── 좌 패널: 컨트롤 + 종목 목록 ─────────────────────────
+                with _pb_left:
+                    with st.container(height=720):
+                        # 신호 배너
+                        if _new_count > 0 and _pb_key not in st.session_state:
+                            st.markdown(
+                                f"""<div style='background:linear-gradient(90deg,rgba(255,75,75,0.18),rgba(255,152,0,0.12));
+                                    border:1.5px solid #ff4b4b;border-radius:10px;padding:8px 14px;margin-bottom:8px;
+                                    display:flex;align-items:center;gap:8px;animation:pulse 1.5s ease-in-out infinite;'>
+                                  <span style='font-size:1rem'>🔥</span>
+                                  <span style='flex:1;font-size:0.75rem;font-weight:700;color:#ff6b6b'>
+                                    {_new_count}개 신호 감지 ({_sig_ts})</span>
+                                </div>
+                                <style>@keyframes pulse{{0%,100%{{opacity:1}}50%{{opacity:0.6}}}}</style>""",
+                                unsafe_allow_html=True,
+                            )
+                        elif _new_count == 0 and _sig_ts:
+                            st.caption(f"🟢 스캔: {_sig_ts} — 신호 없음")
 
-                    if _res.get("error") and not _res.get("picks"):
-                        st.error(f"분석 오류: {_res['error']}")
-                    elif not _res.get("picks"):
-                        st.info("추천 종목이 없습니다. 다시 시도해주세요.")
-                    else:
-                        _pick_cols = st.columns(len(_res["picks"]))
-                        for _ci, (_pick, _pcol) in enumerate(zip(_res["picks"], _pick_cols)):
+                        # 실행 / 초기화 버튼
+                        _pb_c1, _pb_c2 = st.columns([3, 1])
+                        with _pb_c1:
+                            if st.button("🔄 AI 타점 분석 실행", key="kr_picks_btn",
+                                         type="primary", use_container_width=True):
+                                st.session_state[_run_key] = True
+                                if _pb_key in st.session_state:
+                                    del st.session_state[_pb_key]
+                                st.rerun()
+                        with _pb_c2:
+                            if st.button("🗑", key="kr_picks_clear", use_container_width=True):
+                                st.session_state.pop(_pb_key, None)
+                                st.session_state["kr_selected_pick_idx"] = 0
+                                st.rerun()
+
+                        if _pb_key in st.session_state:
+                            _res   = st.session_state[_pb_key]
+                            _cond  = _res.get("market_condition", "")
+                            _cond_color = "#ff4b4b" if "상승" in _cond else "#2b7cff" if "하락" in _cond else "#f5c518"
+                            _cond_icon  = "🟢" if "상승" in _cond else "🔴" if "하락" in _cond else "🟡"
+                            st.markdown(
+                                f"<div style='font-size:0.7rem;padding:4px 8px;margin:6px 0;"
+                                f"border-left:3px solid {_cond_color};border-radius:0 6px 6px 0'>"
+                                f"{_cond_icon} <b style='color:{_cond_color}'>{_cond}</b>"
+                                f"&nbsp;<span style='color:#666;font-size:0.62rem'>{_res.get('_ts','')}</span></div>",
+                                unsafe_allow_html=True,
+                            )
+                            if _res.get("error") and not _res.get("picks"):
+                                st.error(f"분석 오류: {_res['error']}")
+                            elif not _res.get("picks"):
+                                st.info("추천 종목이 없습니다.")
+                            else:
+                                _sel = st.session_state.get("kr_selected_pick_idx", 0)
+                                st.markdown(
+                                    f"<div style='font-size:0.65rem;color:#666;margin-bottom:4px'>"
+                                    f"총 {len(_res['picks'])}개 종목 — 클릭하여 상세 확인</div>",
+                                    unsafe_allow_html=True,
+                                )
+                                for _ci, _pick in enumerate(_res["picks"]):
+                                    _cpct2   = float(_pick.get("change_pct", 0) or 0)
+                                    _entry2  = _pick.get("entry", 0)
+                                    _target2 = _pick.get("target", 0)
+                                    _upside2 = round((_target2 - _entry2) / _entry2 * 100, 1) if _entry2 > 0 else 0
+                                    _urg2    = _pick.get("urgency", "")
+                                    _urg_icon2  = "⚡" if "즉시" in _urg2 else ("🌙" if "내일" in _urg2 else "🕐")
+                                    _urg_color2 = "#ff9800" if "즉시" in _urg2 else ("#a78bfa" if "내일" in _urg2 else "#888")
+                                    _cpct_c2 = "#ff4b4b" if _cpct2 >= 0 else "#2b7cff"
+                                    _is_sel  = (_ci == _sel)
+                                    _row_bg  = "rgba(255,152,0,0.10)" if _is_sel else "rgba(255,255,255,0.03)"
+                                    _row_bdr = "1px solid rgba(255,152,0,0.5)" if _is_sel else "1px solid rgba(255,255,255,0.07)"
+                                    st.markdown(
+                                        f"<div style='background:{_row_bg};border:{_row_bdr};"
+                                        f"border-radius:8px;padding:8px 10px;margin-bottom:2px'>"
+                                        f"<div style='display:flex;justify-content:space-between;align-items:center'>"
+                                        f"<span style='font-size:0.8rem;font-weight:700'>{_pick.get('name','')}</span>"
+                                        f"<span style='font-size:0.68rem;color:{_urg_color2};font-weight:600'>"
+                                        f"{_urg_icon2} {_urg2}</span>"
+                                        f"</div>"
+                                        f"<div style='display:flex;justify-content:space-between;margin-top:3px'>"
+                                        f"<span style='font-size:0.65rem;color:#777'>"
+                                        f"매수 ₩{int(_entry2):,} → +{_upside2}%</span>"
+                                        f"<span style='font-size:0.68rem;color:{_cpct_c2};font-weight:600'>"
+                                        f"{'▲' if _cpct2>=0 else '▼'}{abs(_cpct2):.1f}%</span>"
+                                        f"</div></div>",
+                                        unsafe_allow_html=True,
+                                    )
+                                    if st.button(
+                                        "✓ 선택됨" if _is_sel else "▶ 상세보기",
+                                        key=f"sel_pick_{_ci}",
+                                        use_container_width=True,
+                                        type="primary" if _is_sel else "secondary",
+                                    ):
+                                        st.session_state["kr_selected_pick_idx"] = _ci
+                                        st.rerun()
+                        else:
+                            st.markdown(
+                                "<div style='text-align:center;padding:50px 0;color:#555'>"
+                                "<div style='font-size:2rem'>🎯</div>"
+                                "<div style='margin-top:8px;font-size:0.85rem'>AI 분석을 실행하면<br>"
+                                "종목 목록이 여기에 표시됩니다</div>"
+                                "</div>",
+                                unsafe_allow_html=True,
+                            )
+
+                # ── 우 패널: 선택 종목 상세 카드 ─────────────────────────
+                with _pb_right:
+                    with st.container(height=720):
+                        if _pb_key not in st.session_state or not st.session_state[_pb_key].get("picks"):
+                            st.markdown(
+                                "<div style='display:flex;flex-direction:column;align-items:center;"
+                                "justify-content:center;height:200px;color:#444'>"
+                                "<div style='font-size:3rem'>📊</div>"
+                                "<div style='margin-top:12px;font-size:0.88rem;text-align:center;line-height:1.6'>"
+                                "좌측에서 AI 분석을 실행하면<br>선택 종목 상세가 여기에 표시됩니다</div>"
+                                "</div>",
+                                unsafe_allow_html=True,
+                            )
+                        else:
+                            _res     = st.session_state[_pb_key]
+                            _sel_idx = st.session_state.get("kr_selected_pick_idx", 0)
+                            _sel_idx = min(_sel_idx, len(_res["picks"]) - 1)
+                            _pick    = _res["picks"][_sel_idx]
+
                             _urg     = _pick.get("urgency", "")
                             _horizon = _pick.get("horizon", "")
                             _pattern = _pick.get("pattern", "")
-
-                            # 긴급도 배지
                             _urg_icon  = "⚡" if "즉시" in _urg else ("🌙" if "내일" in _urg else "🕐")
                             _urg_color = "#ff9800" if "즉시" in _urg else ("#a78bfa" if "내일" in _urg else "#888")
                             _urg_bg    = ("rgba(255,152,0,0.15)" if "즉시" in _urg
                                           else "rgba(167,139,250,0.15)" if "내일" in _urg
                                           else "rgba(255,255,255,0.06)")
-
-                            # 시간축 배지 (당일스캘핑 / 1~2일스윙)
                             _hz_color = "#00c853" if "스캘핑" in _horizon or "당일" in _horizon else "#f5c518"
                             _hz_label = "⚡당일" if "스캘핑" in _horizon or "당일" in _horizon else "📅1~2일"
-
                             _entry  = _pick.get("entry", 0)
                             _target = _pick.get("target", 0)
                             _stop   = _pick.get("stop", 0)
@@ -949,8 +1006,6 @@ def main():
                             _upside = round((_target - _entry) / _entry * 100, 1) if _entry > 0 else 0
                             _themes = [t.strip() for t in str(_pick.get("theme","")).split(",") if t.strip()]
                             _already_surged = _cpct >= 10
-
-                            # ── 테마 연동 필드 (AI가 직접 분석) ──
                             _pos       = _pick.get("position", "")
                             _pos_color = {"대장주": "#ff4b4b", "선도추종주": "#f5c518", "후발추종주": "#2b7cff"}.get(_pos, "#888")
                             _t_stage   = _pick.get("theme_stage", "")
@@ -959,196 +1014,177 @@ def main():
                             _sup_sig   = _pick.get("supply_signal", "")
                             _sup_c     = "#00c853" if "유입" in _sup_sig or "매집" in _sup_sig else "#ff4b4b" if "이탈" in _sup_sig else "#f5c518"
                             _linkage   = _pick.get("theme_linkage", "")
+                            _cpct_color = "#ff4b4b" if _cpct >= 0 else "#2b7cff"
+                            _cpct_sign  = "▲" if _cpct >= 0 else "▼"
 
-                            with _pcol:
-                                _cpct_color = "#ff4b4b" if _cpct >= 0 else "#2b7cff"
-                                _cpct_sign  = "▲" if _cpct >= 0 else "▼"
+                            _cur_html = (
+                                f"<div style='font-size:0.8rem;color:#aaa;margin-bottom:8px'>"
+                                f"현재 <b style='color:#eee'>₩{int(_cur):,}</b>&nbsp;"
+                                f"<span style='color:{_cpct_color};font-weight:700'>"
+                                f"{_cpct_sign} {abs(_cpct):.2f}%</span></div>"
+                            ) if _cur > 0 else ""
 
-                                # 현재가 + 등락률
-                                _cur_html = (
-                                    f"<div style='font-size:0.8rem;color:#aaa;margin-bottom:8px'>"
-                                    f"현재 <b style='color:#eee'>₩{int(_cur):,}</b>&nbsp;"
-                                    f"<span style='color:{_cpct_color};font-weight:700'>"
-                                    f"{_cpct_sign} {abs(_cpct):.2f}%</span></div>"
-                                ) if _cur > 0 else ""
+                            _pattern_html = (
+                                f"<div style='font-size:0.62rem;color:#7dd3fc;"
+                                f"background:rgba(125,211,252,0.08);border-radius:6px;"
+                                f"padding:3px 8px;margin-bottom:6px;display:inline-block'>"
+                                f"📊 {_pattern}</div>"
+                            ) if _pattern else ""
 
-                                # 감지된 패턴 배지
-                                _pattern_html = (
-                                    f"<div style='font-size:0.62rem;color:#7dd3fc;"
-                                    f"background:rgba(125,211,252,0.08);border-radius:6px;"
-                                    f"padding:3px 8px;margin-bottom:6px;display:inline-block'>"
-                                    f"📊 {_pattern}</div>"
-                                ) if _pattern else ""
-
-                                # 테마 포지션 + 섹터 단계 배지
-                                _theme_pos_html = ""
-                                if _pos or _t_stage:
-                                    _theme_pos_html = (
-                                        f"<div style='display:flex;gap:5px;flex-wrap:wrap;margin-bottom:6px'>"
-                                        + (f"<span style='background:rgba(255,255,255,0.07);border:1px solid {_pos_color};"
-                                           f"border-radius:8px;padding:2px 7px;font-size:0.62rem;color:{_pos_color};font-weight:700'>"
-                                           f"{_pos}</span>" if _pos else "")
-                                        + (f"<span style='background:rgba(255,255,255,0.07);border:1px solid {_t_stage_c};"
-                                           f"border-radius:8px;padding:2px 7px;font-size:0.62rem;color:{_t_stage_c}'>"
-                                           f"{_t_stage}</span>" if _t_stage else "")
-                                        + (f"<span style='font-size:0.62rem;color:{_sup_c};padding:2px 4px'>"
-                                           f"📡 {_sup_sig}</span>" if _sup_sig else "")
-                                        + "</div>"
-                                    )
-
-                                # 대장주 + 연동 설명
-                                _linkage_html = ""
-                                if _leader or _linkage:
-                                    _linkage_html = (
-                                        f"<div style='background:rgba(255,255,255,0.04);border-left:2px solid {_pos_color};"
-                                        f"border-radius:0 6px 6px 0;padding:5px 8px;margin-bottom:8px;font-size:0.7rem'>"
-                                        + (f"<span style='color:#888'>대장주: </span><span style='color:#eee'>{_leader}</span><br>" if _leader else "")
-                                        + (f"<span style='color:#aaa'>{_linkage}</span>" if _linkage else "")
-                                        + "</div>"
-                                    )
-
-                                # 테마 태그
-                                _theme_html = "".join(
-                                    f"<span style='background:rgba(255,255,255,0.08);"
-                                    f"border-radius:10px;padding:2px 7px;font-size:0.63rem;"
-                                    f"color:#aaa;margin-right:4px'>{th}</span>"
-                                    for th in _themes
-                                )
-
-                                # 이미 급등 경고
-                                _warn_html = (
-                                    "<div style='background:rgba(255,75,75,0.15);border:1px solid #ff4b4b;"
-                                    "border-radius:8px;padding:4px 8px;font-size:0.65rem;color:#ff4b4b;"
-                                    "margin-bottom:8px'>⚠️ 이미 많이 오른 종목 — 진입 신중</div>"
-                                ) if _already_surged else ""
-
-                                _border_color = "rgba(255,75,75,0.3)" if _already_surged else f"rgba(255,255,255,0.1)"
-
-                                _card_html = (
-                                    f"<div class='toss-card sc-card' style='"
-                                    f"border-color:{_border_color};padding:14px 14px 12px 14px'>"
-                                    # 헤더: 종목명 + 긴급도 배지
-                                    f"<div style='display:flex;justify-content:space-between;"
-                                    f"align-items:flex-start;margin-bottom:6px'>"
-                                    f"<div>"
-                                    f"<span style='font-size:0.7rem;color:#888'>#{_pick.get('rank',_ci+1)}</span>&nbsp;"
-                                    f"<span style='font-size:1rem;font-weight:700'>{_pick.get('name','')}</span><br>"
-                                    f"<span style='font-size:0.68rem;color:#666'>{_pick.get('code','')}</span>"
-                                    f"</div>"
-                                    f"<div style='text-align:right'>"
-                                    f"<span style='background:{_urg_bg};color:{_urg_color};"
-                                    f"border-radius:10px;padding:2px 7px;font-size:0.65rem;font-weight:700;"
-                                    f"display:block;margin-bottom:3px'>{_urg_icon} {_urg}</span>"
-                                    f"<span style='color:{_hz_color};font-size:0.6rem;font-weight:600'>{_hz_label}</span>"
-                                    f"</div></div>"
-                                    + _warn_html
-                                    + _theme_pos_html
-                                    + _pattern_html
-                                    + _linkage_html
-                                    + _cur_html +
-                                    # 타점 그리드
-                                    f"<div style='display:grid;grid-template-columns:1fr 1fr 1fr;"
-                                    f"gap:6px;margin-bottom:10px'>"
-                                    f"<div class='sc-card-sm' style='background:rgba(255,255,255,0.07);"
-                                    f"border:1px solid rgba(255,255,255,0.12);border-radius:8px;"
-                                    f"padding:6px;text-align:center'>"
-                                    f"<div style='font-size:0.6rem;color:var(--sc-text-muted,#888)'>매수 타점</div>"
-                                    f"<div style='font-size:0.85rem;font-weight:700'>₩{int(_entry):,}</div></div>"
-                                    f"<div class='sc-card-sm' style='background:rgba(0,200,83,0.12);"
-                                    f"border:1px solid rgba(0,200,83,0.25);border-radius:8px;"
-                                    f"padding:6px;text-align:center'>"
-                                    f"<div style='font-size:0.6rem;color:var(--sc-text-muted,#888)'>목표가</div>"
-                                    f"<div style='font-size:0.85rem;font-weight:700;color:#00c853'>"
-                                    f"₩{int(_target):,}</div>"
-                                    f"<div style='font-size:0.6rem;color:#00c853'>+{_upside}%</div></div>"
-                                    f"<div class='sc-card-sm' style='background:rgba(43,124,255,0.12);"
-                                    f"border:1px solid rgba(43,124,255,0.25);border-radius:8px;"
-                                    f"padding:6px;text-align:center'>"
-                                    f"<div style='font-size:0.6rem;color:var(--sc-text-muted,#888)'>손절가</div>"
-                                    f"<div style='font-size:0.85rem;font-weight:700;color:#2b7cff'>"
-                                    f"₩{int(_stop):,}</div></div>"
-                                    f"</div>"
-                                    # 추천 근거
-                                    f"<div style='font-size:0.72rem;color:var(--sc-text-muted,#bbb);line-height:1.6;"
-                                    f"margin-bottom:8px'>{_pick.get('reason','')}</div>"
-                                    + _theme_html
+                            _theme_pos_html = ""
+                            if _pos or _t_stage:
+                                _theme_pos_html = (
+                                    f"<div style='display:flex;gap:5px;flex-wrap:wrap;margin-bottom:6px'>"
+                                    + (f"<span style='background:rgba(255,255,255,0.07);border:1px solid {_pos_color};"
+                                       f"border-radius:8px;padding:2px 7px;font-size:0.62rem;color:{_pos_color};font-weight:700'>"
+                                       f"{_pos}</span>" if _pos else "")
+                                    + (f"<span style='background:rgba(255,255,255,0.07);border:1px solid {_t_stage_c};"
+                                       f"border-radius:8px;padding:2px 7px;font-size:0.62rem;color:{_t_stage_c}'>"
+                                       f"{_t_stage}</span>" if _t_stage else "")
+                                    + (f"<span style='font-size:0.62rem;color:{_sup_c};padding:2px 4px'>"
+                                       f"📡 {_sup_sig}</span>" if _sup_sig else "")
                                     + "</div>"
                                 )
-                                st.markdown(_card_html, unsafe_allow_html=True)
-                                _pk_btn_c1, _pk_btn_c2 = st.columns(2)
-                                with _pk_btn_c1:
-                                    if _pk_btn_c1.button("상세 분석 →", key=f"pk_detail_{_pick.get('code',_ci)}",
-                                                 use_container_width=True):
-                                        st.session_state.kr_selected_code = _pick.get("code", "005930")
-                                        st.session_state.kr_selected_name = _pick.get("name", "")
-                                        st.session_state.kr_mode = "📊 일반 주식 검색"
-                                        st.rerun()
-                                with _pk_btn_c2:
-                                    if _pk_btn_c2.button("🔗 테마 연동", key=f"pk_theme_{_pick.get('code',_ci)}",
-                                                 use_container_width=True):
-                                        st.session_state[f"pk_thm_run_{_pick.get('code','')}"] = True
-                                        st.rerun()
 
-                                _pk_thm_run = f"pk_thm_run_{_pick.get('code','')}"
-                                _pk_thm_res = f"pk_thm_res_{_pick.get('code','')}"
-                                if st.session_state.get(_pk_thm_run) and _pk_thm_res not in st.session_state:
-                                    with st.spinner("🔗 테마 연동 분석 중..."):
-                                        try:
-                                            from ai_engine import analyze_stock_theme_position
-                                            _pk_theme_name = _themes[0] if _themes else ""
-                                            _pk_sec_stocks = []
-                                            try:
-                                                _sm = load_sector_map()
-                                                for _sv in _sm.get(_pk_theme_name, {}).values():
-                                                    _pk_sec_stocks.extend([
-                                                        {"name": s["name"], "code": s["code"], "change_pct": 0.0}
-                                                        for s in _sv
-                                                    ])
-                                            except Exception:
-                                                pass
-                                            _pk_price_d = {
-                                                "price": _cur, "change_pct": _cpct,
-                                                "volume": 0, "open": 0, "high": 0, "low": 0,
-                                                "w52_high": 0, "w52_low": 0, "per": "-", "pbr": "-",
-                                            }
-                                            st.session_state[_pk_thm_res] = analyze_stock_theme_position(
-                                                _pick.get("code", ""), _pick.get("name", ""),
-                                                _pk_price_d, [], _pk_theme_name, _pk_sec_stocks,
-                                            )
-                                        except Exception as _pte:
-                                            st.session_state[_pk_thm_res] = {"error": str(_pte)}
-                                        st.session_state[_pk_thm_run] = False
+                            _linkage_html = ""
+                            if _leader or _linkage:
+                                _linkage_html = (
+                                    f"<div style='background:rgba(255,255,255,0.04);border-left:2px solid {_pos_color};"
+                                    f"border-radius:0 6px 6px 0;padding:5px 8px;margin-bottom:8px;font-size:0.7rem'>"
+                                    + (f"<span style='color:#888'>대장주: </span><span style='color:#eee'>{_leader}</span><br>" if _leader else "")
+                                    + (f"<span style='color:#aaa'>{_linkage}</span>" if _linkage else "")
+                                    + "</div>"
+                                )
+
+                            _theme_html = "".join(
+                                f"<span style='background:rgba(255,255,255,0.08);"
+                                f"border-radius:10px;padding:2px 7px;font-size:0.63rem;"
+                                f"color:#aaa;margin-right:4px'>{th}</span>"
+                                for th in _themes
+                            )
+
+                            _warn_html = (
+                                "<div style='background:rgba(255,75,75,0.15);border:1px solid #ff4b4b;"
+                                "border-radius:8px;padding:4px 8px;font-size:0.65rem;color:#ff4b4b;"
+                                "margin-bottom:8px'>⚠️ 이미 많이 오른 종목 — 진입 신중</div>"
+                            ) if _already_surged else ""
+
+                            _border_color = "rgba(255,75,75,0.3)" if _already_surged else "rgba(255,255,255,0.1)"
+
+                            _card_html = (
+                                f"<div class='toss-card sc-card' style='"
+                                f"border-color:{_border_color};padding:14px 14px 12px 14px'>"
+                                f"<div style='display:flex;justify-content:space-between;"
+                                f"align-items:flex-start;margin-bottom:6px'>"
+                                f"<div>"
+                                f"<span style='font-size:0.7rem;color:#888'>#{_pick.get('rank',_sel_idx+1)}</span>&nbsp;"
+                                f"<span style='font-size:1rem;font-weight:700'>{_pick.get('name','')}</span><br>"
+                                f"<span style='font-size:0.68rem;color:#666'>{_pick.get('code','')}</span>"
+                                f"</div>"
+                                f"<div style='text-align:right'>"
+                                f"<span style='background:{_urg_bg};color:{_urg_color};"
+                                f"border-radius:10px;padding:2px 7px;font-size:0.65rem;font-weight:700;"
+                                f"display:block;margin-bottom:3px'>{_urg_icon} {_urg}</span>"
+                                f"<span style='color:{_hz_color};font-size:0.6rem;font-weight:600'>{_hz_label}</span>"
+                                f"</div></div>"
+                                + _warn_html
+                                + _theme_pos_html
+                                + _pattern_html
+                                + _linkage_html
+                                + _cur_html +
+                                f"<div style='display:grid;grid-template-columns:1fr 1fr 1fr;"
+                                f"gap:6px;margin-bottom:10px'>"
+                                f"<div class='sc-card-sm' style='background:rgba(255,255,255,0.07);"
+                                f"border:1px solid rgba(255,255,255,0.12);border-radius:8px;"
+                                f"padding:6px;text-align:center'>"
+                                f"<div style='font-size:0.6rem;color:var(--sc-text-muted,#888)'>매수 타점</div>"
+                                f"<div style='font-size:0.85rem;font-weight:700'>₩{int(_entry):,}</div></div>"
+                                f"<div class='sc-card-sm' style='background:rgba(0,200,83,0.12);"
+                                f"border:1px solid rgba(0,200,83,0.25);border-radius:8px;"
+                                f"padding:6px;text-align:center'>"
+                                f"<div style='font-size:0.6rem;color:var(--sc-text-muted,#888)'>목표가</div>"
+                                f"<div style='font-size:0.85rem;font-weight:700;color:#00c853'>"
+                                f"₩{int(_target):,}</div>"
+                                f"<div style='font-size:0.6rem;color:#00c853'>+{_upside}%</div></div>"
+                                f"<div class='sc-card-sm' style='background:rgba(43,124,255,0.12);"
+                                f"border:1px solid rgba(43,124,255,0.25);border-radius:8px;"
+                                f"padding:6px;text-align:center'>"
+                                f"<div style='font-size:0.6rem;color:var(--sc-text-muted,#888)'>손절가</div>"
+                                f"<div style='font-size:0.85rem;font-weight:700;color:#2b7cff'>"
+                                f"₩{int(_stop):,}</div></div>"
+                                f"</div>"
+                                f"<div style='font-size:0.72rem;color:var(--sc-text-muted,#bbb);line-height:1.6;"
+                                f"margin-bottom:8px'>{_pick.get('reason','')}</div>"
+                                + _theme_html
+                                + "</div>"
+                            )
+                            st.markdown(_card_html, unsafe_allow_html=True)
+
+                            _pk_btn_c1, _pk_btn_c2 = st.columns(2)
+                            with _pk_btn_c1:
+                                if st.button("상세 분석 →", key=f"pk_detail_{_pick.get('code',_sel_idx)}",
+                                             use_container_width=True):
+                                    st.session_state.kr_selected_code = _pick.get("code", "005930")
+                                    st.session_state.kr_selected_name = _pick.get("name", "")
+                                    st.session_state.kr_mode = "📊 일반 주식 검색"
+                                    st.rerun()
+                            with _pk_btn_c2:
+                                if st.button("🔗 테마 연동", key=f"pk_theme_{_pick.get('code',_sel_idx)}",
+                                             use_container_width=True):
+                                    st.session_state[f"pk_thm_run_{_pick.get('code','')}"] = True
                                     st.rerun()
 
-                                if _pk_thm_res in st.session_state:
-                                    _pktr = st.session_state[_pk_thm_res]
-                                    if "error" in _pktr:
-                                        st.caption(f"⚠️ {str(_pktr['error'])[:80]}")
-                                    else:
-                                        _pos   = _pktr.get("position", "")
-                                        _pos_c = {"대장주": "#ff4b4b", "선도추종주": "#f5c518", "후발추종주": "#2b7cff", "소외주": "#888"}.get(_pos, "#888")
-                                        _mstg  = _pktr.get("momentum_stage", "")
-                                        _etim  = _pktr.get("entry_timing", "")
-                                        _etim_c = "#00c853" if "즉시" in _etim else "#f5c518" if "대기" in _etim or "확인" in _etim else "#ff4b4b"
-                                        st.markdown(
-                                            f"<div class='sc-card-sm' style='background:rgba(255,255,255,0.04);border-radius:8px;"
-                                            f"padding:8px 10px;margin-top:4px;font-size:0.72rem'>"
-                                            f"<b style='color:{_pos_c}'>{_pos}</b>"
-                                            f"<span style='color:#aaa;margin-left:6px'>{_mstg}</span><br>"
-                                            f"<span style='color:{_etim_c}'>⏱ {_etim}</span>"
-                                            f"<span style='color:#888;margin-left:6px'>{_pktr.get('entry_reason','')[:60]}</span>"
-                                            f"</div>",
-                                            unsafe_allow_html=True,
+                            _pk_thm_run = f"pk_thm_run_{_pick.get('code','')}"
+                            _pk_thm_res = f"pk_thm_res_{_pick.get('code','')}"
+                            if st.session_state.get(_pk_thm_run) and _pk_thm_res not in st.session_state:
+                                with st.spinner("🔗 테마 연동 분석 중..."):
+                                    try:
+                                        from ai_engine import analyze_stock_theme_position
+                                        _pk_theme_name = _themes[0] if _themes else ""
+                                        _pk_sec_stocks = []
+                                        try:
+                                            _sm = load_sector_map()
+                                            for _sv in _sm.get(_pk_theme_name, {}).values():
+                                                _pk_sec_stocks.extend([
+                                                    {"name": s["name"], "code": s["code"], "change_pct": 0.0}
+                                                    for s in _sv
+                                                ])
+                                        except Exception:
+                                            pass
+                                        _pk_price_d = {
+                                            "price": _cur, "change_pct": _cpct,
+                                            "volume": 0, "open": 0, "high": 0, "low": 0,
+                                            "w52_high": 0, "w52_low": 0, "per": "-", "pbr": "-",
+                                        }
+                                        st.session_state[_pk_thm_res] = analyze_stock_theme_position(
+                                            _pick.get("code", ""), _pick.get("name", ""),
+                                            _pk_price_d, [], _pk_theme_name, _pk_sec_stocks,
                                         )
-                else:
-                    st.markdown(
-                        "<div style='text-align:center;padding:60px 0;color:#555'>"
-                        "<div style='font-size:2rem'>🎯</div>"
-                        "<div style='margin-top:8px;font-size:0.9rem'>AI 타점 분석 실행 버튼을 눌러<br>"
-                        "실시간 추천 종목을 받아보세요</div>"
-                        "</div>",
-                        unsafe_allow_html=True,
-                    )
+                                    except Exception as _pte:
+                                        st.session_state[_pk_thm_res] = {"error": str(_pte)}
+                                    st.session_state[_pk_thm_run] = False
+                                st.rerun()
+
+                            if _pk_thm_res in st.session_state:
+                                _pktr = st.session_state[_pk_thm_res]
+                                if "error" in _pktr:
+                                    st.caption(f"⚠️ {str(_pktr['error'])[:80]}")
+                                else:
+                                    _pos2   = _pktr.get("position", "")
+                                    _pos_c2 = {"대장주": "#ff4b4b", "선도추종주": "#f5c518", "후발추종주": "#2b7cff", "소외주": "#888"}.get(_pos2, "#888")
+                                    _mstg  = _pktr.get("momentum_stage", "")
+                                    _etim  = _pktr.get("entry_timing", "")
+                                    _etim_c = "#00c853" if "즉시" in _etim else "#f5c518" if "대기" in _etim or "확인" in _etim else "#ff4b4b"
+                                    st.markdown(
+                                        f"<div class='sc-card-sm' style='background:rgba(255,255,255,0.04);border-radius:8px;"
+                                        f"padding:8px 10px;margin-top:4px;font-size:0.72rem'>"
+                                        f"<b style='color:{_pos_c2}'>{_pos2}</b>"
+                                        f"<span style='color:#aaa;margin-left:6px'>{_mstg}</span><br>"
+                                        f"<span style='color:{_etim_c}'>⏱ {_etim}</span>"
+                                        f"<span style='color:#888;margin-left:6px'>{_pktr.get('entry_reason','')[:60]}</span>"
+                                        f"</div>",
+                                        unsafe_allow_html=True,
+                                    )
             # ══════════════════════════════════════════════════════════════
             # 📊 종목검색 / 🔥 섹터분석 (상단 네비로 전환)
             # ══════════════════════════════════════════════════════════════
