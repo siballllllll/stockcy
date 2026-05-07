@@ -101,15 +101,50 @@ def inject_custom_css():
             margin: 8px 0;
         }
 
-        /* ── 네비 링크 hover ── */
-        .stMarkdown a[href^="?nav="],
-        .stMarkdown a[href^="?mkt="] {
-            opacity: 0.85;
+        /* ── 네비 탭 버튼 (JS가 data-navbtn 속성 부여) ── */
+        button[data-navbtn] {
+            background: transparent !important;
+            border: none !important;
+            border-bottom: 2px solid transparent !important;
+            border-radius: 6px 6px 0 0 !important;
+            font-size: 0.83rem !important;
+            font-weight: 500 !important;
+            color: #666 !important;
+            padding: 6px 18px !important;
+            transition: color 0.15s, border-color 0.15s !important;
+            width: 100% !important;
         }
-        .stMarkdown a[href^="?nav="]:hover,
-        .stMarkdown a[href^="?mkt="]:hover {
-            opacity: 1;
+        button[data-navbtn]:hover {
+            color: #bbb !important;
+            background: rgba(255,255,255,0.03) !important;
+        }
+        button[data-navbtn="active"] {
+            color: #ff9800 !important;
+            font-weight: 700 !important;
+            border-bottom: 2px solid #ff9800 !important;
+            background: rgba(255,152,0,0.06) !important;
+        }
+
+        /* ── 마켓 pill 버튼 (JS가 data-mktbtn 속성 부여) ── */
+        button[data-mktbtn] {
+            background: transparent !important;
+            border: 1px solid rgba(255,255,255,0.08) !important;
+            border-radius: 20px !important;
+            font-size: 0.77rem !important;
+            font-weight: 400 !important;
+            color: #555 !important;
+            padding: 3px 12px !important;
+            transition: all 0.15s !important;
+        }
+        button[data-mktbtn]:hover {
+            color: #aaa !important;
+            border-color: rgba(255,255,255,0.2) !important;
+        }
+        button[data-mktbtn="active"] {
+            background: rgba(255,255,255,0.10) !important;
+            border-color: rgba(255,255,255,0.22) !important;
             color: #fff !important;
+            font-weight: 700 !important;
         }
 
         .disclaimer {
@@ -213,109 +248,93 @@ def main():
     init_session_state()
     inject_custom_css()
     
-    # ── query param 으로 네비 클릭 처리 (HTML <a> 링크 방식) ─────────────
-    try:
-        _qp = st.query_params.to_dict()
-    except Exception:
-        _qp = {}
-    _qp_nav = _qp.get("nav", "")
-    _qp_mkt = _qp.get("mkt", "")
-
     _is_kr_nav = "국내" in st.session_state.market
     _nav_mode_key = "kr_mode" if _is_kr_nav else "us_mode"
 
-    if _qp_mkt:
-        st.session_state.market = "국내 주식 🇰🇷" if _qp_mkt == "kr" else "미국 주식 🇺🇸"
-        st.session_state[_nav_mode_key] = "🎯 AI 타점 보드"
-        st.query_params.clear()
-        st.rerun()
-
-    _nav_mode_map = {
-        "picks":   "🎯 AI 타점 보드",
-        "search":  "📊 일반 주식 검색",
-        "sector":  "🔥 오늘의 이슈 섹터",
-    }
-    if _qp_nav in _nav_mode_map:
-        st.session_state[_nav_mode_key] = _nav_mode_map[_qp_nav]
-        st.query_params.clear()
-        st.rerun()
-    elif _qp_nav == "briefing":
-        st.query_params.clear()
-        show_daily_briefing()
-
-    # ── 상단 네비게이션 바 (HTML 탭 방식) ────────────────────────────────
+    # ── 상단 네비게이션 바 (Streamlit 버튼 + JS 스타일링) ─────────────────
     _nav_cur_mode = st.session_state.get(_nav_mode_key, "🎯 AI 타점 보드")
     _nav_sig_k = "_kr_sig_count_last" if _is_kr_nav else "_us_sig_count_last"
     _nav_sig_n = st.session_state.get(_nav_sig_k, 0)
+    _picks_label = f"🎯 타점보드" + (f" {_nav_sig_n}" if _nav_sig_n > 0 else "")
 
-    def _nav_tab(label, nav_key, mode_val=None):
-        is_active = (mode_val == _nav_cur_mode) if mode_val else False
-        badge = (
-            f"<span style='background:#ff4b4b;color:#fff;border-radius:8px;"
-            f"font-size:0.6rem;font-weight:700;padding:1px 5px;margin-left:4px;"
-            f"vertical-align:middle'>{_nav_sig_n}</span>"
-            if nav_key == "picks" and _nav_sig_n > 0 else ""
-        )
-        color   = "#ffffff" if is_active else "#666"
-        weight  = "700"     if is_active else "500"
-        border  = f"2px solid #ff9800" if is_active else "2px solid transparent"
-        bg      = "rgba(255,152,0,0.08)" if is_active else "transparent"
-        return (
-            f"<a href='?nav={nav_key}' style='"
-            f"display:inline-flex;align-items:center;gap:0;"
-            f"padding:7px 16px;text-decoration:none;white-space:nowrap;"
-            f"font-size:0.83rem;font-weight:{weight};color:{color};"
-            f"border-bottom:{border};background:{bg};"
-            f"border-radius:6px 6px 0 0;transition:all 0.15s'>"
-            f"{label}{badge}</a>"
-        )
-
-    _mkt_kr_active = "국내" in st.session_state.market
-    def _mkt_btn(label, mkt_key, is_active):
-        color  = "#fff"   if is_active else "#555"
-        weight = "700"    if is_active else "400"
-        bg     = "rgba(255,255,255,0.10)" if is_active else "transparent"
-        border = "1px solid rgba(255,255,255,0.18)" if is_active else "1px solid rgba(255,255,255,0.06)"
-        return (
-            f"<a href='?mkt={mkt_key}' style='"
-            f"display:inline-block;padding:5px 12px;text-decoration:none;"
-            f"font-size:0.78rem;font-weight:{weight};color:{color};"
-            f"background:{bg};border:{border};"
-            f"border-radius:20px;white-space:nowrap;transition:all 0.15s'>"
-            f"{label}</a>"
-        )
-
-    _hdr_l, _hdr_nav, _hdr_r = st.columns([1.0, 6.0, 2.2])
+    _hdr_l, _hn1, _hn2, _hn3, _hn4, _sp, _hm1, _hm2 = st.columns(
+        [1.0, 1.35, 1.25, 1.25, 1.0, 0.7, 0.9, 0.9]
+    )
     with _hdr_l:
         st.markdown(
             "<p style='margin:9px 0 0 0;font-size:1.18rem;font-weight:800;"
             "letter-spacing:-0.5px;white-space:nowrap'>📈 Stockcy</p>",
             unsafe_allow_html=True,
         )
-    with _hdr_nav:
-        nav_html = (
-            "<div style='display:flex;align-items:flex-end;border-bottom:"
-            "1px solid rgba(255,255,255,0.09);height:42px;gap:0'>"
-            + _nav_tab("🎯 타점보드", "picks", "🎯 AI 타점 보드")
-            + _nav_tab("📊 종목검색", "search", "📊 일반 주식 검색")
-            + _nav_tab("🔥 섹터분석", "sector", "🔥 오늘의 이슈 섹터")
-            + _nav_tab("📰 브리핑",   "briefing")
-            + "</div>"
-        )
-        st.markdown(nav_html, unsafe_allow_html=True)
-    with _hdr_r:
-        mkt_html = (
-            "<div style='display:flex;align-items:center;justify-content:flex-end;"
-            "height:42px;gap:6px'>"
-            + _mkt_btn("🇰🇷 국내", "kr", _mkt_kr_active)
-            + _mkt_btn("🇺🇸 미국", "us", not _mkt_kr_active)
-            + "</div>"
-        )
-        st.markdown(mkt_html, unsafe_allow_html=True)
+    with _hn1:
+        if st.button(_picks_label, key="top_nav_picks",
+                     type="primary" if _nav_cur_mode == "🎯 AI 타점 보드" else "secondary",
+                     use_container_width=True):
+            st.session_state[_nav_mode_key] = "🎯 AI 타점 보드"
+            st.rerun()
+    with _hn2:
+        if st.button("📊 종목검색", key="top_nav_search",
+                     type="primary" if _nav_cur_mode == "📊 일반 주식 검색" else "secondary",
+                     use_container_width=True):
+            st.session_state[_nav_mode_key] = "📊 일반 주식 검색"
+            st.rerun()
+    with _hn3:
+        if st.button("🔥 섹터분석", key="top_nav_sector",
+                     type="primary" if _nav_cur_mode == "🔥 오늘의 이슈 섹터" else "secondary",
+                     use_container_width=True):
+            st.session_state[_nav_mode_key] = "🔥 오늘의 이슈 섹터"
+            st.rerun()
+    with _hn4:
+        if st.button("📰 브리핑", key="top_nav_briefing", use_container_width=True):
+            show_daily_briefing()
+    # _sp: 빈 스페이서
+    with _hm1:
+        if st.button("🇰🇷 국내", key="top_mkt_kr",
+                     type="primary" if _is_kr_nav else "secondary",
+                     use_container_width=True):
+            if not _is_kr_nav:
+                st.session_state.market = "국내 주식 🇰🇷"
+                st.rerun()
+    with _hm2:
+        if st.button("🇺🇸 미국", key="top_mkt_us",
+                     type="primary" if not _is_kr_nav else "secondary",
+                     use_container_width=True):
+            if _is_kr_nav:
+                st.session_state.market = "미국 주식 🇺🇸"
+                st.rerun()
 
-    st.markdown("<div style='height:2px'></div>", unsafe_allow_html=True)
-    
+    st.markdown(
+        "<hr style='border:none;border-top:1px solid rgba(255,255,255,0.09);margin:0 0 6px 0'>",
+        unsafe_allow_html=True,
+    )
+
     import streamlit.components.v1 as components
+    # JS: 버튼에 data 속성 부여 → CSS가 탭/pill 스타일로 렌더링
+    components.html("""<script>
+(function(){
+  var NAV = ['타점보드','종목검색','섹터분석','브리핑'];
+  var MKT = ['🇰🇷','🇺🇸'];
+  function tag(){
+    try{
+      var doc = window.parent.document;
+      doc.querySelectorAll('button').forEach(function(b){
+        var t = b.textContent||'';
+        var isNav = NAV.some(function(k){return t.indexOf(k)>=0;});
+        var isMkt = MKT.some(function(k){return t.indexOf(k)>=0;});
+        if(isNav){
+          b.setAttribute('data-navbtn',
+            b.getAttribute('data-testid')==='baseButton-primary'?'active':'1');
+        }
+        if(isMkt){
+          b.setAttribute('data-mktbtn',
+            b.getAttribute('data-testid')==='baseButton-primary'?'active':'1');
+        }
+      });
+    }catch(e){}
+  }
+  tag(); setInterval(tag,250);
+})();
+</script>""", height=0)
 
     # ── 상단 슬라이딩 티커 (KR/US 조건부) ──────────────────────────────
     def _ticker_pill(label, price_str, pct, is_index=False):
