@@ -384,8 +384,33 @@ def inject_custom_css():
             border-top: 1px solid var(--sc-divider);
         }
 
-        /* JS 주입용 1px iframe 숨김 */
-        iframe[height="1"] { display:block; height:1px !important; margin:-4px 0 -4px 0; opacity:0; pointer-events:none; }
+        /* ── iframe 여백 전면 제거 ── */
+        /* Streamlit은 components.html() 마다 element-container div를 감싸고
+           거기에 기본 margin을 추가함 → 전부 0으로 */
+        [data-testid="stIFrame"] { margin: 0 !important; padding: 0 !important; }
+        [data-testid="element-container"]:has(iframe) {
+            margin-top: 0 !important;
+            margin-bottom: 0 !important;
+            padding-top: 0 !important;
+            padding-bottom: 0 !important;
+            line-height: 0 !important;
+        }
+
+        /* JS 주입용 1px iframe — 완전히 눈에 안 보이게, 공간도 최소로 */
+        iframe[height="1"] {
+            display: block !important;
+            height: 1px !important;
+            max-height: 1px !important;
+            margin: -8px 0 -8px 0 !important;
+            opacity: 0 !important;
+            pointer-events: none !important;
+        }
+
+        /* Streamlit 기본 element 사이 여백 완화 (상단 티커 영역만) */
+        [data-testid="stMainBlockContainer"] > [data-testid="stVerticalBlock"]
+            > [data-testid="element-container"]:nth-child(-n+6) {
+            margin-bottom: 0 !important;
+        }
         </style>
     """, unsafe_allow_html=True)
 
@@ -694,6 +719,10 @@ def main():
 
     # ── 미국·글로벌 TradingView 티커 ────────────────────────────────────
     components.html("""
+    <style>body{margin:0;padding:0;overflow:hidden}
+    .tradingview-widget-container{margin:0;padding:0;height:46px}
+    .tradingview-widget-container__widget{height:46px}
+    </style>
     <div class="tradingview-widget-container">
       <div class="tradingview-widget-container__widget"></div>
       <script type="text/javascript"
@@ -716,14 +745,14 @@ def main():
           {"description": "비트코인",     "proName": "CRYPTO:BTCUSD"},
           {"description": "이더리움",     "proName": "CRYPTO:ETHUSD"}
         ],
-        "showSymbolLogo": true,
+        "showSymbolLogo": false,
         "isTransparent": true,
-        "displayMode": "adaptive",
+        "displayMode": "compact",
         "colorTheme": "dark",
         "locale": "kr"
       }
       </script>
-    </div>""", height=75)
+    </div>""", height=46)
     
     # --- 메인 콘텐츠 (탭 없이 섹션으로 구성) ---
     tab1 = st.container()
