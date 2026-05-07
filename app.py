@@ -103,116 +103,80 @@ def inject_custom_css():
 
         /* ══════════════════════════════════════════════════════════
            라이트 모드 — CSS 변수 재정의
+           html.sc-light 클래스만 사용 (OS prefers-color-scheme 무시)
+           → syncTheme() JS가 Streamlit 실제 테마를 감지해 클래스 부여
         ══════════════════════════════════════════════════════════ */
-        @media (prefers-color-scheme: light) { :root { --sc-_lm: 1; } }
-        @media (prefers-color-scheme: light), html.sc-light {
-            :root, html.sc-light {
-                --sc-divider:       rgba(0,0,0,0.10);
-                --sc-divider-str:   rgba(0,0,0,0.18);
-                --sc-card-bg:       #ffffff;
-                --sc-card-bg-sm:    #f4f5f8;
-                --sc-card-border:   rgba(0,0,0,0.08);
-                --sc-card-hi:       #ffffff;
-                --sc-shadow-card:
-                    0 0 0 1px rgba(0,0,0,0.07),
-                    0 4px 20px rgba(0,0,0,0.13),
-                    0 1px 4px  rgba(0,0,0,0.09);
-                --sc-shadow-sm:
-                    0 0 0 1px rgba(0,0,0,0.05),
-                    0 2px 10px rgba(0,0,0,0.10),
-                    0 1px 2px  rgba(0,0,0,0.06);
-                --sc-text-muted:    #4a4e5c;
-                --sc-text-subtle:   #6b7080;
-                --sc-pill-bg:       rgba(0,0,0,0.07);
-                --sc-pill-color:    #3a3d4a;
-                --sc-row-hover:     rgba(0,0,0,0.04);
-                --sc-nav-inactive:  #4a4e5c;
-                --sc-nav-hover:     #111;
-                --sc-nav-hover-bg:  rgba(0,0,0,0.04);
-                --sc-mkt-border:    rgba(0,0,0,0.15);
-                --sc-mkt-inactive:  #4a4e5c;
-                --sc-mkt-act-bg:    rgba(0,0,0,0.08);
-                --sc-mkt-act-fg:    #111;
-                --sc-mkt-act-bdr:   rgba(0,0,0,0.24);
-                --sc-btn-border:    rgba(0,0,0,0.13);
-                --sc-btn-pri-bg:    rgba(0,0,0,0.07);
-                --sc-btn-pri-fg:    #111;
-                --sc-btn-hover-bg:  rgba(0,0,0,0.05);
-                --sc-accent:        #e65100;
-            }
+        html.sc-light {
+            --sc-divider:       rgba(0,0,0,0.10);
+            --sc-divider-str:   rgba(0,0,0,0.18);
+            --sc-card-bg:       #ffffff;
+            --sc-card-bg-sm:    #f4f5f8;
+            --sc-card-border:   rgba(0,0,0,0.08);
+            --sc-card-hi:       #ffffff;
+            --sc-shadow-card:
+                0 0 0 1px rgba(0,0,0,0.07),
+                0 4px 20px rgba(0,0,0,0.13),
+                0 1px 4px  rgba(0,0,0,0.09);
+            --sc-shadow-sm:
+                0 0 0 1px rgba(0,0,0,0.05),
+                0 2px 10px rgba(0,0,0,0.10),
+                0 1px 2px  rgba(0,0,0,0.06);
+            --sc-text-muted:    #4a4e5c;
+            --sc-text-subtle:   #6b7080;
+            --sc-pill-bg:       rgba(0,0,0,0.07);
+            --sc-pill-color:    #3a3d4a;
+            --sc-row-hover:     rgba(0,0,0,0.04);
+            --sc-nav-inactive:  #4a4e5c;
+            --sc-nav-hover:     #111;
+            --sc-nav-hover-bg:  rgba(0,0,0,0.04);
+            --sc-mkt-border:    rgba(0,0,0,0.15);
+            --sc-mkt-inactive:  #4a4e5c;
+            --sc-mkt-act-bg:    rgba(0,0,0,0.08);
+            --sc-mkt-act-fg:    #111;
+            --sc-mkt-act-bdr:   rgba(0,0,0,0.24);
+            --sc-btn-border:    rgba(0,0,0,0.13);
+            --sc-btn-pri-bg:    rgba(0,0,0,0.07);
+            --sc-btn-pri-fg:    #111;
+            --sc-btn-hover-bg:  rgba(0,0,0,0.05);
+            --sc-accent:        #e65100;
         }
 
         /* ══════════════════════════════════════════════════════════
            라이트 모드 — 페이지 배경 강제 회색
            + 인라인 스타일 밝은 텍스트 → 어두운 색으로 일괄 덮어쓰기
         ══════════════════════════════════════════════════════════ */
-        @media (prefers-color-scheme: light), html.sc-light {
-
-            /* ① 페이지 배경 전체를 연회색으로 — 카드가 떠 보이는 핵심 */
-            .stApp,
-            [data-testid="stAppViewContainer"],
-            [data-testid="stMain"],
-            [data-testid="stMainBlockContainer"],
-            section.main, section.main .block-container,
-            .main .block-container,
-            html.sc-light .stApp,
-            html.sc-light [data-testid="stAppViewContainer"],
-            html.sc-light [data-testid="stMain"],
-            html.sc-light [data-testid="stMainBlockContainer"] {
-                background-color: #eef0f5 !important;
-            }
-
-            /* ② 흰/밝은 텍스트(다크모드용) → 라이트모드에서 어두운 색으로
-                  CSS 속성 선택자: [style*="color:#xxx"] 로 인라인 스타일 일괄 처리 */
-
-            /* 거의 흰색 계열 (#eee #fff #ddd #ccc #f0f0f0) */
-            [style*="color:#eee"],[style*="color: #eee"],
-            [style*="color:#eeeeee"],[style*="color: #eeeeee"],
-            [style*="color:#f0f0f0"],[style*="color: #f0f0f0"],
-            [style*="color:#fafafa"],[style*="color: #fafafa"],
-            [style*="color:#fff"],[style*="color: #fff"],
-            [style*="color:#ffffff"],[style*="color: #ffffff"],
-            [style*="color:white"],[style*="color: white"],
-            [style*="color:#ddd"],[style*="color: #ddd"],
-            [style*="color:#ccc"],[style*="color: #ccc"] {
-                color: #1a1d2a !important;
-            }
-
-            /* 중간 밝기 회색 (#aaa #bbb #999 #888 #a0a4b8 #c0c4d8) */
-            [style*="color:#aaa"],[style*="color: #aaa"],
-            [style*="color:#aaaa"],[style*="color:#aaaaaa"],
-            [style*="color:#bbb"],[style*="color: #bbb"],
-            [style*="color:#bbbbbb"],
-            [style*="color:#999"],[style*="color: #999"],
-            [style*="color:#999999"],
-            [style*="color:#888"],[style*="color: #888"],
-            [style*="color:#888888"],
-            [style*="color:#a0a4b8"],[style*="color:#c0c4d8"] {
-                color: #3a3d4a !important;
-            }
-
-            /* 어두운 회색 (#777 #666 #555 #6b7080) */
-            [style*="color:#777"],[style*="color: #777"],
-            [style*="color:#777777"],
-            [style*="color:#666"],[style*="color: #666"],
-            [style*="color:#666666"],
-            [style*="color:#555"],[style*="color: #555"],
-            [style*="color:#555555"],
-            [style*="color:#6b7080"] {
-                color: #2a2d3a !important;
-            }
-
-            /* ③ Streamlit 기본 텍스트도 어둡게 */
-            .stMarkdown, .stMarkdown p,
-            [data-testid="stText"] {
-                color: #1a1d2a;
-            }
-
-            /* ④ expander 제목 */
-            [data-testid="stExpander"] summary p {
-                color: #1a1d2a !important;
-            }
+        html.sc-light .stApp,
+        html.sc-light [data-testid="stAppViewContainer"],
+        html.sc-light [data-testid="stMain"],
+        html.sc-light [data-testid="stMainBlockContainer"],
+        html.sc-light section.main .block-container,
+        html.sc-light .main .block-container {
+            background-color: #eef0f5 !important;
         }
+
+        /* 흰/밝은 텍스트(다크모드용) → 라이트모드에서 어두운 색으로 */
+        html.sc-light [style*="color:#eee"],html.sc-light [style*="color: #eee"],
+        html.sc-light [style*="color:#eeeeee"],html.sc-light [style*="color:#f0f0f0"],
+        html.sc-light [style*="color:#fafafa"],
+        html.sc-light [style*="color:#fff"],html.sc-light [style*="color: #fff"],
+        html.sc-light [style*="color:#ffffff"],
+        html.sc-light [style*="color:white"],html.sc-light [style*="color: white"],
+        html.sc-light [style*="color:#ddd"],html.sc-light [style*="color:#ccc"] {
+            color: #1a1d2a !important;
+        }
+        html.sc-light [style*="color:#aaa"],html.sc-light [style*="color:#bbb"],
+        html.sc-light [style*="color:#999"],html.sc-light [style*="color:#888"],
+        html.sc-light [style*="color:#a0a4b8"],html.sc-light [style*="color:#c0c4d8"] {
+            color: #3a3d4a !important;
+        }
+        html.sc-light [style*="color:#777"],html.sc-light [style*="color:#666"],
+        html.sc-light [style*="color:#555"],html.sc-light [style*="color:#6b7080"] {
+            color: #2a2d3a !important;
+        }
+        html.sc-light .stMarkdown,
+        html.sc-light .stMarkdown p,
+        html.sc-light [data-testid="stText"] { color: #1a1d2a; }
+        html.sc-light [data-testid="stExpander"] summary p { color: #1a1d2a !important; }
 
         /* ══════════════════════════════════════════════════════════
            Streamlit 컨테이너 — 상하 여백 최소화
@@ -634,17 +598,27 @@ def main():
         || b.getAttribute('data-testid')==='baseButton-primary';
   }
 
-  /* Streamlit 수동 테마 감지 → 부모 <html>에 sc-light 클래스 토글 */
+  /* Streamlit 실제 테마 감지 → 부모 <html>에 sc-light 클래스 토글
+     OS prefers-color-scheme 무시, Streamlit 앱 배경색 기준으로 판단 */
   function syncTheme(){
     try{
       var doc = window.parent.document;
       var root = doc.documentElement;
-      var bg = getComputedStyle(root)
-                .getPropertyValue('--background-color').trim()
-             || getComputedStyle(doc.body).backgroundColor;
-      /* 밝은 배경이면 sc-light 클래스 부여 */
-      var isLight = /^#f|^#e|^rgb[(]2[0-9]{2}|^rgba[(]2[0-9]{2}/.test(bg)
-                 || bg === '#ffffff' || bg === 'white';
+      var isLight = false;
+      /* 1순위: Streamlit CSS 변수 */
+      var bg = getComputedStyle(root).getPropertyValue('--background-color').trim();
+      if(bg){
+        isLight = /^#[eEfFdD]|^rgb\(2[2-9]\d|^rgba\(2[2-9]\d|^white$/i.test(bg)
+               || bg==='#ffffff' || bg==='rgb(255, 255, 255)';
+      } else {
+        /* 2순위: stApp 요소 배경색 (Streamlit이 직접 설정) */
+        var app = doc.querySelector('[data-testid="stApp"]') || doc.body;
+        var appBg = getComputedStyle(app).backgroundColor;
+        var m = appBg.match(/\d+/g);
+        if(m && m.length >= 3){
+          isLight = (parseInt(m[0])+parseInt(m[1])+parseInt(m[2]))/3 > 180;
+        }
+      }
       root.classList.toggle('sc-light', isLight);
     }catch(e){}
   }
@@ -714,7 +688,7 @@ def main():
             border: 1px solid var(--tk-wrap-bdr);
             border-radius:8px; overflow:hidden;
             box-sizing:border-box;
-            padding:4px 0; height:46px; display:flex; align-items:center;
+            padding:4px 0; height:52px; display:flex; align-items:center;
           }}
           .track {{
             display:inline-flex; align-items:center; white-space:nowrap;
@@ -736,7 +710,7 @@ def main():
         </style>
         <div class="wrap">
           <div class="track">{body}{body}</div>
-        </div>""", height=50)
+        </div>""", height=56)
 
     _is_us_mode = "미국" in st.session_state.get("market", "")
 
@@ -781,8 +755,8 @@ def main():
     # ── 미국·글로벌 TradingView 티커 ────────────────────────────────────
     components.html("""
     <style>body{margin:0;padding:0;overflow:hidden}
-    .tradingview-widget-container{margin:0;padding:0;height:46px}
-    .tradingview-widget-container__widget{height:46px}
+    .tradingview-widget-container{margin:0;padding:0;height:52px}
+    .tradingview-widget-container__widget{height:52px}
     </style>
     <div class="tradingview-widget-container">
       <div class="tradingview-widget-container__widget"></div>
@@ -813,7 +787,7 @@ def main():
         "locale": "kr"
       }
       </script>
-    </div>""", height=46)
+    </div>""", height=52)
     
     # --- 메인 콘텐츠 (탭 없이 섹션으로 구성) ---
     tab1 = st.container()
@@ -917,7 +891,7 @@ def main():
 
                 # ── 좌 패널: 컨트롤 + 종목 목록 ─────────────────────────
                 with _pb_left:
-                    with st.container(height=920):
+                    with st.container(height=750):
                         # 신호 배너
                         if _new_count > 0 and _pb_key not in st.session_state:
                             st.markdown(
@@ -1020,7 +994,7 @@ def main():
 
                 # ── 우 패널: 선택 종목 상세 카드 ─────────────────────────
                 with _pb_right:
-                    with st.container(height=920):
+                    with st.container(height=750):
                         if _pb_key not in st.session_state or not st.session_state[_pb_key].get("picks"):
                             st.markdown(
                                 "<div style='display:flex;flex-direction:column;align-items:center;"
@@ -1257,9 +1231,9 @@ def main():
 
                 col_chart, col_right = st.columns([5, 5])
                 with col_chart:
-                    _chart_ctr = st.container(height=920)
+                    _chart_ctr = st.container(height=750)
                 with col_right:
-                    _right_ctr = st.container(height=920)
+                    _right_ctr = st.container(height=750)
                 with _chart_ctr:
                     # ── 이슈 섹터 모드 ──────────────────────────────────────
                     if kr_mode == "🔥 오늘의 이슈 섹터":
@@ -3140,7 +3114,7 @@ def main():
 
                 # ── 좌 패널: 컨트롤 + 종목 목록 ─────────────────────────
                 with _us_pb_left:
-                    with st.container(height=920):
+                    with st.container(height=750):
                         # 신호 배너
                         if _us_new_count > 0 and _us_pb_key not in st.session_state:
                             st.markdown(
@@ -3245,7 +3219,7 @@ def main():
 
                 # ── 우 패널: 선택 종목 상세 카드 ─────────────────────────
                 with _us_pb_right:
-                    with st.container(height=920):
+                    with st.container(height=750):
                         if _us_pb_key not in st.session_state or not st.session_state[_us_pb_key].get("picks"):
                             st.markdown(
                                 "<div style='display:flex;flex-direction:column;align-items:center;"
@@ -3403,9 +3377,9 @@ def main():
 
                 col_us_chart, col_us_right = st.columns([5.5, 4.5])
                 with col_us_chart:
-                    _us_chart_ctr = st.container(height=920)
+                    _us_chart_ctr = st.container(height=750)
                 with col_us_right:
-                    _us_right_ctr = st.container(height=920)
+                    _us_right_ctr = st.container(height=750)
                 with _us_chart_ctr:
                     if us_mode == "🔥 오늘의 이슈 섹터":
                         if st.session_state.us_sector_view == "detail":
