@@ -329,16 +329,22 @@ def _compute_prebreakout_signals(volume_rank: list, change_rank: list) -> tuple:
     return enriched, already_done
 
 
-def generate_realtime_picks(market_data: dict, volume_rank: list, change_rank: list) -> dict:
+def generate_realtime_picks(
+    market_data: dict,
+    volume_rank: list,
+    change_rank: list,
+    hot_sectors: list = None,
+    investor_rank: list = None,
+) -> dict:
     """
-    스캘핑 종목 발굴 — 과거 급등 직전 패턴을 기준으로 현재 진입 가능 종목을 탐지합니다.
+    테마·수급·기술적 시그널을 종합한 AI 종목 발굴.
 
     동작 방식:
     1. 거래량 랭킹 + 등락률 랭킹에서 이미 급등한 종목(>8%) 제거
     2. 남은 후보군의 5분봉 데이터로 기술적 시그널 계산
-       (거래량가속도, 박스권돌파, 연속양봉 등)
-    3. 시그널 점수가 높은 순으로 정렬하여 AI에 전달
-    4. AI는 구글 검색으로 재료·수급을 확인 후 최종 3종목 선정
+    3. 오늘의 핫 섹터·대장주 컨텍스트와 교차 분석
+    4. AI가 구글 검색으로 재료·수급·테마 흐름 확인 후 최종 3종목 선정
+       → 각 종목마다 테마 내 포지션, 섹터 단계, 대장주 정보 포함
     """
     kospi  = market_data.get("KOSPI",  {})
     kosdaq = market_data.get("KOSDAQ", {})
@@ -373,13 +379,59 @@ def generate_realtime_picks(market_data: dict, volume_rank: list, change_rank: l
         for s in already_done[:6]
     ]
 
-    prompt = f"""당신은 10년 경력의 한국 주식시장 스캘핑·단타 트레이더입니다.
-지금 즉시 구글 검색으로 오늘의 뉴스·공시·외국인/기관 수급 흐름을 파악하세요.
+    # ── 핫 섹터 컨텍스트 구성 ──────────────────────────────────────────────
+    hot_sector_block = ""
+    if hot_sectors:
+        lines = []
+        for hs in hot_sectors[:6]:
+            kw    = hs.get("keyword", "")
+            score = hs.get("hot_score", 0)
+            reason= hs.get("reason", "")
+            news  = hs.get("news_title", "")
+            codes  = ", ".join(hs.get("hot_codes", [])[:5])
+            stage  = hs.get("sector_stage", "")
+            leader = hs.get("leader_name", "")
+            lines.append(
+                f"  [{kw}] 점수:{score}/10  단계:{stage if stage else '?'}"
+                + (f"  대장주:{leader}" if leader else "")
+                + f"\n    이유: {reason}"
+                + (f"\n    뉴스: {news}" if news else "")
+                + (f"\n    핵심코드: {codes}" if codes else "")
+            )
+        hot_sector_block = (
+            "\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            "🔥 [오늘의 핫 섹터 현황 — 테마 연동 기준으로 종목 선정]\n"
+            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            + "\n".join(lines)
+            + "\n\n"
+            "→ 위 핫 섹터의 추종주 중 아직 덜 오른 종목도 우선 후보로 고려하세요.\n"
+            "→ 대장주가 확인된 경우, 추종주의 테마 포지션(선도추종주/후발추종주)을 파악하세요.\n"
+        )
+
+    # ── 외국인·기관 순매수 상위 ──────────────────────────────────────────
+    investor_block = ""
+    if investor_rank:
+        inv_lines = [
+            f"  - {iv.get('종목명','')}({iv.get('종목코드','')})  "
+            f"외국인:{iv.get('외국인순매수',0):+,}주  기관:{iv.get('기관순매수',0):+,}주"
+            for iv in investor_rank[:8]
+        ]
+        if inv_lines:
+            investor_block = (
+                "\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                "💰 [오늘 외국인·기관 순매수 상위 종목]\n"
+                "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                + "\n".join(inv_lines)
+                + "\n→ 수급이 강한 종목은 기술적 시그널이 약해도 우선 고려하세요.\n"
+            )
+
+    prompt = f"""당신은 10년 경력의 한국 주식시장 스캘핑·단타 트레이더이자 테마·세력 추적 전문가입니다.
+지금 즉시 구글 검색으로 오늘의 뉴스·공시·외국인/기관 수급 흐름, 테마 흐름을 파악하세요.
 
 [현재 시장]
 KOSPI : {kospi.get('index',0):,.2f}  ({kospi.get('change_pct',0):+.2f}%)
 KOSDAQ: {kosdaq.get('index',0):,.2f}  ({kosdaq.get('change_pct',0):+.2f}%)
-
+{hot_sector_block}{investor_block}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 📊 [실시간 측정된 급등 직전 시그널 후보군]
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -441,14 +493,22 @@ KOSDAQ: {kosdaq.get('index',0):,.2f}  ({kosdaq.get('change_pct',0):+.2f}%)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ❌ 절대 금지: 현재 등락률 10% 이상 종목 (이미 급등 완료, 진입 불가)
 ✅ 필수 조건:
-   · 위 패턴 사전 중 최소 1개 이상 해당
-   · 구글 검색으로 오늘 실제 재료(뉴스/공시/테마) 확인 필수
+   · 위 패턴 사전 중 최소 1개 이상 해당, 또는 수급·테마 흐름이 강력한 종목
+   · 구글 검색으로 오늘 실제 재료(뉴스/공시/테마/수급) 확인 필수
    · 현재 등락률 0%~8% 사이 종목 우선
    · 후보 목록에 없어도 구글 검색에서 패턴 일치 종목 발굴 가능
+   · 핫 섹터가 있으면 해당 섹터의 추종주 중 아직 덜 움직인 종목도 우선 고려
+
+🔍 테마 연동 분석 (각 픽에 대해 반드시 수행):
+   · 이 종목이 속한 섹터/테마에서 오늘 대장주가 누구인지 확인
+   · 대장주 대비 이 종목의 위치 파악 (이미 같이 올랐나, 아직 후행하나)
+   · 섹터 단계 판단 (초기 형성/확산/과열/냉각)
+   · 세력(외국인·기관)의 현재 유입/이탈 방향 확인
+   · 역사적으로 이 패턴에서 이 종목 또는 유사 종목이 어떻게 움직였는지 참조
 
 🎯 타점 산정 (구글 검색으로 현재가 확인 후):
-   · 매수 타점: 패턴별 최적 진입가 (위 패턴 기준 적용)
-   · 목표가: 매수가 대비 +3%~+8%
+   · 매수 타점: 패턴별 최적 진입가 (위 패턴 기준 + 테마 연동 고려)
+   · 목표가: 매수가 대비 +3%~+8% (테마 확산 중이면 +10%까지 설정 가능)
    · 손절가: 매수가 대비 -2% (칼손절)
 
 반드시 아래 JSON만 반환 (백틱·설명 없이):
@@ -460,16 +520,21 @@ KOSDAQ: {kosdaq.get('index',0):,.2f}  ({kosdaq.get('change_pct',0):+.2f}%)
       "rank": 1,
       "code": "종목코드 6자리",
       "name": "종목명",
-      "theme": "핵심 테마 1~2개",
-      "pattern": "해당하는 급등 직전 패턴명 (예: 거래량가속돌파, 박스권돌파, 눌림목반등 등)",
-      "reason": "패턴 근거 + 오늘 재료 + 진입 가능한 이유 (3줄 이내)",
+      "theme": "핵심 테마 1~2개 (섹터명 기준)",
+      "pattern": "해당하는 급등 직전 패턴명 (예: 거래량가속돌파, 박스권돌파, 눌림목반등, 테마추종 등)",
+      "reason": "패턴 근거 + 오늘 재료 + 테마 연동 이유 + 진입 근거 (3~4줄)",
       "current_price": 현재가_숫자,
       "change_pct": 현재_등락률_숫자,
       "entry": 매수타점_숫자,
       "target": 목표가_숫자,
       "stop": 손절가_숫자,
       "urgency": "즉시진입 또는 눌림목대기 또는 내일장초반",
-      "horizon": "당일스캘핑 또는 1~2일스윙"
+      "horizon": "당일스캘핑 또는 1~2일스윙",
+      "position": "대장주 또는 선도추종주 또는 후발추종주",
+      "theme_stage": "초기 형성 또는 확산 또는 과열 또는 냉각",
+      "leader_name": "이 테마의 오늘 대장주 종목명",
+      "supply_signal": "세력 강하게 유입 또는 기관 매집 또는 외국인 매집 또는 관망 또는 이탈",
+      "theme_linkage": "대장주와의 연동 설명 + 이 종목이 왜 다음 타자인지 1~2문장"
     }}
   ]
 }}

@@ -442,15 +442,25 @@ def main():
 
                 # 플래그 서 있으면 AI 호출
                 if st.session_state.get(_run_key) and _pb_key not in st.session_state:
-                    with st.spinner("AI가 시장·뉴스·수급을 분석 중입니다..."):
+                    with st.spinner("AI가 시장·테마·수급·뉴스를 종합 분석 중입니다..."):
                         try:
                             from ai_engine import generate_realtime_picks
                             _mkt = get_kr_market_index() or {}
                             _vol = get_kr_volume_ranking() or []
                             from data_kr import get_kr_change_ranking
-                            # KOSPI + KOSDAQ 합산 → 더 넓은 종목 풀
                             _chg = (get_kr_change_ranking("J") or []) + (get_kr_change_ranking("Q") or [])
-                            _picks = generate_realtime_picks(_mkt, _vol, _chg)
+
+                            # 핫 섹터 컨텍스트 (@st.cache_data 1h TTL 적용 — 추가 API 비용 없음)
+                            _hot_secs = []
+                            try:
+                                from ai_engine import analyze_kr_hot_sectors
+                                _hs_res = analyze_kr_hot_sectors()
+                                if isinstance(_hs_res, dict):
+                                    _hot_secs = _hs_res.get("sectors", [])
+                            except Exception:
+                                pass
+
+                            _picks = generate_realtime_picks(_mkt, _vol, _chg, hot_sectors=_hot_secs)
                         except Exception as _pe:
                             _picks = {"error": str(_pe), "picks": []}
                         _picks["_ts"] = datetime.now().strftime("%H:%M")
@@ -510,6 +520,16 @@ def main():
                             _themes = [t.strip() for t in str(_pick.get("theme","")).split(",") if t.strip()]
                             _already_surged = _cpct >= 10
 
+                            # ── 테마 연동 필드 (AI가 직접 분석) ──
+                            _pos       = _pick.get("position", "")
+                            _pos_color = {"대장주": "#ff4b4b", "선도추종주": "#f5c518", "후발추종주": "#2b7cff"}.get(_pos, "#888")
+                            _t_stage   = _pick.get("theme_stage", "")
+                            _t_stage_c = {"초기 형성": "#4caf50", "확산": "#ff9800", "과열": "#ff4b4b", "냉각": "#2b7cff"}.get(_t_stage, "#888")
+                            _leader    = _pick.get("leader_name", "")
+                            _sup_sig   = _pick.get("supply_signal", "")
+                            _sup_c     = "#00c853" if "유입" in _sup_sig or "매집" in _sup_sig else "#ff4b4b" if "이탈" in _sup_sig else "#f5c518"
+                            _linkage   = _pick.get("theme_linkage", "")
+
                             with _pcol:
                                 _cpct_color = "#ff4b4b" if _cpct >= 0 else "#2b7cff"
                                 _cpct_sign  = "▲" if _cpct >= 0 else "▼"
@@ -526,9 +546,36 @@ def main():
                                 _pattern_html = (
                                     f"<div style='font-size:0.62rem;color:#7dd3fc;"
                                     f"background:rgba(125,211,252,0.08);border-radius:6px;"
-                                    f"padding:3px 8px;margin-bottom:8px;display:inline-block'>"
+                                    f"padding:3px 8px;margin-bottom:6px;display:inline-block'>"
                                     f"📊 {_pattern}</div>"
                                 ) if _pattern else ""
+
+                                # 테마 포지션 + 섹터 단계 배지
+                                _theme_pos_html = ""
+                                if _pos or _t_stage:
+                                    _theme_pos_html = (
+                                        f"<div style='display:flex;gap:5px;flex-wrap:wrap;margin-bottom:6px'>"
+                                        + (f"<span style='background:rgba(255,255,255,0.07);border:1px solid {_pos_color};"
+                                           f"border-radius:8px;padding:2px 7px;font-size:0.62rem;color:{_pos_color};font-weight:700'>"
+                                           f"{_pos}</span>" if _pos else "")
+                                        + (f"<span style='background:rgba(255,255,255,0.07);border:1px solid {_t_stage_c};"
+                                           f"border-radius:8px;padding:2px 7px;font-size:0.62rem;color:{_t_stage_c}'>"
+                                           f"{_t_stage}</span>" if _t_stage else "")
+                                        + (f"<span style='font-size:0.62rem;color:{_sup_c};padding:2px 4px'>"
+                                           f"📡 {_sup_sig}</span>" if _sup_sig else "")
+                                        + "</div>"
+                                    )
+
+                                # 대장주 + 연동 설명
+                                _linkage_html = ""
+                                if _leader or _linkage:
+                                    _linkage_html = (
+                                        f"<div style='background:rgba(255,255,255,0.04);border-left:2px solid {_pos_color};"
+                                        f"border-radius:0 6px 6px 0;padding:5px 8px;margin-bottom:8px;font-size:0.7rem'>"
+                                        + (f"<span style='color:#888'>대장주: </span><span style='color:#eee'>{_leader}</span><br>" if _leader else "")
+                                        + (f"<span style='color:#aaa'>{_linkage}</span>" if _linkage else "")
+                                        + "</div>"
+                                    )
 
                                 # 테마 태그
                                 _theme_html = "".join(
@@ -545,7 +592,7 @@ def main():
                                     "margin-bottom:8px'>⚠️ 이미 많이 오른 종목 — 진입 신중</div>"
                                 ) if _already_surged else ""
 
-                                _border_color = "rgba(255,75,75,0.3)" if _already_surged else "rgba(255,255,255,0.1)"
+                                _border_color = "rgba(255,75,75,0.3)" if _already_surged else f"rgba(255,255,255,0.1)"
 
                                 _card_html = (
                                     f"<div style='background:rgba(255,255,255,0.035);"
@@ -566,7 +613,9 @@ def main():
                                     f"<span style='color:{_hz_color};font-size:0.6rem;font-weight:600'>{_hz_label}</span>"
                                     f"</div></div>"
                                     + _warn_html
+                                    + _theme_pos_html
                                     + _pattern_html
+                                    + _linkage_html
                                     + _cur_html +
                                     # 타점 그리드
                                     f"<div style='display:grid;grid-template-columns:1fr 1fr 1fr;"
