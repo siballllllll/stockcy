@@ -723,9 +723,9 @@ def main():
                 _us_tick_items.append(_ticker_pill(_in, f"{_iv:,.2f}", _ip, is_index=True))
         for _t in _us_tick_data[:18]:
             _us_tick_items.append(_ticker_pill(
-                _t.get("name", _t.get("ticker", "")),
-                f'${_t.get("price", 0):,.2f}',
-                _t.get("change_pct", 0)
+                _t.get("name", _t.get("티커", _t.get("ticker", ""))),
+                f'${_t.get("현재가($)", _t.get("price", 0)):,.2f}',
+                _t.get("등락률(%)", _t.get("change_pct", 0))
             ))
         if _us_tick_items:
             _render_scroll_ticker(_us_tick_items, speed=60)
