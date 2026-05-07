@@ -98,7 +98,34 @@ def inject_custom_css():
         .toss-divider {
             border: none;
             border-top: 1px solid rgba(255,255,255,0.07);
-            margin: 10px 0;
+            margin: 8px 0;
+        }
+
+        /* ── 상단 네비게이션 바 ── */
+        .top-nav-bar {
+            display: flex;
+            align-items: center;
+            gap: 0;
+            padding: 4px 0;
+        }
+        /* 네비 활성 버튼 언더라인 효과 */
+        .nav-active div[data-testid="stButton"] > button {
+            border-bottom: 2px solid #ff9800 !important;
+            color: #ff9800 !important;
+            background: rgba(255,152,0,0.08) !important;
+        }
+
+        /* 신호 배지 */
+        .sig-badge {
+            display: inline-block;
+            background: #ff4b4b;
+            color: #fff;
+            border-radius: 10px;
+            font-size: 0.6rem;
+            font-weight: 700;
+            padding: 1px 5px;
+            margin-left: 3px;
+            vertical-align: middle;
         }
 
         .disclaimer {
@@ -116,6 +143,10 @@ def inject_custom_css():
 def init_session_state():
     if "market" not in st.session_state:
         st.session_state.market = "국내 주식 🇰🇷"
+    if "kr_mode" not in st.session_state:
+        st.session_state.kr_mode = "🎯 AI 타점 보드"
+    if "us_mode" not in st.session_state:
+        st.session_state.us_mode = "🎯 AI 타점 보드"
     
 @st.dialog("오늘의 데일리 브리핑 📝")
 def show_daily_briefing():
@@ -198,26 +229,64 @@ def main():
     init_session_state()
     inject_custom_css()
     
-    # --- 상단 영역 (컴팩트) ---
-    _h1, _h2, _h3 = st.columns([1.4, 3, 1.6])
+    # ── 상단 네비게이션 바 ────────────────────────────────────────────────
+    _is_kr_nav = "국내" in st.session_state.market
+    _nav_mode_key = "kr_mode" if _is_kr_nav else "us_mode"
+    _nav_cur_mode = st.session_state.get(_nav_mode_key, "🎯 AI 타점 보드")
+    _nav_sig_k = "_kr_sig_count_last" if _is_kr_nav else "_us_sig_count_last"
+    _nav_sig_n = st.session_state.get(_nav_sig_k, 0)
+    _picks_label = f"🎯 타점보드{'  🔴' + str(_nav_sig_n) if _nav_sig_n > 0 else ''}"
+
+    _h1, _hn1, _hn2, _hn3, _hn4, _h_mkt = st.columns([1.1, 1.4, 1.4, 1.4, 1.1, 2.0])
+
     with _h1:
         st.markdown(
-            "<p style='margin:6px 0 0 0;font-size:1.25rem;font-weight:800;letter-spacing:-0.5px'>📈 Stockcy</p>",
+            "<p style='margin:8px 0 0 0;font-size:1.22rem;font-weight:800;"
+            "letter-spacing:-0.5px;white-space:nowrap'>📈 Stockcy</p>",
             unsafe_allow_html=True,
         )
-    with _h2:
-        selected_market = st.radio(
-            "시장 선택",
+    with _hn1:
+        if st.button(
+            _picks_label,
+            key="top_nav_picks",
+            type="primary" if _nav_cur_mode == "🎯 AI 타점 보드" else "secondary",
+            use_container_width=True,
+        ):
+            st.session_state[_nav_mode_key] = "🎯 AI 타점 보드"
+            st.rerun()
+    with _hn2:
+        if st.button(
+            "📊 종목검색",
+            key="top_nav_search",
+            type="primary" if _nav_cur_mode == "📊 일반 주식 검색" else "secondary",
+            use_container_width=True,
+        ):
+            st.session_state[_nav_mode_key] = "📊 일반 주식 검색"
+            st.rerun()
+    with _hn3:
+        if st.button(
+            "🔥 섹터분석",
+            key="top_nav_sector",
+            type="primary" if _nav_cur_mode == "🔥 오늘의 이슈 섹터" else "secondary",
+            use_container_width=True,
+        ):
+            st.session_state[_nav_mode_key] = "🔥 오늘의 이슈 섹터"
+            st.rerun()
+    with _hn4:
+        if st.button("📰 브리핑", key="top_nav_briefing", use_container_width=True):
+            show_daily_briefing()
+    with _h_mkt:
+        _sel_mkt = st.radio(
+            "시장",
             ["국내 주식 🇰🇷", "미국 주식 🇺🇸"],
             horizontal=True,
             label_visibility="collapsed",
+            key="top_market_radio",
         )
-        if selected_market != st.session_state.market:
-            st.session_state.market = selected_market
+        if _sel_mkt != st.session_state.market:
+            st.session_state.market = _sel_mkt
             st.rerun()
-    with _h3:
-        if st.button("📰 데일리 브리핑", use_container_width=True):
-            show_daily_briefing()
+
     st.markdown("<hr class='toss-divider'>", unsafe_allow_html=True)
     
     import streamlit.components.v1 as components
@@ -353,7 +422,6 @@ def main():
 
             # 세션 상태 초기화
             for _k, _v in [
-                ("kr_mode", "🎯 AI 타점 보드"),
                 ("kr_selected_code", "005930"),
                 ("kr_selected_name", "삼성전자"),
                 ("kr_selected_sector", "반도체"),
@@ -375,37 +443,34 @@ def main():
 
             selected_code_kr = st.session_state.kr_selected_code
 
+            # ── 신호 스캔 (모드 무관, 항상 실행 → 네비 배지용) ──────────────
+            if _HAVE_AUTOREFRESH:
+                _st_autorefresh(interval=180_000, key="kr_signal_autorefresh")
+
+            def _quick_signal_scan() -> int:
+                try:
+                    from ai_engine import _compute_prebreakout_signals
+                    from data_kr import get_kr_change_ranking
+                    _qvol = get_kr_volume_ranking() or []
+                    _qchg = (get_kr_change_ranking("J") or []) + (get_kr_change_ranking("Q") or [])
+                    _qpre, _ = _compute_prebreakout_signals(_qvol, _qchg)
+                    return sum(1 for x in _qpre if x.get("_signal", {}).get("signal_score", 0) >= 3)
+                except Exception:
+                    return 0
+
+            _sig_count_key = "_kr_sig_count_last"
+            _sig_ts_key    = "_kr_sig_ts_last"
+            _new_count = _quick_signal_scan()
+            st.session_state[_sig_count_key] = _new_count
+            st.session_state[_sig_ts_key] = datetime.now().strftime("%H:%M")
+            _sig_ts = st.session_state.get(_sig_ts_key, "")
+
             # ══════════════════════════════════════════════════════════════
-            # 🎯 AI 타점 보드 (항상 표시)
+            # 🎯 AI 타점 보드
             # ══════════════════════════════════════════════════════════════
-            if True:
+            if kr_mode == "🎯 AI 타점 보드":
                 _pb_key  = "kr_picks_result"
                 _run_key = "_kr_picks_pending"
-
-                # ── 신호 알림: 3분마다 경량 스캔 ──────────────────────────
-                if _HAVE_AUTOREFRESH:
-                    _st_autorefresh(interval=180_000, key="kr_signal_autorefresh")
-
-                def _quick_signal_scan() -> int:
-                    """AI 없이 분봉 시그널만 체크 → 점수 3 이상 후보 수 반환."""
-                    try:
-                        from ai_engine import _compute_prebreakout_signals
-                        from data_kr import get_kr_change_ranking
-                        _qvol = get_kr_volume_ranking() or []
-                        _qchg = (get_kr_change_ranking("J") or []) + (get_kr_change_ranking("Q") or [])
-                        _qpre, _ = _compute_prebreakout_signals(_qvol, _qchg)
-                        return sum(1 for x in _qpre if x.get("_signal", {}).get("signal_score", 0) >= 3)
-                    except Exception:
-                        return 0
-
-                _sig_count_key  = "_kr_sig_count_last"
-                _sig_ts_key     = "_kr_sig_ts_last"
-                _new_count = _quick_signal_scan()
-                _old_count  = st.session_state.get(_sig_count_key, -1)
-                if _new_count != _old_count:
-                    st.session_state[_sig_count_key] = _new_count
-                st.session_state[_sig_ts_key] = datetime.now().strftime("%H:%M")
-                _sig_ts = st.session_state.get(_sig_ts_key, "")
 
                 # 신호 배너 (후보가 있고 아직 AI 결과가 없을 때)
                 if _new_count > 0 and _pb_key not in st.session_state:
@@ -717,32 +782,10 @@ def main():
                         "</div>",
                         unsafe_allow_html=True,
                     )
-            # (end of AI 타점 보드 section)
-
             # ══════════════════════════════════════════════════════════════
-            # 📊 종목 탐색 (일반 주식 검색 / 오늘의 이슈 섹터)
+            # 📊 종목검색 / 🔥 섹터분석 (상단 네비로 전환)
             # ══════════════════════════════════════════════════════════════
-            with st.expander("📊 종목 탐색", expanded=False):
-                _kn1, _kn2 = st.columns(2)
-                with _kn1:
-                    if st.button(
-                        "📊 일반 주식 검색",
-                        key="kr_nav2_search",
-                        type="primary" if kr_mode == "📊 일반 주식 검색" else "secondary",
-                        use_container_width=True,
-                    ):
-                        st.session_state.kr_mode = "📊 일반 주식 검색"
-                        st.rerun()
-                with _kn2:
-                    if st.button(
-                        "🔥 오늘의 이슈 섹터",
-                        key="kr_nav2_sector",
-                        type="primary" if kr_mode == "🔥 오늘의 이슈 섹터" else "secondary",
-                        use_container_width=True,
-                    ):
-                        st.session_state.kr_mode = "🔥 오늘의 이슈 섹터"
-                        st.rerun()
-
+            if kr_mode in ("📊 일반 주식 검색", "🔥 오늘의 이슈 섹터"):
                 _need_price = (
                     kr_mode == "📊 일반 주식 검색"
                     or st.session_state.kr_sector_view == "detail"
@@ -2474,7 +2517,6 @@ def main():
 
             # ── 세션 상태 초기화 ──────────────────────────────────────────
             for _k, _v in [
-                ("us_mode",               "📊 일반 주식 검색"),
                 ("us_selected_ticker",    "NVDA"),
                 ("us_selected_name",      "엔비디아"),
                 ("us_selected_sector_us", "AI·반도체"),
@@ -2493,36 +2535,34 @@ def main():
 
             us_mode = st.session_state.us_mode
 
+            # ── US 신호 스캔 (모드 무관, 항상 실행 → 네비 배지용) ───────────
+            if _HAVE_AUTOREFRESH:
+                _st_autorefresh(interval=180_000, key="us_signal_autorefresh")
+
+            def _us_quick_signal_scan() -> int:
+                try:
+                    from ai_engine import _compute_us_prebreakout_signals
+                    from data_kr import get_us_volume_ranking, get_us_change_ranking
+                    _qvol = get_us_volume_ranking() or []
+                    _qchg = get_us_change_ranking() or []
+                    _qpre, _ = _compute_us_prebreakout_signals(_qvol, _qchg)
+                    return sum(1 for x in _qpre if x.get("_signal", {}).get("signal_score", 0) >= 3)
+                except Exception:
+                    return 0
+
+            _us_sig_count_key = "_us_sig_count_last"
+            _us_sig_ts_key    = "_us_sig_ts_last"
+            _us_new_count = _us_quick_signal_scan()
+            st.session_state[_us_sig_count_key] = _us_new_count
+            st.session_state[_us_sig_ts_key] = datetime.now().strftime("%H:%M")
+            _us_sig_ts = st.session_state.get(_us_sig_ts_key, "")
+
             # ══════════════════════════════════════════════════════════════
             # 🎯 US AI 타점 보드
             # ══════════════════════════════════════════════════════════════
-            if True:
+            if us_mode == "🎯 AI 타점 보드":
                 _us_pb_key  = "us_picks_result"
                 _us_run_key = "_us_picks_pending"
-
-                # 3분마다 경량 신호 스캔
-                if _HAVE_AUTOREFRESH:
-                    _st_autorefresh(interval=180_000, key="us_signal_autorefresh")
-
-                def _us_quick_signal_scan() -> int:
-                    try:
-                        from ai_engine import _compute_us_prebreakout_signals
-                        from data_kr import get_us_volume_ranking, get_us_change_ranking
-                        _qvol = get_us_volume_ranking() or []
-                        _qchg = get_us_change_ranking() or []
-                        _qpre, _ = _compute_us_prebreakout_signals(_qvol, _qchg)
-                        return sum(1 for x in _qpre if x.get("_signal", {}).get("signal_score", 0) >= 3)
-                    except Exception:
-                        return 0
-
-                _us_sig_count_key = "_us_sig_count_last"
-                _us_sig_ts_key    = "_us_sig_ts_last"
-                _us_new_count = _us_quick_signal_scan()
-                _us_old_count  = st.session_state.get(_us_sig_count_key, -1)
-                if _us_new_count != _us_old_count:
-                    st.session_state[_us_sig_count_key] = _us_new_count
-                st.session_state[_us_sig_ts_key] = datetime.now().strftime("%H:%M")
-                _us_sig_ts = st.session_state.get(_us_sig_ts_key, "")
 
                 if _us_new_count > 0 and _us_pb_key not in st.session_state:
                     st.markdown(
@@ -2664,21 +2704,10 @@ def main():
                                     if _up_chg >= 12:
                                         st.warning("⚠️ 등락률 12% 이상 — 추격 매수 금지")
 
-            with st.expander("📊 종목 탐색", expanded=False):
-                _un1, _un2 = st.columns(2)
-                with _un1:
-                    if st.button("📊 일반 주식 검색", key="us_nav2_search",
-                                 type="primary" if us_mode == "📊 일반 주식 검색" else "secondary",
-                                 use_container_width=True):
-                        st.session_state.us_mode = "📊 일반 주식 검색"
-                        st.rerun()
-                with _un2:
-                    if st.button("🔥 오늘의 이슈 섹터", key="us_nav2_sector",
-                                 type="primary" if us_mode == "🔥 오늘의 이슈 섹터" else "secondary",
-                                 use_container_width=True):
-                        st.session_state.us_mode = "🔥 오늘의 이슈 섹터"
-                        st.rerun()
-                # ── 2-컬럼 레이아웃 변수 (타점 보드 이외 모드에서 사용) ──────────
+            # ══════════════════════════════════════════════════════════════
+            # 📊 종목검색 / 🔥 섹터분석 (상단 네비로 전환)
+            # ══════════════════════════════════════════════════════════════
+            if us_mode in ("📊 일반 주식 검색", "🔥 오늘의 이슈 섹터"):
                 _us_ticker_cur = st.session_state.us_selected_ticker
                 _us_name_cur   = st.session_state.us_selected_name
                 _us_need_price = (
