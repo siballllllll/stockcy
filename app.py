@@ -598,27 +598,34 @@ def main():
         || b.getAttribute('data-testid')==='baseButton-primary';
   }
 
-  /* Streamlit 실제 테마 감지 → 부모 <html>에 sc-light 클래스 토글
-     OS prefers-color-scheme 무시, Streamlit 앱 배경색 기준으로 판단 */
+  /* Streamlit 테마 감지 → 부모 <html>에 sc-light 클래스 토글
+     Streamlit이 :root에 주입하는 --background-color CSS 변수를 직접 읽어 판단.
+     OS prefers-color-scheme 완전 무시, Streamlit 활성 테마만 따름. */
   function syncTheme(){
     try{
       var doc = window.parent.document;
       var root = doc.documentElement;
       var isLight = false;
-      /* 1순위: Streamlit CSS 변수 */
+
+      /* Streamlit이 :root에 직접 설정하는 CSS 변수 */
       var bg = getComputedStyle(root).getPropertyValue('--background-color').trim();
       if(bg){
-        isLight = /^#[eEfFdD]|^rgb\(2[2-9]\d|^rgba\(2[2-9]\d|^white$/i.test(bg)
-               || bg==='#ffffff' || bg==='rgb(255, 255, 255)';
-      } else {
-        /* 2순위: stApp 요소 배경색 (Streamlit이 직접 설정) */
-        var app = doc.querySelector('[data-testid="stApp"]') || doc.body;
-        var appBg = getComputedStyle(app).backgroundColor;
-        var m = appBg.match(/\d+/g);
+        var m = bg.match(/\d+/g);
         if(m && m.length >= 3){
-          isLight = (parseInt(m[0])+parseInt(m[1])+parseInt(m[2]))/3 > 180;
+          /* rgb/rgba: 평균 150 초과 → 라이트 */
+          isLight = (parseInt(m[0])+parseInt(m[1])+parseInt(m[2]))/3 > 150;
+        } else {
+          /* hex: c이상(#cde, #eee, #fff 등) → 라이트 */
+          isLight = /^#[c-fC-F]/i.test(bg) || bg==='white';
+        }
+      } else {
+        /* 폴백: body 배경 직접 확인 */
+        var m2 = getComputedStyle(doc.body).backgroundColor.match(/\d+/g);
+        if(m2 && m2.length >= 3){
+          isLight = (parseInt(m2[0])+parseInt(m2[1])+parseInt(m2[2]))/3 > 150;
         }
       }
+
       root.classList.toggle('sc-light', isLight);
     }catch(e){}
   }
@@ -688,7 +695,7 @@ def main():
             border: 1px solid var(--tk-wrap-bdr);
             border-radius:8px; overflow:hidden;
             box-sizing:border-box;
-            padding:4px 0; height:60px; display:flex; align-items:center;
+            padding:4px 0; height:70px; display:flex; align-items:center;
           }}
           .track {{
             display:inline-flex; align-items:center; white-space:nowrap;
@@ -710,7 +717,7 @@ def main():
         </style>
         <div class="wrap">
           <div class="track">{body}{body}</div>
-        </div>""", height=64)
+        </div>""", height=74)
 
     _is_us_mode = "미국" in st.session_state.get("market", "")
 
@@ -755,8 +762,8 @@ def main():
     # ── 미국·글로벌 TradingView 티커 ────────────────────────────────────
     components.html("""
     <style>body{margin:0;padding:0;overflow:hidden}
-    .tradingview-widget-container{margin:0;padding:0;height:60px}
-    .tradingview-widget-container__widget{height:60px}
+    .tradingview-widget-container{margin:0;padding:0;height:70px}
+    .tradingview-widget-container__widget{height:70px}
     </style>
     <div class="tradingview-widget-container">
       <div class="tradingview-widget-container__widget"></div>
@@ -787,7 +794,7 @@ def main():
         "locale": "kr"
       }
       </script>
-    </div>""", height=60)
+    </div>""", height=70)
     
     # --- 메인 콘텐츠 (탭 없이 섹션으로 구성) ---
     tab1 = st.container()
