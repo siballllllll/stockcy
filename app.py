@@ -675,19 +675,8 @@ def main():
             --tk-pill-bg:  rgba(255,255,255,0.05);
             --tk-pill-idx: rgba(255,255,255,0.09);
             --tk-pill-bdr: rgba(255,255,255,0.11);
-            --tk-label:    #aaa;
-            --tk-price:    #eee;
-          }}
-          @media (prefers-color-scheme: light) {{
-            :root {{
-              --tk-wrap-bg:  rgba(0,0,0,0.02);
-              --tk-wrap-bdr: rgba(0,0,0,0.09);
-              --tk-pill-bg:  rgba(0,0,0,0.04);
-              --tk-pill-idx: rgba(0,0,0,0.07);
-              --tk-pill-bdr: rgba(0,0,0,0.10);
-              --tk-label:    #666;
-              --tk-price:    #111;
-            }}
+            --tk-label:    #bbb;
+            --tk-price:    #f0f0f0;
           }}
           body {{ margin:0; overflow:hidden; background:transparent; }}
           .wrap {{
@@ -717,7 +706,42 @@ def main():
         </style>
         <div class="wrap">
           <div class="track">{body}{body}</div>
-        </div>""", height=80)
+        </div>
+        <script>
+        (function(){{
+          var DARK = {{
+            '--tk-wrap-bg':  'rgba(255,255,255,0.02)',
+            '--tk-wrap-bdr': 'rgba(255,255,255,0.08)',
+            '--tk-pill-bg':  'rgba(255,255,255,0.05)',
+            '--tk-pill-idx': 'rgba(255,255,255,0.09)',
+            '--tk-pill-bdr': 'rgba(255,255,255,0.11)',
+            '--tk-label':    '#bbb',
+            '--tk-price':    '#f0f0f0'
+          }};
+          var LIGHT = {{
+            '--tk-wrap-bg':  'rgba(0,0,0,0.03)',
+            '--tk-wrap-bdr': 'rgba(0,0,0,0.12)',
+            '--tk-pill-bg':  'rgba(0,0,0,0.05)',
+            '--tk-pill-idx': 'rgba(0,0,0,0.09)',
+            '--tk-pill-bdr': 'rgba(0,0,0,0.12)',
+            '--tk-label':    '#444',
+            '--tk-price':    '#111'
+          }};
+          function applyTheme(){{
+            try{{
+              var isLight = window.parent.document.documentElement
+                              .classList.contains('sc-light');
+              var vars = isLight ? LIGHT : DARK;
+              var root = document.documentElement;
+              for(var k in vars) root.style.setProperty(k, vars[k]);
+              document.body.style.background = isLight
+                ? 'rgba(240,242,246,0)' : 'transparent';
+            }}catch(e){{}}
+          }}
+          applyTheme();
+          setInterval(applyTheme, 400);
+        }})();
+        </script>""", height=80)
 
     _is_us_mode = "미국" in st.session_state.get("market", "")
 
@@ -766,35 +790,44 @@ def main():
     .tradingview-widget-container__widget{height:75px}
     </style>
     <div class="tradingview-widget-container">
-      <div class="tradingview-widget-container__widget"></div>
-      <script type="text/javascript"
-        src="https://s3.tradingview.com/external-embedding/embed-widget-ticker-tape.js" async>
-      {
+      <div id="tv-widget-target"></div>
+    </div>
+    <script>
+    (function(){
+      var isLight = false;
+      try { isLight = window.parent.document.documentElement.classList.contains('sc-light'); } catch(e){}
+      var colorTheme = isLight ? "light" : "dark";
+      var s = document.createElement("script");
+      s.type = "text/javascript";
+      s.src = "https://s3.tradingview.com/external-embedding/embed-widget-ticker-tape.js";
+      s.async = true;
+      s.innerHTML = JSON.stringify({
         "symbols": [
-          {"description": "S&P500",      "proName": "AMEX:SPY"},
-          {"description": "나스닥100",    "proName": "NASDAQ:QQQ"},
-          {"description": "다우존스",     "proName": "AMEX:DIA"},
-          {"description": "원/달러",      "proName": "FX_IDC:USDKRW"},
-          {"description": "엔비디아",     "proName": "NASDAQ:NVDA"},
-          {"description": "애플",         "proName": "NASDAQ:AAPL"},
-          {"description": "테슬라",       "proName": "NASDAQ:TSLA"},
-          {"description": "마이크로소프트","proName": "NASDAQ:MSFT"},
-          {"description": "메타",         "proName": "NASDAQ:META"},
-          {"description": "구글",         "proName": "NASDAQ:GOOGL"},
-          {"description": "아마존",       "proName": "NASDAQ:AMZN"},
-          {"description": "금",           "proName": "TVC:GOLD"},
-          {"description": "WTI유가",      "proName": "TVC:USOIL"},
-          {"description": "비트코인",     "proName": "CRYPTO:BTCUSD"},
-          {"description": "이더리움",     "proName": "CRYPTO:ETHUSD"}
+          {"description":"S&P500","proName":"AMEX:SPY"},
+          {"description":"나스닥100","proName":"NASDAQ:QQQ"},
+          {"description":"다우존스","proName":"AMEX:DIA"},
+          {"description":"원/달러","proName":"FX_IDC:USDKRW"},
+          {"description":"엔비디아","proName":"NASDAQ:NVDA"},
+          {"description":"애플","proName":"NASDAQ:AAPL"},
+          {"description":"테슬라","proName":"NASDAQ:TSLA"},
+          {"description":"마이크로소프트","proName":"NASDAQ:MSFT"},
+          {"description":"메타","proName":"NASDAQ:META"},
+          {"description":"구글","proName":"NASDAQ:GOOGL"},
+          {"description":"아마존","proName":"NASDAQ:AMZN"},
+          {"description":"금","proName":"TVC:GOLD"},
+          {"description":"WTI유가","proName":"TVC:USOIL"},
+          {"description":"비트코인","proName":"CRYPTO:BTCUSD"},
+          {"description":"이더리움","proName":"CRYPTO:ETHUSD"}
         ],
         "showSymbolLogo": false,
         "isTransparent": true,
         "displayMode": "compact",
-        "colorTheme": "dark",
+        "colorTheme": colorTheme,
         "locale": "kr"
-      }
-      </script>
-    </div>""", height=75)
+      });
+      document.querySelector(".tradingview-widget-container").appendChild(s);
+    })();
+    </script>""", height=75)
     
     # --- 메인 콘텐츠 (탭 없이 섹션으로 구성) ---
     tab1 = st.container()
