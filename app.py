@@ -1208,6 +1208,10 @@ def main():
 
                 col_chart, col_right = st.columns([5, 5])
                 with col_chart:
+                    _chart_ctr = st.container(height=720)
+                with col_right:
+                    _right_ctr = st.container(height=720)
+                with _chart_ctr:
                     # ── 이슈 섹터 모드 ──────────────────────────────────────
                     if kr_mode == "🔥 오늘의 이슈 섹터":
 
@@ -1553,7 +1557,7 @@ def main():
                                 "장 운영 시간(09:00~15:30) 확인 또는 잠시 후 다시 시도해주세요."
                             )
 
-                with col_right:
+                with _right_ctr:
                     if kr_mode == "📊 일반 주식 검색":
                         _cur_code = st.session_state.kr_selected_code
                         _cur_name = st.session_state.kr_selected_name
