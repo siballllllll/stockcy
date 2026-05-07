@@ -28,6 +28,9 @@ st.set_page_config(
 def inject_custom_css():
     st.markdown("""
         <style>
+        /* ── 전체 화면 67% 축소 (브라우저 67% zoom 동일 효과) ── */
+        html { zoom: 0.67; }
+
         /* ── Streamlit 기본 헤더(share·별·메뉴) 숨김 ── */
         [data-testid="stHeader"],
         [data-testid="stToolbar"],
@@ -868,7 +871,7 @@ def main():
 
                 # ── 좌 패널: 컨트롤 + 종목 목록 ─────────────────────────
                 with _pb_left:
-                    with st.container(height=720):
+                    with st.container(height=900):
                         # 신호 배너
                         if _new_count > 0 and _pb_key not in st.session_state:
                             st.markdown(
@@ -971,7 +974,7 @@ def main():
 
                 # ── 우 패널: 선택 종목 상세 카드 ─────────────────────────
                 with _pb_right:
-                    with st.container(height=720):
+                    with st.container(height=900):
                         if _pb_key not in st.session_state or not st.session_state[_pb_key].get("picks"):
                             st.markdown(
                                 "<div style='display:flex;flex-direction:column;align-items:center;"
@@ -1208,9 +1211,9 @@ def main():
 
                 col_chart, col_right = st.columns([5, 5])
                 with col_chart:
-                    _chart_ctr = st.container(height=720)
+                    _chart_ctr = st.container(height=900)
                 with col_right:
-                    _right_ctr = st.container(height=720)
+                    _right_ctr = st.container(height=900)
                 with _chart_ctr:
                     # ── 이슈 섹터 모드 ──────────────────────────────────────
                     if kr_mode == "🔥 오늘의 이슈 섹터":
