@@ -28,43 +28,34 @@ def _get_chart_colors():
     )
 
 def _tv_chart(symbol: str, interval: str = "D", height: int = 660) -> None:
-    """TradingView Advanced Chart 위젯을 Streamlit에 렌더링."""
-    import streamlit.components.v1 as _cv1
+    """TradingView Advanced Chart 위젯을 Streamlit에 렌더링 (iframe URL 방식)."""
+    import urllib.parse
     try:
         _dark = (st.get_option("theme.base") or "dark") != "light"
     except Exception:
         _dark = True
     _theme = "dark" if _dark else "light"
-    # TradingView 공식 embed-widget-advanced-chart.js 방식 (JSON을 script body에 넣음)
-    _html = f"""<!DOCTYPE html>
-<html>
-<head><style>*{{margin:0;padding:0;box-sizing:border-box}}</style></head>
-<body>
-<div class="tradingview-widget-container" style="height:{height}px;width:100%">
-  <div class="tradingview-widget-container__widget" style="height:{height}px;width:100%"></div>
-  <script type="text/javascript"
-          src="https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js"
-          async>
-  {{
-    "autosize": true,
-    "symbol": "{symbol}",
-    "interval": "{interval}",
-    "timezone": "Asia/Seoul",
-    "theme": "{_theme}",
-    "style": "1",
-    "locale": "kr",
-    "enable_publishing": false,
-    "hide_top_toolbar": false,
-    "hide_legend": false,
-    "save_image": false,
-    "allow_symbol_change": false,
-    "support_host": "https://www.tradingview.com"
-  }}
-  </script>
-</div>
-</body>
-</html>"""
-    _cv1.html(_html, height=height, scrolling=False)
+    _params = urllib.parse.urlencode({
+        "symbol": symbol,
+        "interval": interval,
+        "timezone": "Asia/Seoul",
+        "theme": _theme,
+        "style": "1",
+        "locale": "kr",
+        "enable_publishing": "false",
+        "hide_top_toolbar": "false",
+        "hide_legend": "false",
+        "save_image": "false",
+        "allow_symbol_change": "false",
+        "autosize": "1",
+    })
+    _url = f"https://www.tradingview.com/widgetembed/?{_params}"
+    st.markdown(
+        f'<iframe src="{_url}" width="100%" height="{height}"'
+        f' frameborder="0" scrolling="no" allowtransparency="true"'
+        f' style="border-radius:12px;"></iframe>',
+        unsafe_allow_html=True,
+    )
 
 # 1. 페이지 기본 설정 (항상 최상단에 위치)
 st.set_page_config(
@@ -845,8 +836,11 @@ def main():
                 f'${_t.get("현재가($)", _t.get("price", 0)):,.2f}',
                 _t.get("등락률(%)", _t.get("change_pct", 0))
             ))
-        if _us_tick_items:
-            _render_scroll_ticker(_us_tick_items, speed=60)
+        # 데이터 없을 때도 티커 바가 사라지지 않도록 폴백 아이템 추가
+        if not _us_tick_items:
+            for _fb in ["NVDA", "TSLA", "AAPL", "MSFT", "META", "AMZN"]:
+                _us_tick_items.append(_ticker_pill(_fb, "—", 0.0))
+        _render_scroll_ticker(_us_tick_items, speed=60)
     else:
         # ── 국내 주식 슬라이딩 티커 ──
         _kr_idx   = get_kr_market_index() or {}
@@ -858,8 +852,9 @@ def main():
             _kr_items.append(_ticker_pill(_iname, f"{_iv:,.2f}", _ip, is_index=True))
         for _t in _kr_ticks:
             _kr_items.append(_ticker_pill(_t["name"], f'₩{_t["price"]:,}', _t["pct"]))
-        if _kr_items:
-            _render_scroll_ticker(_kr_items, speed=50)
+        if not _kr_items:
+            _kr_items.append(_ticker_pill("KOSPI", "—", 0.0, is_index=True))
+        _render_scroll_ticker(_kr_items, speed=50)
 
     # ── 미국·글로벌 TradingView 티커 ────────────────────────────────────
     components.html("""
