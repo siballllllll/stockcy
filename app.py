@@ -27,6 +27,39 @@ def _get_chart_colors():
         "rgba(0,0,0,0.08)" if _light else "rgba(255,255,255,0.10)",
     )
 
+def _tv_chart(symbol: str, interval: str = "D", height: int = 660) -> None:
+    """TradingView Advanced Chart 위젯을 Streamlit에 렌더링."""
+    import streamlit.components.v1 as _cv1
+    try:
+        _dark = (st.get_option("theme.base") or "dark") != "light"
+    except Exception:
+        _dark = True
+    _theme = "dark" if _dark else "light"
+    _html = f"""<!DOCTYPE html><html><body style="margin:0;padding:0;overflow:hidden;background:transparent">
+<div class="tradingview-widget-container" style="height:{height}px;width:100%">
+  <div class="tradingview-widget-container__widget" style="height:{height}px;width:100%"></div>
+  <script src="https://s3.tradingview.com/tv.js"></script>
+  <script>
+  new TradingView.widget({{
+    autosize: true,
+    symbol: "{symbol}",
+    interval: "{interval}",
+    timezone: "Asia/Seoul",
+    theme: "{_theme}",
+    style: "1",
+    locale: "kr",
+    enable_publishing: false,
+    hide_top_toolbar: false,
+    hide_legend: false,
+    save_image: false,
+    allow_symbol_change: false,
+    container_id: "tv_widget_main"
+  }});
+  </script>
+</div>
+</body></html>"""
+    _cv1.html(_html, height=height, scrolling=False)
+
 # 1. 페이지 기본 설정 (항상 최상단에 위치)
 st.set_page_config(
     page_title="Stockcy | AI 단타 트레이딩 어시스턴트",
@@ -1332,71 +1365,7 @@ def main():
                             else:
                                 st.markdown(f"**{_dtv_name}** ({_dtv_code})")
 
-                            _si_c1, _si_c2, _ = st.columns([2, 1, 4])
-                            with _si_c1:
-                                _sec_interval = st.selectbox(
-                                    "분봉", [5, 10, 15, 30], index=0,
-                                    key="kr_sec_chart_interval",
-                                    format_func=lambda x: f"{x}분봉",
-                                )
-                            with _si_c2:
-                                if st.button("🔄", key="refresh_sec_chart", help="새로고침"):
-                                    get_kr_minute_chart.clear()
-                                    st.rerun()
-
-                            with st.spinner("차트 조회 중..."):
-                                df_sec = get_kr_minute_chart(_dtv_code, interval=_sec_interval)
-
-                            if not df_sec.empty:
-                                from plotly.subplots import make_subplots
-                                df_sec["ma5"]  = df_sec["close"].rolling(5).mean()
-                                df_sec["ma20"] = df_sec["close"].rolling(20).mean()
-                                _vc = ["#ff4b4b" if c >= o else "#2b7cff"
-                                       for c, o in zip(df_sec["close"], df_sec["open"])]
-                                _latest_sec = df_sec["datetime"].dt.date.max()
-                                _xs_st  = f"{_latest_sec} 09:00"
-                                _xs_end = f"{_latest_sec} 15:30"
-
-                                _fig_s = make_subplots(rows=2, cols=1, shared_xaxes=True,
-                                                       row_heights=[0.70, 0.30], vertical_spacing=0.02)
-                                _fig_s.add_trace(go.Candlestick(
-                                    x=df_sec["datetime"],
-                                    open=df_sec["open"], high=df_sec["high"],
-                                    low=df_sec["low"],   close=df_sec["close"],
-                                    increasing=dict(line=dict(color="#ff4b4b", width=1), fillcolor="#ff4b4b"),
-                                    decreasing=dict(line=dict(color="#2b7cff", width=1), fillcolor="#2b7cff"),
-                                    name="가격", showlegend=False,
-                                ), row=1, col=1)
-                                _fig_s.add_trace(go.Scatter(x=df_sec["datetime"], y=df_sec["ma5"],
-                                    line=dict(color="#f5c518", width=1.2), name="MA5"), row=1, col=1)
-                                _fig_s.add_trace(go.Scatter(x=df_sec["datetime"], y=df_sec["ma20"],
-                                    line=dict(color="#00b4d8", width=1.2), name="MA20"), row=1, col=1)
-                                _fig_s.add_trace(go.Bar(x=df_sec["datetime"], y=df_sec["volume"],
-                                    marker_color=_vc, name="거래량", showlegend=False), row=2, col=1)
-                                _fc, _gc = _get_chart_colors()
-                                _ax = dict(gridcolor=_gc, showline=False)
-                                _fig_s.update_layout(
-                                    paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-                                    font=dict(color=_fc, size=11),
-                                    xaxis=dict(**_ax, rangeslider=dict(visible=False),
-                                               showticklabels=False, range=[_xs_st, _xs_end]),
-                                    xaxis2=dict(**_ax, range=[_xs_st, _xs_end], tickformat="%H:%M"),
-                                    yaxis=dict(**_ax, tickformat=",", side="right", autorange=True),
-                                    yaxis2=dict(**_ax, tickformat=".2s", side="right", autorange=True),
-                                    legend=dict(orientation="h", x=0, y=1.05,
-                                                bgcolor="rgba(0,0,0,0)", font=dict(size=11)),
-                                    hovermode="x unified",
-                                    autosize=True, margin=dict(l=0, r=60, t=30, b=5), height=630,
-                                )
-                                _fig_s.update_xaxes(
-                                    rangebreaks=[
-                                        dict(bounds=["sat", "mon"]),
-                                        dict(bounds=[15.5, 9], pattern="hour"),
-                                    ]
-                                )
-                                st.plotly_chart(_fig_s, use_container_width=True)
-                            else:
-                                st.info("분봉 데이터를 불러올 수 없습니다. 장 운영 시간(09:00~15:30) 중 다시 시도해주세요.")
+                            _tv_chart(f"KRX:{_dtv_code}", interval="5", height=660)
 
                         else:
                             # 섹터 목록 뷰 → KOSPI/KOSDAQ Toss 스타일 라인 차트
@@ -1512,150 +1481,19 @@ def main():
                                 unsafe_allow_html=True,
                             )
 
-                            # 차트 타입 토글: 일봉(기본) | 분봉(당일)
-                            _ct_c1, _ct_c2, _ct_c3, _ = st.columns([1.2, 1.2, 1.2, 4])
-                            for _ctcol, _ctn in [(_ct_c1, "일봉"), (_ct_c2, "분봉")]:
-                                if _ctcol.button(
-                                    _ctn, key=f"chart_type_{_ctn}",
-                                    type="primary" if st.session_state.kr_chart_type == _ctn else "secondary",
-                                    use_container_width=True,
-                                ):
-                                    st.session_state.kr_chart_type = _ctn
-                                    st.rerun()
-                            if _ct_c3.button("🔄", key="refresh_kr_chart_all", help="차트 새로고침"):
-                                get_kr_minute_chart.clear()
-                                get_kr_daily_chart.clear()
+                        # 차트 타입 토글: 일봉(기본) | 분봉(당일)
+                        _ct_c1, _ct_c2, _ = st.columns([1, 1, 6])
+                        for _ctcol, _ctn in [(_ct_c1, "일봉"), (_ct_c2, "분봉")]:
+                            if _ctcol.button(
+                                _ctn, key=f"chart_type_{_ctn}",
+                                type="primary" if st.session_state.kr_chart_type == _ctn else "secondary",
+                                use_container_width=True,
+                            ):
+                                st.session_state.kr_chart_type = _ctn
                                 st.rerun()
 
-                            from plotly.subplots import make_subplots
-
-                            if st.session_state.kr_chart_type == "분봉":
-                                _iv_c1, _ = st.columns([2, 6])
-                                interval_kr = _iv_c1.selectbox(
-                                    "분봉", [1, 3, 5, 10, 15, 30], index=2,
-                                    key="kr_chart_interval", format_func=lambda x: f"{x}분봉"
-                                )
-                                with st.spinner("분봉 데이터 조회 중..."):
-                                    df_kr_chart = get_kr_minute_chart(selected_code_kr, interval=interval_kr)
-
-                                if not df_kr_chart.empty:
-                                    df_kr_chart["ma5"]  = df_kr_chart["close"].rolling(5).mean()
-                                    df_kr_chart["ma20"] = df_kr_chart["close"].rolling(20).mean()
-                                    vol_colors = [
-                                        "#ff4b4b" if c >= o else "#2b7cff"
-                                        for c, o in zip(df_kr_chart["close"], df_kr_chart["open"])
-                                    ]
-                                    # 최신 데이터가 있는 날짜 기준으로 09:00~15:30 표시 (장 외 시간/주말에도 최신 세션 표시)
-                                    _latest_date = df_kr_chart["datetime"].dt.date.max()
-                                    _x_start  = f"{_latest_date} 09:00"
-                                    _x_end    = f"{_latest_date} 15:30"
-
-                                    fig_kr = make_subplots(rows=2, cols=1, shared_xaxes=True,
-                                                           row_heights=[0.70, 0.30], vertical_spacing=0.02)
-                                    fig_kr.add_trace(go.Candlestick(
-                                        x=df_kr_chart["datetime"],
-                                        open=df_kr_chart["open"], high=df_kr_chart["high"],
-                                        low=df_kr_chart["low"],   close=df_kr_chart["close"],
-                                        increasing=dict(line=dict(color="#ff4b4b", width=1.5), fillcolor="#ff4b4b"),
-                                        decreasing=dict(line=dict(color="#2b7cff", width=1.5), fillcolor="#2b7cff"),
-                                        name="가격", showlegend=False,
-                                        whiskerwidth=0.3,
-                                    ), row=1, col=1)
-                                    fig_kr.add_trace(go.Scatter(x=df_kr_chart["datetime"], y=df_kr_chart["ma5"],
-                                        line=dict(color="#f5c518", width=1.2), name="MA5"), row=1, col=1)
-                                    fig_kr.add_trace(go.Scatter(x=df_kr_chart["datetime"], y=df_kr_chart["ma20"],
-                                        line=dict(color="#00b4d8", width=1.2), name="MA20"), row=1, col=1)
-                                    fig_kr.add_trace(go.Bar(x=df_kr_chart["datetime"], y=df_kr_chart["volume"],
-                                        marker_color=vol_colors, name="거래량", showlegend=False), row=2, col=1)
-                                    _fc, _gc = _get_chart_colors()
-                                    _ax = dict(gridcolor=_gc, showline=False)
-                                    fig_kr.update_layout(
-                                        paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-                                        font=dict(color=_fc, size=11),
-                                        xaxis=dict(**_ax, rangeslider=dict(visible=False),
-                                                   showticklabels=False, range=[_x_start, _x_end],
-                                                   type="date"),
-                                        xaxis2=dict(**_ax, range=[_x_start, _x_end],
-                                                    tickformat="%H:%M", type="date"),
-                                        yaxis=dict(**_ax, tickformat=",", side="right", autorange=True),
-                                        yaxis2=dict(**_ax, tickformat=".2s", side="right", autorange=True),
-                                        legend=dict(orientation="h", x=0, y=1.05, bgcolor="rgba(0,0,0,0)", font=dict(size=11)),
-                                        hovermode="x unified",
-                                        autosize=True, margin=dict(l=0, r=60, t=30, b=5), height=630,
-                                    )
-                                    fig_kr.update_xaxes(rangebreaks=[
-                                        dict(bounds=["sat", "mon"]),
-                                        dict(bounds=[15.5, 9], pattern="hour"),
-                                    ])
-                                    st.plotly_chart(fig_kr, use_container_width=True)
-                                else:
-                                    st.info("분봉 데이터를 불러올 수 없습니다. 장 운영 시간(09:00~15:30) 중 다시 시도해주세요.")
-
-                            else:  # 일봉
-                                _dp_labels = [("1일","1d"),("1주일","5d"),("15일","15d"),("1개월","1mo"),("3개월","3mo"),("6개월","6mo"),("1년","1y"),("3년","3y"),("5년","5y")]
-                                _dp_cols   = st.columns(len(_dp_labels))
-                                for _dpi, (_dpl, _dpv) in enumerate(_dp_labels):
-                                    if _dp_cols[_dpi].button(
-                                        _dpl, key=f"daily_per_{_dpv}",
-                                        type="primary" if st.session_state.kr_daily_period == _dpv else "secondary",
-                                        use_container_width=True,
-                                    ):
-                                        st.session_state.kr_daily_period = _dpv
-                                        st.rerun()
-
-                                with st.spinner("일봉 데이터 조회 중..."):
-                                    df_d = get_kr_daily_chart(selected_code_kr, period=st.session_state.kr_daily_period)
-
-                                if not df_d.empty:
-                                    df_d["ma5"]  = df_d["close"].rolling(5).mean()
-                                    df_d["ma20"] = df_d["close"].rolling(20).mean()
-                                    df_d["ma60"] = df_d["close"].rolling(60).mean()
-                                    _dvc = ["#ff4b4b" if c >= o else "#2b7cff"
-                                            for c, o in zip(df_d["close"], df_d["open"])]
-                                    fig_d = make_subplots(rows=2, cols=1, shared_xaxes=True,
-                                                          row_heights=[0.70, 0.30], vertical_spacing=0.02)
-                                    fig_d.add_trace(go.Candlestick(
-                                        x=df_d["datetime"],
-                                        open=df_d["open"], high=df_d["high"],
-                                        low=df_d["low"],   close=df_d["close"],
-                                        increasing=dict(line=dict(color="#ff4b4b", width=1), fillcolor="#ff4b4b"),
-                                        decreasing=dict(line=dict(color="#2b7cff", width=1), fillcolor="#2b7cff"),
-                                        name="가격", showlegend=False,
-                                    ), row=1, col=1)
-                                    fig_d.add_trace(go.Scatter(x=df_d["datetime"], y=df_d["ma5"],
-                                        line=dict(color="#f5c518", width=1.2), name="MA5"), row=1, col=1)
-                                    fig_d.add_trace(go.Scatter(x=df_d["datetime"], y=df_d["ma20"],
-                                        line=dict(color="#00b4d8", width=1.2), name="MA20"), row=1, col=1)
-                                    fig_d.add_trace(go.Scatter(x=df_d["datetime"], y=df_d["ma60"],
-                                        line=dict(color="#ff9800", width=1.2, dash="dot"), name="MA60"), row=1, col=1)
-                                    fig_d.add_trace(go.Bar(x=df_d["datetime"], y=df_d["volume"],
-                                        marker_color=_dvc, name="거래량", showlegend=False), row=2, col=1)
-                                    _fc, _gc = _get_chart_colors()
-                                    _ax = dict(gridcolor=_gc, showline=False)
-                                    _xrng = [str(df_d["datetime"].min())[:10],
-                                             str(df_d["datetime"].max())[:10]]
-                                    fig_d.update_layout(
-                                        paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-                                        font=dict(color=_fc, size=11),
-                                        xaxis=dict(**_ax, rangeslider=dict(visible=False),
-                                                   showticklabels=False, range=_xrng),
-                                        xaxis2=dict(**_ax, tickformat="%y/%m/%d", range=_xrng),
-                                        yaxis=dict(**_ax, tickformat=",", side="right", autorange=True),
-                                        yaxis2=dict(**_ax, tickformat=".2s", side="right", autorange=True),
-                                        legend=dict(orientation="h", x=0, y=1.05, bgcolor="rgba(0,0,0,0)", font=dict(size=11)),
-                                        hovermode="x unified",
-                                        autosize=True, margin=dict(l=0, r=60, t=30, b=5), height=630,
-                                    )
-                                    fig_d.update_xaxes(rangebreaks=[dict(bounds=["sat", "mon"])])
-                                    st.plotly_chart(fig_d, use_container_width=True)
-                                else:
-                                    st.info("일봉 데이터를 불러올 수 없습니다.")
-                        else:
-                            st.warning(
-                                f"종목코드 **{selected_code_kr}** 시세를 불러올 수 없습니다.  \n"
-                                "KIS API와 yfinance 모두 실패했습니다. "
-                                "장 운영 시간(09:00~15:30) 확인 또는 잠시 후 다시 시도해주세요."
-                            )
+                        _kr_tv_iv = "5" if st.session_state.kr_chart_type == "분봉" else "D"
+                        _tv_chart(f"KRX:{selected_code_kr}", interval=_kr_tv_iv, height=660)
 
                 with _right_ctr:
                     if kr_mode == "📊 일반 주식 검색":
@@ -3593,7 +3431,7 @@ def main():
                             )
 
                         # 차트 타입 토글: 일봉 | 분봉
-                        _us_ct_c1, _us_ct_c2, _us_ct_c3, _ = st.columns([1.2, 1.2, 1.2, 4])
+                        _us_ct_c1, _us_ct_c2, _ = st.columns([1, 1, 6])
                         for _us_ctcol, _us_ctn in [(_us_ct_c1, "일봉"), (_us_ct_c2, "분봉")]:
                             if _us_ctcol.button(
                                 _us_ctn, key=f"us_chart_type_{_us_ctn}",
@@ -3602,129 +3440,12 @@ def main():
                             ):
                                 st.session_state.us_chart_type = _us_ctn
                                 st.rerun()
-                        if _us_ct_c3.button("🔄", key="refresh_us_chart_all", help="차트 새로고침"):
-                            from data_kr import get_us_minute_chart as _clr_min, get_us_daily_chart as _clr_day
-                            _clr_min.clear()
-                            _clr_day.clear()
-                            st.rerun()
 
-                        from plotly.subplots import make_subplots as _us_make_sub
-                        from data_kr import get_us_minute_chart as _get_us_min, get_us_daily_chart as _get_us_day
-
-                        if st.session_state.us_chart_type == "분봉":
-                            _us_iv_c1, _ = st.columns([2, 6])
-                            _us_interval = _us_iv_c1.selectbox(
-                                "분봉", [1, 5, 15, 30], index=1,
-                                key="us_chart_interval", format_func=lambda x: f"{x}분봉"
-                            )
-                            with st.spinner("분봉 데이터 조회 중..."):
-                                df_us_min = _get_us_min(_us_ticker_cur, interval=_us_interval)
-
-                            if not df_us_min.empty:
-                                df_us_min["ma5"]  = df_us_min["close"].rolling(5).mean()
-                                df_us_min["ma20"] = df_us_min["close"].rolling(20).mean()
-                                _us_vol_c = ["#00c853" if c >= o else "#ff4b4b"
-                                             for c, o in zip(df_us_min["close"], df_us_min["open"])]
-                                # 최신 데이터가 있는 날짜 기준으로 09:30~16:00 표시 (장 외 시간에도 최신 세션 표시)
-                                _latest_us_date = df_us_min["datetime"].dt.date.max()
-                                _us_x_start = f"{_latest_us_date} 09:30"
-                                _us_x_end   = f"{_latest_us_date} 16:00"
-
-                                fig_us_min = _us_make_sub(rows=2, cols=1, shared_xaxes=True,
-                                                          row_heights=[0.70, 0.30], vertical_spacing=0.02)
-                                fig_us_min.add_trace(go.Candlestick(
-                                    x=df_us_min["datetime"],
-                                    open=df_us_min["open"], high=df_us_min["high"],
-                                    low=df_us_min["low"],   close=df_us_min["close"],
-                                    increasing=dict(line=dict(color="#00c853", width=1.5), fillcolor="#00c853"),
-                                    decreasing=dict(line=dict(color="#ff4b4b", width=1.5), fillcolor="#ff4b4b"),
-                                    name="가격", showlegend=False, whiskerwidth=0.3,
-                                ), row=1, col=1)
-                                fig_us_min.add_trace(go.Scatter(x=df_us_min["datetime"], y=df_us_min["ma5"],
-                                    line=dict(color="#f5c518", width=1.2), name="MA5"), row=1, col=1)
-                                fig_us_min.add_trace(go.Scatter(x=df_us_min["datetime"], y=df_us_min["ma20"],
-                                    line=dict(color="#00b4d8", width=1.2), name="MA20"), row=1, col=1)
-                                fig_us_min.add_trace(go.Bar(x=df_us_min["datetime"], y=df_us_min["volume"],
-                                    marker_color=_us_vol_c, name="거래량", showlegend=False), row=2, col=1)
-                                _fc, _gc = _get_chart_colors()
-                                _us_ax = dict(gridcolor=_gc, showline=False)
-                                fig_us_min.update_layout(
-                                    paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-                                    font=dict(color=_fc, size=11),
-                                    xaxis=dict(**_us_ax, rangeslider=dict(visible=False),
-                                               showticklabels=False, range=[_us_x_start, _us_x_end], type="date"),
-                                    xaxis2=dict(**_us_ax, range=[_us_x_start, _us_x_end],
-                                                tickformat="%H:%M", type="date"),
-                                    yaxis=dict(**_us_ax, tickformat=",.2f", side="right", autorange=True),
-                                    yaxis2=dict(**_us_ax, tickformat=".2s", side="right", autorange=True),
-                                    legend=dict(orientation="h", x=0, y=1.05, bgcolor="rgba(0,0,0,0)", font=dict(size=11)),
-                                    hovermode="x unified",
-                                    autosize=True, margin=dict(l=0, r=60, t=30, b=5), height=630,
-                                )
-                                fig_us_min.update_xaxes(rangebreaks=[dict(bounds=["sat", "mon"])])
-                                st.plotly_chart(fig_us_min, use_container_width=True)
-                            else:
-                                st.info("분봉 데이터를 불러올 수 없습니다. 미국 장 운영 시간(09:30~16:00 ET) 중 다시 시도해주세요.")
-
-                        else:  # 일봉
-                            _us_dp_labels = [("1일","1d"),("1주일","5d"),("15일","15d"),("1개월","1mo"),("3개월","3mo"),("6개월","6mo"),("1년","1y"),("3년","3y"),("5년","5y")]
-                            _us_dp_cols   = st.columns(len(_us_dp_labels))
-                            for _dpi, (_dpl, _dpv) in enumerate(_us_dp_labels):
-                                if _us_dp_cols[_dpi].button(
-                                    _dpl, key=f"us_daily_per_{_dpv}",
-                                    type="primary" if st.session_state.us_daily_period == _dpv else "secondary",
-                                    use_container_width=True,
-                                ):
-                                    st.session_state.us_daily_period = _dpv
-                                    st.rerun()
-
-                            with st.spinner("일봉 데이터 조회 중..."):
-                                df_us_day = _get_us_day(_us_ticker_cur, period=st.session_state.us_daily_period)
-
-                            if not df_us_day.empty:
-                                df_us_day["ma5"]  = df_us_day["close"].rolling(5).mean()
-                                df_us_day["ma20"] = df_us_day["close"].rolling(20).mean()
-                                df_us_day["ma60"] = df_us_day["close"].rolling(60).mean()
-                                _us_dvc = ["#00c853" if c >= o else "#ff4b4b"
-                                           for c, o in zip(df_us_day["close"], df_us_day["open"])]
-                                fig_us_day = _us_make_sub(rows=2, cols=1, shared_xaxes=True,
-                                                          row_heights=[0.70, 0.30], vertical_spacing=0.02)
-                                fig_us_day.add_trace(go.Candlestick(
-                                    x=df_us_day["datetime"],
-                                    open=df_us_day["open"], high=df_us_day["high"],
-                                    low=df_us_day["low"],   close=df_us_day["close"],
-                                    increasing=dict(line=dict(color="#00c853", width=1), fillcolor="#00c853"),
-                                    decreasing=dict(line=dict(color="#ff4b4b", width=1), fillcolor="#ff4b4b"),
-                                    name="가격", showlegend=False,
-                                ), row=1, col=1)
-                                fig_us_day.add_trace(go.Scatter(x=df_us_day["datetime"], y=df_us_day["ma5"],
-                                    line=dict(color="#f5c518", width=1.2), name="MA5"), row=1, col=1)
-                                fig_us_day.add_trace(go.Scatter(x=df_us_day["datetime"], y=df_us_day["ma20"],
-                                    line=dict(color="#00b4d8", width=1.2), name="MA20"), row=1, col=1)
-                                fig_us_day.add_trace(go.Scatter(x=df_us_day["datetime"], y=df_us_day["ma60"],
-                                    line=dict(color="#ff9800", width=1.2, dash="dot"), name="MA60"), row=1, col=1)
-                                fig_us_day.add_trace(go.Bar(x=df_us_day["datetime"], y=df_us_day["volume"],
-                                    marker_color=_us_dvc, name="거래량", showlegend=False), row=2, col=1)
-                                _fc, _gc = _get_chart_colors()
-                                _us_ax = dict(gridcolor=_gc, showline=False)
-                                _us_xrng = [str(df_us_day["datetime"].min())[:10],
-                                            str(df_us_day["datetime"].max())[:10]]
-                                fig_us_day.update_layout(
-                                    paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-                                    font=dict(color=_fc, size=11),
-                                    xaxis=dict(**_us_ax, rangeslider=dict(visible=False),
-                                               showticklabels=False, range=_us_xrng),
-                                    xaxis2=dict(**_us_ax, tickformat="%y/%m/%d", range=_us_xrng),
-                                    yaxis=dict(**_us_ax, tickformat=",.2f", side="right", autorange=True),
-                                    yaxis2=dict(**_us_ax, tickformat=".2s", side="right", autorange=True),
-                                    legend=dict(orientation="h", x=0, y=1.05, bgcolor="rgba(0,0,0,0)", font=dict(size=11)),
-                                    hovermode="x unified",
-                                    autosize=True, margin=dict(l=0, r=60, t=30, b=5), height=630,
-                                )
-                                fig_us_day.update_xaxes(rangebreaks=[dict(bounds=["sat", "mon"])])
-                                st.plotly_chart(fig_us_day, use_container_width=True)
-                            else:
-                                st.info("일봉 데이터를 불러올 수 없습니다.")
+                        _us_tv_iv = "5" if st.session_state.us_chart_type == "분봉" else "D"
+                        _us_exch  = (detail_us.get("exchange", "NASDAQ") if detail_us else "NASDAQ").upper()
+                        if _us_exch not in ("NASDAQ", "NYSE", "AMEX", "CBOE"):
+                            _us_exch = "NASDAQ"
+                        _tv_chart(f"{_us_exch}:{_us_ticker_cur}", interval=_us_tv_iv, height=660)
 
                 with _us_right_ctr:
                     if us_mode == "📊 일반 주식 검색":
