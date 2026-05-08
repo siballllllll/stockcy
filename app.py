@@ -35,29 +35,35 @@ def _tv_chart(symbol: str, interval: str = "D", height: int = 660) -> None:
     except Exception:
         _dark = True
     _theme = "dark" if _dark else "light"
-    _html = f"""<!DOCTYPE html><html><body style="margin:0;padding:0;overflow:hidden;background:transparent">
+    # TradingView 공식 embed-widget-advanced-chart.js 방식 (JSON을 script body에 넣음)
+    _html = f"""<!DOCTYPE html>
+<html>
+<head><style>*{{margin:0;padding:0;box-sizing:border-box}}</style></head>
+<body>
 <div class="tradingview-widget-container" style="height:{height}px;width:100%">
   <div class="tradingview-widget-container__widget" style="height:{height}px;width:100%"></div>
-  <script src="https://s3.tradingview.com/tv.js"></script>
-  <script>
-  new TradingView.widget({{
-    autosize: true,
-    symbol: "{symbol}",
-    interval: "{interval}",
-    timezone: "Asia/Seoul",
-    theme: "{_theme}",
-    style: "1",
-    locale: "kr",
-    enable_publishing: false,
-    hide_top_toolbar: false,
-    hide_legend: false,
-    save_image: false,
-    allow_symbol_change: false,
-    container_id: "tv_widget_main"
-  }});
+  <script type="text/javascript"
+          src="https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js"
+          async>
+  {{
+    "autosize": true,
+    "symbol": "{symbol}",
+    "interval": "{interval}",
+    "timezone": "Asia/Seoul",
+    "theme": "{_theme}",
+    "style": "1",
+    "locale": "kr",
+    "enable_publishing": false,
+    "hide_top_toolbar": false,
+    "hide_legend": false,
+    "save_image": false,
+    "allow_symbol_change": false,
+    "support_host": "https://www.tradingview.com"
+  }}
   </script>
 </div>
-</body></html>"""
+</body>
+</html>"""
     _cv1.html(_html, height=height, scrolling=False)
 
 # 1. 페이지 기본 설정 (항상 최상단에 위치)
