@@ -85,9 +85,8 @@ def _call_gemini(prompt, use_search=False, temperature=0.7, response_mime_type=N
     config = types.GenerateContentConfig(**config_kwargs)
 
     last_err = None
-    exhausted_count = 0
     for model in _MODEL_FALLBACK:
-        for attempt in range(3):
+        for attempt in range(2):  # 모델당 최대 2회 시도 (1회 재시도)
             try:
                 response = client.models.generate_content(
                     model=model,
@@ -99,24 +98,29 @@ def _call_gemini(prompt, use_search=False, temperature=0.7, response_mime_type=N
             except Exception as api_err:
                 err_str = str(api_err)
                 last_err = api_err
+
+                # 할당량 초과 — 같은 키 쓰는 다른 모델도 동일하게 막히므로 즉시 중단
+                if "429" in err_str or "RESOURCE_EXHAUSTED" in err_str:
+                    _QUOTA_EXHAUSTED = True
+                    raise api_err
+
+                # 서버 일시 오류 — 1회만 재시도 후 다음 모델로
                 if "503" in err_str or "UNAVAILABLE" in err_str:
-                    if attempt < 2:
-                        time.sleep(3 * (attempt + 1))  # 3s → 6s 대기 후 재시도
+                    if attempt == 0:
+                        time.sleep(3)
                         continue
-                    else:
-                        break  # 3회 모두 실패 → 다음 모델로
-                if "400" in err_str or "INVALID_ARGUMENT" in err_str:
-                    break  # 잘못된 요청 — 재시도 불필요
-                if ("429" in err_str or "RESOURCE_EXHAUSTED" in err_str
-                        or "404" in err_str or "NOT_FOUND" in err_str):
-                    if "429" in err_str or "RESOURCE_EXHAUSTED" in err_str:
-                        exhausted_count += 1
                     break
+
+                # 모델 없음 — 다음 모델로
+                if "404" in err_str or "NOT_FOUND" in err_str:
+                    break
+
+                # 잘못된 요청 — 재시도/다른 모델 의미 없음
+                if "400" in err_str or "INVALID_ARGUMENT" in err_str:
+                    raise api_err
+
                 raise api_err
 
-    # 모든 모델이 할당량 소진 → 플래그 설정
-    if exhausted_count >= len(_MODEL_FALLBACK):
-        _QUOTA_EXHAUSTED = True
     raise last_err
 
 
