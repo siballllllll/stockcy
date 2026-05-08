@@ -714,12 +714,20 @@ def get_kr_change_ranking(market: str = "J") -> list:
 
 @st.cache_data(ttl=300)
 def get_kr_daily_chart(stock_code: str, period: str = "3mo") -> pd.DataFrame:
-    """국내 주식 일봉 데이터 (yfinance). period: 1mo / 3mo / 6mo / 1y"""
+    """국내 주식 일봉 데이터 (yfinance). period: 1d/5d/15d/1mo/3mo/6mo/1y/2y/3y/5y"""
     import yfinance as yf
+    from datetime import datetime as _dt, timedelta as _td
+    _custom = {"15d": 21, "3y": 1100}
+    if period in _custom:
+        _end = _dt.now()
+        _start = (_end - _td(days=_custom[period])).strftime("%Y-%m-%d")
+        _hist_kw = {"start": _start, "end": _end.strftime("%Y-%m-%d")}
+    else:
+        _hist_kw = {"period": period}
     for suffix in [".KS", ".KQ"]:
         try:
             raw = yf.Ticker(f"{stock_code}{suffix}").history(
-                period=period, interval="1d", auto_adjust=True
+                **_hist_kw, interval="1d", auto_adjust=True
             )
             if raw.empty:
                 continue
@@ -1001,10 +1009,18 @@ def get_us_fdr_sector_map() -> dict:
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def get_us_daily_chart(ticker: str, period: str = "3mo") -> pd.DataFrame:
-    """미국 주식 일봉 데이터 (yfinance)"""
+    """미국 주식 일봉 데이터 (yfinance). period: 1d/5d/15d/1mo/3mo/6mo/1y/2y/3y/5y"""
     import yfinance as yf
+    from datetime import datetime as _dt, timedelta as _td
+    _custom = {"15d": 21, "3y": 1100}
+    if period in _custom:
+        _end = _dt.now()
+        _start = (_end - _td(days=_custom[period])).strftime("%Y-%m-%d")
+        _hist_kw = {"start": _start, "end": _end.strftime("%Y-%m-%d")}
+    else:
+        _hist_kw = {"period": period}
     try:
-        raw = yf.Ticker(ticker).history(period=period, interval="1d", auto_adjust=True)
+        raw = yf.Ticker(ticker).history(**_hist_kw, interval="1d", auto_adjust=True)
         if raw.empty:
             return pd.DataFrame()
         df = raw.reset_index()

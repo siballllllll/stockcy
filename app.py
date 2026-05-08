@@ -663,14 +663,24 @@ def main():
     }catch(e){}
   }
 
-  /* Plotly 차트 너비 재측정 (html zoom으로 ResizeObserver가 시각적 크기를 반환할 때 보정)
-     window resize 이벤트 → Plotly가 getComputedStyle로 올바른 CSS 픽셀 너비 재계산 */
-  function fixPlotlyWidth(){
-    try{ window.parent.dispatchEvent(new Event('resize')); }catch(e){}
+  /* Plotly 차트 너비: html zoom(0.77)으로 getBoundingClientRect가 줄어든 값을 반환하므로
+     offsetWidth(CSS 레이아웃 픽셀, zoom 미반영)로 직접 relayout 호출 */
+  function fixPlotlyWidths(){
+    try{
+      var doc=window.parent.document;
+      var P=window.parent.Plotly;
+      if(!P) return;
+      doc.querySelectorAll('.js-plotly-plot').forEach(function(plot){
+        var ctr=plot.closest('[data-testid="stPlotlyChart"]');
+        if(!ctr) return;
+        var w=ctr.offsetWidth;
+        if(w>100) P.relayout(plot,{width:w});
+      });
+    }catch(e){}
   }
-  setTimeout(fixPlotlyWidth, 300);
-  setTimeout(fixPlotlyWidth, 900);
-  setTimeout(fixPlotlyWidth, 2500);
+  setTimeout(fixPlotlyWidths,400);
+  setTimeout(fixPlotlyWidths,1200);
+  setTimeout(fixPlotlyWidths,3000);
 
   syncTheme(); tag();
   setInterval(function(){ syncTheme(); tag(); }, 300);
@@ -1300,9 +1310,9 @@ def main():
 
                 col_chart, col_right = st.columns([5, 5])
                 with col_chart:
-                    _chart_ctr = st.container(height=820)
+                    _chart_ctr = st.container(height=750)
                 with col_right:
-                    _right_ctr = st.container(height=820)
+                    _right_ctr = st.container(height=750)
                 with _chart_ctr:
                     # ── 이슈 섹터 모드 ──────────────────────────────────────
                     if kr_mode == "🔥 오늘의 이슈 섹터":
@@ -1339,16 +1349,13 @@ def main():
 
                             if not df_sec.empty:
                                 from plotly.subplots import make_subplots
-                                from datetime import datetime as _dt_s
-                                import pytz as _pytz_s
                                 df_sec["ma5"]  = df_sec["close"].rolling(5).mean()
                                 df_sec["ma20"] = df_sec["close"].rolling(20).mean()
                                 _vc = ["#ff4b4b" if c >= o else "#2b7cff"
                                        for c, o in zip(df_sec["close"], df_sec["open"])]
-                                _now_s  = _dt_s.now(_pytz_s.timezone("Asia/Seoul")).replace(tzinfo=None)
-                                _xs_cl  = _dt_s.combine(_now_s.date(), _dt_s.strptime("15:30", "%H:%M").time())
-                                _xs_end = min(_now_s, _xs_cl).strftime("%Y-%m-%d %H:%M")
-                                _xs_st  = df_sec["datetime"].iloc[0].strftime("%Y-%m-%d 09:00")
+                                _latest_sec = df_sec["datetime"].dt.date.max()
+                                _xs_st  = f"{_latest_sec} 09:00"
+                                _xs_end = f"{_latest_sec} 15:30"
 
                                 _fig_s = make_subplots(rows=2, cols=1, shared_xaxes=True,
                                                        row_heights=[0.70, 0.30], vertical_spacing=0.02)
@@ -1379,7 +1386,7 @@ def main():
                                     legend=dict(orientation="h", x=0, y=1.05,
                                                 bgcolor="rgba(0,0,0,0)", font=dict(size=11)),
                                     hovermode="x unified",
-                                    autosize=True, margin=dict(l=0, r=60, t=30, b=5), height=700,
+                                    autosize=True, margin=dict(l=0, r=60, t=30, b=5), height=630,
                                 )
                                 _fig_s.update_xaxes(
                                     rangebreaks=[
@@ -1532,18 +1539,16 @@ def main():
                                     df_kr_chart = get_kr_minute_chart(selected_code_kr, interval=interval_kr)
 
                                 if not df_kr_chart.empty:
-                                    from datetime import datetime as _dt_c
-                                    import pytz as _pytz_c
                                     df_kr_chart["ma5"]  = df_kr_chart["close"].rolling(5).mean()
                                     df_kr_chart["ma20"] = df_kr_chart["close"].rolling(20).mean()
                                     vol_colors = [
                                         "#ff4b4b" if c >= o else "#2b7cff"
                                         for c, o in zip(df_kr_chart["close"], df_kr_chart["open"])
                                     ]
-                                    _now_kr_c = _dt_c.now(_pytz_c.timezone("Asia/Seoul")).replace(tzinfo=None)
-                                    # 항상 09:00~15:30 전체 장 시간 표시 (HTS/MTS 스타일)
-                                    _x_start  = _now_kr_c.strftime("%Y-%m-%d 09:00")
-                                    _x_end    = _now_kr_c.strftime("%Y-%m-%d 15:30")
+                                    # 최신 데이터가 있는 날짜 기준으로 09:00~15:30 표시 (장 외 시간/주말에도 최신 세션 표시)
+                                    _latest_date = df_kr_chart["datetime"].dt.date.max()
+                                    _x_start  = f"{_latest_date} 09:00"
+                                    _x_end    = f"{_latest_date} 15:30"
 
                                     fig_kr = make_subplots(rows=2, cols=1, shared_xaxes=True,
                                                            row_heights=[0.70, 0.30], vertical_spacing=0.02)
@@ -1576,7 +1581,7 @@ def main():
                                         yaxis2=dict(**_ax, tickformat=".2s", side="right", autorange=True),
                                         legend=dict(orientation="h", x=0, y=1.05, bgcolor="rgba(0,0,0,0)", font=dict(size=11)),
                                         hovermode="x unified",
-                                        autosize=True, margin=dict(l=0, r=60, t=30, b=5), height=700,
+                                        autosize=True, margin=dict(l=0, r=60, t=30, b=5), height=630,
                                     )
                                     fig_kr.update_xaxes(rangebreaks=[
                                         dict(bounds=["sat", "mon"]),
@@ -1587,7 +1592,7 @@ def main():
                                     st.info("분봉 데이터를 불러올 수 없습니다. 장 운영 시간(09:00~15:30) 중 다시 시도해주세요.")
 
                             else:  # 일봉
-                                _dp_labels = [("1개월","1mo"),("3개월","3mo"),("6개월","6mo"),("1년","1y"),("2년","2y"),("5년","5y")]
+                                _dp_labels = [("1일","1d"),("1주일","5d"),("15일","15d"),("1개월","1mo"),("3개월","3mo"),("6개월","6mo"),("1년","1y"),("3년","3y"),("5년","5y")]
                                 _dp_cols   = st.columns(len(_dp_labels))
                                 for _dpi, (_dpl, _dpv) in enumerate(_dp_labels):
                                     if _dp_cols[_dpi].button(
@@ -1639,7 +1644,7 @@ def main():
                                         yaxis2=dict(**_ax, tickformat=".2s", side="right", autorange=True),
                                         legend=dict(orientation="h", x=0, y=1.05, bgcolor="rgba(0,0,0,0)", font=dict(size=11)),
                                         hovermode="x unified",
-                                        autosize=True, margin=dict(l=0, r=60, t=30, b=5), height=700,
+                                        autosize=True, margin=dict(l=0, r=60, t=30, b=5), height=630,
                                     )
                                     fig_d.update_xaxes(rangebreaks=[dict(bounds=["sat", "mon"])])
                                     st.plotly_chart(fig_d, use_container_width=True)
@@ -3482,9 +3487,9 @@ def main():
 
                 col_us_chart, col_us_right = st.columns([5.5, 4.5])
                 with col_us_chart:
-                    _us_chart_ctr = st.container(height=820)
+                    _us_chart_ctr = st.container(height=750)
                 with col_us_right:
-                    _us_right_ctr = st.container(height=820)
+                    _us_right_ctr = st.container(height=750)
                 with _us_chart_ctr:
                     if us_mode == "🔥 오늘의 이슈 섹터":
                         if st.session_state.us_sector_view == "detail":
@@ -3616,15 +3621,14 @@ def main():
                                 df_us_min = _get_us_min(_us_ticker_cur, interval=_us_interval)
 
                             if not df_us_min.empty:
-                                import datetime as _dt_us
-                                import pytz as _pytz_us
                                 df_us_min["ma5"]  = df_us_min["close"].rolling(5).mean()
                                 df_us_min["ma20"] = df_us_min["close"].rolling(20).mean()
                                 _us_vol_c = ["#00c853" if c >= o else "#ff4b4b"
                                              for c, o in zip(df_us_min["close"], df_us_min["open"])]
-                                _now_et = _dt_us.datetime.now(_pytz_us.timezone("America/New_York")).replace(tzinfo=None)
-                                _us_x_start = _now_et.strftime("%Y-%m-%d 09:30")
-                                _us_x_end   = _now_et.strftime("%Y-%m-%d 16:00")
+                                # 최신 데이터가 있는 날짜 기준으로 09:30~16:00 표시 (장 외 시간에도 최신 세션 표시)
+                                _latest_us_date = df_us_min["datetime"].dt.date.max()
+                                _us_x_start = f"{_latest_us_date} 09:30"
+                                _us_x_end   = f"{_latest_us_date} 16:00"
 
                                 fig_us_min = _us_make_sub(rows=2, cols=1, shared_xaxes=True,
                                                           row_heights=[0.70, 0.30], vertical_spacing=0.02)
@@ -3655,7 +3659,7 @@ def main():
                                     yaxis2=dict(**_us_ax, tickformat=".2s", side="right", autorange=True),
                                     legend=dict(orientation="h", x=0, y=1.05, bgcolor="rgba(0,0,0,0)", font=dict(size=11)),
                                     hovermode="x unified",
-                                    autosize=True, margin=dict(l=0, r=60, t=30, b=5), height=700,
+                                    autosize=True, margin=dict(l=0, r=60, t=30, b=5), height=630,
                                 )
                                 fig_us_min.update_xaxes(rangebreaks=[dict(bounds=["sat", "mon"])])
                                 st.plotly_chart(fig_us_min, use_container_width=True)
@@ -3663,7 +3667,7 @@ def main():
                                 st.info("분봉 데이터를 불러올 수 없습니다. 미국 장 운영 시간(09:30~16:00 ET) 중 다시 시도해주세요.")
 
                         else:  # 일봉
-                            _us_dp_labels = [("1개월","1mo"),("3개월","3mo"),("6개월","6mo"),("1년","1y"),("2년","2y"),("5년","5y")]
+                            _us_dp_labels = [("1일","1d"),("1주일","5d"),("15일","15d"),("1개월","1mo"),("3개월","3mo"),("6개월","6mo"),("1년","1y"),("3년","3y"),("5년","5y")]
                             _us_dp_cols   = st.columns(len(_us_dp_labels))
                             for _dpi, (_dpl, _dpv) in enumerate(_us_dp_labels):
                                 if _us_dp_cols[_dpi].button(
@@ -3715,7 +3719,7 @@ def main():
                                     yaxis2=dict(**_us_ax, tickformat=".2s", side="right", autorange=True),
                                     legend=dict(orientation="h", x=0, y=1.05, bgcolor="rgba(0,0,0,0)", font=dict(size=11)),
                                     hovermode="x unified",
-                                    autosize=True, margin=dict(l=0, r=60, t=30, b=5), height=700,
+                                    autosize=True, margin=dict(l=0, r=60, t=30, b=5), height=630,
                                 )
                                 fig_us_day.update_xaxes(rangebreaks=[dict(bounds=["sat", "mon"])])
                                 st.plotly_chart(fig_us_day, use_container_width=True)
