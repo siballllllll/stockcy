@@ -1281,11 +1281,11 @@ def main():
                     arrow = "▲" if is_up else "▼" if is_dn else "-"
                     d_color = "normal" if is_up else "inverse" if is_dn else "off"
 
-                col_chart, col_right = st.columns([6.5, 3.5])
+                col_chart, col_right = st.columns([5, 5])
                 with col_chart:
-                    _chart_ctr = st.container(height=820)
+                    _chart_ctr = st.container(height=750)
                 with col_right:
-                    _right_ctr = st.container(height=820)
+                    _right_ctr = st.container(height=750)
                 with _chart_ctr:
                     # ── 이슈 섹터 모드 ──────────────────────────────────────
                     if kr_mode == "🔥 오늘의 이슈 섹터":
@@ -1362,7 +1362,7 @@ def main():
                                     legend=dict(orientation="h", x=0, y=1.05,
                                                 bgcolor="rgba(0,0,0,0)", font=dict(size=11)),
                                     hovermode="x unified",
-                                    margin=dict(l=0, r=60, t=30, b=5), height=700,
+                                    margin=dict(l=0, r=60, t=30, b=5), height=630,
                                 )
                                 _fig_s.update_xaxes(
                                     rangebreaks=[
@@ -1559,7 +1559,7 @@ def main():
                                         yaxis2=dict(**_ax, tickformat=".2s", side="right", autorange=True),
                                         legend=dict(orientation="h", x=0, y=1.05, bgcolor="rgba(0,0,0,0)", font=dict(size=11)),
                                         hovermode="x unified",
-                                        margin=dict(l=0, r=60, t=30, b=5), height=700,
+                                        margin=dict(l=0, r=60, t=30, b=5), height=630,
                                     )
                                     fig_kr.update_xaxes(rangebreaks=[
                                         dict(bounds=["sat", "mon"]),
@@ -1622,7 +1622,7 @@ def main():
                                         yaxis2=dict(**_ax, tickformat=".2s", side="right", autorange=True),
                                         legend=dict(orientation="h", x=0, y=1.05, bgcolor="rgba(0,0,0,0)", font=dict(size=11)),
                                         hovermode="x unified",
-                                        margin=dict(l=0, r=60, t=30, b=5), height=700,
+                                        margin=dict(l=0, r=60, t=30, b=5), height=630,
                                     )
                                     fig_d.update_xaxes(rangebreaks=[dict(bounds=["sat", "mon"])])
                                     st.plotly_chart(fig_d, use_container_width=True)
@@ -3432,11 +3432,11 @@ def main():
                     "NYQ": "NYSE",   "NYS": "NYSE",   "PCX": "NYSE",   "ASE": "AMEX",
                 }
 
-                col_us_chart, col_us_right = st.columns([6.5, 3.5])
+                col_us_chart, col_us_right = st.columns([5.5, 4.5])
                 with col_us_chart:
-                    _us_chart_ctr = st.container(height=820)
+                    _us_chart_ctr = st.container(height=750)
                 with col_us_right:
-                    _us_right_ctr = st.container(height=820)
+                    _us_right_ctr = st.container(height=750)
                 with _us_chart_ctr:
                     if us_mode == "🔥 오늘의 이슈 섹터":
                         if st.session_state.us_sector_view == "detail":
@@ -3607,7 +3607,7 @@ def main():
                                     yaxis2=dict(**_us_ax, tickformat=".2s", side="right", autorange=True),
                                     legend=dict(orientation="h", x=0, y=1.05, bgcolor="rgba(0,0,0,0)", font=dict(size=11)),
                                     hovermode="x unified",
-                                    margin=dict(l=0, r=60, t=30, b=5), height=700,
+                                    margin=dict(l=0, r=60, t=30, b=5), height=630,
                                 )
                                 fig_us_min.update_xaxes(rangebreaks=[dict(bounds=["sat", "mon"])])
                                 st.plotly_chart(fig_us_min, use_container_width=True)
@@ -3667,7 +3667,7 @@ def main():
                                     yaxis2=dict(**_us_ax, tickformat=".2s", side="right", autorange=True),
                                     legend=dict(orientation="h", x=0, y=1.05, bgcolor="rgba(0,0,0,0)", font=dict(size=11)),
                                     hovermode="x unified",
-                                    margin=dict(l=0, r=60, t=30, b=5), height=700,
+                                    margin=dict(l=0, r=60, t=30, b=5), height=630,
                                 )
                                 fig_us_day.update_xaxes(rangebreaks=[dict(bounds=["sat", "mon"])])
                                 st.plotly_chart(fig_us_day, use_container_width=True)
