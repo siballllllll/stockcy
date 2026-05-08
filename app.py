@@ -418,6 +418,14 @@ def inject_custom_css():
             > [data-testid="element-container"]:nth-child(-n+6) {
             margin-bottom: 0 !important;
         }
+
+        /* Plotly 차트 너비 강제 (html zoom 보정) */
+        [data-testid="stPlotlyChart"],
+        [data-testid="stPlotlyChart"] > div {
+            width: 100% !important;
+            min-width: 0 !important;
+            flex: 1 1 auto !important;
+        }
         </style>
     """, unsafe_allow_html=True)
 
@@ -654,6 +662,15 @@ def main():
       });
     }catch(e){}
   }
+
+  /* Plotly 차트 너비 재측정 (html zoom으로 ResizeObserver가 시각적 크기를 반환할 때 보정)
+     window resize 이벤트 → Plotly가 getComputedStyle로 올바른 CSS 픽셀 너비 재계산 */
+  function fixPlotlyWidth(){
+    try{ window.parent.dispatchEvent(new Event('resize')); }catch(e){}
+  }
+  setTimeout(fixPlotlyWidth, 300);
+  setTimeout(fixPlotlyWidth, 900);
+  setTimeout(fixPlotlyWidth, 2500);
 
   syncTheme(); tag();
   setInterval(function(){ syncTheme(); tag(); }, 300);
@@ -1283,9 +1300,9 @@ def main():
 
                 col_chart, col_right = st.columns([5, 5])
                 with col_chart:
-                    _chart_ctr = st.container(height=750)
+                    _chart_ctr = st.container(height=820)
                 with col_right:
-                    _right_ctr = st.container(height=750)
+                    _right_ctr = st.container(height=820)
                 with _chart_ctr:
                     # ── 이슈 섹터 모드 ──────────────────────────────────────
                     if kr_mode == "🔥 오늘의 이슈 섹터":
@@ -1362,7 +1379,7 @@ def main():
                                     legend=dict(orientation="h", x=0, y=1.05,
                                                 bgcolor="rgba(0,0,0,0)", font=dict(size=11)),
                                     hovermode="x unified",
-                                    margin=dict(l=0, r=60, t=30, b=5), height=630,
+                                    autosize=True, margin=dict(l=0, r=60, t=30, b=5), height=700,
                                 )
                                 _fig_s.update_xaxes(
                                     rangebreaks=[
@@ -1559,7 +1576,7 @@ def main():
                                         yaxis2=dict(**_ax, tickformat=".2s", side="right", autorange=True),
                                         legend=dict(orientation="h", x=0, y=1.05, bgcolor="rgba(0,0,0,0)", font=dict(size=11)),
                                         hovermode="x unified",
-                                        margin=dict(l=0, r=60, t=30, b=5), height=630,
+                                        autosize=True, margin=dict(l=0, r=60, t=30, b=5), height=700,
                                     )
                                     fig_kr.update_xaxes(rangebreaks=[
                                         dict(bounds=["sat", "mon"]),
@@ -1622,7 +1639,7 @@ def main():
                                         yaxis2=dict(**_ax, tickformat=".2s", side="right", autorange=True),
                                         legend=dict(orientation="h", x=0, y=1.05, bgcolor="rgba(0,0,0,0)", font=dict(size=11)),
                                         hovermode="x unified",
-                                        margin=dict(l=0, r=60, t=30, b=5), height=630,
+                                        autosize=True, margin=dict(l=0, r=60, t=30, b=5), height=700,
                                     )
                                     fig_d.update_xaxes(rangebreaks=[dict(bounds=["sat", "mon"])])
                                     st.plotly_chart(fig_d, use_container_width=True)
@@ -1767,6 +1784,36 @@ def main():
                                 # 52주 위치 계산
                                 _band_pos = (_cp - _wl) / (_wh - _wl) * 100 if _wh > _wl > 0 else 50
 
+                                # 극단타 판정 (분 단위~하루 이틀, 당일 모멘텀 기준)
+                                if abs(_chg) < 0.5:
+                                    _et_label = "⚪ 극단타 불가"
+                                    _et_color = "#888"
+                                    _et_desc  = "변동 없음 — 거래비용 감안 시 손익 기대 불가"
+                                elif _chg >= 5.0:
+                                    _et_label = "🟢 극단타 적극 대응"
+                                    _et_color = "#00c853"
+                                    _et_desc  = f"강 모멘텀 {_chg:+.2f}% — 눌림목 분봉 지지 확인 후 진입"
+                                elif _chg >= 3.0:
+                                    _et_label = "🟢 극단타 관심"
+                                    _et_color = "#00c853"
+                                    _et_desc  = f"상승 {_chg:+.2f}% — 직전 분봉 고점 돌파 시 추격"
+                                elif _chg >= 1.0:
+                                    _et_label = "🟡 극단타 관망"
+                                    _et_color = "#ffd600"
+                                    _et_desc  = f"소폭 {_chg:+.2f}% — 변동성 부족, 돌파 신호 대기"
+                                elif _chg <= -5.0:
+                                    _et_label = "🔵 반등 노림"
+                                    _et_color = "#2b7cff"
+                                    _et_desc  = f"급락 {_chg:+.2f}% — 분봉 반등 캔들+거래량 폭발 확인 후"
+                                elif _chg <= -1.0:
+                                    _et_label = "🔴 극단타 자제"
+                                    _et_color = "#ff4b4b"
+                                    _et_desc  = f"하락 {_chg:+.2f}% — 추세 꺾임, 섣부른 반매수 위험"
+                                else:
+                                    _et_label = "🟡 극단타 관망"
+                                    _et_color = "#ffd600"
+                                    _et_desc  = f"등락 {_chg:+.2f}% — 방향 미확정, 분봉 패턴 확인 필요"
+
                                 # 단기 판정 (당일 등락률 + 거래량)
                                 if abs(_chg) < 0.1:
                                     _st_label = "⚪ 관망"
@@ -1845,8 +1892,9 @@ def main():
                                     _lt_color = "#ff4b4b"
                                     _lt_desc  = f"PER {_per_f:.1f} — 고평가 구간, 장기 진입 신중"
 
-                                _rc1, _rc2, _rc3 = st.columns(3)
+                                _rc0, _rc1, _rc2, _rc3 = st.columns(4)
                                 for _rcol, _rl, _rc_color, _rdesc, _rtitle in [
+                                    (_rc0, _et_label, _et_color, _et_desc, "극단타"),
                                     (_rc1, _st_label, _st_color, _st_desc, "단기"),
                                     (_rc2, _mt_label, _mt_color, _mt_desc, "중기"),
                                     (_rc3, _lt_label, _lt_color, _lt_desc, "장기"),
@@ -3434,9 +3482,9 @@ def main():
 
                 col_us_chart, col_us_right = st.columns([5.5, 4.5])
                 with col_us_chart:
-                    _us_chart_ctr = st.container(height=750)
+                    _us_chart_ctr = st.container(height=820)
                 with col_us_right:
-                    _us_right_ctr = st.container(height=750)
+                    _us_right_ctr = st.container(height=820)
                 with _us_chart_ctr:
                     if us_mode == "🔥 오늘의 이슈 섹터":
                         if st.session_state.us_sector_view == "detail":
@@ -3607,7 +3655,7 @@ def main():
                                     yaxis2=dict(**_us_ax, tickformat=".2s", side="right", autorange=True),
                                     legend=dict(orientation="h", x=0, y=1.05, bgcolor="rgba(0,0,0,0)", font=dict(size=11)),
                                     hovermode="x unified",
-                                    margin=dict(l=0, r=60, t=30, b=5), height=630,
+                                    autosize=True, margin=dict(l=0, r=60, t=30, b=5), height=700,
                                 )
                                 fig_us_min.update_xaxes(rangebreaks=[dict(bounds=["sat", "mon"])])
                                 st.plotly_chart(fig_us_min, use_container_width=True)
@@ -3667,7 +3715,7 @@ def main():
                                     yaxis2=dict(**_us_ax, tickformat=".2s", side="right", autorange=True),
                                     legend=dict(orientation="h", x=0, y=1.05, bgcolor="rgba(0,0,0,0)", font=dict(size=11)),
                                     hovermode="x unified",
-                                    margin=dict(l=0, r=60, t=30, b=5), height=630,
+                                    autosize=True, margin=dict(l=0, r=60, t=30, b=5), height=700,
                                 )
                                 fig_us_day.update_xaxes(rangebreaks=[dict(bounds=["sat", "mon"])])
                                 st.plotly_chart(fig_us_day, use_container_width=True)
@@ -3830,6 +3878,36 @@ def main():
 
                                 _us_band  = (_us_cp - _us_wl) / (_us_wh - _us_wl) * 100 if _us_wh > _us_wl > 0 else 50
 
+                                # 극단타 판정 (US)
+                                if abs(_us_chg2) < 0.5:
+                                    _uet_label = "⚪ 극단타 불가"
+                                    _uet_color = "#888"
+                                    _uet_desc  = "변동 없음 — 거래비용 감안 시 손익 기대 불가"
+                                elif _us_chg2 >= 5.0:
+                                    _uet_label = "🟢 극단타 적극 대응"
+                                    _uet_color = "#00c853"
+                                    _uet_desc  = f"강 모멘텀 {_us_chg2:+.2f}% — 눌림목 분봉 지지 확인 후 진입"
+                                elif _us_chg2 >= 3.0:
+                                    _uet_label = "🟢 극단타 관심"
+                                    _uet_color = "#00c853"
+                                    _uet_desc  = f"상승 {_us_chg2:+.2f}% — 직전 분봉 고점 돌파 시 추격"
+                                elif _us_chg2 >= 1.0:
+                                    _uet_label = "🟡 극단타 관망"
+                                    _uet_color = "#ffd600"
+                                    _uet_desc  = f"소폭 {_us_chg2:+.2f}% — 변동성 부족, 돌파 신호 대기"
+                                elif _us_chg2 <= -5.0:
+                                    _uet_label = "🔵 반등 노림"
+                                    _uet_color = "#2b7cff"
+                                    _uet_desc  = f"급락 {_us_chg2:+.2f}% — 분봉 반등 캔들+거래량 폭발 확인 후"
+                                elif _us_chg2 <= -1.0:
+                                    _uet_label = "🔴 극단타 자제"
+                                    _uet_color = "#ff4b4b"
+                                    _uet_desc  = f"하락 {_us_chg2:+.2f}% — 추세 꺾임, 섣부른 반매수 위험"
+                                else:
+                                    _uet_label = "🟡 극단타 관망"
+                                    _uet_color = "#ffd600"
+                                    _uet_desc  = f"등락 {_us_chg2:+.2f}% — 방향 미확정, 분봉 패턴 확인 필요"
+
                                 if abs(_us_chg2) < 0.1:
                                     _ust_label = "⚪ 관망"
                                     _ust_color = "#888"
@@ -3898,8 +3976,9 @@ def main():
                                     _usl_color = "#ff4b4b"
                                     _usl_desc  = f"PER {_us_per_f:.1f} — 고평가, 장기 진입 신중"
 
-                                _urc1, _urc2, _urc3 = st.columns(3)
+                                _urc0, _urc1, _urc2, _urc3 = st.columns(4)
                                 for _urcol, _url, _urc_c, _urd, _urt in [
+                                    (_urc0, _uet_label, _uet_color, _uet_desc, "극단타"),
                                     (_urc1, _ust_label, _ust_color, _ust_desc, "단기"),
                                     (_urc2, _usm_label, _usm_color, _usm_desc, "중기"),
                                     (_urc3, _usl_label, _usl_color, _usl_desc, "장기"),
