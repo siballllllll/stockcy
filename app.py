@@ -30,6 +30,8 @@ def _get_chart_colors():
 def _tv_chart(symbol: str, interval: str = "D", height: int = 660) -> None:
     """TradingView Advanced Chart 위젯을 Streamlit에 렌더링 (iframe URL 방식)."""
     import urllib.parse
+    if ":" not in symbol:
+        symbol = f"NASDAQ:{symbol}"
     try:
         _dark = (st.get_option("theme.base") or "dark") != "light"
     except Exception:
@@ -56,6 +58,38 @@ def _tv_chart(symbol: str, interval: str = "D", height: int = 660) -> None:
         f' style="border-radius:12px;"></iframe>',
         unsafe_allow_html=True,
     )
+
+def _kr_plotly_chart(code: str, interval: str = "D", height: int = 660) -> None:
+    """Plotly 기반 국내 주식 차트 (TradingView 대안)"""
+    with st.spinner("차트 데이터 로딩 중..."):
+        if interval == "D":
+            df = get_kr_daily_chart(code)
+        else:
+            df = get_kr_minute_chart(code)
+            
+        if df is None or df.empty:
+            st.warning("차트 데이터를 불러올 수 없습니다.")
+            return
+
+        fig = go.Figure(data=[go.Candlestick(
+            x=df['datetime'],
+            open=df['open'],
+            high=df['high'],
+            low=df['low'],
+            close=df['close'],
+            increasing_line_color='#ff4b4b',
+            decreasing_line_color='#2b7cff'
+        )])
+        fig.update_layout(
+            height=height,
+            margin=dict(l=0, r=4, t=4, b=0),
+            paper_bgcolor="rgba(0,0,0,0)",
+            plot_bgcolor="rgba(0,0,0,0)",
+            xaxis_rangeslider_visible=False,
+            xaxis=dict(showgrid=False),
+            yaxis=dict(showgrid=False, side="right", tickformat=",.0f"),
+        )
+        st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
 
 # 1. 페이지 기본 설정 (항상 최상단에 위치)
 st.set_page_config(
@@ -1366,7 +1400,7 @@ def main():
                             else:
                                 st.markdown(f"**{_dtv_name}** ({_dtv_code})")
 
-                            _tv_chart(f"KRX:{_dtv_code}", interval="5", height=660)
+                            _kr_plotly_chart(_dtv_code, interval="5", height=660)
 
                         else:
                             # 섹터 목록 뷰 → KOSPI/KOSDAQ Toss 스타일 라인 차트
@@ -1494,7 +1528,7 @@ def main():
                                 st.rerun()
 
                         _kr_tv_iv = "5" if st.session_state.kr_chart_type == "분봉" else "D"
-                        _tv_chart(f"KRX:{selected_code_kr}", interval=_kr_tv_iv, height=660)
+                        _kr_plotly_chart(selected_code_kr, interval=_kr_tv_iv, height=660)
 
                 with _right_ctr:
                     if kr_mode == "📊 일반 주식 검색":
