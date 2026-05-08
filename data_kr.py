@@ -319,15 +319,155 @@ def get_kr_market_index():
     return result
 
 
+def _kis_minute_chart_raw(stock_code: str) -> pd.DataFrame:
+    """KIS API 1분봉 원시 데이터 (당일 장 전체, 최대 14회 호출 × 30봉 = ~420봉)"""
+    from datetime import datetime as _dt
+    import pytz as _pytz
+    _now = _dt.now(_pytz.timezone("Asia/Seoul"))
+    _today = _now.strftime("%Y%m%d")
+    _query_time = min(_now.strftime("%H%M%S"), "153000")
+
+    all_rows: list = []
+    for _ in range(14):
+        data = _get(
+            "/uapi/domestic-stock/v1/quotations/inquire-time-itemchartprice",
+            "FHKST03010200",
+            {
+                "FID_ETC_CLS_CODE": "",
+                "FID_INPUT_ISCD": stock_code,
+                "FID_INPUT_HOUR_1": _query_time,
+                "FID_PW_DATA_INCU_YN": "Y",
+            },
+        )
+        if not data:
+            break
+        rows = [r for r in (data.get("output2") or []) if r.get("stck_bsop_date") == _today]
+        if not rows:
+            break
+        all_rows.extend(rows)
+        earliest = min(r.get("stck_cntg_hour", "235959") for r in rows)
+        if earliest <= "090000":
+            break
+        h, m = int(earliest[:2]), int(earliest[2:4])
+        total_min = h * 60 + m - 1
+        _query_time = f"{total_min // 60:02d}{total_min % 60:02d}00"
+
+    if not all_rows:
+        return pd.DataFrame()
+
+    parsed = []
+    for r in all_rows:
+        try:
+            d, t = r.get("stck_bsop_date", ""), r.get("stck_cntg_hour", "")
+            if not d or not t:
+                continue
+            parsed.append({
+                "datetime": pd.to_datetime(f"{d} {t[:2]}:{t[2:4]}:{t[4:6]}"),
+                "open":   float(r.get("stck_oprc") or 0),
+                "high":   float(r.get("stck_hgpr") or 0),
+                "low":    float(r.get("stck_lwpr") or 0),
+                "close":  float(r.get("stck_prpr") or 0),
+                "volume": int(r.get("cntg_vol") or 0),
+            })
+        except Exception:
+            continue
+
+    if not parsed:
+        return pd.DataFrame()
+
+    import datetime as _dtm
+    df = pd.DataFrame(parsed)
+    df = df.drop_duplicates("datetime").sort_values("datetime").reset_index(drop=True)
+    df = df[
+        (df["datetime"].dt.time >= _dtm.time(9, 0)) &
+        (df["datetime"].dt.time <= _dtm.time(15, 30))
+    ]
+    return df.dropna(subset=["open", "high", "low", "close"]).reset_index(drop=True)
+
+
+def _kis_daily_chart_raw(stock_code: str, start_yyyymmdd: str, end_yyyymmdd: str) -> pd.DataFrame:
+    """KIS API 일봉 데이터 (최대 10회 호출 × 100봉 = ~1000봉)"""
+    all_rows: list = []
+    query_end = end_yyyymmdd
+    for _ in range(10):
+        data = _get(
+            "/uapi/domestic-stock/v1/quotations/inquire-daily-itemchartprice",
+            "FHKST03010100",
+            {
+                "FID_COND_MRKT_DIV_CODE": "J",
+                "FID_INPUT_ISCD": stock_code,
+                "FID_INPUT_DATE_1": start_yyyymmdd,
+                "FID_INPUT_DATE_2": query_end,
+                "FID_PERIOD_DIV_CODE": "D",
+                "FID_ORG_ADJ_PRC": "1",
+            },
+        )
+        if not data:
+            break
+        rows = data.get("output2") or []
+        if not rows:
+            break
+        all_rows.extend(rows)
+        if len(rows) < 100:
+            break
+        from datetime import datetime as _dt2, timedelta as _td2
+        earliest = min((r.get("stck_bsop_date") or "99999999") for r in rows)
+        prev = (_dt2.strptime(earliest, "%Y%m%d") - _td2(days=1)).strftime("%Y%m%d")
+        if prev < start_yyyymmdd:
+            break
+        query_end = prev
+
+    if not all_rows:
+        return pd.DataFrame()
+
+    parsed = []
+    for r in all_rows:
+        try:
+            d = r.get("stck_bsop_date", "")
+            if not d:
+                continue
+            parsed.append({
+                "datetime": pd.to_datetime(d, format="%Y%m%d"),
+                "open":   float(r.get("stck_oprc") or 0),
+                "high":   float(r.get("stck_hgpr") or 0),
+                "low":    float(r.get("stck_lwpr") or 0),
+                "close":  float(r.get("stck_clpr") or 0),
+                "volume": int(r.get("acml_vol") or 0),
+            })
+        except Exception:
+            continue
+
+    if not parsed:
+        return pd.DataFrame()
+
+    df = pd.DataFrame(parsed)
+    df = df.drop_duplicates("datetime").sort_values("datetime").reset_index(drop=True)
+    return df.dropna(subset=["open", "high", "low", "close"])
+
+
 @st.cache_data(ttl=60)
 def get_kr_minute_chart(stock_code: str, interval: int = 5):
-    """국내 주식 분봉 OHLCV (yfinance, 인터벌별 최대 조회 기간 자동 적용)"""
+    """국내 주식 분봉 OHLCV (KIS API → yfinance 폴백)"""
+    import datetime as _dtm
+
+    # ── 1차: KIS API (당일 1분봉 → 리샘플) ──────────────────────────────────
+    try:
+        df_kis = _kis_minute_chart_raw(stock_code)
+        if not df_kis.empty:
+            if interval > 1:
+                df_kis = df_kis.set_index("datetime")
+                df_kis = df_kis.resample(f"{interval}min").agg(
+                    {"open": "first", "high": "max", "low": "min", "close": "last", "volume": "sum"}
+                ).dropna().reset_index()
+            return df_kis
+    except Exception:
+        pass
+
+    # ── 2차: yfinance 폴백 ──────────────────────────────────────────────────
     import yfinance as yf
     from datetime import datetime as _dt
     import pytz as _pytz
 
-    # yfinance 인터벌 및 조회 기간 설정
-    # 1m: 최대 7일 / 2~5m: 60일 / 15m~: 60일
     if interval <= 1:
         yf_interval, period = "1m",  "5d"
     elif interval <= 5:
@@ -345,11 +485,9 @@ def get_kr_minute_chart(stock_code: str, interval: int = 5):
             )
             if raw.empty:
                 continue
-            # timezone → Asia/Seoul → naive
             if raw.index.tz is not None:
                 raw.index = raw.index.tz_convert("Asia/Seoul").tz_localize(None)
             tmp = raw.reset_index()
-            # 날짜 컬럼 이름 정규화
             dt_col = next(
                 (c for c in tmp.columns if str(c).lower() in ("datetime", "date", "index")), None
             )
@@ -368,23 +506,18 @@ def get_kr_minute_chart(stock_code: str, interval: int = 5):
     if df.empty:
         return pd.DataFrame()
 
-    # 요청 인터벌로 리샘플 (yf_interval과 다를 때만)
     if yf_interval != f"{interval}m":
         df = df.set_index("datetime")
         df = df.resample(f"{interval}min").agg(
             {"open": "first", "high": "max", "low": "min", "close": "last", "volume": "sum"}
         ).dropna().reset_index()
 
-    # 장 시간(09:00~15:30) 필터 + 미래 데이터 제거
     _now_kr = _dt.now(_pytz.timezone("Asia/Seoul")).replace(tzinfo=None)
-    _close_t = _dt.strptime("15:30", "%H:%M").time()
-    _open_t  = _dt.strptime("09:00", "%H:%M").time()
     df = df[
-        (df["datetime"].dt.time >= _open_t) &
-        (df["datetime"].dt.time <= _close_t) &
+        (df["datetime"].dt.time >= _dtm.time(9, 0)) &
+        (df["datetime"].dt.time <= _dtm.time(15, 30)) &
         (df["datetime"] <= _now_kr)
     ].reset_index(drop=True)
-
     return df
 
 
@@ -714,14 +847,33 @@ def get_kr_change_ranking(market: str = "J") -> list:
 
 @st.cache_data(ttl=300)
 def get_kr_daily_chart(stock_code: str, period: str = "3mo") -> pd.DataFrame:
-    """국내 주식 일봉 데이터 (yfinance). period: 1d/5d/15d/1mo/3mo/6mo/1y/2y/3y/5y"""
-    import yfinance as yf
+    """국내 주식 일봉 데이터 (KIS API → yfinance 폴백). period: 1d/5d/15d/1mo/3mo/6mo/1y/2y/3y/5y"""
     from datetime import datetime as _dt, timedelta as _td
-    _custom = {"15d": 21, "3y": 1100}
-    if period in _custom:
-        _end = _dt.now()
-        _start = (_end - _td(days=_custom[period])).strftime("%Y-%m-%d")
-        _hist_kw = {"start": _start, "end": _end.strftime("%Y-%m-%d")}
+
+    _period_days = {
+        "1d": 2, "5d": 8, "15d": 22, "1mo": 35,
+        "3mo": 95, "6mo": 185, "1y": 370,
+        "2y": 740, "3y": 1100, "5y": 1830,
+    }
+    _days = _period_days.get(period, 95)
+    _end_dt  = _dt.now()
+    _start_dt = _end_dt - _td(days=_days)
+    _start_str = _start_dt.strftime("%Y%m%d")
+    _end_str   = _end_dt.strftime("%Y%m%d")
+
+    # ── 1차: KIS API ──────────────────────────────────────────────────────────
+    try:
+        df = _kis_daily_chart_raw(stock_code, _start_str, _end_str)
+        if not df.empty:
+            return df
+    except Exception:
+        pass
+
+    # ── 2차: yfinance 폴백 ────────────────────────────────────────────────────
+    import yfinance as yf
+    _custom_yf = {"15d", "3y"}
+    if period in _custom_yf:
+        _hist_kw = {"start": _start_dt.strftime("%Y-%m-%d"), "end": _end_dt.strftime("%Y-%m-%d")}
     else:
         _hist_kw = {"period": period}
     for suffix in [".KS", ".KQ"]:
@@ -732,7 +884,6 @@ def get_kr_daily_chart(stock_code: str, period: str = "3mo") -> pd.DataFrame:
             if raw.empty:
                 continue
             df = raw.reset_index()
-            # 날짜 컬럼 이름 정규화 (Date / Datetime 모두 처리)
             dt_col = next(
                 (c for c in df.columns if str(c).lower() in ("date", "datetime")), None
             )
@@ -744,7 +895,6 @@ def get_kr_daily_chart(stock_code: str, period: str = "3mo") -> pd.DataFrame:
             if not all(c in df.columns for c in needed):
                 continue
             df["datetime"] = pd.to_datetime(df["datetime"])
-            # timezone 제거
             if df["datetime"].dt.tz is not None:
                 df["datetime"] = df["datetime"].dt.tz_localize(None)
             return df[needed].dropna(subset=["open", "high", "low", "close"]).copy()
