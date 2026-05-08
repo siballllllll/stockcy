@@ -15,6 +15,18 @@ from data_kr import (get_us_prices_bulk_kis, get_kr_index_history,
                      get_kr_stock_name_kis, get_kr_name_to_code_map,
                      get_kr_major_tickers)
 
+def _get_chart_colors():
+    """Return (font_color, grid_color) adapted to the current Streamlit theme."""
+    try:
+        _base = st.get_option("theme.base") or "dark"
+    except Exception:
+        _base = "dark"
+    _light = (_base == "light")
+    return (
+        "#333333" if _light else "rgba(255,255,255,0.82)",
+        "rgba(0,0,0,0.08)" if _light else "rgba(255,255,255,0.10)",
+    )
+
 # 1. 페이지 기본 설정 (항상 최상단에 위치)
 st.set_page_config(
     page_title="Stockcy | AI 단타 트레이딩 어시스턴트",
@@ -1337,10 +1349,11 @@ def main():
                                     line=dict(color="#00b4d8", width=1.2), name="MA20"), row=1, col=1)
                                 _fig_s.add_trace(go.Bar(x=df_sec["datetime"], y=df_sec["volume"],
                                     marker_color=_vc, name="거래량", showlegend=False), row=2, col=1)
-                                _ax = dict(gridcolor="rgba(255,255,255,0.08)", showline=False)
+                                _fc, _gc = _get_chart_colors()
+                                _ax = dict(gridcolor=_gc, showline=False)
                                 _fig_s.update_layout(
                                     paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-                                    font=dict(color="white", size=11),
+                                    font=dict(color=_fc, size=11),
                                     xaxis=dict(**_ax, rangeslider=dict(visible=False),
                                                showticklabels=False, range=[_xs_st, _xs_end]),
                                     xaxis2=dict(**_ax, range=[_xs_st, _xs_end], tickformat="%H:%M"),
@@ -1349,7 +1362,7 @@ def main():
                                     legend=dict(orientation="h", x=0, y=1.05,
                                                 bgcolor="rgba(0,0,0,0)", font=dict(size=11)),
                                     hovermode="x unified",
-                                    margin=dict(l=0, r=60, t=30, b=5), height=540,
+                                    margin=dict(l=0, r=60, t=30, b=5), height=630,
                                 )
                                 _fig_s.update_xaxes(
                                     rangebreaks=[
@@ -1532,10 +1545,11 @@ def main():
                                         line=dict(color="#00b4d8", width=1.2), name="MA20"), row=1, col=1)
                                     fig_kr.add_trace(go.Bar(x=df_kr_chart["datetime"], y=df_kr_chart["volume"],
                                         marker_color=vol_colors, name="거래량", showlegend=False), row=2, col=1)
-                                    _ax = dict(gridcolor="rgba(255,255,255,0.08)", showline=False)
+                                    _fc, _gc = _get_chart_colors()
+                                    _ax = dict(gridcolor=_gc, showline=False)
                                     fig_kr.update_layout(
                                         paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-                                        font=dict(color="white", size=11),
+                                        font=dict(color=_fc, size=11),
                                         xaxis=dict(**_ax, rangeslider=dict(visible=False),
                                                    showticklabels=False, range=[_x_start, _x_end],
                                                    type="date"),
@@ -1545,7 +1559,7 @@ def main():
                                         yaxis2=dict(**_ax, tickformat=".2s", side="right", autorange=True),
                                         legend=dict(orientation="h", x=0, y=1.05, bgcolor="rgba(0,0,0,0)", font=dict(size=11)),
                                         hovermode="x unified",
-                                        margin=dict(l=0, r=60, t=30, b=5), height=540,
+                                        margin=dict(l=0, r=60, t=30, b=5), height=630,
                                     )
                                     fig_kr.update_xaxes(rangebreaks=[
                                         dict(bounds=["sat", "mon"]),
@@ -1594,12 +1608,13 @@ def main():
                                         line=dict(color="#ff9800", width=1.2, dash="dot"), name="MA60"), row=1, col=1)
                                     fig_d.add_trace(go.Bar(x=df_d["datetime"], y=df_d["volume"],
                                         marker_color=_dvc, name="거래량", showlegend=False), row=2, col=1)
-                                    _ax = dict(gridcolor="rgba(255,255,255,0.08)", showline=False)
+                                    _fc, _gc = _get_chart_colors()
+                                    _ax = dict(gridcolor=_gc, showline=False)
                                     _xrng = [str(df_d["datetime"].min())[:10],
                                              str(df_d["datetime"].max())[:10]]
                                     fig_d.update_layout(
                                         paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-                                        font=dict(color="white", size=11),
+                                        font=dict(color=_fc, size=11),
                                         xaxis=dict(**_ax, rangeslider=dict(visible=False),
                                                    showticklabels=False, range=_xrng),
                                         xaxis2=dict(**_ax, tickformat="%y/%m/%d", range=_xrng),
@@ -1607,7 +1622,7 @@ def main():
                                         yaxis2=dict(**_ax, tickformat=".2s", side="right", autorange=True),
                                         legend=dict(orientation="h", x=0, y=1.05, bgcolor="rgba(0,0,0,0)", font=dict(size=11)),
                                         hovermode="x unified",
-                                        margin=dict(l=0, r=60, t=30, b=5), height=540,
+                                        margin=dict(l=0, r=60, t=30, b=5), height=630,
                                     )
                                     fig_d.update_xaxes(rangebreaks=[dict(bounds=["sat", "mon"])])
                                     st.plotly_chart(fig_d, use_container_width=True)
@@ -1858,12 +1873,13 @@ def main():
                                         fig_inv.add_trace(go.Bar(
                                             name=_cn, x=df_inv["날짜"], y=df_inv[_cn], marker_color=_cc
                                         ))
+                                    _fc, _gc = _get_chart_colors()
                                     fig_inv.update_layout(
                                         barmode="group",
                                         paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-                                        font=dict(color="white"), legend=dict(orientation="h"),
-                                        xaxis=dict(gridcolor="rgba(255,255,255,0.1)"),
-                                        yaxis=dict(gridcolor="rgba(255,255,255,0.1)", title="순매수(주)"),
+                                        font=dict(color=_fc), legend=dict(orientation="h"),
+                                        xaxis=dict(gridcolor=_gc),
+                                        yaxis=dict(gridcolor=_gc, title="순매수(주)"),
                                         margin=dict(l=10, r=10, t=10, b=10), height=240,
                                     )
                                     st.plotly_chart(fig_inv, use_container_width=True)
@@ -2140,12 +2156,13 @@ def main():
                                             name=_cn, x=df_inv_d["날짜"], y=df_inv_d[_cn],
                                             marker_color=_cc
                                         ))
+                                    _fc, _gc = _get_chart_colors()
                                     fig_inv_d.update_layout(
                                         barmode="group",
                                         paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-                                        font=dict(color="white"), legend=dict(orientation="h"),
-                                        xaxis=dict(gridcolor="rgba(255,255,255,0.1)"),
-                                        yaxis=dict(gridcolor="rgba(255,255,255,0.1)", title="순매수(주)"),
+                                        font=dict(color=_fc), legend=dict(orientation="h"),
+                                        xaxis=dict(gridcolor=_gc),
+                                        yaxis=dict(gridcolor=_gc, title="순매수(주)"),
                                         margin=dict(l=10,r=10,t=10,b=10), height=170
                                     )
                                     st.plotly_chart(fig_inv_d, use_container_width=True)
@@ -3577,10 +3594,11 @@ def main():
                                     line=dict(color="#00b4d8", width=1.2), name="MA20"), row=1, col=1)
                                 fig_us_min.add_trace(go.Bar(x=df_us_min["datetime"], y=df_us_min["volume"],
                                     marker_color=_us_vol_c, name="거래량", showlegend=False), row=2, col=1)
-                                _us_ax = dict(gridcolor="rgba(255,255,255,0.08)", showline=False)
+                                _fc, _gc = _get_chart_colors()
+                                _us_ax = dict(gridcolor=_gc, showline=False)
                                 fig_us_min.update_layout(
                                     paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-                                    font=dict(color="white", size=11),
+                                    font=dict(color=_fc, size=11),
                                     xaxis=dict(**_us_ax, rangeslider=dict(visible=False),
                                                showticklabels=False, range=[_us_x_start, _us_x_end], type="date"),
                                     xaxis2=dict(**_us_ax, range=[_us_x_start, _us_x_end],
@@ -3589,7 +3607,7 @@ def main():
                                     yaxis2=dict(**_us_ax, tickformat=".2s", side="right", autorange=True),
                                     legend=dict(orientation="h", x=0, y=1.05, bgcolor="rgba(0,0,0,0)", font=dict(size=11)),
                                     hovermode="x unified",
-                                    margin=dict(l=0, r=60, t=30, b=5), height=540,
+                                    margin=dict(l=0, r=60, t=30, b=5), height=630,
                                 )
                                 fig_us_min.update_xaxes(rangebreaks=[dict(bounds=["sat", "mon"])])
                                 st.plotly_chart(fig_us_min, use_container_width=True)
@@ -3635,12 +3653,13 @@ def main():
                                     line=dict(color="#ff9800", width=1.2, dash="dot"), name="MA60"), row=1, col=1)
                                 fig_us_day.add_trace(go.Bar(x=df_us_day["datetime"], y=df_us_day["volume"],
                                     marker_color=_us_dvc, name="거래량", showlegend=False), row=2, col=1)
-                                _us_ax = dict(gridcolor="rgba(255,255,255,0.08)", showline=False)
+                                _fc, _gc = _get_chart_colors()
+                                _us_ax = dict(gridcolor=_gc, showline=False)
                                 _us_xrng = [str(df_us_day["datetime"].min())[:10],
                                             str(df_us_day["datetime"].max())[:10]]
                                 fig_us_day.update_layout(
                                     paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-                                    font=dict(color="white", size=11),
+                                    font=dict(color=_fc, size=11),
                                     xaxis=dict(**_us_ax, rangeslider=dict(visible=False),
                                                showticklabels=False, range=_us_xrng),
                                     xaxis2=dict(**_us_ax, tickformat="%y/%m/%d", range=_us_xrng),
@@ -3648,7 +3667,7 @@ def main():
                                     yaxis2=dict(**_us_ax, tickformat=".2s", side="right", autorange=True),
                                     legend=dict(orientation="h", x=0, y=1.05, bgcolor="rgba(0,0,0,0)", font=dict(size=11)),
                                     hovermode="x unified",
-                                    margin=dict(l=0, r=60, t=30, b=5), height=540,
+                                    margin=dict(l=0, r=60, t=30, b=5), height=630,
                                 )
                                 fig_us_day.update_xaxes(rangebreaks=[dict(bounds=["sat", "mon"])])
                                 st.plotly_chart(fig_us_day, use_container_width=True)
@@ -3907,10 +3926,11 @@ def main():
                                         y=[_inst_pct, _insider_pct, _retail_p],
                                         marker_color=["#2b7cff", "#ff4b4b", "#888"],
                                     ))
+                                    _fc, _gc = _get_chart_colors()
                                     fig_own.update_layout(
                                         paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-                                        font=dict(color="white"),
-                                        yaxis=dict(gridcolor="rgba(255,255,255,0.1)", title="%", range=[0, 100]),
+                                        font=dict(color=_fc),
+                                        yaxis=dict(gridcolor=_gc, title="%", range=[0, 100]),
                                         margin=dict(l=10, r=10, t=10, b=10), height=220,
                                     )
                                     st.plotly_chart(fig_own, use_container_width=True)
@@ -4177,10 +4197,11 @@ def main():
                                             y=[us_detail["institutional_pct"], us_detail["insider_pct"], retail_p],
                                             marker_color=["#2b7cff", "#ff4b4b", "#888"]
                                         ))
+                                        _fc, _gc = _get_chart_colors()
                                         fig_own2.update_layout(
                                             paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-                                            font=dict(color="white"),
-                                            yaxis=dict(gridcolor="rgba(255,255,255,0.1)", title="%", range=[0, 100]),
+                                            font=dict(color=_fc),
+                                            yaxis=dict(gridcolor=_gc, title="%", range=[0, 100]),
                                             margin=dict(l=10, r=10, t=10, b=10), height=170
                                         )
                                         st.plotly_chart(fig_own2, use_container_width=True)
@@ -4892,12 +4913,13 @@ def main():
                         fill="tozeroy", fillcolor=fill_color,
                         name="누적 수익금"
                     ))
+                    _fc, _gc = _get_chart_colors()
                     fig.update_layout(
                         title="📈 누적 수익금 추이",
                         paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-                        font=dict(color="white"),
-                        xaxis=dict(gridcolor="rgba(255,255,255,0.1)"),
-                        yaxis=dict(gridcolor="rgba(255,255,255,0.1)", tickprefix="$"),
+                        font=dict(color=_fc),
+                        xaxis=dict(gridcolor=_gc),
+                        yaxis=dict(gridcolor=_gc, tickprefix="$"),
                         margin=dict(l=10, r=10, t=40, b=10)
                     )
                     st.plotly_chart(fig, use_container_width=True)
