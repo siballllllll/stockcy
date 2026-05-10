@@ -200,11 +200,15 @@ def generate_stock_report(ticker, current_price, change_pct):
     [요청 사항]
     반드시 아래 JSON 형식으로만 응답하세요. 마크다운이나 다른 텍스트는 절대 포함하지 마세요.
     {{
-      "rating": "반드시 다음 중 하나로 정확히 선택: 매우 강력 추천, 추천, 중간추천, 비추천, 매우 비추천",
-      "buy_target": "매수가 (구체적인 숫자나 범위)",
-      "sell_target": "목표가 (구체적인 숫자)",
-      "stop_loss": "손절가 (구체적인 숫자)",
-      "analysis": "해당 판단을 정당화하는 구체적인 기술적 분석 근거 (상세한 마크다운 텍스트)"
+      "rating": "단기 트레이딩 관점 등급 (매우 강력 추천, 추천, 중간추천, 비추천, 매우 비추천 중 하나)",
+      "buy_target": "단기 매수가 (구체적인 숫자)",
+      "sell_target": "단기 목표가 (구체적인 숫자, 5~10% 상승)",
+      "stop_loss": "단기 손절가 (구체적인 숫자, -2~3% 손절)",
+      "analysis": "단기 기술적 분석 및 수급, 모멘텀 근거 (상세한 마크다운 텍스트)",
+      
+      "long_term_rating": "중장기 투자 관점 등급 (적극 매수, 분할 매수, 관망, 비중 축소, 전량 매도 중 하나)",
+      "long_term_target": "중장기 목표가 (3~6개월 후 예상 가격)",
+      "long_term_analysis": "현재 매크로 사이클 및 펀더멘털을 고려한 중장기 관점에서의 분석 및 투자 전략 (상세한 마크다운 텍스트)"
     }}
     """
     try:
@@ -585,12 +589,16 @@ PER: {price_data['per']} | PBR: {price_data['pbr']}
 
 위 데이터와 구글 검색을 통한 최신 뉴스를 종합하여 반드시 아래 JSON으로만 응답하세요.
 {{
-  "rating": "매우 강력 추천, 추천, 중간추천, 비추천, 매우 비추천 중 하나",
-  "buy_target": "매수 타점 (원 단위, 예: 72,500)",
-  "sell_target": "목표가 (원 단위, 예: 78,000)",
-  "stop_loss": "손절가 (원 단위, 예: 70,000)",
+  "rating": "단기 관점 등급 (매우 강력 추천, 추천, 중간추천, 비추천, 매우 비추천 중 하나)",
+  "buy_target": "단기 매수 타점 (원 단위, 예: 72,500)",
+  "sell_target": "단기 목표가 (원 단위, 예: 78,000)",
+  "stop_loss": "단기 손절가 (원 단위, 예: 70,000)",
   "세력분석": "외국인/기관 수급 흐름의 의미를 2~3문장으로 분석",
-  "analysis": "종합 단타 전략 (최신 뉴스, 차트 패턴, 진입 근거 등을 마크다운으로 상세 작성)"
+  "analysis": "종합 단타 전략 (최신 뉴스, 차트 패턴, 진입 근거 등을 마크다운으로 상세 작성)",
+  
+  "long_term_rating": "중장기 관점 등급 (적극 매수, 분할 매수, 관망, 비중 축소, 전량 매도 중 하나)",
+  "long_term_target": "중장기 목표가 (원 단위, 3~6개월 관점)",
+  "long_term_analysis": "거시 경제 사이클 및 펀더멘털을 고려한 중장기 분석 (마크다운 상세 작성)"
 }}
 """
     try:
@@ -1340,3 +1348,76 @@ PER: {price_data.get('per','-')}  PBR: {price_data.get('pbr','-')}
         if "QUOTA" in str(e) or "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
             return _quota_error_result("analyze_stock_theme_position")
         return {"error": f"분석 오류: {type(e).__name__}: {str(e)[:100]}"}
+
+
+def fetch_rss_news(max_items_per_feed=5):
+    """
+    주요 언론사 RSS 피드를 통해 최신 경제/매크로 뉴스를 수집합니다.
+    """
+    try:
+        import feedparser
+    except ImportError:
+        return "feedparser 라이브러리가 설치되지 않았습니다."
+
+    rss_urls = [
+        "https://feeds.a.dj.com/rss/WSJcomUSBusiness.xml", # WSJ Business
+        "https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=10000664", # CNBC Finance
+        "https://www.mk.co.kr/rss/30100041/", # 매일경제 증권
+        "https://www.hankyung.com/feed/finance" # 한국경제 증권
+    ]
+    
+    all_news = []
+    for url in rss_urls:
+        try:
+            feed = feedparser.parse(url)
+            for entry in feed.entries[:max_items_per_feed]:
+                title = entry.get("title", "")
+                summary = entry.get("summary", "")
+                # HTML 태그 제거
+                summary = re.sub('<[^<]+>', '', summary)
+                all_news.append(f"Title: {title}\nSummary: {summary[:200]}")
+        except Exception:
+            continue
+            
+    if not all_news:
+        return "최신 뉴스를 가져오지 못했습니다."
+        
+    return "\n\n".join(all_news)
+
+
+def generate_macro_phase_analysis():
+    """
+    최신 글로벌/국내 매크로 뉴스를 RAG 방식으로 분석하여
+    현재 시장의 Phase와 수혜 섹터를 JSON 형태로 반환합니다.
+    """
+    news_text = fetch_rss_news()
+    
+    prompt = f"""
+    당신은 월스트리트의 수석 매크로 전략가입니다.
+    다음은 방금 RSS 피드를 통해 수집된 전 세계 및 국내 최신 경제/금융 뉴스입니다.
+    
+    [최신 경제 뉴스 (RAG Context)]
+    {news_text}
+    
+    위 최신 뉴스를 바탕으로 중장기적인 매크로 투자 사이클과 전 섹터의 자금 이동을 분석해주세요.
+    반드시 아래 JSON 형식으로만 응답해야 하며, 어떠한 부가 설명도 하지 마세요.
+    
+    {{
+      "macro_phase": "현재 시장 매크로 사이클 진단 (예: AI 인프라 설비투자 급증기)",
+      "key_insight": "최신 수집 데이터 기반 핵심 시사점 3줄 요약",
+      "bullish_sectors": ["현재 자금이 쏠리는 수혜 섹터1", "섹터2"],
+      "action_point": "구체적인 투자 스탠스 (예: Capex 꺾이기 전까지 전력망/장비주 보유 유지)"
+    }}
+    """
+    try:
+        response = _call_gemini(prompt, use_search=False, temperature=0.5)
+        text = re.sub(r'```(?:json)?', '', response.text).strip()
+        start = text.find('{{')
+        if start != -1:
+            result, _ = json.JSONDecoder().raw_decode(text, start)
+            return result
+        return json.loads(text)
+    except Exception as e:
+        if "QUOTA" in str(e) or "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
+            return _quota_error_result("generate_macro_phase_analysis")
+        return {{"error": f"분석 오류: {{type(e).__name__}}: {{str(e)[:100]}}"}}

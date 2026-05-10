@@ -1873,18 +1873,42 @@ def main():
 
                                 if _ai_key in st.session_state:
                                     rep_kr = st.session_state[_ai_key]
-                                    rating_kr = rep_kr.get("rating", "")
-                                    r_emoji = "🟢" if "강력" in rating_kr else "🟡" if "추천" in rating_kr else "🔴"
-                                    st.markdown(f"##### {r_emoji} {rating_kr}")
-                                    rk1, rk2 = st.columns(2)
-                                    rk1.metric("매수 타점", rep_kr.get("buy_target", "-"))
-                                    rk2.metric("목표가",    rep_kr.get("sell_target", "-"))
-                                    st.metric("손절가",     rep_kr.get("stop_loss", "-"))
-                                    if rep_kr.get("세력분석"):
-                                        st.info(f"**세력 분석:** {rep_kr['세력분석']}")
-                                    if rep_kr.get("analysis"):
-                                        with st.container(border=True):
-                                            st.markdown(rep_kr["analysis"])
+                                    if "long_term_rating" in rep_kr:
+                                        t1, t2 = st.tabs(["⚡ 단기 트레이딩 관점", "📈 중장기 투자 관점"])
+                                        with t1:
+                                            rating_kr = rep_kr.get("rating", "")
+                                            r_emoji = "🟢" if "강력" in rating_kr else "🟡" if "추천" in rating_kr else "🔴"
+                                            st.markdown(f"##### {r_emoji} {rating_kr}")
+                                            rk1, rk2 = st.columns(2)
+                                            rk1.metric("매수 타점", rep_kr.get("buy_target", "-"))
+                                            rk2.metric("목표가",    rep_kr.get("sell_target", "-"))
+                                            st.metric("손절가",     rep_kr.get("stop_loss", "-"))
+                                            if rep_kr.get("세력분석"):
+                                                st.info(f"**세력 분석:** {rep_kr['세력분석']}")
+                                            if rep_kr.get("analysis"):
+                                                with st.container(border=True):
+                                                    st.markdown(rep_kr["analysis"])
+                                        with t2:
+                                            lt_rating = rep_kr.get("long_term_rating", "")
+                                            lt_emoji = "🟢" if "매수" in lt_rating else "🟡" if "관망" in lt_rating else "🔴"
+                                            st.markdown(f"##### {lt_emoji} {lt_rating}")
+                                            st.metric("중장기 목표가 (3~6개월)", rep_kr.get("long_term_target", "-"))
+                                            if rep_kr.get("long_term_analysis"):
+                                                with st.container(border=True):
+                                                    st.markdown(rep_kr["long_term_analysis"])
+                                    else:
+                                        rating_kr = rep_kr.get("rating", "")
+                                        r_emoji = "🟢" if "강력" in rating_kr else "🟡" if "추천" in rating_kr else "🔴"
+                                        st.markdown(f"##### {r_emoji} {rating_kr}")
+                                        rk1, rk2 = st.columns(2)
+                                        rk1.metric("매수 타점", rep_kr.get("buy_target", "-"))
+                                        rk2.metric("목표가",    rep_kr.get("sell_target", "-"))
+                                        st.metric("손절가",     rep_kr.get("stop_loss", "-"))
+                                        if rep_kr.get("세력분석"):
+                                            st.info(f"**세력 분석:** {rep_kr['세력분석']}")
+                                        if rep_kr.get("analysis"):
+                                            with st.container(border=True):
+                                                st.markdown(rep_kr["analysis"])
                                 else:
                                     st.info("버튼을 눌러 AI 분석을 실행하세요.")
 
@@ -2121,19 +2145,44 @@ def main():
 
                                 if f"sec_rep_{detail_code}" in st.session_state:
                                     _r = st.session_state[f"sec_rep_{detail_code}"]
-                                    _rtg = _r.get("rating","")
-                                    _re = "🟢" if "강력" in _rtg else "🟡" if "추천" in _rtg else "🔴"
-                                    st.markdown(f"##### {_re} {_rtg}")
-                                    _rk1, _rk2 = st.columns(2)
-                                    _rk1.metric("매수 타점", _r.get("buy_target","-"))
-                                    _rk2.metric("목표가",    _r.get("sell_target","-"))
-                                    st.metric("손절가", _r.get("stop_loss","-"))
-                                    if _r.get("세력분석"):
-                                        st.info(f"**세력 분석:** {_r['세력분석']}")
-                                    if _r.get("analysis"):
-                                        st.markdown("---")
-                                        with st.container(border=True):
-                                            st.markdown(_r["analysis"])
+                                    if "long_term_rating" in _r:
+                                        t1, t2 = st.tabs(["⚡ 단기 트레이딩 관점", "📈 중장기 투자 관점"])
+                                        with t1:
+                                            _rtg = _r.get("rating","")
+                                            _re = "🟢" if "강력" in _rtg else "🟡" if "추천" in _rtg else "🔴"
+                                            st.markdown(f"##### {_re} {_rtg}")
+                                            _rk1, _rk2 = st.columns(2)
+                                            _rk1.metric("매수 타점", _r.get("buy_target","-"))
+                                            _rk2.metric("목표가",    _r.get("sell_target","-"))
+                                            st.metric("손절가", _r.get("stop_loss","-"))
+                                            if _r.get("세력분석"):
+                                                st.info(f"**세력 분석:** {_r['세력분석']}")
+                                            if _r.get("analysis"):
+                                                st.markdown("---")
+                                                with st.container(border=True):
+                                                    st.markdown(_r["analysis"])
+                                        with t2:
+                                            lt_rating = _r.get("long_term_rating", "")
+                                            lt_emoji = "🟢" if "매수" in lt_rating else "🟡" if "관망" in lt_rating else "🔴"
+                                            st.markdown(f"##### {lt_emoji} {lt_rating}")
+                                            st.metric("중장기 목표가 (3~6개월)", _r.get("long_term_target", "-"))
+                                            if _r.get("long_term_analysis"):
+                                                with st.container(border=True):
+                                                    st.markdown(_r["long_term_analysis"])
+                                    else:
+                                        _rtg = _r.get("rating","")
+                                        _re = "🟢" if "강력" in _rtg else "🟡" if "추천" in _rtg else "🔴"
+                                        st.markdown(f"##### {_re} {_rtg}")
+                                        _rk1, _rk2 = st.columns(2)
+                                        _rk1.metric("매수 타점", _r.get("buy_target","-"))
+                                        _rk2.metric("목표가",    _r.get("sell_target","-"))
+                                        st.metric("손절가", _r.get("stop_loss","-"))
+                                        if _r.get("세력분석"):
+                                            st.info(f"**세력 분석:** {_r['세력분석']}")
+                                        if _r.get("analysis"):
+                                            st.markdown("---")
+                                            with st.container(border=True):
+                                                st.markdown(_r["analysis"])
 
                                 # ── 테마 연동 분석 (대장주·추종주·수급·역사) ─────────
                                 st.markdown("#### 🔗 테마 연동 분석")
@@ -3887,31 +3936,66 @@ def main():
                                     st.rerun()
                                 if _us_ai_key in st.session_state:
                                     _rep = st.session_state[_us_ai_key]
-                                    _re  = ("🟢" if "강력 추천" in _rep.get("rating","")
-                                            else "🟡" if "추천" in _rep.get("rating","") else "🔴")
-                                    st.markdown(f"##### {_re} {_rep.get('rating','')}")
-                                    _rt1, _rt2 = st.columns(2)
-                                    _rt1.metric("매수가", _rep.get("buy_target","-"))
-                                    _rt2.metric("목표가", _rep.get("sell_target","-"))
-                                    st.metric("손절", _rep.get("stop_loss","-"))
-                                    if st.button("🎒 포트폴리오에 담기", use_container_width=True,
-                                                 type="primary", key="us_port_btn"):
-                                        if "portfolio" not in st.session_state:
-                                            st.session_state.portfolio = []
-                                        if not any(i["ticker"] == _us_ticker_cur
-                                                   for i in st.session_state.portfolio):
-                                            st.session_state.portfolio.append({
-                                                "ticker": _us_ticker_cur,
-                                                "name": detail_us["name"],
-                                                "buy_price": _cur_p, "quantity": 10,
-                                                "buy_date": datetime.now().strftime("%Y-%m-%d %H:%M"),
-                                            })
-                                            st.success(f"{_us_ticker_cur} 포트폴리오에 추가!")
-                                        else:
-                                            st.warning("이미 포트폴리오에 있습니다.")
-                                    if _rep.get("analysis"):
-                                        with st.container(border=True):
-                                            st.markdown(_rep["analysis"])
+                                    if "long_term_rating" in _rep:
+                                        t1, t2 = st.tabs(["⚡ 단기 트레이딩 관점", "📈 중장기 투자 관점"])
+                                        with t1:
+                                            _re  = ("🟢" if "강력 추천" in _rep.get("rating","")
+                                                    else "🟡" if "추천" in _rep.get("rating","") else "🔴")
+                                            st.markdown(f"##### {_re} {_rep.get('rating','')}")
+                                            _rt1, _rt2 = st.columns(2)
+                                            _rt1.metric("매수가", _rep.get("buy_target","-"))
+                                            _rt2.metric("목표가", _rep.get("sell_target","-"))
+                                            st.metric("손절", _rep.get("stop_loss","-"))
+                                            if st.button("🎒 포트폴리오에 담기", use_container_width=True,
+                                                         type="primary", key="us_port_btn_short"):
+                                                if "portfolio" not in st.session_state:
+                                                    st.session_state.portfolio = []
+                                                if not any(i["ticker"] == _us_ticker_cur for i in st.session_state.portfolio):
+                                                    st.session_state.portfolio.append({
+                                                        "ticker": _us_ticker_cur, "name": detail_us["name"],
+                                                        "buy_price": _cur_p, "quantity": 10,
+                                                        "buy_date": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                                                    })
+                                                    st.success(f"{_us_ticker_cur} 포트폴리오에 추가!")
+                                                else:
+                                                    st.warning("이미 포트폴리오에 있습니다.")
+                                            if _rep.get("analysis"):
+                                                with st.container(border=True):
+                                                    st.markdown(_rep["analysis"])
+                                        with t2:
+                                            lt_rating = _rep.get("long_term_rating", "")
+                                            lt_emoji = "🟢" if "매수" in lt_rating else "🟡" if "관망" in lt_rating else "🔴"
+                                            st.markdown(f"##### {lt_emoji} {lt_rating}")
+                                            st.metric("중장기 목표가 (3~6개월)", _rep.get("long_term_target", "-"))
+                                            if _rep.get("long_term_analysis"):
+                                                with st.container(border=True):
+                                                    st.markdown(_rep["long_term_analysis"])
+                                    else:
+                                        _re  = ("🟢" if "강력 추천" in _rep.get("rating","")
+                                                else "🟡" if "추천" in _rep.get("rating","") else "🔴")
+                                        st.markdown(f"##### {_re} {_rep.get('rating','')}")
+                                        _rt1, _rt2 = st.columns(2)
+                                        _rt1.metric("매수가", _rep.get("buy_target","-"))
+                                        _rt2.metric("목표가", _rep.get("sell_target","-"))
+                                        st.metric("손절", _rep.get("stop_loss","-"))
+                                        if st.button("🎒 포트폴리오에 담기", use_container_width=True,
+                                                     type="primary", key="us_port_btn"):
+                                            if "portfolio" not in st.session_state:
+                                                st.session_state.portfolio = []
+                                            if not any(i["ticker"] == _us_ticker_cur
+                                                       for i in st.session_state.portfolio):
+                                                st.session_state.portfolio.append({
+                                                    "ticker": _us_ticker_cur,
+                                                    "name": detail_us["name"],
+                                                    "buy_price": _cur_p, "quantity": 10,
+                                                    "buy_date": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                                                })
+                                                st.success(f"{_us_ticker_cur} 포트폴리오에 추가!")
+                                            else:
+                                                st.warning("이미 포트폴리오에 있습니다.")
+                                        if _rep.get("analysis"):
+                                            with st.container(border=True):
+                                                st.markdown(_rep["analysis"])
                                 st.markdown(
                                     "<hr class='toss-divider' style='margin:8px 0'>",
                                     unsafe_allow_html=True,
@@ -4059,17 +4143,40 @@ def main():
                                             )
                                     if f"us_sec_rep_{_us_dticker}" in st.session_state:
                                         _ur = st.session_state[f"us_sec_rep_{_us_dticker}"]
-                                        _urtg = _ur.get("rating","")
-                                        _ure  = "🟢" if "강력" in _urtg else "🟡" if "추천" in _urtg else "🔴"
-                                        st.markdown(f"##### {_ure} {_urtg}")
-                                        _urk1, _urk2 = st.columns(2)
-                                        _urk1.metric("매수 타점", _ur.get("buy_target","-"))
-                                        _urk2.metric("목표가",    _ur.get("sell_target","-"))
-                                        st.metric("손절가", _ur.get("stop_loss","-"))
-                                        if _ur.get("analysis"):
-                                            st.markdown("---")
-                                            with st.container(border=True):
-                                                st.markdown(_ur["analysis"])
+                                        if "long_term_rating" in _ur:
+                                            t1, t2 = st.tabs(["⚡ 단기 관점", "📈 중장기 관점"])
+                                            with t1:
+                                                _urtg = _ur.get("rating","")
+                                                _ure  = "🟢" if "강력" in _urtg else "🟡" if "추천" in _urtg else "🔴"
+                                                st.markdown(f"##### {_ure} {_urtg}")
+                                                _urk1, _urk2 = st.columns(2)
+                                                _urk1.metric("매수 타점", _ur.get("buy_target","-"))
+                                                _urk2.metric("목표가",    _ur.get("sell_target","-"))
+                                                st.metric("손절가", _ur.get("stop_loss","-"))
+                                                if _ur.get("analysis"):
+                                                    st.markdown("---")
+                                                    with st.container(border=True):
+                                                        st.markdown(_ur["analysis"])
+                                            with t2:
+                                                lt_rating = _ur.get("long_term_rating", "")
+                                                lt_emoji = "🟢" if "매수" in lt_rating else "🟡" if "관망" in lt_rating else "🔴"
+                                                st.markdown(f"##### {lt_emoji} {lt_rating}")
+                                                st.metric("중장기 목표가", _ur.get("long_term_target", "-"))
+                                                if _ur.get("long_term_analysis"):
+                                                    with st.container(border=True):
+                                                        st.markdown(_ur["long_term_analysis"])
+                                        else:
+                                            _urtg = _ur.get("rating","")
+                                            _ure  = "🟢" if "강력" in _urtg else "🟡" if "추천" in _urtg else "🔴"
+                                            st.markdown(f"##### {_ure} {_urtg}")
+                                            _urk1, _urk2 = st.columns(2)
+                                            _urk1.metric("매수 타점", _ur.get("buy_target","-"))
+                                            _urk2.metric("목표가",    _ur.get("sell_target","-"))
+                                            st.metric("손절가", _ur.get("stop_loss","-"))
+                                            if _ur.get("analysis"):
+                                                st.markdown("---")
+                                                with st.container(border=True):
+                                                    st.markdown(_ur["analysis"])
                                 else:
                                     st.warning("시세 데이터를 불러오지 못했습니다.")
 
