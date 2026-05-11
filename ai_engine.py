@@ -215,6 +215,10 @@ def generate_stock_report(ticker, current_price, change_pct):
       "long_term_target": "중장기 목표가 (예상 가격)",
       "long_term_analysis": "현재 매크로 사이클 및 펀더멘털을 고려한 중장기 관점에서의 분석 및 투자 전략 (상세한 마크다운 텍스트)"
     }}
+
+    !! [중요: 딥링크 활성화 지시] !!
+    텍스트 분석 내용(analysis, historical_pattern_analysis 등) 중에 종목을 언급할 때는 반드시 '종목명(티커)' 형식을 사용하세요.
+    예: Apple(AAPL), NVIDIA(NVDA), 테슬라(TSLA) 등.
     """
     try:
         response = _call_gemini(prompt, use_search=False, temperature=0.7)
@@ -610,6 +614,10 @@ PER: {price_data['per']} | PBR: {price_data['pbr']}
   "long_term_target": "중장기 목표가 (원 단위, 3~6개월 관점)",
   "long_term_analysis": "거시 경제 사이클 및 펀더멘털을 고려한 중장기 분석 (마크다운 상세 작성)"
 }}
+
+!! [중요: 딥링크 활성화 지시] !!
+텍스트 분석 내용(analysis, historical_pattern_analysis 등) 중에 타 종목이나 관련 종목을 언급할 때는 반드시 '종목명(6자리코드)' 형식을 사용하세요.
+예: 삼성전자(005930), SK하이닉스(000660), 현대차(005380) 등.
 """
     try:
         response = _call_gemini(prompt, use_search=True, temperature=0.7)
@@ -645,6 +653,8 @@ def generate_dynamic_themes():
     1. 대장주 (Leader Stock): 해당 테마를 가장 강력하게 이끌고 있는 1개 종목 딱 1개
     2. 밸류체인 설명 (Correlation): 왜 이 테마가 뜨고, 아래 관련주들이 대장주와 구체적으로 어떤 밸류체인/산업 연관성을 가지는지 2~3문장으로 요약
     3. 관련주 (Related Stocks): 대장주를 따라가는 2번, 3번 주식이나 밸류체인에 해당하는 중소형주 3~5개
+    4. 분석 시 종목 언급은 반드시 '종목명(티커)' 형식을 사용하세요.
+    5. 답변은 반드시 한국어로 작성하세요.
 
     반드시 아래 JSON 배열 형식으로만 응답하세요. (마크다운 백틱 제외)
     {
@@ -1470,6 +1480,10 @@ def analyze_sector_rotation(market_type, raw_market_data):
        - 수익률이나 가격 범위 표기 시 반드시 `20% ~ 30%`와 같이 **물결표(~) 양옆에 공백**을 두세요.
        - 절대 `~~20%~~` 처럼 물결표를 붙여 쓰지 마세요 (취소선 방지).
        - 기대 수익률이 1,000%가 넘는 등의 비현실적인 수치는 지양하고 실전적인 목표치를 제시하세요.
+
+    5. 🔗 딥링크 활성화 규칙 (매우 중요!)
+       - 추천 종목이나 관련 종목을 언급할 때는 반드시 '종목명(코드)' 형식을 사용하세요.
+       - 국내 주식: 삼성전자(005930), 미국 주식: Apple(AAPL)
 
     제목: '🚀 [종합] {market_type} 시장 자금 흐름 & 차기 주도주 로드맵'
     형식: 마크다운을 활용하여 가독성 있게 작성하세요.

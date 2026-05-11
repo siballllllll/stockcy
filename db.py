@@ -198,6 +198,12 @@ def load_favorites():
         return [], f"로드 오류: {e}"
 
 
+def is_favorite(ticker):
+    """특정 종목이 즐겨찾기에 있는지 확인합니다."""
+    favs, _ = load_favorites()
+    return any(str(f.get('티커', '')) == str(ticker) for f in favs)
+
+
 def _enrich_with_krx(raw_map: dict) -> dict:
     """FinanceDataReader(KRX)로 섹터 맵의 코드·suffix를 자동 보정."""
     try:

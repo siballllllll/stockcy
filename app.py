@@ -14,8 +14,48 @@ from data_kr import (get_us_prices_bulk_kis, get_kr_index_history,
                      get_kr_change_ranking, get_kr_prices_bulk,
                      get_kr_minute_chart, get_kr_daily_chart,
                      get_kr_stock_name_kis, get_kr_name_to_code_map,
-                     get_kr_major_tickers)
+                     get_kr_code_to_name_map, get_kr_major_tickers)
 from ai_engine import analyze_sector_rotation
+import re
+
+def render_ai_content(text):
+    """AI가 생성한 텍스트 내의 종목명(코드) 패턴을 찾아 새 창 링크로 변환하여 렌더링합니다."""
+    if not text:
+        return ""
+    
+    # 1. 국내 주식 패턴: 종목명(6자리숫자) -> [종목명](/?market=KR&code=6자리숫자)
+    # 2. 미국 주식 패턴: 종목명(1~5자리대문자) -> [종목명](/?market=US&code=대문자)
+    
+    def replace_kr(match):
+        name = match.group(1).strip()
+        code = match.group(2)
+        return f"<a href='/?market=KR&code={code}' target='_blank' style='color:#ff4b4b;font-weight:700;text-decoration:none;'>{name}</a>"
+
+    def replace_us(match):
+        name = match.group(1).strip()
+        ticker = match.group(2)
+        return f"<a href='/?market=US&code={ticker}' target='_blank' style='color:#00c853;font-weight:700;text-decoration:none;'>{name}</a>"
+
+    # 국내: 한글/영문/숫자(6자리숫자). 종목명과 괄호 사이 공백 허용
+    text = re.sub(r'([가-힣a-zA-Z0-9\s]+?)\s*\((0\d{5}|[1-9]\d{5})\)', replace_kr, text)
+    # 미국: 영문(대문자티커) - 티커는 보통 1-5자 대문자
+    text = re.sub(r'([가-힣a-zA-Z0-9\s]+?)\s*\(([A-Z]{1,5})\)', replace_us, text)
+    
+    st.markdown(text.replace("\n", "  \n"), unsafe_allow_html=True)
+
+def render_star_toggle(market, code, name, key_suffix=""):
+    """종목명 옆에 즐겨찾기 별 아이콘을 렌더링하고 토글 기능을 제공합니다."""
+    from db import is_favorite, save_favorite, remove_favorite
+    _is_fav = is_favorite(code)
+    _label = "⭐" if _is_fav else "☆"
+    # 리스트용 컴팩트 스타일 버튼
+    if st.button(_label, key=f"star_{code}_{key_suffix}", help=f"{name} 즐겨찾기", 
+                 use_container_width=False, type="secondary"):
+        if _is_fav:
+            remove_favorite(code)
+        else:
+            save_favorite(market, code, name)
+        st.rerun()
 
 def _get_chart_colors():
     """Return (font_color, grid_color) adapted to the current Streamlit theme."""
@@ -664,6 +704,24 @@ def show_favorites_center():
                         else: st.error(dmsg)
 
 def main():
+    # ── URL 파라미터 처리 (종목 즉시 이동) ──────────────────────────────
+    _qp = st.query_params
+    if "market" in _qp and "code" in _qp:
+        _q_mkt = _qp.get("market")
+        _q_code = _qp.get("code")
+        # 파라미터 소모 (한 번만 실행되도록)
+        st.query_params.clear()
+        
+        if _q_mkt == "KR":
+            st.session_state.market = "국내 주식 🇰🇷"
+            st.session_state.kr_mode = "📊 일반 주식 검색"
+            st.session_state.kr_selected_code = _q_code
+        elif _q_mkt == "US":
+            st.session_state.market = "미국 주식 🇺🇸"
+            st.session_state.us_mode = "📊 일반 주식 검색"
+            st.session_state.us_selected_ticker = _q_code
+        st.rerun()
+
     if _HAVE_AUTOREFRESH:
         _st_autorefresh(interval=60000, limit=None, key="stockcy_refresh")
     init_session_state()
@@ -943,8 +1001,7 @@ def main():
     if _is_us_mode:
         # ── 미국 주식 슬라이딩 티커 ──
         try:
-            # duplicate import removed
-            _us_tick_data = get_us_change_ranking() or []
+            _us_tick_data = get_kr_change_ranking_us() or []
         except Exception:
             _us_tick_data = []
         _us_idx_data = get_us_market_indices() or {}
@@ -1078,7 +1135,6 @@ def main():
             def _quick_signal_scan() -> int:
                 try:
                     from ai_engine import _compute_prebreakout_signals
-                    # duplicate import removed
                     _qvol = get_kr_volume_ranking() or []
                     _qchg = (get_kr_change_ranking("J") or []) + (get_kr_change_ranking("Q") or [])
                     _qpre, _ = _compute_prebreakout_signals(_qvol, _qchg)
@@ -1109,7 +1165,6 @@ def main():
                             from ai_engine import generate_realtime_picks
                             _mkt = get_kr_market_index() or {}
                             _vol = get_kr_volume_ranking() or []
-                            # duplicate import removed
                             _chg = (get_kr_change_ranking("J") or []) + (get_kr_change_ranking("Q") or [])
                             _hot_secs = []
                             try:
@@ -1199,22 +1254,26 @@ def main():
                                     _is_sel  = (_ci == _sel)
                                     _row_bg  = "rgba(255,152,0,0.10)" if _is_sel else "rgba(255,255,255,0.03)"
                                     _row_bdr = "1px solid rgba(255,152,0,0.5)" if _is_sel else "1px solid rgba(255,255,255,0.07)"
-                                    st.markdown(
-                                        f"<div style='background:{_row_bg};border:{_row_bdr};"
-                                        f"border-radius:8px;padding:8px 10px;margin-bottom:2px'>"
-                                        f"<div style='display:flex;justify-content:space-between;align-items:center'>"
-                                        f"<span style='font-size:0.8rem;font-weight:700'>{_pick.get('name','')}</span>"
-                                        f"<span style='font-size:0.68rem;color:{_urg_color2};font-weight:600'>"
-                                        f"{_urg_icon2} {_urg2}</span>"
-                                        f"</div>"
-                                        f"<div style='display:flex;justify-content:space-between;margin-top:3px'>"
-                                        f"<span style='font-size:0.65rem;color:#777'>"
-                                        f"매수 ₩{int(_entry2):,} → +{_upside2}%</span>"
-                                        f"<span style='font-size:0.68rem;color:{_cpct_c2};font-weight:600'>"
-                                        f"{'▲' if _cpct2>=0 else '▼'}{abs(_cpct2):.1f}%</span>"
-                                        f"</div></div>",
-                                        unsafe_allow_html=True,
-                                    )
+                                    _s_col, _c_col = st.columns([0.15, 0.85])
+                                    with _s_col:
+                                        render_star_toggle("국내", _pick.get("code", ""), _pick.get("name", ""), f"pick_{_ci}")
+                                    with _c_col:
+                                        st.markdown(
+                                            f"<div style='background:{_row_bg};border:{_row_bdr};"
+                                            f"border-radius:8px;padding:8px 10px;margin-bottom:2px'>"
+                                            f"<div style='display:flex;justify-content:space-between;align-items:center'>"
+                                            f"<span style='font-size:0.8rem;font-weight:700'>{_pick.get('name','')}</span>"
+                                            f"<span style='font-size:0.68rem;color:{_urg_color2};font-weight:600'>"
+                                            f"{_urg_icon2} {_urg2}</span>"
+                                            f"</div>"
+                                            f"<div style='display:flex;justify-content:space-between;margin-top:3px'>"
+                                            f"<span style='font-size:0.65rem;color:#777'>"
+                                            f"매수 ₩{int(_entry2):,} → +{_upside2}%</span>"
+                                            f"<span style='font-size:0.68rem;color:{_cpct_c2};font-weight:600'>"
+                                            f"{'▲' if _cpct2>=0 else '▼'}{abs(_cpct2):.1f}%</span>"
+                                            f"</div></div>",
+                                            unsafe_allow_html=True,
+                                        )
                                     if st.button(
                                         "✓ 선택됨" if _is_sel else "▶ 상세보기",
                                         key=f"sel_pick_{_ci}",
@@ -1407,6 +1466,7 @@ def main():
                                         _pk_theme_name = _themes[0] if _themes else ""
                                         _pk_sec_stocks = []
                                         try:
+                                            from data_kr import load_sector_map
                                             _sm = load_sector_map()
                                             for _sv in _sm.get(_pk_theme_name, {}).values():
                                                 _pk_sec_stocks.extend([
@@ -1480,19 +1540,32 @@ def main():
                     if kr_mode == "🔥 오늘의 이슈 섹터":
 
                         if st.session_state.kr_sector_view == "detail":
-                            # 선택 종목 Plotly 차트 (최근 60봉 한정 → 1초봉 현상 방지)
+                            # 선택 종목 Plotly 차트
                             _dtv_code = st.session_state.kr_sector_detail_code
                             _dtv_name = st.session_state.kr_sector_detail_name
+                            
+                            # 이름 보정: 마스터 맵에서 실제 이름 조회
+                            _c2n_d = get_kr_code_to_name_map()
+                            _real_dtv_name = _c2n_d.get(_dtv_code, _dtv_name)
+                            if _real_dtv_name == _dtv_code and price_kr and price_kr.get('name'):
+                                _real_dtv_name = price_kr['name']
+                            
+                            if st.session_state.kr_sector_detail_name != _real_dtv_name:
+                                st.session_state.kr_sector_detail_name = _real_dtv_name
+                                
                             pct_color = "up-kr" if is_up else "down-kr" if is_dn else ""
                             if price_kr:
                                 st.markdown(
-                                    f"**{_dtv_name}** ({_dtv_code}) &nbsp; "
-                                    f"₩{price_kr['price']:,} &nbsp; "
-                                    f'<span class="{pct_color}">{arrow} {price_kr["change_pct"]:+.2f}%</span>',
+                                    f"<div style='display:flex;align-items:center;gap:8px;margin-bottom:8px'>"
+                                    f"<span style='font-size:1.25rem;font-weight:700'>**{_real_dtv_name}**</span> "
+                                    f"<span style='font-size:0.9rem;color:#888'>({_dtv_code})</span> &nbsp; "
+                                    f"<span style='font-size:1.1rem;font-weight:600'>₩{price_kr['price']:,}</span> &nbsp; "
+                                    f'<span class="{pct_color}" style="font-size:1rem;font-weight:600">{arrow} {price_kr["change_pct"]:+.2f}%</span>'
+                                    f"</div>",
                                     unsafe_allow_html=True,
                                 )
                             else:
-                                st.markdown(f"**{_dtv_name}** ({_dtv_code})")
+                                st.markdown(f"**{_real_dtv_name}** ({_dtv_code})")
 
                             _kr_plotly_chart(_dtv_code, interval="5", height=660)
 
@@ -1602,11 +1675,22 @@ def main():
                     # ── 일반 주식 검색 모드 ──────────────────────────────────
                     else:
                         if price_kr:
+                            # 이름 보정: 마스터 맵에서 먼저 찾고, 없으면 시세 데이터 사용
+                            _c2n = get_kr_code_to_name_map()
+                            _real_name = _c2n.get(selected_code_kr, price_kr.get('name') or selected_code_kr)
+                            
+                            # 세션 이름 업데이트 (코드로 박혀있는 경우 방지)
+                            if st.session_state.kr_selected_name != _real_name:
+                                st.session_state.kr_selected_name = _real_name
+                            
                             pct_color = "up-kr" if is_up else "down-kr" if is_dn else ""
                             st.markdown(
-                                f"**{price_kr['name']}** ({selected_code_kr}) &nbsp; "
-                                f"₩{price_kr['price']:,} &nbsp; "
-                                f'<span class="{pct_color}">{arrow} {price_kr["change_pct"]:+.2f}%</span>',
+                                f"<div style='display:flex;align-items:center;gap:8px;margin-bottom:8px'>"
+                                f"<span style='font-size:1.25rem;font-weight:700'>**{_real_name}**</span> "
+                                f"<span style='font-size:0.9rem;color:#888'>({selected_code_kr})</span> &nbsp; "
+                                f"<span style='font-size:1.1rem;font-weight:600'>₩{price_kr['price']:,}</span> &nbsp; "
+                                f'<span class="{pct_color}" style="font-size:1rem;font-weight:600">{arrow} {price_kr["change_pct"]:+.2f}%</span>'
+                                f"</div>",
                                 unsafe_allow_html=True,
                             )
 
@@ -1675,7 +1759,9 @@ def main():
                                 manual_code_kr = st.text_input("직접 입력 (6자리 코드)", "").strip()
                             if manual_code_kr and len(manual_code_kr) == 6 and manual_code_kr.isdigit():
                                 new_code = manual_code_kr
-                                new_name = manual_code_kr
+                                # 이름 찾기 시도
+                                _c2n = get_kr_code_to_name_map()
+                                new_name = _c2n.get(new_code, new_code)
                         if new_code != st.session_state.kr_selected_code:
                             st.session_state.kr_selected_code = new_code
                             st.session_state.kr_selected_name = new_name
@@ -2191,10 +2277,19 @@ def main():
                                 st.session_state.kr_sector_view = "list"
                                 st.rerun()
 
+                            # 이름 보정
+                            _c2n_d = get_kr_code_to_name_map()
+                            _real_detail_name = _c2n_d.get(detail_code, detail_name)
+                            if _real_detail_name == detail_code and price_kr and price_kr.get('name'):
+                                _real_detail_name = price_kr['name']
+                            
+                            if st.session_state.kr_sector_detail_name != _real_detail_name:
+                                st.session_state.kr_sector_detail_name = _real_detail_name
+
                             st.markdown(
-                                f"<h4 style='margin:4px 0 2px 0'>{detail_name}</h4>"
+                                f"<h4 style='margin:4px 0 2px 0'>{_real_detail_name} <span style='font-size:0.9rem;color:#888;font-weight:400'>({detail_code})</span></h4>"
                                 f"<p style='margin:0;font-size:0.78rem;color:#888'>"
-                                f"종목코드 {detail_code} · {st.session_state.kr_selected_sector}</p>",
+                                f"{st.session_state.kr_selected_sector}</p>",
                                 unsafe_allow_html=True,
                             )
 
@@ -2468,10 +2563,10 @@ def main():
                                             st.info(f"🔗 **연동:** {_tr['leader_correlation']}")
                                         if _tr.get("supply_analysis"):
                                             with st.expander("💰 수급·세력 분석 상세"):
-                                                st.markdown(_tr["supply_analysis"])
+                                                render_ai_content(_tr["supply_analysis"])
                                         if _tr.get("historical_pattern"):
                                             with st.expander("📜 역사적 유사 패턴"):
-                                                st.markdown(_tr["historical_pattern"])
+                                                render_ai_content(_tr["historical_pattern"])
                                         _et = _tr.get("entry_timing", "")
                                         _et_c = {"즉시 진입":"#00c853","눌림목 대기":"#f5c518","돌파 확인 후":"#f5c518","관망 권고":"#ff4b4b"}.get(_et, "#888")
                                         if _et:
@@ -2533,7 +2628,7 @@ def main():
                                             st.session_state[_kr_rot_key] = _rot_res
                                     
                                     if _kr_rot_key in st.session_state:
-                                        st.markdown(st.session_state[_kr_rot_key])
+                                        render_ai_content(st.session_state[_kr_rot_key])
                                         if st.button("🗑️ 분석 결과 지우기", key="clear_kr_rot"):
                                             st.session_state.pop(_kr_rot_key, None)
                                             st.rerun()
@@ -2659,7 +2754,9 @@ def main():
                                                 _cd   = _stk.get("code", "")
 
                                                 with st.container(border=True):
-                                                    _r1c1, _r1c2, _r1c3 = st.columns([4, 2, 1.2])
+                                                    _r1c0, _r1c1, _r1c2, _r1c3 = st.columns([0.6, 4, 2, 1.2])
+                                                    with _r1c0:
+                                                        render_star_toggle("국내", _cd, _nm, key_suffix=f"rise_{_cd}_{_si}")
                                                     _r1c1.markdown(
                                                         f"<span style='font-size:0.88rem;font-weight:700'>{_nm}</span>"
                                                         f"<span style='font-size:0.68rem;color:#888;margin-left:6px'>{_mkt}</span>",
@@ -2857,7 +2954,9 @@ def main():
                                                         _pv  = _pd["price"]
                                                         _pc  = "#ff4b4b" if _pct > 0 else "#2b7cff" if _pct < 0 else "#888"
                                                         _badge = "🔑 " if _stk.get("r") == "core" else ""
-                                                        _bc0, _bc1, _bc2, _bc3, _bc4 = st.columns([0.3, 2.6, 1.8, 1.4, 0.45])
+                                                        _bc_star, _bc0, _bc1, _bc2, _bc3, _bc4 = st.columns([0.45, 0.3, 2.6, 1.8, 1.4, 0.45])
+                                                        with _bc_star:
+                                                            render_star_toggle("국내", _stk["code"], _stk["name"], key_suffix=f"ai_hot_{_stk['code']}_{_si}")
                                                         _bc0.markdown("✅" if _pct >= 3.0 else "&nbsp;", unsafe_allow_html=True)
                                                         _bc1.markdown(f"<span style='font-size:0.82rem'>{_badge}{_stk['name']}</span>", unsafe_allow_html=True)
                                                         _bc2.markdown(f"<span style='font-size:0.82rem'>{'₩'+format(_pv,',') if _pv>0 else '---'}</span>", unsafe_allow_html=True)
@@ -2956,28 +3055,31 @@ def main():
                                                                 )
                                                                 _followers = _tl.get("followers", [])
                                                                 if _followers:
-                                                                    st.markdown("**다음 추종주 순서:**")
-                                                                    for _fi, _fw in enumerate(_followers[:5]):
-                                                                        st.markdown(
-                                                                            f"<span class='sector-pill'>{_fi+1}위. "
-                                                                            f"{_fw.get('name','')} — {_fw.get('reason','')} "
-                                                                            f"⏱ {_fw.get('timing','')}</span>",
-                                                                            unsafe_allow_html=True,
-                                                                        )
-                                                                with st.expander("📖 역사 패턴 · 매매 전략"):
-                                                                    st.markdown(f"**역사적 패턴:** {_tl.get('historical_pattern','')}")
-                                                                    st.markdown(f"**대장주 전략:** {_tl.get('leader_strategy','')}")
-                                                                    st.markdown(f"**추종주 전략:** {_tl.get('follower_strategy','')}")
-                                                                    if _tl.get("risk_factors"):
-                                                                        st.warning(_tl["risk_factors"])
-                                    elif not _quota_err:
-                                        st.caption("섹터 데이터를 불러올 수 없습니다.")
-
-
-                            # ── 전체 섹터 탐색 탭 ──────────────────────────────
-                            elif st.session_state.kr_sector_panel_tab == _spt_tabs[1]:
-                                hdr2_c1, hdr2_c2 = st.columns([8, 1])
-                                if hdr2_c2.button("🔄", key="sec_refresh",
+                                                                                                 def _render_sector_stocks(sub_name, stocks, prices, code_locations, selected_sector):
+                                    for i, s in enumerate(stocks):
+                                        if i > 0:
+                                            st.markdown('<hr class="toss-divider" style="margin:2px 0">', unsafe_allow_html=True)
+                                        pdata = prices.get(s["code"], {"price": 0, "change_pct": 0.0})
+                                        pct   = pdata["change_pct"]
+                                        pval  = pdata["price"]
+                                        pct_color = "#ff4b4b" if pct > 0 else "#2b7cff" if pct < 0 else "#888"
+                                        other_locs = [loc for loc in code_locations.get(s["code"], []) if loc != f"{selected_sector} › {sub_name}"]
+                                        
+                                        c0, cs, c1, c2, c3, c4 = st.columns([0.35, 0.5, 2.3, 1.8, 1.4, 0.45])
+                                        c0.markdown("✅" if pct >= 3.0 else "&nbsp;", unsafe_allow_html=True)
+                                        
+                                        with cs:
+                                            render_star_toggle("국내", s["code"], s["name"], key_suffix=f"sec_{sub_name}_{i}")
+                                        
+                                        _link_url = f"/?market=KR&code={s['code']}"
+                                        name_html = (
+                                            f"<a href='{_link_url}' target='_blank' style='text-decoration:none;color:inherit;font-size:0.85rem'>{s['name']}</a>"
+                                            + (f"<span style='font-size:0.7rem;color:#666'> 🔗</span>" if other_locs else "")
+                                        )
+                                        c1.markdown(name_html, unsafe_allow_html=True)
+                                        c2.markdown(f"<span style='font-size:0.85rem'>{'₩'+format(pval,',') if pval>0 else '---'}</span>", unsafe_allow_html=True)
+                                        c3.markdown(f"<span style='font-size:0.85rem;font-weight:bold;color:{pct_color}'>{pct:+.2f}%</span>", unsafe_allow_html=True)
+                                        if c4.button("▶", key=f"stock_{s['code']}_{sub_name}_{i}",            if hdr2_c2.button("🔄", key="sec_refresh",
                                                   help="섹터 캐시 초기화"):
                                     load_sector_map.clear()
                                     st.rerun()
@@ -3159,7 +3261,9 @@ def main():
                                         pct_color = "#ff4b4b" if pct > 0 else "#2b7cff" if pct < 0 else "#888"
                                         other_locs = [loc for loc in code_locations.get(s["code"], []) if loc != f"{selected_sector} › {sub_name}"]
                                         help_text = f"다중 섹터: {', '.join(other_locs)}" if other_locs else None
-                                        c0, c1, c2, c3, c4 = st.columns([0.35, 2.8, 1.8, 1.4, 0.45])
+                                        c_star, c0, c1, c2, c3, c4 = st.columns([0.45, 0.35, 2.8, 1.8, 1.4, 0.45])
+                                        with c_star:
+                                            render_star_toggle("국내", s["code"], s["name"], key_suffix=f"sec_stk_{s['code']}_{i}")
                                         c0.markdown("✅" if pct >= 3.0 else "&nbsp;", unsafe_allow_html=True)
                                         name_html = (
                                             f"<span style='font-size:0.85rem'>{s['name']}</span>"
@@ -3459,22 +3563,26 @@ def main():
                                     _up_is_sel  = (_uci == _us_sel)
                                     _up_row_bg  = "rgba(0,200,83,0.10)" if _up_is_sel else "rgba(255,255,255,0.03)"
                                     _up_row_bdr = "1px solid rgba(0,200,83,0.5)" if _up_is_sel else "1px solid rgba(255,255,255,0.07)"
-                                    st.markdown(
-                                        f"<div style='background:{_up_row_bg};border:{_up_row_bdr};"
-                                        f"border-radius:8px;padding:8px 10px;margin-bottom:2px'>"
-                                        f"<div style='display:flex;justify-content:space-between;align-items:center'>"
-                                        f"<span style='font-size:0.8rem;font-weight:700'>{_up_name} <span style='font-size:0.65rem;color:#666'>({_up_ticker})</span></span>"
-                                        f"<span style='font-size:0.68rem;color:{_up_urg_color};font-weight:600'>"
-                                        f"{_up_urg_icon} {_up_urg}</span>"
-                                        f"</div>"
-                                        f"<div style='display:flex;justify-content:space-between;margin-top:3px'>"
-                                        f"<span style='font-size:0.65rem;color:#777'>"
-                                        f"진입 ${_up_entry:,.2f} → +{_up_upside}%</span>"
-                                        f"<span style='font-size:0.68rem;color:{_up_chg_c};font-weight:600'>"
-                                        f"{'▲' if _up_chg>=0 else '▼'}{abs(_up_chg):.1f}%</span>"
-                                        f"</div></div>",
-                                        unsafe_allow_html=True,
-                                    )
+                                    _u_star_col, _u_card_col = st.columns([0.15, 0.85])
+                                    with _u_star_col:
+                                        render_star_toggle("미국", _up_ticker, _up_name, f"us_pick_{_uci}")
+                                    with _u_card_col:
+                                        st.markdown(
+                                            f"<div style='background:{_up_row_bg};border:{_up_row_bdr};"
+                                            f"border-radius:8px;padding:8px 10px;margin-bottom:2px'>"
+                                            f"<div style='display:flex;justify-content:space-between;align-items:center'>"
+                                            f"<span style='font-size:0.8rem;font-weight:700'>{_up_name} <span style='font-size:0.65rem;color:#666'>({_up_ticker})</span></span>"
+                                            f"<span style='font-size:0.68rem;color:{_up_urg_color};font-weight:600'>"
+                                            f"{_up_urg_icon} {_up_urg}</span>"
+                                            f"</div>"
+                                            f"<div style='display:flex;justify-content:space-between;margin-top:3px'>"
+                                            f"<span style='font-size:0.65rem;color:#777'>"
+                                            f"진입 ${_up_entry:,.2f} → +{_up_upside}%</span>"
+                                            f"<span style='font-size:0.68rem;color:{_up_chg_c};font-weight:600'>"
+                                            f"{'▲' if _up_chg>=0 else '▼'}{abs(_up_chg):.1f}%</span>"
+                                            f"</div></div>",
+                                            unsafe_allow_html=True,
+                                        )
                                     if st.button(
                                         "✓ 선택됨" if _up_is_sel else "▶ 상세보기",
                                         key=f"us_sel_pick_{_uci}",
@@ -3663,18 +3771,34 @@ def main():
                             _us_dname     = st.session_state.us_sector_detail_name
                             _us_dexchange = st.session_state.get("us_sector_detail_exchange", "NASDAQ")
                             _us_tv_sym    = f"{_us_dexchange}:{_us_dticker}"
+
+                            # 이름 보정
+                            from data_kr import get_us_ticker_map as _get_us_tm_head
+                            _us_tm_head = _get_us_tm_head()
+                            _real_us_dname = _us_dname
+                            if _us_tm_head and _us_dticker in _us_tm_head:
+                                _real_us_dname = _us_tm_head[_us_dticker].get("name", _us_dname)
+                            elif detail_us and detail_us.get('name') and detail_us['name'] != _us_dticker:
+                                _real_us_dname = detail_us['name']
+                            
+                            if st.session_state.us_sector_detail_name != _real_us_dname:
+                                st.session_state.us_sector_detail_name = _real_us_dname
+
                             if detail_us:
                                 _chg_cur = detail_us["change_pct"]
                                 _col_cur = "#00c853" if _chg_cur >= 0 else "#ff4b4b"
                                 _ar_cur  = "▲" if _chg_cur >= 0 else "▼"
                                 st.markdown(
-                                    f"**{_us_dname}** ({_us_dticker}) &nbsp; "
-                                    f"${detail_us['price']:,.2f} &nbsp; "
-                                    f"<span style='color:{_col_cur}'>{_ar_cur} {_chg_cur:+.2f}%</span>",
+                                    f"<div style='display:flex;align-items:center;gap:8px;margin-bottom:8px'>"
+                                    f"<span style='font-size:1.25rem;font-weight:700'>**{_real_us_dname}**</span> "
+                                    f"<span style='font-size:0.9rem;color:#888'>({_us_dticker})</span> &nbsp; "
+                                    f"<span style='font-size:1.1rem;font-weight:600'>${detail_us['price']:,.2f}</span> &nbsp; "
+                                    f"<span style='color:{_col_cur};font-size:1rem;font-weight:600'>{_ar_cur} {_chg_cur:+.2f}%</span>"
+                                    f"</div>",
                                     unsafe_allow_html=True,
                                 )
                             else:
-                                st.markdown(f"**{_us_dname}** ({_us_dticker})")
+                                st.markdown(f"**{_real_us_dname}** ({_us_dticker})")
                             _tv_ivs_d = [("5분","5"),("15분","15"),("1시간","60"),("1일","D")]
                             _tv_iv_cols_d = st.columns(len(_tv_ivs_d))
                             for _tii, (_til, _tiv) in enumerate(_tv_ivs_d):
@@ -3748,13 +3872,28 @@ def main():
                               </script></div>''', height=430)
                     else:
                         if detail_us:
+                            # 이름 보정
+                            from data_kr import get_us_ticker_map as _get_us_tm_head_g
+                            _us_tm_head_g = _get_us_tm_head_g()
+                            _real_us_name = _us_ticker_cur
+                            if _us_tm_head_g and _us_ticker_cur in _us_tm_head_g:
+                                _real_us_name = _us_tm_head_g[_us_ticker_cur].get("name", _us_ticker_cur)
+                            elif detail_us.get('name') and detail_us['name'] != _us_ticker_cur:
+                                _real_us_name = detail_us['name']
+                            
+                            if st.session_state.us_selected_name != _real_us_name:
+                                st.session_state.us_selected_name = _real_us_name
+
                             _chg = detail_us.get("change_pct", 0)
                             _col = "#00c853" if _chg >= 0 else "#ff4b4b"
                             _ar  = "▲" if _chg >= 0 else "▼"
                             st.markdown(
-                                f"**{detail_us.get('name', _us_ticker_cur)}** ({_us_ticker_cur}) &nbsp; "
-                                f"${detail_us.get('price', 0):,.2f} &nbsp; "
-                                f"<span style='color:{_col}'>{_ar} {_chg:+.2f}%</span>",
+                                f"<div style='display:flex;align-items:center;gap:8px;margin-bottom:8px'>"
+                                f"<span style='font-size:1.25rem;font-weight:700'>**{_real_us_name}**</span> "
+                                f"<span style='font-size:0.9rem;color:#888'>({_us_ticker_cur})</span> &nbsp; "
+                                f"<span style='font-size:1.1rem;font-weight:600'>${detail_us.get('price', 0):,.2f}</span> &nbsp; "
+                                f"<span style='color:{_col};font-size:1rem;font-weight:600'>{_ar} {_chg:+.2f}%</span>"
+                                f"</div>",
                                 unsafe_allow_html=True,
                             )
 
@@ -3821,7 +3960,10 @@ def main():
                             _new_name   = _us_sel_lbl.split(" (")[0]
                         else:
                             _new_ticker = _us_man
-                            _new_name   = _us_man
+                            # 이름 찾기 시도
+                            _new_name = _us_man
+                            if _us_tm and _us_man in _us_tm:
+                                _new_name = _us_tm[_us_man].get("name", _us_man)
                         if _new_ticker != st.session_state.us_selected_ticker:
                             st.session_state.us_selected_ticker = _new_ticker
                             st.session_state.us_selected_name   = _new_name
@@ -4219,10 +4361,10 @@ def main():
                                                     st.warning("이미 포트폴리오에 있습니다.")
                                             if _rep.get("historical_pattern_analysis"):
                                                 with st.expander("🕰️ 역사적 유사 패턴 분석 (프랙탈)", expanded=False):
-                                                    st.markdown(_rep["historical_pattern_analysis"])
+                                                    render_ai_content(_rep["historical_pattern_analysis"])
                                             if _rep.get("analysis"):
                                                 with st.container(border=True):
-                                                    st.markdown(_rep["analysis"])
+                                                    render_ai_content(_rep["analysis"])
                                         with t2:
                                             lt_rating = _rep.get("long_term_rating", "")
                                             lt_emoji = "🟢" if "매수" in lt_rating else "🟡" if "관망" in lt_rating else "🔴"
@@ -4565,7 +4707,7 @@ def main():
                                             st.session_state[_us_rot_key] = _rot_res
                                     
                                     if _us_rot_key in st.session_state:
-                                        st.markdown(st.session_state[_us_rot_key])
+                                        render_ai_content(st.session_state[_us_rot_key])
                                         if st.button("🗑️ 분석 결과 지우기", key="clear_us_rot"):
                                             st.session_state.pop(_us_rot_key, None)
                                             st.rerun()
@@ -4640,7 +4782,9 @@ def main():
                                                 _us_sc = _us_stk.get("change_pct", 0)
                                                 _us_sc_col = "#00c853" if _us_sc >= 0 else "#ff4b4b"
                                                 with st.container(border=True):
-                                                    _usc1, _usc2 = st.columns([5, 1])
+                                                    _usc_star, _usc1, _usc2 = st.columns([0.6, 5, 1])
+                                                    with _usc_star:
+                                                        render_star_toggle("미국", _us_stk.get('ticker',''), _us_stk.get('name',''), key_suffix=f"us_rise_{_us_stk.get('ticker','')}")
                                                     with _usc1:
                                                         st.markdown(
                                                             f"<span style='font-size:0.82rem;font-weight:700'>"
@@ -4978,7 +5122,9 @@ def main():
                                                         loc for loc in us_ticker_locations.get(_us["ticker"],[])
                                                         if loc != f"{us_selected_sector} › {us_sub_name}"
                                                     ]
-                                                    _uc0, _uc1, _uc2, _uc3, _uc4 = st.columns([0.35, 2.8, 1.8, 1.4, 0.45])
+                                                    _uc_star, _uc0, _uc1, _uc2, _uc3, _uc4 = st.columns([0.45, 0.35, 2.8, 1.8, 1.4, 0.45])
+                                                    with _uc_star:
+                                                        render_star_toggle("미국", _us["ticker"], _us["name"], key_suffix=f"us_sec_stk_{_us['ticker']}_{_ui}")
                                                     _uc0.markdown("✅" if _upct >= 3.0 else "&nbsp;", unsafe_allow_html=True)
                                                     _uc1.markdown(
                                                         f"<span style='font-size:0.85rem'>{_us['name']}"
