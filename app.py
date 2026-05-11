@@ -2407,6 +2407,34 @@ def main():
 
                             # ── AI 시장분석 탭 (거래량 + 급등주 + 핫섹터 통합) ──
                             if st.session_state.kr_sector_panel_tab == _spt_tabs[0]:
+                                # --- [추가] 통합 섹터 순환매 로드맵 (원클릭) ---
+                                with st.container(border=True):
+                                    st.markdown("##### 🚀 AI 섹터 순환매 로드맵 (Pathfinder)")
+                                    st.caption("현재 자금의 위치와 다음 목적지, 추천 종목과 진입 타점까지 한 번에 분석합니다.")
+                                    
+                                    _kr_rot_key = "kr_sector_rotation_res"
+                                    if st.button("🗺️ 차기 주도 섹터 & 추천주 로드맵 생성", key="btn_kr_rot_direct", use_container_width=True, type="primary"):
+                                        with st.spinner("AI가 실시간 시장 데이터를 수집하여 로드맵을 작성 중..."):
+                                            from ai_engine import analyze_sector_rotation
+                                            # 실시간 원시 데이터 수집
+                                            _vol = get_kr_volume_ranking()
+                                            _chg = get_kr_change_ranking()
+                                            _idx = get_kr_market_index()
+                                            _raw_data = {
+                                                "indices": _idx,
+                                                "volume_ranking": _vol[:15],
+                                                "change_ranking": _chg[:15]
+                                            }
+                                            _rot_res = analyze_sector_rotation("국내", _raw_data)
+                                            st.session_state[_kr_rot_key] = _rot_res
+                                    
+                                    if _kr_rot_key in st.session_state:
+                                        st.markdown(st.session_state[_kr_rot_key])
+                                        if st.button("🗑️ 분석 결과 지우기", key="clear_kr_rot"):
+                                            st.session_state.pop(_kr_rot_key, None)
+                                            st.rerun()
+
+                                st.markdown("---")
                                 from ai_engine import analyze_today_market, analyze_kr_hot_sectors
 
                                 _am_hdr, _am_ref = st.columns([8, 1])
@@ -2465,24 +2493,6 @@ def main():
                                             f"</div>",
                                             unsafe_allow_html=True,
                                         )
-                                        
-                                        # --- 추가: AI 섹터 순환매 로드맵 ---
-                                        st.markdown("---")
-                                        _kr_rot_key = "kr_sector_rotation_res"
-                                        _kr_rot_run = st.button("🚀 AI 섹터 순환매 로드맵 예측", key="btn_kr_rot", use_container_width=True, type="primary")
-                                        
-                                        if _kr_rot_run:
-                                            with st.spinner("AI가 자금의 길목을 분석 중..."):
-                                                from ai_engine import analyze_sector_rotation
-                                                # 주도 섹터 정보 취합
-                                                _lead_secs = ", ".join(_ai_res.get("hot_sectors", [])) if isinstance(_ai_res, dict) else ""
-                                                _macro = _tm.get("market_summary", "") if isinstance(_tm, dict) else ""
-                                                _rot_res = analyze_sector_rotation("국내", _lead_secs, _macro)
-                                                st.session_state[_kr_rot_key] = _rot_res
-                                        
-                                        if _kr_rot_key in st.session_state:
-                                            with st.container(border=True):
-                                                st.markdown(st.session_state[_kr_rot_key])
                                         
                                         st.markdown("---")
                                         st.markdown("#### 💎 AI 선정 핫 섹터 & 종목")
@@ -4412,6 +4422,34 @@ def main():
                                     st.rerun()
 
                             if st.session_state.us_sector_panel_tab == _us_spt_tabs[0]:
+                                # --- [추가] 통합 섹터 순환매 로드맵 (원클릭) ---
+                                with st.container(border=True):
+                                    st.markdown("##### 🚀 AI 글로벌 섹터 로드맵 (Pathfinder)")
+                                    st.caption("글로벌 자금의 흐름과 차기 주도 섹터, 추천 종목 및 진입 타점을 분석합니다.")
+                                    
+                                    _us_rot_key = "us_sector_rotation_res"
+                                    if st.button("🗺️ US 차기 주도주 & 로드맵 생성", key="btn_us_rot_direct", use_container_width=True, type="primary"):
+                                        with st.spinner("AI가 글로벌 시장 데이터를 분석하여 로드맵을 작성 중..."):
+                                            from ai_engine import analyze_sector_rotation
+                                            _idx = get_us_market_indices()
+                                            try:
+                                                from data_kr import get_us_change_ranking
+                                                _chg = get_us_change_ranking() or []
+                                            except: _chg = []
+                                            _raw_data = {
+                                                "indices": _idx,
+                                                "top_movers": _chg[:15]
+                                            }
+                                            _rot_res = analyze_sector_rotation("미국", _raw_data)
+                                            st.session_state[_us_rot_key] = _rot_res
+                                    
+                                    if _us_rot_key in st.session_state:
+                                        st.markdown(st.session_state[_us_rot_key])
+                                        if st.button("🗑️ 분석 결과 지우기", key="clear_us_rot"):
+                                            st.session_state.pop(_us_rot_key, None)
+                                            st.rerun()
+
+                                st.markdown("---")
                                 from ai_engine import analyze_us_today_market, analyze_us_hot_sectors
                                 _us_am_hdr, _us_am_ref = st.columns([8, 1])
                                 _us_am_hdr.markdown(
@@ -4472,23 +4510,6 @@ def main():
                                                 f"<div style='margin:4px 0'>{_us_tag_html}</div>",
                                                 unsafe_allow_html=True,
                                             )
-
-                                        # --- 추가: AI 섹터 순환매 로드맵 ---
-                                        st.markdown("---")
-                                        _us_rot_key = "us_sector_rotation_res"
-                                        _us_rot_run = st.button("🚀 AI 섹터 순환매 로드맵 예측", key="btn_us_rot", use_container_width=True, type="primary")
-                                        
-                                        if _us_rot_run:
-                                            with st.spinner("AI가 글로벌 자금의 흐름을 분석 중..."):
-                                                from ai_engine import analyze_sector_rotation
-                                                _u_lead = ", ".join(_us_themes_lead)
-                                                _u_macro = _us_mkt_res.get("market_summary", "") if isinstance(_us_mkt_res, dict) else ""
-                                                _u_rot_res = analyze_sector_rotation("미국", _u_lead, _u_macro)
-                                                st.session_state[_us_rot_key] = _u_rot_res
-                                        
-                                        if _us_rot_key in st.session_state:
-                                            with st.container(border=True):
-                                                st.markdown(st.session_state[_us_rot_key])
 
                                         st.markdown("---")
                                         st.markdown("#### 💎 AI 선정 US 핫 섹터")
