@@ -579,6 +579,90 @@ def show_daily_briefing():
     if st.button("닫기"):
         st.rerun()
 
+def show_favorites_center():
+    st.markdown('### ⭐ AI 즐겨찾기 센터')
+    st.markdown('<p style="font-size:0.85rem;color:#888">관심 종목의 실시간 시세와 AI 매수 타이밍을 한눈에 관리합니다.</p>', unsafe_allow_html=True)
+    
+    from db import load_favorites, remove_favorite
+    favs, msg = load_favorites()
+    
+    if not favs:
+        st.info('아직 등록된 즐겨찾기 종목이 없습니다. 종목 상세 페이지에서 ⭐ 버튼을 눌러 등록하세요!')
+        return
+
+    # 실시간 시세 업데이트
+    from data_kr import get_kr_stock_price
+    from data import get_us_prices_bulk
+    
+    # 3열 레이아웃
+    rows = [favs[i:i + 3] for i in range(0, len(favs), 3)]
+    
+    for row in rows:
+        cols = st.columns(3)
+        for i, fav in enumerate(row):
+            with cols[i]:
+                with st.container(border=True):
+                    mkt = fav.get('시장', '국내')
+                    ticker = fav.get('티커', '')
+                    name = fav.get('종목명', '')
+                    
+                    # 시세 조회
+                    price, pct = 0, 0
+                    if mkt == '국내':
+                        p_data = get_kr_stock_price(ticker)
+                        price = p_data.get('price', 0)
+                        pct = p_data.get('change_pct', 0)
+                        price_str = f'₩{price:,}'
+                    else:
+                        p_map = get_us_prices_bulk((ticker,))
+                        p_data = p_map.get(ticker, {"price": 0, "change_pct": 0})
+                        price = p_data.get('price', 0)
+                        pct = p_data.get('change_pct', 0)
+                        price_str = f'${price:,.2f}'
+                    
+                    color = "#ff4b4b" if pct > 0 else "#00c853" if pct < 0 else "#888"
+                    st.markdown(f"**{name}** ({ticker})")
+                    st.markdown(f"<h3 style='margin:0;color:{color}'>{price_str} <small>({pct:+.2f}%)</small></h3>", unsafe_allow_html=True)
+                    
+                    # AI 타이밍 가이드 (버튼)
+                    if st.button('🤖 AI 전략', key=f'fav_ai_{ticker}', use_container_width=True):
+                        with st.spinner('분석 중...'):
+                            from ai_engine import analyze_stock_theme_position
+                            # 팩트 수집
+                            investor_data = []
+                            if mkt == '국내':
+                                try:
+                                    from data_kr import get_kr_investor_trend
+                                    investor_data = get_kr_investor_trend(ticker)
+                                except: pass
+                            
+                            res = analyze_stock_theme_position(
+                                ticker, name, p_data, investor_data, "관심섹터", 
+                                [{"name": name, "code": ticker, "change_pct": pct}]
+                            )
+                            
+                            if isinstance(res, dict) and "error" in res:
+                                st.error(f"분석 오류: {res['error']}")
+                            else:
+                                st.markdown("---")
+                                pos = res.get('position', '분석불가')
+                                timing = res.get('entry_timing', '-')
+                                reason = res.get('entry_reason', '-')
+                                st.markdown(f"**📍 포지션:** {pos}")
+                                st.markdown(f"**⏱ 타이밍:** `{timing}`")
+                                st.info(f"**💡 전략:** {reason}")
+                                with st.expander("📊 상세 분석 (차트/수급/패턴)"):
+                                    st.markdown(f"**수급분석:** {res.get('supply_analysis','-')}")
+                                    st.markdown(f"**차트패턴:** {res.get('chart_pattern','-')}")
+                                    st.markdown(f"**매수타점:** {res.get('buy_target','-')} | **목표가:** {res.get('sell_target','-')}")
+                    
+                    if st.button('🗑️ 삭제', key=f'fav_del_{ticker}', use_container_width=True):
+                        ok, dmsg = remove_favorite(ticker)
+                        if ok: 
+                            st.success(dmsg)
+                            st.rerun()
+                        else: st.error(dmsg)
+
 def main():
     if _HAVE_AUTOREFRESH:
         _st_autorefresh(interval=60000, limit=None, key="stockcy_refresh")
@@ -594,8 +678,8 @@ def main():
     _nav_sig_n = st.session_state.get(_nav_sig_k, 0)
     _picks_label = f"🎯 타점보드" + (f" {_nav_sig_n}" if _nav_sig_n > 0 else "")
 
-    _hdr_l, _hn1, _hn2, _hn3, _hn4, _sp, _hm1, _hm2, _hset, _hcache = st.columns(
-        [0.9, 0.5, 0.5, 0.5, 0.4, 2.1, 0.65, 0.65, 0.35, 0.35], gap="small"
+    _hdr_l, _hn1, _hn2, _hn3, _hn5, _hn4, _sp, _hm1, _hm2, _hset, _hcache = st.columns(
+        [0.85, 0.55, 0.55, 0.55, 0.55, 0.45, 1.35, 0.75, 0.75, 0.4, 0.4], gap="small"
     )
     with _hdr_l:
         st.markdown(
@@ -620,6 +704,12 @@ def main():
                      type="primary" if _nav_cur_mode == "🔥 오늘의 이슈 섹터" else "secondary",
                      use_container_width=True):
             st.session_state[_nav_mode_key] = "🔥 오늘의 이슈 섹터"
+            st.rerun()
+    with _hn5:
+        if st.button("⭐ 즐겨찾기", key="top_nav_fav",
+                     type="primary" if _nav_cur_mode == "⭐ 즐겨찾기 관리" else "secondary",
+                     use_container_width=True):
+            st.session_state[_nav_mode_key] = "⭐ 즐겨찾기 관리"
             st.rerun()
     with _hn4:
         if st.button("📰 브리핑", key="top_nav_briefing", use_container_width=True):
@@ -1006,7 +1096,9 @@ def main():
             # ══════════════════════════════════════════════════════════════
             # 🎯 AI 타점 보드
             # ══════════════════════════════════════════════════════════════
-            if kr_mode == "🎯 AI 타점 보드":
+            if kr_mode == "⭐ 즐겨찾기 관리":
+                show_favorites_center()
+            elif kr_mode == "🎯 AI 타점 보드":
                 _pb_key  = "kr_picks_result"
                 _run_key = "_kr_picks_pending"
 
@@ -1945,6 +2037,13 @@ def main():
                                         rk1.metric("매수 타점", rep_kr.get("buy_target", "-"))
                                         rk2.metric("목표가",    rep_kr.get("sell_target", "-"))
                                         st.metric("손절가",     rep_kr.get("stop_loss", "-"))
+                                        
+                                        _fav_btn_label = "⭐ 즐겨찾기 등록"
+                                        if st.button(_fav_btn_label, use_container_width=True, key=f"fav_btn_kr_{selected_code_kr}"):
+                                            from db import save_favorite
+                                            _ok, _msg = save_favorite("국내", selected_code_kr, price_kr["name"])
+                                            if _ok: st.success(_msg)
+                                            else: st.error(_msg)
                                         
                                         if st.button("🎒 포트폴리오에 담기", use_container_width=True, type="primary", key="kr_port_btn"):
                                             if "portfolio" not in st.session_state:
@@ -3261,7 +3360,9 @@ def main():
             # ══════════════════════════════════════════════════════════════
             # 🎯 US AI 타점 보드
             # ══════════════════════════════════════════════════════════════
-            if us_mode == "🎯 AI 타점 보드":
+            if us_mode == "⭐ 즐겨찾기 관리":
+                show_favorites_center()
+            elif us_mode == "🎯 AI 타점 보드":
                 _us_pb_key  = "us_picks_result"
                 _us_run_key = "_us_picks_pending"
 
@@ -4337,6 +4438,13 @@ def main():
                                                     st.markdown("---")
                                                     with st.container(border=True):
                                                         st.markdown(_ur["analysis"])
+                                                _fav_us_label = "⭐ 즐겨찾기 등록"
+                                                if st.button(_fav_us_label, use_container_width=True, key=f"fav_btn_us_{_us_dticker}"):
+                                                    from db import save_favorite
+                                                    _ok, _msg = save_favorite("미국", _us_dticker, _us_dname)
+                                                    if _ok: st.success(_msg)
+                                                    else: st.error(_msg)
+
                                                 if st.button("🎒 포트폴리오에 담기", use_container_width=True, type="primary", key=f"us_sec_port_btn_short_{_us_dticker}"):
                                                     if "portfolio" not in st.session_state:
                                                         st.session_state.portfolio = []

@@ -147,6 +147,55 @@ def log_ai_recommendation(rec_type: str, ticker: str, name: str, rating: str,
         return True, "AI 추천 로그 기록 완료"
     except Exception as e:
         return False, f"로그 기록 오류: {e}"
+ 
+ 
+def save_favorite(market_type: str, ticker: str, name: str):
+    """종목을 '즐겨찾기' 탭에 추가합니다."""
+    sh, msg = _get_spreadsheet()
+    if not sh: return False, msg
+    try:
+        headers = ["추가시간", "시장", "티커", "종목명"]
+        ws = _get_or_create_worksheet(sh, "즐겨찾기", headers)
+        
+        # 중복 체크
+        existing = ws.get_all_records()
+        if any(r["티커"] == ticker for r in existing):
+            return True, "이미 즐겨찾기에 등록된 종목입니다."
+            
+        ws.append_row([
+            datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            market_type, ticker, name
+        ])
+        return True, f"[{name}] 즐겨찾기에 추가되었습니다."
+    except Exception as e:
+        return False, f"저장 오류: {e}"
+
+def remove_favorite(ticker: str):
+    """종목을 '즐겨찾기' 탭에서 삭제합니다."""
+    sh, msg = _get_spreadsheet()
+    if not sh: return False, msg
+    try:
+        ws = sh.worksheet("즐겨찾기")
+        cells = ws.find(ticker)
+        if cells:
+            ws.delete_rows(cells.row)
+            return True, "즐겨찾기에서 삭제되었습니다."
+        return False, "목록에서 종목을 찾을 수 없습니다."
+    except Exception as e:
+        return False, f"삭제 오류: {e}"
+
+def load_favorites():
+    """'즐겨찾기' 탭에서 모든 종목을 불러옵니다."""
+    sh, msg = _get_spreadsheet()
+    if not sh: return [], msg
+    try:
+        ws = sh.worksheet("즐겨찾기")
+        records = ws.get_all_records()
+        return records, "성공"
+    except gspread.WorksheetNotFound:
+        return [], "즐겨찾기 목록이 비어있습니다."
+    except Exception as e:
+        return [], f"로드 오류: {e}"
 
 
 def _enrich_with_krx(raw_map: dict) -> dict:
