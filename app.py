@@ -3054,10 +3054,10 @@ def main():
                                                                     unsafe_allow_html=True,
                                                                 )
                                                                 _followers = _tl.get("followers", [])
-                                                                 if _followers:
-                                                                     st.markdown("**후속주:**")
-                                                                     for _f in _followers:
-                                                                         st.write(f"- {_f}")
+                                                                if _followers:
+                                                                    st.markdown("**후속주:**")
+                                                                    for _f in _followers:
+                                                                        st.write(f"- {_f}")
 
 
                                 # ── hot_score 맵 구성 (AI 시장분석 결과 재활용) ──
