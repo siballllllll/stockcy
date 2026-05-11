@@ -54,11 +54,11 @@ def get_market_news(category="general"):
         return f"뉴스 데이터 로드 실패: {e}"
 
 
-# 모델 폴백 순서 (gemini-2.0-flash-lite는 지원 종료로 제거)
+# 모델 폴백 순서 (분석 품질을 위해 Pro 모델을 최상단에 배치)
 _MODEL_FALLBACK = [
+    "gemini-1.5-pro",
     "gemini-2.5-flash-preview-05-20",
     "gemini-2.5-flash",
-    "gemini-2.0-flash",
 ]
 
 # 할당량 소진 여부 (세션 중 반복 호출 방지)
@@ -201,14 +201,18 @@ def generate_stock_report(ticker, current_price, change_pct):
     반드시 아래 JSON 형식으로만 응답하세요. 마크다운이나 다른 텍스트는 절대 포함하지 마세요.
     {{
       "rating": "단기 트레이딩 관점 등급 (매우 강력 추천, 추천, 중간추천, 비추천, 매우 비추천 중 하나)",
+      "short_term_period": "예상 보유 기간 (예: 1~3일, 1주일 이내 등)",
+      "short_term_target_pct": "예상 기대 수익률 (예: 5~8%)",
       "buy_target": "단기 매수가 (구체적인 숫자)",
-      "sell_target": "단기 목표가 (구체적인 숫자, 5~10% 상승)",
-      "stop_loss": "단기 손절가 (구체적인 숫자, -2~3% 손절)",
+      "sell_target": "단기 목표가 (구체적인 숫자)",
+      "stop_loss": "단기 손절가 (구체적인 숫자)",
       "analysis": "단기 기술적 분석 및 수급, 모멘텀 근거 (상세한 마크다운 텍스트)",
       "historical_pattern_analysis": "현재 주가 움직임 및 섹터 모멘텀과 유사했던 과거 역사적 패턴 사례(프랙탈) 1~2가지를 들고, 당시 주가 변동 원인과 현재 상황을 비교 분석한 디테일한 리포트 (마크다운)",
       
       "long_term_rating": "중장기 투자 관점 등급 (적극 매수, 분할 매수, 관망, 비중 축소, 전량 매도 중 하나)",
-      "long_term_target": "중장기 목표가 (3~6개월 후 예상 가격)",
+      "long_term_period": "권장 투자 기간 (예: 3~6개월, 1년 이상 등)",
+      "long_term_target_pct": "예상 기대 수익률 (예: 25~40%)",
+      "long_term_target": "중장기 목표가 (예상 가격)",
       "long_term_analysis": "현재 매크로 사이클 및 펀더멘털을 고려한 중장기 관점에서의 분석 및 투자 전략 (상세한 마크다운 텍스트)"
     }}
     """
@@ -591,6 +595,8 @@ PER: {price_data['per']} | PBR: {price_data['pbr']}
 위 데이터와 구글 검색을 통한 최신 뉴스를 종합하여 반드시 아래 JSON으로만 응답하세요.
 {{
   "rating": "단기 관점 등급 (매우 강력 추천, 추천, 중간추천, 비추천, 매우 비추천 중 하나)",
+  "short_term_period": "예상 보유 기간 (예: 1~3일, 1주일 이내 등)",
+  "short_term_target_pct": "예상 기대 수익률 (예: 5~10%)",
   "buy_target": "단기 매수 타점 (원 단위, 예: 72,500)",
   "sell_target": "단기 목표가 (원 단위, 예: 78,000)",
   "stop_loss": "단기 손절가 (원 단위, 예: 70,000)",
@@ -599,6 +605,8 @@ PER: {price_data['per']} | PBR: {price_data['pbr']}
   "historical_pattern_analysis": "현재 주가 흐름, 수급, 섹터 모멘텀과 유사했던 과거 역사적 패턴(프랙탈) 사례를 1~2개 찾아 당시 변동 이유와 상승폭을 비교하는 심층 분석 (마크다운)",
   
   "long_term_rating": "중장기 관점 등급 (적극 매수, 분할 매수, 관망, 비중 축소, 전량 매도 중 하나)",
+  "long_term_period": "권장 투자 기간 (예: 3~6개월, 6개월 이상 등)",
+  "long_term_target_pct": "예상 기대 수익률 (예: 20~30%)",
   "long_term_target": "중장기 목표가 (원 단위, 3~6개월 관점)",
   "long_term_analysis": "거시 경제 사이클 및 펀더멘털을 고려한 중장기 분석 (마크다운 상세 작성)"
 }}

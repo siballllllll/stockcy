@@ -1879,10 +1879,14 @@ def main():
                                             rating_kr = rep_kr.get("rating", "")
                                             r_emoji = "🟢" if "강력" in rating_kr else "🟡" if "추천" in rating_kr else "🔴"
                                             st.markdown(f"##### {r_emoji} {rating_kr}")
-                                            rk1, rk2 = st.columns(2)
-                                            rk1.metric("매수 타점", rep_kr.get("buy_target", "-"))
-                                            rk2.metric("목표가",    rep_kr.get("sell_target", "-"))
-                                            st.metric("손절가",     rep_kr.get("stop_loss", "-"))
+                                            rk1, rk2, rk3 = st.columns(3)
+                                            rk1.metric("분석 기간", rep_kr.get("short_term_period", "-"))
+                                            rk2.metric("기대 수익", rep_kr.get("short_term_target_pct", "-"))
+                                            rk3.metric("매수 타점", rep_kr.get("buy_target", "-"))
+                                            
+                                            rk4, rk5 = st.columns(2)
+                                            rk4.metric("단기 목표가", rep_kr.get("sell_target", "-"))
+                                            rk5.metric("손절가",     rep_kr.get("stop_loss", "-"))
                                             
                                             if st.button("🎒 포트폴리오에 담기", use_container_width=True, type="primary", key="kr_port_btn_short"):
                                                 if "portfolio" not in st.session_state:
@@ -1909,7 +1913,11 @@ def main():
                                             lt_rating = rep_kr.get("long_term_rating", "")
                                             lt_emoji = "🟢" if "매수" in lt_rating else "🟡" if "관망" in lt_rating else "🔴"
                                             st.markdown(f"##### {lt_emoji} {lt_rating}")
-                                            st.metric("중장기 목표가 (3~6개월)", rep_kr.get("long_term_target", "-"))
+                                            
+                                            lk1, lk2, lk3 = st.columns(3)
+                                            lk1.metric("권장 기간", rep_kr.get("long_term_period", "-"))
+                                            lk2.metric("목표 수익", rep_kr.get("long_term_target_pct", "-"))
+                                            lk3.metric("중장기 목표가", rep_kr.get("long_term_target", "-"))
                                             
                                             if st.button("🎒 장기 포트폴리오에 담기", use_container_width=True, type="primary", key="kr_port_btn_long"):
                                                 if "portfolio" not in st.session_state:
@@ -2196,10 +2204,16 @@ def main():
                                             _rtg = _r.get("rating","")
                                             _re = "🟢" if "강력" in _rtg else "🟡" if "추천" in _rtg else "🔴"
                                             st.markdown(f"##### {_re} {_rtg}")
-                                            _rk1, _rk2 = st.columns(2)
-                                            _rk1.metric("매수 타점", _r.get("buy_target","-"))
-                                            _rk2.metric("목표가",    _r.get("sell_target","-"))
-                                            st.metric("손절가", _r.get("stop_loss","-"))
+                                            
+                                            _rk1, _rk2, _rk3 = st.columns(3)
+                                            _rk1.metric("분석 기간", _r.get("short_term_period", "-"))
+                                            _rk2.metric("기대 수익", _r.get("short_term_target_pct", "-"))
+                                            _rk3.metric("매수 타점", _r.get("buy_target","-"))
+                                            
+                                            _rk4, _rk5 = st.columns(2)
+                                            _rk4.metric("단기 목표가", _r.get("sell_target","-"))
+                                            _rk5.metric("손절가", _r.get("stop_loss","-"))
+                                            
                                             if st.button("🎒 포트폴리오에 담기", use_container_width=True, type="primary", key=f"kr_sec_port_btn_short_{detail_code}"):
                                                 if "portfolio" not in st.session_state:
                                                     st.session_state.portfolio = []
@@ -2226,7 +2240,11 @@ def main():
                                             lt_rating = _r.get("long_term_rating", "")
                                             lt_emoji = "🟢" if "매수" in lt_rating else "🟡" if "관망" in lt_rating else "🔴"
                                             st.markdown(f"##### {lt_emoji} {lt_rating}")
-                                            st.metric("중장기 목표가 (3~6개월)", _r.get("long_term_target", "-"))
+                                            
+                                            _lk1, _lk2, _lk3 = st.columns(3)
+                                            _lk1.metric("권장 기간", _r.get("long_term_period", "-"))
+                                            _lk2.metric("목표 수익", _r.get("long_term_target_pct", "-"))
+                                            _lk3.metric("중장기 목표가", _r.get("long_term_target", "-"))
                                             
                                             if st.button("🎒 장기 포트폴리오에 담기", use_container_width=True, type="primary", key=f"kr_sec_port_btn_long_{detail_code}"):
                                                 if "portfolio" not in st.session_state:
@@ -4031,10 +4049,16 @@ def main():
                                             _re  = ("🟢" if "강력 추천" in _rep.get("rating","")
                                                     else "🟡" if "추천" in _rep.get("rating","") else "🔴")
                                             st.markdown(f"##### {_re} {_rep.get('rating','')}")
-                                            _rt1, _rt2 = st.columns(2)
-                                            _rt1.metric("매수가", _rep.get("buy_target","-"))
-                                            _rt2.metric("목표가", _rep.get("sell_target","-"))
-                                            st.metric("손절", _rep.get("stop_loss","-"))
+                                            
+                                            _rt1, _rt2, _rt3 = st.columns(3)
+                                            _rt1.metric("분석 기간", _rep.get("short_term_period", "-"))
+                                            _rt2.metric("기대 수익", _rep.get("short_term_target_pct", "-"))
+                                            _rt3.metric("매수가", _rep.get("buy_target","-"))
+                                            
+                                            _rt4, _rt5 = st.columns(2)
+                                            _rt4.metric("단기 목표가", _rep.get("sell_target","-"))
+                                            _rt5.metric("손절", _rep.get("stop_loss","-"))
+                                            
                                             if st.button("🎒 포트폴리오에 담기", use_container_width=True,
                                                          type="primary", key="us_port_btn_short"):
                                                 if "portfolio" not in st.session_state:
@@ -4058,7 +4082,12 @@ def main():
                                             lt_rating = _rep.get("long_term_rating", "")
                                             lt_emoji = "🟢" if "매수" in lt_rating else "🟡" if "관망" in lt_rating else "🔴"
                                             st.markdown(f"##### {lt_emoji} {lt_rating}")
-                                            st.metric("중장기 목표가 (3~6개월)", _rep.get("long_term_target", "-"))
+                                            
+                                            _lt1, _lt2, _lt3 = st.columns(3)
+                                            _lt1.metric("권장 기간", _rep.get("long_term_period", "-"))
+                                            _lt2.metric("목표 수익", _rep.get("long_term_target_pct", "-"))
+                                            _lt3.metric("중장기 목표가", _rep.get("long_term_target", "-"))
+                                            
                                             if st.button("🎒 장기 포트폴리오에 담기", use_container_width=True,
                                                          type="primary", key="us_port_btn_long"):
                                                 if "portfolio" not in st.session_state:
@@ -4257,10 +4286,16 @@ def main():
                                                 _urtg = _ur.get("rating","")
                                                 _ure  = "🟢" if "강력" in _urtg else "🟡" if "추천" in _urtg else "🔴"
                                                 st.markdown(f"##### {_ure} {_urtg}")
-                                                _urk1, _urk2 = st.columns(2)
-                                                _urk1.metric("매수 타점", _ur.get("buy_target","-"))
-                                                _urk2.metric("목표가",    _ur.get("sell_target","-"))
-                                                st.metric("손절가", _ur.get("stop_loss","-"))
+                                                
+                                                _urk1, _urk2, _urk3 = st.columns(3)
+                                                _urk1.metric("분석 기간", _ur.get("short_term_period", "-"))
+                                                _urk2.metric("기대 수익", _ur.get("short_term_target_pct", "-"))
+                                                _urk3.metric("매수 타점", _ur.get("buy_target","-"))
+                                                
+                                                _urk4, _urk5 = st.columns(2)
+                                                _urk4.metric("단기 목표가", _ur.get("sell_target","-"))
+                                                _urk5.metric("손절가", _ur.get("stop_loss","-"))
+                                                
                                                 if _ur.get("historical_pattern_analysis"):
                                                     with st.expander("🕰️ 역사적 유사 패턴 분석 (프랙탈)", expanded=False):
                                                         st.markdown(_ur["historical_pattern_analysis"])
@@ -4284,7 +4319,12 @@ def main():
                                                 lt_rating = _ur.get("long_term_rating", "")
                                                 lt_emoji = "🟢" if "매수" in lt_rating else "🟡" if "관망" in lt_rating else "🔴"
                                                 st.markdown(f"##### {lt_emoji} {lt_rating}")
-                                                st.metric("중장기 목표가", _ur.get("long_term_target", "-"))
+                                                
+                                                _ulk1, _ulk2, _ulk3 = st.columns(3)
+                                                _ulk1.metric("권장 기간", _ur.get("long_term_period", "-"))
+                                                _ulk2.metric("목표 수익", _ur.get("long_term_target_pct", "-"))
+                                                _ulk3.metric("중장기 목표가", _ur.get("long_term_target", "-"))
+                                                
                                                 if st.button("🎒 장기 포트폴리오에 담기", use_container_width=True, type="primary", key=f"us_sec_port_btn_long_{_us_dticker}"):
                                                     if "portfolio" not in st.session_state:
                                                         st.session_state.portfolio = []
@@ -4304,10 +4344,16 @@ def main():
                                             _urtg = _ur.get("rating","")
                                             _ure  = "🟢" if "강력" in _urtg else "🟡" if "추천" in _urtg else "🔴"
                                             st.markdown(f"##### {_ure} {_urtg}")
-                                            _urk1, _urk2 = st.columns(2)
-                                            _urk1.metric("매수 타점", _ur.get("buy_target","-"))
-                                            _urk2.metric("목표가",    _ur.get("sell_target","-"))
-                                            st.metric("손절가", _ur.get("stop_loss","-"))
+                                            
+                                            _urk1, _urk2, _urk3 = st.columns(3)
+                                            _urk1.metric("분석 기간", _ur.get("short_term_period", "-"))
+                                            _urk2.metric("기대 수익", _ur.get("short_term_target_pct", "-"))
+                                            _urk3.metric("매수 타점", _ur.get("buy_target","-"))
+                                            
+                                            _urk4, _urk5 = st.columns(2)
+                                            _urk4.metric("목표가",    _ur.get("sell_target","-"))
+                                            _urk5.metric("손절가", _ur.get("stop_loss","-"))
+                                            
                                             if st.button("🎒 포트폴리오에 담기", use_container_width=True, type="primary", key=f"us_sec_port_btn_{_us_dticker}"):
                                                 if "portfolio" not in st.session_state:
                                                     st.session_state.portfolio = []
