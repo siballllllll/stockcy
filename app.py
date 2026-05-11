@@ -2416,6 +2416,7 @@ def main():
                                     if st.button("🗺️ 차기 주도 섹터 & 추천주 로드맵 생성", key="btn_kr_rot_direct", use_container_width=True, type="primary"):
                                         with st.spinner("AI가 실시간 시장 데이터를 수집하여 로드맵을 작성 중..."):
                                             from ai_engine import analyze_sector_rotation
+                                            from data_kr import get_kr_volume_ranking, get_kr_change_ranking, get_kr_market_index
                                             # 실시간 원시 데이터 수집
                                             _vol = get_kr_volume_ranking()
                                             _chg = get_kr_change_ranking()
