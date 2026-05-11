@@ -648,8 +648,7 @@ def show_favorites_center():
                     
                     # 시세 조회
                     price, pct = 0, 0
-                    if mkt == '국내' and name == ticker:
-                        name = p_data.get('name', ticker)
+                    if mkt == '국내':
                         p_data = get_kr_stock_price(ticker)
                         price = p_data.get('price', 0)
                         pct = p_data.get('change_pct', 0)
@@ -660,6 +659,10 @@ def show_favorites_center():
                         price = p_data.get('price', 0)
                         pct = p_data.get('change_pct', 0)
                         price_str = f'${price:,.2f}'
+
+                    # [수정포인트] 반드시 p_data가 생성된 직후에 이름을 확인해야 에러가 안남
+                    if mkt == '국내' and name == ticker:
+                        name = p_data.get('name',ticker)
                     
                     color = "#ff4b4b" if pct > 0 else "#00c853" if pct < 0 else "#888"
                     st.markdown(f"**{name}** ({ticker})")
