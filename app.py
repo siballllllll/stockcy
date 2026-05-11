@@ -648,7 +648,8 @@ def show_favorites_center():
                     
                     # 시세 조회
                     price, pct = 0, 0
-                    if mkt == '국내':
+                    if mkt == '국내' and name == ticker:
+                        name = p_data.get('name', ticker)
                         p_data = get_kr_stock_price(ticker)
                         price = p_data.get('price', 0)
                         pct = p_data.get('change_pct', 0)
