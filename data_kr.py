@@ -173,13 +173,12 @@ def get_kr_name_to_code_map() -> dict:
         pass
 
     return {}
-+
-+
-+@st.cache_data(ttl=86400)
-+def get_kr_code_to_name_map() -> dict:
-+    """전체 KOSPI+KOSDAQ 종목 코드→이름 맵 반환 (24시간 캐시)."""
-+    name_to_code = get_kr_name_to_code_map()
-+    return {v["code"]: k for k, v in name_to_code.items()}
+
+@st.cache_data(ttl=86400)
+def get_kr_code_to_name_map() -> dict:
+    """전체 KOSPI+KOSDAQ 종목 코드→이름 맵 반환 (24시간 캐시)."""
+    name_to_code = get_kr_name_to_code_map()
+    return {v["code"]: k for k, v in name_to_code.items()}
 
 
 def get_kr_stock_name_kis(stock_code: str) -> tuple:
