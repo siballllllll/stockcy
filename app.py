@@ -11,9 +11,11 @@ from data import get_us_stock_data, get_us_market_indices, get_us_stock_detail, 
 from data_kr import (get_us_prices_bulk_kis, get_kr_index_history,
                      get_kr_market_index, get_kr_stock_price,
                      get_kr_investor_trend, get_kr_volume_ranking,
+                     get_kr_change_ranking,
                      get_kr_minute_chart, get_kr_daily_chart,
                      get_kr_stock_name_kis, get_kr_name_to_code_map,
                      get_kr_major_tickers)
+from ai_engine import analyze_sector_rotation
 
 def _get_chart_colors():
     """Return (font_color, grid_color) adapted to the current Streamlit theme."""
@@ -851,7 +853,7 @@ def main():
     if _is_us_mode:
         # ── 미국 주식 슬라이딩 티커 ──
         try:
-            from data_kr import get_us_change_ranking
+            # duplicate import removed
             _us_tick_data = get_us_change_ranking() or []
         except Exception:
             _us_tick_data = []
@@ -986,7 +988,7 @@ def main():
             def _quick_signal_scan() -> int:
                 try:
                     from ai_engine import _compute_prebreakout_signals
-                    from data_kr import get_kr_change_ranking
+                    # duplicate import removed
                     _qvol = get_kr_volume_ranking() or []
                     _qchg = (get_kr_change_ranking("J") or []) + (get_kr_change_ranking("Q") or [])
                     _qpre, _ = _compute_prebreakout_signals(_qvol, _qchg)
@@ -1015,7 +1017,7 @@ def main():
                             from ai_engine import generate_realtime_picks
                             _mkt = get_kr_market_index() or {}
                             _vol = get_kr_volume_ranking() or []
-                            from data_kr import get_kr_change_ranking
+                            # duplicate import removed
                             _chg = (get_kr_change_ranking("J") or []) + (get_kr_change_ranking("Q") or [])
                             _hot_secs = []
                             try:
@@ -2071,7 +2073,7 @@ def main():
 
                     else:  # 🔥 오늘의 이슈 섹터
                         from db import load_sector_map, init_sector_sheet
-                        from data_kr import get_kr_prices_bulk
+                        # duplicate import removed
 
                         sector_map = load_sector_map()
                         sector_names = list(sector_map.keys())
@@ -2415,8 +2417,8 @@ def main():
                                     _kr_rot_key = "kr_sector_rotation_res"
                                     if st.button("🗺️ 차기 주도 섹터 & 추천주 로드맵 생성", key="btn_kr_rot_direct", use_container_width=True, type="primary"):
                                         with st.spinner("AI가 실시간 시장 데이터를 수집하여 로드맵을 작성 중..."):
-                                            from ai_engine import analyze_sector_rotation
-                                            from data_kr import get_kr_volume_ranking, get_kr_change_ranking, get_kr_market_index
+                                            # duplicate import removed
+                                            # duplicate import removed
                                             # 실시간 원시 데이터 수집
                                             _vol = get_kr_volume_ranking()
                                             _chg = get_kr_change_ranking()
@@ -4431,10 +4433,10 @@ def main():
                                     _us_rot_key = "us_sector_rotation_res"
                                     if st.button("🗺️ US 차기 주도주 & 로드맵 생성", key="btn_us_rot_direct", use_container_width=True, type="primary"):
                                         with st.spinner("AI가 글로벌 시장 데이터를 분석하여 로드맵을 작성 중..."):
-                                            from ai_engine import analyze_sector_rotation
+                                            # duplicate import removed
                                             _idx = get_us_market_indices()
                                             try:
-                                                from data_kr import get_us_change_ranking
+                                                # duplicate import removed
                                                 _chg = get_us_change_ranking() or []
                                             except: _chg = []
                                             _raw_data = {
