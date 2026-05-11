@@ -11,7 +11,7 @@ from data import get_us_stock_data, get_us_market_indices, get_us_stock_detail, 
 from data_kr import (get_us_prices_bulk_kis, get_kr_index_history,
                      get_kr_market_index, get_kr_stock_price,
                      get_kr_investor_trend, get_kr_volume_ranking,
-                     get_kr_change_ranking,
+                     get_kr_change_ranking, get_kr_prices_bulk,
                      get_kr_minute_chart, get_kr_daily_chart,
                      get_kr_stock_name_kis, get_kr_name_to_code_map,
                      get_kr_major_tickers)
