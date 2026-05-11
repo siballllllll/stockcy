@@ -54,11 +54,11 @@ def get_market_news(category="general"):
         return f"뉴스 데이터 로드 실패: {e}"
 
 
-# 모델 폴백 순서
+# 모델 폴백 순서 (gemini-2.0-flash-lite는 지원 종료로 제거)
 _MODEL_FALLBACK = [
+    "gemini-2.5-flash-preview-05-20",
     "gemini-2.5-flash",
     "gemini-2.0-flash",
-    "gemini-2.0-flash-lite",
 ]
 
 # 할당량 소진 여부 (세션 중 반복 호출 방지)
