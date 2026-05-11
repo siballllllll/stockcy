@@ -4512,7 +4512,7 @@ def main():
                                         st.info(f"🔵 **반등 포착 관찰** — 등락률 {chg:+.2f}%")
                                     else:
                                         st.error(f"❌ **단타 비적합** — 등락률 {chg:+.2f}%")
-                                    if us_detail["institutional_pct"] > 0 or us_detail["insider_pct"] > 0:
+                                    if us_detail.get("institutional_pct", 0) > 0 or us_detail.get("insider_pct", 0) > 0:
                                         st.markdown("#### 📊 기관/내부자 보유율")
                                         retail_p = max(0.0, 100.0 - us_detail["institutional_pct"] - us_detail["insider_pct"])
                                         fig_own2 = go.Figure(go.Bar(
