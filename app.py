@@ -1791,7 +1791,8 @@ def main():
                                     _fav_btn_label = "⭐ 즐겨찾기 등록"
                                     if st.button(_fav_btn_label, use_container_width=True, key=f"fav_btn_kr_top_{selected_code_kr}"):
                                         from db import save_favorite
-                                        _ok, _msg = save_favorite("국내", selected_code_kr, price_kr["name"])
+                                        # 빈 데이터 대신, 위에서 찾아둔 진짜 한글 이름 변수를 사용!
+                                        _ok, _msg = save_favorite("국내", selected_code_kr, _real_name)
                                         if _ok: st.success(_msg)
                                         else: st.error(_msg)
 
