@@ -3054,35 +3054,11 @@ def main():
                                                                     unsafe_allow_html=True,
                                                                 )
                                                                 _followers = _tl.get("followers", [])
-                                                                if _followers:
-                                                                                                 def _render_sector_stocks(sub_name, stocks, prices, code_locations, selected_sector):
-                                    for i, s in enumerate(stocks):
-                                        if i > 0:
-                                            st.markdown('<hr class="toss-divider" style="margin:2px 0">', unsafe_allow_html=True)
-                                        pdata = prices.get(s["code"], {"price": 0, "change_pct": 0.0})
-                                        pct   = pdata["change_pct"]
-                                        pval  = pdata["price"]
-                                        pct_color = "#ff4b4b" if pct > 0 else "#2b7cff" if pct < 0 else "#888"
-                                        other_locs = [loc for loc in code_locations.get(s["code"], []) if loc != f"{selected_sector} › {sub_name}"]
-                                        
-                                        c0, cs, c1, c2, c3, c4 = st.columns([0.35, 0.5, 2.3, 1.8, 1.4, 0.45])
-                                        c0.markdown("✅" if pct >= 3.0 else "&nbsp;", unsafe_allow_html=True)
-                                        
-                                        with cs:
-                                            render_star_toggle("국내", s["code"], s["name"], key_suffix=f"sec_{sub_name}_{i}")
-                                        
-                                        _link_url = f"/?market=KR&code={s['code']}"
-                                        name_html = (
-                                            f"<a href='{_link_url}' target='_blank' style='text-decoration:none;color:inherit;font-size:0.85rem'>{s['name']}</a>"
-                                            + (f"<span style='font-size:0.7rem;color:#666'> 🔗</span>" if other_locs else "")
-                                        )
-                                        c1.markdown(name_html, unsafe_allow_html=True)
-                                        c2.markdown(f"<span style='font-size:0.85rem'>{'₩'+format(pval,',') if pval>0 else '---'}</span>", unsafe_allow_html=True)
-                                        c3.markdown(f"<span style='font-size:0.85rem;font-weight:bold;color:{pct_color}'>{pct:+.2f}%</span>", unsafe_allow_html=True)
-                                        if c4.button("▶", key=f"stock_{s['code']}_{sub_name}_{i}",            if hdr2_c2.button("🔄", key="sec_refresh",
-                                                  help="섹터 캐시 초기화"):
-                                    load_sector_map.clear()
-                                    st.rerun()
+                                                                 if _followers:
+                                                                     st.markdown("**후속주:**")
+                                                                     for _f in _followers:
+                                                                         st.write(f"- {_f}")
+
 
                                 # ── hot_score 맵 구성 (AI 시장분석 결과 재활용) ──
                                 _hot_score_map: dict = {}  # {sector_name: {score, reason, news}}
