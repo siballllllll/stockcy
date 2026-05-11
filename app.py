@@ -4465,7 +4465,7 @@ def main():
                                         n4, n5, n6 = st.columns(3)
                                         n4.metric("52주 최고", f"${us_detail['w52_high']:,.2f}")
                                         n5.metric("52주 최저", f"${us_detail['w52_low']:,.2f}")
-                                        n6.metric("베타",      str(us_detail["beta"]))
+                                        n6.metric("베타", str(us_detail.get("beta", "N/A")))
                                     # ── 연장 거래 시간 ──
                                     _d_pre_p  = us_detail.get("pre_price", 0) or 0
                                     _d_pre_c  = us_detail.get("pre_pct", 0) or 0
