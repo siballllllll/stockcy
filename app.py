@@ -4054,12 +4054,12 @@ def main():
                                                     st.success(f"{_us_ticker_cur} 포트폴리오에 추가!")
                                                 else:
                                                     st.warning("이미 포트폴리오에 있습니다.")
-                                             if _rep.get("historical_pattern_analysis"):
+                                            if _rep.get("historical_pattern_analysis"):
                                                 with st.expander("🕰️ 역사적 유사 패턴 분석 (프랙탈)", expanded=False):
                                                     st.markdown(_rep["historical_pattern_analysis"])
-                                             if _rep.get("analysis"):
-                                                 with st.container(border=True):
-                                                     st.markdown(_rep["analysis"])
+                                            if _rep.get("analysis"):
+                                                with st.container(border=True):
+                                                    st.markdown(_rep["analysis"])
                                         with t2:
                                             lt_rating = _rep.get("long_term_rating", "")
                                             lt_emoji = "🟢" if "매수" in lt_rating else "🟡" if "관망" in lt_rating else "🔴"
