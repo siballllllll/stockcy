@@ -1430,4 +1430,36 @@ def generate_macro_phase_analysis():
     except Exception as e:
         if "QUOTA" in str(e) or "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
             return _quota_error_result("generate_macro_phase_analysis")
-        return {{"error": f"분석 오류: {{type(e).__name__}}: {{str(e)[:100]}}"}}
+        return {"error": f"분석 오류: {type(e).__name__}: {str(e)[:100]}"}
+
+
+def analyze_sector_rotation(market_type, leading_sectors, macro_data):
+    """
+    현재 주도 섹터와 매크로 지표를 분석하여 다음 순환매 섹터를 예측합니다.
+    """
+    prompt = f"""
+    당신은 세계 최고의 글로벌 퀀트 전략가이자 시장 심리 분석가입니다.
+    현재 {market_type} 시장의 주도 섹터 흐름과 매크로 지표를 분석하여, 자금이 다음에 어느 섹터로 이동할지 '섹터 순환매 로드맵'을 작성하세요.
+
+    [현재 시장 정보]
+    - 주도 섹터: {leading_sectors}
+    - 매크로 지표/뉴스 요약: {macro_data}
+
+    [분석 가이드라인]
+    1. 현재 주도 섹터의 '에너지 상태'를 진단하세요 (과열/성장/초입).
+    2. 과거 역사적 사례(프랙탈) 중 현재와 가장 유사한 시기를 언급하며, 당시 어떤 섹터로 순환매가 일어났는지 설명하세요.
+    3. '자금의 이동 경로'를 3단계로 예측하세요. (현재 -> 징검다리 섹터 -> 최종 목적지)
+    4. 다음 순환매가 예상되는 'TOP 3 타겟 섹터'와 그 근거를 제시하세요.
+    5. 주의해야 할 리스크 요인도 포함하세요.
+
+    반드시 읽기 쉽고 전문적인 마크다운 형식으로 작성하세요.
+    제목은 '🚀 AI 섹터 순환매 로드맵'으로 시작하세요.
+    """
+    try:
+        response = _call_gemini(prompt, use_search=True, temperature=0.7)
+        if hasattr(response, 'text'):
+            return response.text
+        return str(response)
+    except Exception as e:
+        return f"분석 중 오류 발생: {e}"
+

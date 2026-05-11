@@ -2465,6 +2465,27 @@ def main():
                                             f"</div>",
                                             unsafe_allow_html=True,
                                         )
+                                        
+                                        # --- 추가: AI 섹터 순환매 로드맵 ---
+                                        st.markdown("---")
+                                        _kr_rot_key = "kr_sector_rotation_res"
+                                        _kr_rot_run = st.button("🚀 AI 섹터 순환매 로드맵 예측", key="btn_kr_rot", use_container_width=True, type="primary")
+                                        
+                                        if _kr_rot_run:
+                                            with st.spinner("AI가 자금의 길목을 분석 중..."):
+                                                from ai_engine import analyze_sector_rotation
+                                                # 주도 섹터 정보 취합
+                                                _lead_secs = ", ".join(_ai_res.get("hot_sectors", [])) if isinstance(_ai_res, dict) else ""
+                                                _macro = _tm.get("market_summary", "") if isinstance(_tm, dict) else ""
+                                                _rot_res = analyze_sector_rotation("국내", _lead_secs, _macro)
+                                                st.session_state[_kr_rot_key] = _rot_res
+                                        
+                                        if _kr_rot_key in st.session_state:
+                                            with st.container(border=True):
+                                                st.markdown(st.session_state[_kr_rot_key])
+                                        
+                                        st.markdown("---")
+                                        st.markdown("#### 💎 AI 선정 핫 섹터 & 종목")
 
                                     # 주도 테마 태그
                                     _themes = _tm.get("leading_themes", []) if isinstance(_tm, dict) else []
@@ -4452,17 +4473,25 @@ def main():
                                                 unsafe_allow_html=True,
                                             )
 
-                                        st.markdown(
-                                            "<hr class='toss-divider' style='margin:6px 0'>",
-                                            unsafe_allow_html=True,
-                                        )
+                                        # --- 추가: AI 섹터 순환매 로드맵 ---
+                                        st.markdown("---")
+                                        _us_rot_key = "us_sector_rotation_res"
+                                        _us_rot_run = st.button("🚀 AI 섹터 순환매 로드맵 예측", key="btn_us_rot", use_container_width=True, type="primary")
+                                        
+                                        if _us_rot_run:
+                                            with st.spinner("AI가 글로벌 자금의 흐름을 분석 중..."):
+                                                from ai_engine import analyze_sector_rotation
+                                                _u_lead = ", ".join(_us_themes_lead)
+                                                _u_macro = _us_mkt_res.get("market_summary", "") if isinstance(_us_mkt_res, dict) else ""
+                                                _u_rot_res = analyze_sector_rotation("미국", _u_lead, _u_macro)
+                                                st.session_state[_us_rot_key] = _u_rot_res
+                                        
+                                        if _us_rot_key in st.session_state:
+                                            with st.container(border=True):
+                                                st.markdown(st.session_state[_us_rot_key])
 
-                                        # 오늘의 급등 종목
-                                        st.markdown(
-                                            "<p style='font-size:0.78rem;font-weight:700;color:#aaa;margin:4px 0'>"
-                                            "📈 오늘의 US 급등 종목</p>",
-                                            unsafe_allow_html=True,
-                                        )
+                                        st.markdown("---")
+                                        st.markdown("#### 💎 AI 선정 US 핫 섹터")
                                         _us_stk_list = (_us_mkt_res or {}).get("stocks", [])
                                         if _us_stk_list:
                                             for _us_stk in _us_stk_list[:8]:
