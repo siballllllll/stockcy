@@ -741,7 +741,7 @@ def get_us_prices_bulk_kis(tickers_exchange_tuple: tuple) -> dict:
     return results
 
 
-@st.cache_data(ttl=300)  # 5분 캐싱
+@st.cache_data(ttl=60)  # 5분 -> 1분 단축
 def get_kr_volume_ranking():
     """거래량 상위 10개 종목 (KIS API → pykrx 폴백)"""
     # 1차: KIS API
@@ -806,7 +806,7 @@ def get_kr_volume_ranking():
         return []
 
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=60)
 def get_kr_change_ranking(market: str = "J") -> list:
     """등락률 상위 20개 종목 (KIS 랭킹 API, J=KOSPI / Q=KOSDAQ)"""
     data = _get(

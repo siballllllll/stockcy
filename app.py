@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
-from datetime import datetime
+from datetime import datetime, timedelta
 try:
     from streamlit_autorefresh import st_autorefresh as _st_autorefresh
     _HAVE_AUTOREFRESH = True
@@ -998,7 +998,7 @@ def main():
             _sig_ts_key    = "_kr_sig_ts_last"
             _new_count = _quick_signal_scan()
             st.session_state[_sig_count_key] = _new_count
-            st.session_state[_sig_ts_key] = datetime.now().strftime("%H:%M")
+            st.session_state[_sig_ts_key] = (datetime.now() + timedelta(hours=9)).strftime("%H:%M")
             _sig_ts = st.session_state.get(_sig_ts_key, "")
 
             # ══════════════════════════════════════════════════════════════
@@ -1028,7 +1028,7 @@ def main():
                             _picks = generate_realtime_picks(_mkt, _vol, _chg, hot_sectors=_hot_secs)
                         except Exception as _pe:
                             _picks = {"error": str(_pe), "picks": []}
-                        _picks["_ts"] = datetime.now().strftime("%H:%M")
+                        _picks["_ts"] = (datetime.now() + timedelta(hours=9)).strftime("%H:%M")
                         st.session_state[_pb_key] = _picks
                         st.session_state[_run_key] = False
                     st.rerun()
@@ -1895,7 +1895,7 @@ def main():
                                                     st.session_state.portfolio.append({
                                                         "ticker": selected_code_kr, "name": price_kr["name"],
                                                         "buy_price": price_kr["price"], "quantity": 10,
-                                                        "buy_date": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                                                        "buy_date": (datetime.now() + timedelta(hours=9)).strftime("%Y-%m-%d %H:%M"),
                                                     })
                                                     st.success(f"{price_kr['name']} 포트폴리오에 추가!")
                                                 else:
@@ -1926,7 +1926,7 @@ def main():
                                                     st.session_state.portfolio.append({
                                                         "ticker": selected_code_kr, "name": price_kr["name"],
                                                         "buy_price": price_kr["price"], "quantity": 10,
-                                                        "buy_date": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                                                        "buy_date": (datetime.now() + timedelta(hours=9)).strftime("%Y-%m-%d %H:%M"),
                                                     })
                                                     st.success(f"{price_kr['name']} 포트폴리오에 추가!")
                                                 else:
@@ -1951,7 +1951,7 @@ def main():
                                                 st.session_state.portfolio.append({
                                                     "ticker": selected_code_kr, "name": price_kr["name"],
                                                     "buy_price": price_kr["price"], "quantity": 10,
-                                                    "buy_date": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                                                    "buy_date": (datetime.now() + timedelta(hours=9)).strftime("%Y-%m-%d %H:%M"),
                                                 })
                                                 st.success(f"{price_kr['name']} 포트폴리오에 추가!")
                                             else:
@@ -2221,7 +2221,7 @@ def main():
                                                     st.session_state.portfolio.append({
                                                         "ticker": detail_code, "name": detail_name,
                                                         "buy_price": price_kr.get("price", 0) if price_kr else 0, "quantity": 10,
-                                                        "buy_date": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                                                        "buy_date": (datetime.now() + timedelta(hours=9)).strftime("%Y-%m-%d %H:%M"),
                                                     })
                                                     st.success(f"{detail_name} 포트폴리오에 추가!")
                                                 else:
@@ -2253,7 +2253,7 @@ def main():
                                                     st.session_state.portfolio.append({
                                                         "ticker": detail_code, "name": detail_name,
                                                         "buy_price": price_kr.get("price", 0) if price_kr else 0, "quantity": 10,
-                                                        "buy_date": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                                                        "buy_date": (datetime.now() + timedelta(hours=9)).strftime("%Y-%m-%d %H:%M"),
                                                     })
                                                     st.success(f"{detail_name} 포트폴리오에 추가!")
                                                 else:
@@ -2278,7 +2278,7 @@ def main():
                                                 st.session_state.portfolio.append({
                                                     "ticker": detail_code, "name": detail_name,
                                                     "buy_price": price_kr.get("price", 0) if price_kr else 0, "quantity": 10,
-                                                    "buy_date": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                                                    "buy_date": (datetime.now() + timedelta(hours=9)).strftime("%Y-%m-%d %H:%M"),
                                                 })
                                                 st.success(f"{detail_name} 포트폴리오에 추가!")
                                             else:
@@ -3221,7 +3221,7 @@ def main():
             _us_sig_ts_key    = "_us_sig_ts_last"
             _us_new_count = _us_quick_signal_scan()
             st.session_state[_us_sig_count_key] = _us_new_count
-            st.session_state[_us_sig_ts_key] = datetime.now().strftime("%H:%M")
+            st.session_state[_us_sig_ts_key] = (datetime.now() + timedelta(hours=9)).strftime("%H:%M")
             _us_sig_ts = st.session_state.get(_us_sig_ts_key, "")
 
             # ══════════════════════════════════════════════════════════════
@@ -3243,7 +3243,7 @@ def main():
                             _us_picks = generate_us_realtime_picks(_us_mkt, _us_vol, _us_chg)
                         except Exception as _upe:
                             _us_picks = {"error": str(_upe), "picks": []}
-                        _us_picks["_ts"] = datetime.now().strftime("%H:%M")
+                        _us_picks["_ts"] = (datetime.now() + timedelta(hours=9)).strftime("%H:%M")
                         st.session_state[_us_pb_key] = _us_picks
                         st.session_state[_us_run_key] = False
                     st.rerun()
@@ -4037,7 +4037,7 @@ def main():
                                                     "ticker": _us_ticker_cur,
                                                     "name": detail_us["name"],
                                                     "buy_price": _cur_p, "quantity": 10,
-                                                    "buy_date": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                                                    "buy_date": (datetime.now() + timedelta(hours=9)).strftime("%Y-%m-%d %H:%M"),
                                                 })
                                                 st.toast(f"AI 자동 담기: {_us_ticker_cur}")
                                     st.rerun()
@@ -4067,7 +4067,7 @@ def main():
                                                     st.session_state.portfolio.append({
                                                         "ticker": _us_ticker_cur, "name": detail_us["name"],
                                                         "buy_price": _cur_p, "quantity": 10,
-                                                        "buy_date": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                                                        "buy_date": (datetime.now() + timedelta(hours=9)).strftime("%Y-%m-%d %H:%M"),
                                                     })
                                                     st.success(f"{_us_ticker_cur} 포트폴리오에 추가!")
                                                 else:
@@ -4096,7 +4096,7 @@ def main():
                                                     st.session_state.portfolio.append({
                                                         "ticker": _us_ticker_cur, "name": detail_us["name"],
                                                         "buy_price": _cur_p, "quantity": 10,
-                                                        "buy_date": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                                                        "buy_date": (datetime.now() + timedelta(hours=9)).strftime("%Y-%m-%d %H:%M"),
                                                     })
                                                     st.success(f"{_us_ticker_cur} 포트폴리오에 추가!")
                                                 else:
@@ -4122,7 +4122,7 @@ def main():
                                                     "ticker": _us_ticker_cur,
                                                     "name": detail_us["name"],
                                                     "buy_price": _cur_p, "quantity": 10,
-                                                    "buy_date": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                                                    "buy_date": (datetime.now() + timedelta(hours=9)).strftime("%Y-%m-%d %H:%M"),
                                                 })
                                                 st.success(f"{_us_ticker_cur} 포트폴리오에 추가!")
                                             else:
@@ -4310,7 +4310,7 @@ def main():
                                                         st.session_state.portfolio.append({
                                                             "ticker": _us_dticker, "name": _us_dname,
                                                             "buy_price": us_detail["price"], "quantity": 10,
-                                                            "buy_date": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                                                            "buy_date": (datetime.now() + timedelta(hours=9)).strftime("%Y-%m-%d %H:%M"),
                                                         })
                                                         st.success(f"{_us_dname} 포트폴리오에 추가!")
                                                     else:
@@ -4332,7 +4332,7 @@ def main():
                                                         st.session_state.portfolio.append({
                                                             "ticker": _us_dticker, "name": _us_dname,
                                                             "buy_price": us_detail["price"], "quantity": 10,
-                                                            "buy_date": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                                                            "buy_date": (datetime.now() + timedelta(hours=9)).strftime("%Y-%m-%d %H:%M"),
                                                         })
                                                         st.success(f"{_us_dname} 포트폴리오에 추가!")
                                                     else:
@@ -4361,7 +4361,7 @@ def main():
                                                     st.session_state.portfolio.append({
                                                         "ticker": _us_dticker, "name": _us_dname,
                                                         "buy_price": us_detail["price"], "quantity": 10,
-                                                        "buy_date": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                                                        "buy_date": (datetime.now() + timedelta(hours=9)).strftime("%Y-%m-%d %H:%M"),
                                                     })
                                                     st.success(f"{_us_dname} 포트폴리오에 추가!")
                                                 else:
@@ -4875,7 +4875,7 @@ def main():
                                 "name": nn or nt,
                                 "buy_price": float(np_val),
                                 "quantity": int(nq_val),
-                                "buy_date": datetime.now().strftime("%Y-%m-%d %H:%M")
+                                "buy_date": (datetime.now() + timedelta(hours=9)).strftime("%Y-%m-%d %H:%M")
                             })
                             st.success(f"{nt} 추가 완료!")
                             st.rerun()
@@ -4959,7 +4959,7 @@ def main():
                                     "buy_price": bp, "sell_price": sell_p,
                                     "profit": p, "profit_pct": p_pct,
                                     "buy_date": item.get("buy_date", "-"),
-                                    "sell_date": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                                    "sell_date": (datetime.now() + timedelta(hours=9)).strftime("%Y-%m-%d %H:%M"),
                                     "result": "승" if p >= 0 else "패"
                                 }
                                 st.session_state.trade_history.append(trade)
