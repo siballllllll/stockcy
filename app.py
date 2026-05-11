@@ -697,7 +697,7 @@ def show_favorites_center():
                                     st.markdown(f"**매수타점:** {res.get('buy_target','-')} | **목표가:** {res.get('sell_target','-')}")
                     
                     if st.button('🗑️ 삭제', key=f'fav_del_{ticker}', use_container_width=True):
-                        ok, dmsg = remove_favorite(ticker)
+                        ok, dmsg = remove_favorite(str(ticker))
                         if ok: 
                             st.success(dmsg)
                             st.rerun()
