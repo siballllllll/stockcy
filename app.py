@@ -1883,8 +1883,26 @@ def main():
                                             rk1.metric("매수 타점", rep_kr.get("buy_target", "-"))
                                             rk2.metric("목표가",    rep_kr.get("sell_target", "-"))
                                             st.metric("손절가",     rep_kr.get("stop_loss", "-"))
+                                            
+                                            if st.button("🎒 포트폴리오에 담기", use_container_width=True, type="primary", key="kr_port_btn_short"):
+                                                from datetime import datetime
+                                                if "portfolio" not in st.session_state:
+                                                    st.session_state.portfolio = []
+                                                if not any(i["ticker"] == selected_code_kr for i in st.session_state.portfolio):
+                                                    st.session_state.portfolio.append({
+                                                        "ticker": selected_code_kr, "name": price_kr["name"],
+                                                        "buy_price": price_kr["price"], "quantity": 10,
+                                                        "buy_date": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                                                    })
+                                                    st.success(f"{price_kr['name']} 포트폴리오에 추가!")
+                                                else:
+                                                    st.warning("이미 포트폴리오에 있습니다.")
+                                                    
                                             if rep_kr.get("세력분석"):
                                                 st.info(f"**세력 분석:** {rep_kr['세력분석']}")
+                                            if rep_kr.get("historical_pattern_analysis"):
+                                                with st.expander("🕰️ 역사적 유사 패턴 분석 (프랙탈)", expanded=False):
+                                                    st.markdown(rep_kr["historical_pattern_analysis"])
                                             if rep_kr.get("analysis"):
                                                 with st.container(border=True):
                                                     st.markdown(rep_kr["analysis"])
@@ -1893,6 +1911,21 @@ def main():
                                             lt_emoji = "🟢" if "매수" in lt_rating else "🟡" if "관망" in lt_rating else "🔴"
                                             st.markdown(f"##### {lt_emoji} {lt_rating}")
                                             st.metric("중장기 목표가 (3~6개월)", rep_kr.get("long_term_target", "-"))
+                                            
+                                            if st.button("🎒 장기 포트폴리오에 담기", use_container_width=True, type="primary", key="kr_port_btn_long"):
+                                                from datetime import datetime
+                                                if "portfolio" not in st.session_state:
+                                                    st.session_state.portfolio = []
+                                                if not any(i["ticker"] == selected_code_kr for i in st.session_state.portfolio):
+                                                    st.session_state.portfolio.append({
+                                                        "ticker": selected_code_kr, "name": price_kr["name"],
+                                                        "buy_price": price_kr["price"], "quantity": 10,
+                                                        "buy_date": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                                                    })
+                                                    st.success(f"{price_kr['name']} 포트폴리오에 추가!")
+                                                else:
+                                                    st.warning("이미 포트폴리오에 있습니다.")
+                                            
                                             if rep_kr.get("long_term_analysis"):
                                                 with st.container(border=True):
                                                     st.markdown(rep_kr["long_term_analysis"])
@@ -1904,6 +1937,21 @@ def main():
                                         rk1.metric("매수 타점", rep_kr.get("buy_target", "-"))
                                         rk2.metric("목표가",    rep_kr.get("sell_target", "-"))
                                         st.metric("손절가",     rep_kr.get("stop_loss", "-"))
+                                        
+                                        if st.button("🎒 포트폴리오에 담기", use_container_width=True, type="primary", key="kr_port_btn"):
+                                            from datetime import datetime
+                                            if "portfolio" not in st.session_state:
+                                                st.session_state.portfolio = []
+                                            if not any(i["ticker"] == selected_code_kr for i in st.session_state.portfolio):
+                                                st.session_state.portfolio.append({
+                                                    "ticker": selected_code_kr, "name": price_kr["name"],
+                                                    "buy_price": price_kr["price"], "quantity": 10,
+                                                    "buy_date": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                                                })
+                                                st.success(f"{price_kr['name']} 포트폴리오에 추가!")
+                                            else:
+                                                st.warning("이미 포트폴리오에 있습니다.")
+                                                
                                         if rep_kr.get("세력분석"):
                                             st.info(f"**세력 분석:** {rep_kr['세력분석']}")
                                         if rep_kr.get("analysis"):
@@ -2155,8 +2203,25 @@ def main():
                                             _rk1.metric("매수 타점", _r.get("buy_target","-"))
                                             _rk2.metric("목표가",    _r.get("sell_target","-"))
                                             st.metric("손절가", _r.get("stop_loss","-"))
+                                            if st.button("🎒 포트폴리오에 담기", use_container_width=True, type="primary", key=f"kr_sec_port_btn_short_{detail_code}"):
+                                                from datetime import datetime
+                                                if "portfolio" not in st.session_state:
+                                                    st.session_state.portfolio = []
+                                                if not any(i["ticker"] == detail_code for i in st.session_state.portfolio):
+                                                    st.session_state.portfolio.append({
+                                                        "ticker": detail_code, "name": detail_name,
+                                                        "buy_price": price_kr.get("price", 0) if price_kr else 0, "quantity": 10,
+                                                        "buy_date": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                                                    })
+                                                    st.success(f"{detail_name} 포트폴리오에 추가!")
+                                                else:
+                                                    st.warning("이미 포트폴리오에 있습니다.")
+                                                    
                                             if _r.get("세력분석"):
                                                 st.info(f"**세력 분석:** {_r['세력분석']}")
+                                            if _r.get("historical_pattern_analysis"):
+                                                with st.expander("🕰️ 역사적 유사 패턴 분석 (프랙탈)", expanded=False):
+                                                    st.markdown(_r["historical_pattern_analysis"])
                                             if _r.get("analysis"):
                                                 st.markdown("---")
                                                 with st.container(border=True):
@@ -2166,6 +2231,21 @@ def main():
                                             lt_emoji = "🟢" if "매수" in lt_rating else "🟡" if "관망" in lt_rating else "🔴"
                                             st.markdown(f"##### {lt_emoji} {lt_rating}")
                                             st.metric("중장기 목표가 (3~6개월)", _r.get("long_term_target", "-"))
+                                            
+                                            if st.button("🎒 장기 포트폴리오에 담기", use_container_width=True, type="primary", key=f"kr_sec_port_btn_long_{detail_code}"):
+                                                from datetime import datetime
+                                                if "portfolio" not in st.session_state:
+                                                    st.session_state.portfolio = []
+                                                if not any(i["ticker"] == detail_code for i in st.session_state.portfolio):
+                                                    st.session_state.portfolio.append({
+                                                        "ticker": detail_code, "name": detail_name,
+                                                        "buy_price": price_kr.get("price", 0) if price_kr else 0, "quantity": 10,
+                                                        "buy_date": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                                                    })
+                                                    st.success(f"{detail_name} 포트폴리오에 추가!")
+                                                else:
+                                                    st.warning("이미 포트폴리오에 있습니다.")
+                                                    
                                             if _r.get("long_term_analysis"):
                                                 with st.container(border=True):
                                                     st.markdown(_r["long_term_analysis"])
@@ -2177,6 +2257,21 @@ def main():
                                         _rk1.metric("매수 타점", _r.get("buy_target","-"))
                                         _rk2.metric("목표가",    _r.get("sell_target","-"))
                                         st.metric("손절가", _r.get("stop_loss","-"))
+                                        
+                                        if st.button("🎒 포트폴리오에 담기", use_container_width=True, type="primary", key=f"kr_sec_port_btn_{detail_code}"):
+                                            from datetime import datetime
+                                            if "portfolio" not in st.session_state:
+                                                st.session_state.portfolio = []
+                                            if not any(i["ticker"] == detail_code for i in st.session_state.portfolio):
+                                                st.session_state.portfolio.append({
+                                                    "ticker": detail_code, "name": detail_name,
+                                                    "buy_price": price_kr.get("price", 0) if price_kr else 0, "quantity": 10,
+                                                    "buy_date": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                                                })
+                                                st.success(f"{detail_name} 포트폴리오에 추가!")
+                                            else:
+                                                st.warning("이미 포트폴리오에 있습니다.")
+                                                
                                         if _r.get("세력분석"):
                                             st.info(f"**세력 분석:** {_r['세력분석']}")
                                         if _r.get("analysis"):
@@ -3959,14 +4054,30 @@ def main():
                                                     st.success(f"{_us_ticker_cur} 포트폴리오에 추가!")
                                                 else:
                                                     st.warning("이미 포트폴리오에 있습니다.")
-                                            if _rep.get("analysis"):
-                                                with st.container(border=True):
-                                                    st.markdown(_rep["analysis"])
+                                             if _rep.get("historical_pattern_analysis"):
+                                                with st.expander("🕰️ 역사적 유사 패턴 분석 (프랙탈)", expanded=False):
+                                                    st.markdown(_rep["historical_pattern_analysis"])
+                                             if _rep.get("analysis"):
+                                                 with st.container(border=True):
+                                                     st.markdown(_rep["analysis"])
                                         with t2:
                                             lt_rating = _rep.get("long_term_rating", "")
                                             lt_emoji = "🟢" if "매수" in lt_rating else "🟡" if "관망" in lt_rating else "🔴"
                                             st.markdown(f"##### {lt_emoji} {lt_rating}")
                                             st.metric("중장기 목표가 (3~6개월)", _rep.get("long_term_target", "-"))
+                                            if st.button("🎒 장기 포트폴리오에 담기", use_container_width=True,
+                                                         type="primary", key="us_port_btn_long"):
+                                                if "portfolio" not in st.session_state:
+                                                    st.session_state.portfolio = []
+                                                if not any(i["ticker"] == _us_ticker_cur for i in st.session_state.portfolio):
+                                                    st.session_state.portfolio.append({
+                                                        "ticker": _us_ticker_cur, "name": detail_us["name"],
+                                                        "buy_price": _cur_p, "quantity": 10,
+                                                        "buy_date": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                                                    })
+                                                    st.success(f"{_us_ticker_cur} 포트폴리오에 추가!")
+                                                else:
+                                                    st.warning("이미 포트폴리오에 있습니다.")
                                             if _rep.get("long_term_analysis"):
                                                 with st.container(border=True):
                                                     st.markdown(_rep["long_term_analysis"])
@@ -3993,6 +4104,9 @@ def main():
                                                 st.success(f"{_us_ticker_cur} 포트폴리오에 추가!")
                                             else:
                                                 st.warning("이미 포트폴리오에 있습니다.")
+                                        if _rep.get("historical_pattern_analysis"):
+                                            with st.expander("🕰️ 역사적 유사 패턴 분석 (프랙탈)", expanded=False):
+                                                st.markdown(_rep["historical_pattern_analysis"])
                                         if _rep.get("analysis"):
                                             with st.container(border=True):
                                                 st.markdown(_rep["analysis"])
@@ -4153,15 +4267,42 @@ def main():
                                                 _urk1.metric("매수 타점", _ur.get("buy_target","-"))
                                                 _urk2.metric("목표가",    _ur.get("sell_target","-"))
                                                 st.metric("손절가", _ur.get("stop_loss","-"))
+                                                if _ur.get("historical_pattern_analysis"):
+                                                    with st.expander("🕰️ 역사적 유사 패턴 분석 (프랙탈)", expanded=False):
+                                                        st.markdown(_ur["historical_pattern_analysis"])
                                                 if _ur.get("analysis"):
                                                     st.markdown("---")
                                                     with st.container(border=True):
                                                         st.markdown(_ur["analysis"])
+                                                if st.button("🎒 포트폴리오에 담기", use_container_width=True, type="primary", key=f"us_sec_port_btn_short_{_us_dticker}"):
+                                                    if "portfolio" not in st.session_state:
+                                                        st.session_state.portfolio = []
+                                                    if not any(i["ticker"] == _us_dticker for i in st.session_state.portfolio):
+                                                        st.session_state.portfolio.append({
+                                                            "ticker": _us_dticker, "name": _us_dname,
+                                                            "buy_price": us_detail["price"], "quantity": 10,
+                                                            "buy_date": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                                                        })
+                                                        st.success(f"{_us_dname} 포트폴리오에 추가!")
+                                                    else:
+                                                        st.warning("이미 포트폴리오에 있습니다.")
                                             with t2:
                                                 lt_rating = _ur.get("long_term_rating", "")
                                                 lt_emoji = "🟢" if "매수" in lt_rating else "🟡" if "관망" in lt_rating else "🔴"
                                                 st.markdown(f"##### {lt_emoji} {lt_rating}")
                                                 st.metric("중장기 목표가", _ur.get("long_term_target", "-"))
+                                                if st.button("🎒 장기 포트폴리오에 담기", use_container_width=True, type="primary", key=f"us_sec_port_btn_long_{_us_dticker}"):
+                                                    if "portfolio" not in st.session_state:
+                                                        st.session_state.portfolio = []
+                                                    if not any(i["ticker"] == _us_dticker for i in st.session_state.portfolio):
+                                                        st.session_state.portfolio.append({
+                                                            "ticker": _us_dticker, "name": _us_dname,
+                                                            "buy_price": us_detail["price"], "quantity": 10,
+                                                            "buy_date": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                                                        })
+                                                        st.success(f"{_us_dname} 포트폴리오에 추가!")
+                                                    else:
+                                                        st.warning("이미 포트폴리오에 있습니다.")
                                                 if _ur.get("long_term_analysis"):
                                                     with st.container(border=True):
                                                         st.markdown(_ur["long_term_analysis"])
@@ -4173,6 +4314,21 @@ def main():
                                             _urk1.metric("매수 타점", _ur.get("buy_target","-"))
                                             _urk2.metric("목표가",    _ur.get("sell_target","-"))
                                             st.metric("손절가", _ur.get("stop_loss","-"))
+                                            if st.button("🎒 포트폴리오에 담기", use_container_width=True, type="primary", key=f"us_sec_port_btn_{_us_dticker}"):
+                                                if "portfolio" not in st.session_state:
+                                                    st.session_state.portfolio = []
+                                                if not any(i["ticker"] == _us_dticker for i in st.session_state.portfolio):
+                                                    st.session_state.portfolio.append({
+                                                        "ticker": _us_dticker, "name": _us_dname,
+                                                        "buy_price": us_detail["price"], "quantity": 10,
+                                                        "buy_date": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                                                    })
+                                                    st.success(f"{_us_dname} 포트폴리오에 추가!")
+                                                else:
+                                                    st.warning("이미 포트폴리오에 있습니다.")
+                                            if _ur.get("historical_pattern_analysis"):
+                                                with st.expander("🕰️ 역사적 유사 패턴 분석 (프랙탈)", expanded=False):
+                                                    st.markdown(_ur["historical_pattern_analysis"])
                                             if _ur.get("analysis"):
                                                 st.markdown("---")
                                                 with st.container(border=True):
