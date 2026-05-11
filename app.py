@@ -1697,6 +1697,14 @@ def main():
                             # ── 탭 1: 시세 ────────────────────────────────────
                             if st.session_state.kr_right_tab == _rp_tabs[0]:
                                 with st.container(border=True):
+                                    # 즐겨찾기 버튼 (상단 배치)
+                                    _fav_btn_label = "⭐ 즐겨찾기 등록"
+                                    if st.button(_fav_btn_label, use_container_width=True, key=f"fav_btn_kr_top_{selected_code_kr}"):
+                                        from db import save_favorite
+                                        _ok, _msg = save_favorite("국내", selected_code_kr, price_kr["name"])
+                                        if _ok: st.success(_msg)
+                                        else: st.error(_msg)
+
                                     # 현재가 강조
                                     _pc = "#ff4b4b" if is_up else "#2b7cff" if is_dn else "#aaa"
                                     st.markdown(
@@ -2038,12 +2046,6 @@ def main():
                                         rk2.metric("목표가",    rep_kr.get("sell_target", "-"))
                                         st.metric("손절가",     rep_kr.get("stop_loss", "-"))
                                         
-                                        _fav_btn_label = "⭐ 즐겨찾기 등록"
-                                        if st.button(_fav_btn_label, use_container_width=True, key=f"fav_btn_kr_{selected_code_kr}"):
-                                            from db import save_favorite
-                                            _ok, _msg = save_favorite("국내", selected_code_kr, price_kr["name"])
-                                            if _ok: st.success(_msg)
-                                            else: st.error(_msg)
                                         
                                         if st.button("🎒 포트폴리오에 담기", use_container_width=True, type="primary", key="kr_port_btn"):
                                             if "portfolio" not in st.session_state:
@@ -3842,6 +3844,14 @@ def main():
 
                             if st.session_state.us_right_tab == _rp_tabs[0]:
                                 with st.container(border=True):
+                                    # 즐겨찾기 버튼 (US 상단)
+                                    _u_fav_lbl = "⭐ 즐겨찾기 등록"
+                                    if st.button(_u_fav_lbl, use_container_width=True, key=f"fav_btn_us_top_{st.session_state.us_selected_ticker}"):
+                                        from db import save_favorite
+                                        _ok, _msg = save_favorite("미국", st.session_state.us_selected_ticker, detail_us["name"])
+                                        if _ok: st.success(_msg)
+                                        else: st.error(_msg)
+
                                     _us_ar = "▲" if _us_chg >= 0 else "▼"
                                     st.markdown(
                                         f"<div style='margin:4px 0'>"
