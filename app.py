@@ -1885,7 +1885,6 @@ def main():
                                             st.metric("손절가",     rep_kr.get("stop_loss", "-"))
                                             
                                             if st.button("🎒 포트폴리오에 담기", use_container_width=True, type="primary", key="kr_port_btn_short"):
-                                                from datetime import datetime
                                                 if "portfolio" not in st.session_state:
                                                     st.session_state.portfolio = []
                                                 if not any(i["ticker"] == selected_code_kr for i in st.session_state.portfolio):
@@ -1913,7 +1912,6 @@ def main():
                                             st.metric("중장기 목표가 (3~6개월)", rep_kr.get("long_term_target", "-"))
                                             
                                             if st.button("🎒 장기 포트폴리오에 담기", use_container_width=True, type="primary", key="kr_port_btn_long"):
-                                                from datetime import datetime
                                                 if "portfolio" not in st.session_state:
                                                     st.session_state.portfolio = []
                                                 if not any(i["ticker"] == selected_code_kr for i in st.session_state.portfolio):
@@ -1939,7 +1937,6 @@ def main():
                                         st.metric("손절가",     rep_kr.get("stop_loss", "-"))
                                         
                                         if st.button("🎒 포트폴리오에 담기", use_container_width=True, type="primary", key="kr_port_btn"):
-                                            from datetime import datetime
                                             if "portfolio" not in st.session_state:
                                                 st.session_state.portfolio = []
                                             if not any(i["ticker"] == selected_code_kr for i in st.session_state.portfolio):
@@ -2204,7 +2201,6 @@ def main():
                                             _rk2.metric("목표가",    _r.get("sell_target","-"))
                                             st.metric("손절가", _r.get("stop_loss","-"))
                                             if st.button("🎒 포트폴리오에 담기", use_container_width=True, type="primary", key=f"kr_sec_port_btn_short_{detail_code}"):
-                                                from datetime import datetime
                                                 if "portfolio" not in st.session_state:
                                                     st.session_state.portfolio = []
                                                 if not any(i["ticker"] == detail_code for i in st.session_state.portfolio):
@@ -2233,7 +2229,6 @@ def main():
                                             st.metric("중장기 목표가 (3~6개월)", _r.get("long_term_target", "-"))
                                             
                                             if st.button("🎒 장기 포트폴리오에 담기", use_container_width=True, type="primary", key=f"kr_sec_port_btn_long_{detail_code}"):
-                                                from datetime import datetime
                                                 if "portfolio" not in st.session_state:
                                                     st.session_state.portfolio = []
                                                 if not any(i["ticker"] == detail_code for i in st.session_state.portfolio):
@@ -2259,7 +2254,6 @@ def main():
                                         st.metric("손절가", _r.get("stop_loss","-"))
                                         
                                         if st.button("🎒 포트폴리오에 담기", use_container_width=True, type="primary", key=f"kr_sec_port_btn_{detail_code}"):
-                                            from datetime import datetime
                                             if "portfolio" not in st.session_state:
                                                 st.session_state.portfolio = []
                                             if not any(i["ticker"] == detail_code for i in st.session_state.portfolio):
