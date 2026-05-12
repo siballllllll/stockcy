@@ -2068,6 +2068,12 @@ def main():
                                 new_name = selected_label.split(" (")[0]
                             with col_manual:
                                 manual_code_kr = st.text_input("직접 입력 (6자리 코드)", "").strip()
+                            
+                            if manual_code_kr and any(c.isalpha() for c in manual_code_kr):
+                                st.warning("🇺🇸 미국 종목 티커인 것 같습니다. '미국 주식 검색' 탭을 이용해 주세요.")
+                            elif manual_code_kr and (len(manual_code_kr) != 6 or not manual_code_kr.isdigit()):
+                                st.warning("국내 주식 코드는 6자리 숫자여야 합니다.")
+
                             if manual_code_kr and len(manual_code_kr) == 6 and manual_code_kr.isdigit():
                                 new_code = manual_code_kr
                                 # 이름 찾기 시도
@@ -2348,167 +2354,134 @@ def main():
                             # ── 탭 3: AI 분석 ─────────────────────────────────
                             elif st.session_state.kr_right_tab == _rp_tabs[2]:
                                 _ai_key  = f"kr_report_{selected_code_kr}"
-                                _run_key = "_kr_ai_pending"
+                                _ai_err_key = f"kr_report_error_{selected_code_kr}"
 
-                                # 버튼 클릭 → 플래그만 세우고 rerun (핸들러 내 긴 작업 방지)
                                 if st.button("🎯 AI 수급 & 타점 분석 실행", key="kr_ai_btn",
                                              use_container_width=True, type="primary"):
-                                    st.session_state[_run_key] = selected_code_kr
-                                    if _ai_key in st.session_state:
-                                        del st.session_state[_ai_key]
-                                    st.rerun()
-
-                                # 플래그가 서 있으면 분석 실행
-                                if st.session_state.get(_run_key) == selected_code_kr and _ai_key not in st.session_state:
-                                    with st.spinner("AI가 수급과 뉴스를 융합 분석 중..."):
+                                    st.session_state.pop(_ai_err_key, None)
+                                    with st.spinner("AI가 수급과 뉴스를 융합 분석 중... (최대 50초)"):
                                         try:
                                             from ai_engine import generate_kr_stock_report
                                             inv_for_ai = get_kr_investor_trend(selected_code_kr)
                                             kr_rep = generate_kr_stock_report(
                                                 selected_code_kr, price_kr["name"], price_kr, inv_for_ai
                                             )
+                                            st.session_state[_ai_key] = kr_rep
+                                            st.session_state.pop(_ai_err_key, None)
+                                            
+                                            try:
+                                                from db import log_ai_recommendation
+                                                log_ai_recommendation(
+                                                    "국내주식분석", selected_code_kr, price_kr["name"],
+                                                    kr_rep.get("rating", "-"), kr_rep.get("buy_target", "-"),
+                                                    kr_rep.get("sell_target", "-"), kr_rep.get("stop_loss", "-")
+                                                )
+                                            except: pass
                                         except Exception as _e:
-                                            kr_rep = {
-                                                "rating": "분석 실패",
-                                                "buy_target": "-", "sell_target": "-", "stop_loss": "-",
-                                                "세력분석": "-",
-                                                "analysis": f"오류가 발생했습니다: {_e}",
-                                            }
-                                        st.session_state[_ai_key] = kr_rep
-                                        st.session_state[_run_key] = None
-                                        try:
-                                            from db import log_ai_recommendation
-                                            log_ai_recommendation(
-                                                "국내주식분석", selected_code_kr, price_kr["name"],
-                                                kr_rep.get("rating", "-"), kr_rep.get("buy_target", "-"),
-                                                kr_rep.get("sell_target", "-"), kr_rep.get("stop_loss", "-")
-                                            )
-                                        except Exception:
-                                            pass
-                                    st.rerun()
+                                            st.session_state[_ai_err_key] = str(_e)
+
+                                # 에러 표시
+                                if _ai_err_key in st.session_state:
+                                    _err = st.session_state[_ai_err_key]
+                                    if "TIMEOUT" in _err:
+                                        st.warning("⏱ AI 응답 시간이 초과되었습니다. 다시 시도해주세요.")
+                                    else:
+                                        st.error(f"❌ 분석 실패: {_err[:100]}")
 
                                 if _ai_key in st.session_state:
                                     rep_kr = st.session_state[_ai_key]
-                                    if "long_term_rating" in rep_kr:
-                                        t1, t2 = st.tabs(["⚡ 단기 트레이딩 관점", "📈 중장기 투자 관점"])
-                                        with t1:
-                                            rating_kr = rep_kr.get("rating", "")
-                                            r_emoji = "🟢" if "강력" in rating_kr else "🟡" if "추천" in rating_kr else "🔴"
-                                            st.markdown(f"##### {r_emoji} {rating_kr}")
-                                            rk1, rk2, rk3 = st.columns(3)
-                                            rk1.metric("분석 기간", rep_kr.get("short_term_period", "-"))
-                                            rk2.metric("기대 수익", rep_kr.get("short_term_target_pct", "-"))
-                                            rk3.metric("매수 타점", rep_kr.get("buy_target", "-"))
-                                            
-                                            rk4, rk5 = st.columns(2)
-                                            rk4.metric("단기 목표가", rep_kr.get("sell_target", "-"))
-                                            rk5.metric("손절가",     rep_kr.get("stop_loss", "-"))
-                                            
-                                            if st.button("🎒 포트폴리오에 담기", use_container_width=True, type="primary", key="kr_port_btn_short"):
-                                                if "portfolio" not in st.session_state:
-                                                    from db import load_portfolio_from_gsheet
-                                                    st.session_state.portfolio = load_portfolio_from_gsheet()
-                                                if not any(i["ticker"] == selected_code_kr for i in st.session_state.portfolio):
-                                                    st.session_state.portfolio.append({
-                                                        "ticker": selected_code_kr, "name": price_kr["name"],
-                                                        "buy_price": price_kr["price"], "quantity": 10,
-                                                        "buy_date": (datetime.now() + timedelta(hours=9)).strftime("%Y-%m-%d %H:%M"),
-                                                    })
-                                                    from db import save_portfolio_to_gsheet
-                                                    save_portfolio_to_gsheet(st.session_state.portfolio)
-                                                    st.success(f"{price_kr['name']} 포트폴리오에 추가!")
-                                                else:
-                                                    st.warning("이미 포트폴리오에 있습니다.")
-                                                    
-                                            if rep_kr.get("세력분석"):
-                                                st.info(f"**세력 분석:** {rep_kr['세력분석']}")
-                                            if rep_kr.get("historical_pattern_analysis"):
-                                                with st.expander("🕰️ 역사적 유사 패턴 분석 (프랙탈)", expanded=False):
-                                                    st.markdown(rep_kr["historical_pattern_analysis"])
-                                            if rep_kr.get("analysis"):
-                                                with st.container(border=True):
-                                                    st.markdown(rep_kr["analysis"])
-                                        with t2:
-                                            lt_rating = rep_kr.get("long_term_rating", "")
-                                            lt_emoji = "🟢" if "매수" in lt_rating else "🟡" if "관망" in lt_rating else "🔴"
-                                            st.markdown(f"##### {lt_emoji} {lt_rating}")
-                                            
-                                            lk1, lk2, lk3 = st.columns(3)
-                                            lk1.metric("권장 기간", rep_kr.get("long_term_period", "-"))
-                                            lk2.metric("목표 수익", rep_kr.get("long_term_target_pct", "-"))
-                                            lk3.metric("중장기 목표가", rep_kr.get("long_term_target", "-"))
-                                            
-                                            if st.button("🎒 장기 포트폴리오에 담기", use_container_width=True, type="primary", key="kr_port_btn_long"):
-                                                if "portfolio" not in st.session_state:
-                                                    from db import load_portfolio_from_gsheet
-                                                    st.session_state.portfolio = load_portfolio_from_gsheet()
-                                                if not any(i["ticker"] == selected_code_kr for i in st.session_state.portfolio):
-                                                    st.session_state.portfolio.append({
-                                                        "ticker": selected_code_kr, "name": price_kr["name"],
-                                                        "buy_price": price_kr["price"], "quantity": 10,
-                                                        "buy_date": (datetime.now() + timedelta(hours=9)).strftime("%Y-%m-%d %H:%M"),
-                                                    })
-                                                    from db import save_portfolio_to_gsheet
-                                                    save_portfolio_to_gsheet(st.session_state.portfolio)
-                                                    st.success(f"{price_kr['name']} 포트폴리오에 추가!")
-                                                else:
-                                                    st.warning("이미 포트폴리오에 있습니다.")
-                                            
-                                            if rep_kr.get("long_term_analysis"):
-                                                with st.container(border=True):
-                                                    st.markdown(rep_kr["long_term_analysis"])
-                                    else:
-                                        rating_kr = rep_kr.get("rating", "")
-                                        r_emoji = "🟢" if "강력" in rating_kr else "🟡" if "추천" in rating_kr else "🔴"
-                                        st.markdown(f"##### {r_emoji} {rating_kr}")
-                                        rk1, rk2 = st.columns(2)
-                                        rk1.metric("매수 타점", rep_kr.get("buy_target", "-"))
-                                        rk2.metric("목표가",    rep_kr.get("sell_target", "-"))
-                                        st.metric("손절가",     rep_kr.get("stop_loss", "-"))
-                                        
-                                        
-                                        if st.button("🎒 포트폴리오에 담기", use_container_width=True, type="primary", key="kr_port_btn"):
-                                            if "portfolio" not in st.session_state:
-                                                from db import load_portfolio_from_gsheet
-                                                st.session_state.portfolio = load_portfolio_from_gsheet()
-                                            if not any(i["ticker"] == selected_code_kr for i in st.session_state.portfolio):
-                                                st.session_state.portfolio.append({
-                                                    "ticker": selected_code_kr, "name": price_kr["name"],
-                                                    "buy_price": price_kr["price"], "quantity": 10,
-                                                    "buy_date": (datetime.now() + timedelta(hours=9)).strftime("%Y-%m-%d %H:%M"),
-                                                })
-                                                from db import save_portfolio_to_gsheet
-                                                save_portfolio_to_gsheet(st.session_state.portfolio)
-                                                st.success(f"{price_kr['name']} 포트폴리오에 추가!")
-                                            else:
-                                                st.warning("이미 포트폴리오에 있습니다.")
-                                                
-                                        if rep_kr.get("세력분석"):
-                                            st.info(f"**세력 분석:** {rep_kr['세력분석']}")
+                                    cur_sym = "₩"
+                                    
+                                    # 등급 배지
+                                    _r = rep_kr.get("rating", "-")
+                                    _lr = rep_kr.get("long_term_rating", "-")
+                                    _bc = {"매우 강력 추천":"#00c853","추천":"#69f0ae","중간추천":"#f5c518","비추천":"#ff7043","매우 비추천":"#b71c1c"}.get(_r, "#888")
+                                    st.markdown(
+                                        f"<div style='display:flex;gap:6px;flex-wrap:wrap;margin:10px 0'>"
+                                        f"<span style='background:{_bc}22;border:1px solid {_bc};border-radius:6px;padding:3px 10px;font-size:0.85rem;font-weight:700;color:{_bc}'>단기: {_r}</span>"
+                                        f"<span style='background:#2b7cff22;border:1px solid #2b7cff;border-radius:6px;padding:3px 10px;font-size:0.85rem;font-weight:700;color:#2b7cff'>중장기: {_lr}</span>"
+                                        f"</div>",
+                                        unsafe_allow_html=True
+                                    )
+
+                                    t1, t2, t3, t4 = st.tabs(["⚡ 극단기", "📅 단기", "📆 중기", "🗓 장기"])
+                                    
+                                    with t1:
+                                        st.caption("당일~3일 스캘핑/데이트레이딩")
+                                        _bt = rep_kr.get("buy_target", "-")
+                                        _st = rep_kr.get("sell_target", "-")
+                                        _sl = rep_kr.get("stop_loss", "-")
+                                        _pct = rep_kr.get("short_term_target_pct", "-")
+                                        c1, c2, c3 = st.columns(3)
+                                        c1.metric("🟢 추천 평단가", _bt)
+                                        c2.metric("🎯 목표가", f"{cur_sym}{_st}" if _st != "-" and not str(_st).startswith(cur_sym) else _st)
+                                        c3.metric("🛑 손절가", f"{cur_sym}{_sl}" if _sl != "-" and not str(_sl).startswith(cur_sym) else _sl)
+                                        st.metric("기대 수익률", _pct)
+
+                                    with t2:
+                                        st.caption(rep_kr.get("short_term_period", "1주일 이내"))
+                                        _bt = rep_kr.get("buy_target", "-")
+                                        _st2 = rep_kr.get("sell_target", "-")
+                                        c1, c2 = st.columns(2)
+                                        c1.metric("🟢 추천 평단가", _bt)
+                                        c2.metric("🎯 단기 목표가", f"{cur_sym}{_st2}" if _st2 != "-" and not str(_st2).startswith(cur_sym) else _st2)
                                         if rep_kr.get("analysis"):
                                             with st.container(border=True):
                                                 st.markdown(rep_kr["analysis"])
-                                else:
-                                    st.info("버튼을 눌러 AI 분석을 실행하세요.")
+
+                                    with t3:
+                                        st.caption(rep_kr.get("long_term_period", "3~6개월"))
+                                        _lt_target = rep_kr.get("long_term_target", "-")
+                                        _lt_pct = rep_kr.get("long_term_target_pct", "-")
+                                        c1, c2 = st.columns(2)
+                                        c1.metric("🎯 중기 목표가", f"{cur_sym}{_lt_target}" if _lt_target != "-" and not str(_lt_target).startswith(cur_sym) else _lt_target)
+                                        c2.metric("기대 수익률", _lt_pct)
+                                        if rep_kr.get("long_term_analysis"):
+                                            with st.container(border=True):
+                                                st.markdown(rep_kr["long_term_analysis"])
+
+                                    with t4:
+                                        st.caption("6개월 이상 장기 보유")
+                                        _lt_target = rep_kr.get("long_term_target", "-")
+                                        _lt_pct = rep_kr.get("long_term_target_pct", "-")
+                                        c1, c2 = st.columns(2)
+                                        c1.metric("🎯 장기 목표가", f"{cur_sym}{_lt_target}" if _lt_target != "-" and not str(_lt_target).startswith(cur_sym) else _lt_target)
+                                        c2.metric("기대 수익률", _lt_pct)
+                                        if rep_kr.get("historical_pattern_analysis"):
+                                            with st.expander("🕰️ 역사적 유사 패턴 분석", expanded=False):
+                                                st.markdown(rep_kr["historical_pattern_analysis"])
+
+                                    # 포트폴리오 담기 버튼
+                                    if st.button("🎒 포트폴리오에 담기", use_container_width=True, type="primary", key="kr_port_btn_new"):
+                                        if "portfolio" not in st.session_state:
+                                            from db import load_portfolio_from_gsheet
+                                            st.session_state.portfolio = load_portfolio_from_gsheet()
+                                        if not any(i["ticker"] == selected_code_kr for i in st.session_state.portfolio):
+                                            st.session_state.portfolio.append({
+                                                "ticker": selected_code_kr, "name": price_kr["name"],
+                                                "buy_price": price_kr["price"], "quantity": 10,
+                                                "buy_date": (datetime.now() + timedelta(hours=9)).strftime("%Y-%m-%d %H:%M"),
+                                            })
+                                            from db import save_portfolio_to_gsheet
+                                            save_portfolio_to_gsheet(st.session_state.portfolio)
+                                            st.success(f"{price_kr['name']} 포트폴리오에 추가!")
+                                        else:
+                                            st.warning("이미 포트폴리오에 있습니다.")
 
                                 # ── 테마 연동 분석 ──────────────────────────────────
                                 st.markdown("---")
                                 st.markdown("#### 🔗 테마 연동 분석")
                                 st.caption("이 종목의 테마 내 포지션·수급·세력·역사 패턴을 분석합니다")
                                 _ktp_key     = f"kr_theme_pos_{selected_code_kr}"
-                                _ktp_run_key = f"_ktp_run_{selected_code_kr}"
+                                _ktp_err_key = f"kr_theme_error_{selected_code_kr}"
                                 if st.button("🔗 테마 연동 분석 실행", key="kr_theme_btn",
                                              use_container_width=True):
-                                    st.session_state[_ktp_run_key] = True
-                                    st.session_state.pop(_ktp_key, None)
-                                    st.rerun()
-                                if st.session_state.get(_ktp_run_key) and _ktp_key not in st.session_state:
-                                    with st.spinner("AI가 테마·수급·세력·역사 흐름 분석 중..."):
+                                    st.session_state.pop(_ktp_err_key, None)
+                                    with st.spinner("AI가 테마·수급·세력·역사 흐름 분석 중... (최대 50초)"):
                                         try:
                                             from ai_engine import analyze_stock_theme_position
                                             from db import load_sector_map as _lsm_tp
                                             _tp_sm = _lsm_tp()
-                                            # 이 종목이 속한 섹터 찾기
                                             _tp_sec = "기타"
                                             _tp_stk = []
                                             for _s, _subs in _tp_sm.items():
@@ -2517,19 +2490,20 @@ def main():
                                                         if _st.get("code") == selected_code_kr:
                                                             _tp_sec = _s
                                                         _tp_stk.append({**_st, "price":0,"change_pct":0})
-                                                if _tp_sec != "기타":
-                                                    break
+                                                if _tp_sec != "기타": break
                                             _ktp_inv = get_kr_investor_trend(selected_code_kr)
                                             _ktp_res = analyze_stock_theme_position(
                                                 selected_code_kr, price_kr.get("name", ""),
                                                 price_kr or {}, _ktp_inv,
                                                 _tp_sec, _tp_stk
                                             )
+                                            st.session_state[_ktp_key] = _ktp_res
+                                            st.session_state.pop(_ktp_err_key, None)
                                         except Exception as _ktp_e:
-                                            _ktp_res = {"error": str(_ktp_e)}
-                                        st.session_state[_ktp_key]     = _ktp_res
-                                        st.session_state[_ktp_run_key] = False
-                                    st.rerun()
+                                            st.session_state[_ktp_err_key] = str(_ktp_e)
+                            
+                                if _ktp_err_key in st.session_state:
+                                    st.error(f"분석 실패: {st.session_state[_ktp_err_key][:100]}")
                                 if _ktp_key in st.session_state:
                                     _ktr = st.session_state[_ktp_key]
                                     if _ktr.get("error"):
@@ -3397,6 +3371,13 @@ def main():
                                                                         st.write(f"- {_f}")
 
 
+                            elif st.session_state.kr_sector_panel_tab == _spt_tabs[1]:
+                                _kh1, _kh2 = st.columns([5, 1])
+                                with _kh2:
+                                    if st.button("🔄", key="kr_sec_refresh", use_container_width=True, help="캐시 초기화"):
+                                        load_sector_map.clear()
+                                        st.rerun()
+
                                 # ── hot_score 맵 구성 (AI 시장분석 결과 재활용) ──
                                 _hot_score_map: dict = {}  # {sector_name: {score, reason, news}}
                                 try:
@@ -4235,11 +4216,23 @@ def main():
                                 f"AI가 구글 검색을 통해 최근 3~6개월 차트 흐름, 거래량 분석, 세력·기관 수급을 파악해 지지선·저항선 및 돌파 확률을 산출합니다.</div>",
                                 unsafe_allow_html=True
                             )
+                            _us_box_err_key = f"us_box_error_{_us_ticker_cur}"
                             if st.button("🔍 박스권·수급 AI 분석 실행", key="us_box_analyze", use_container_width=True):
-                                with st.spinner("AI가 지지선, 저항선 및 수급을 분석 중입니다..."):
-                                    from ai_engine import analyze_box_pattern
-                                    _box_res = analyze_box_pattern(_us_ticker_cur, _real_us_name, detail_us, "US")
-                                    st.session_state[_us_box_key] = _box_res
+                                st.session_state.pop(_us_box_err_key, None)
+                                with st.spinner("AI가 지지선, 저항선 및 수급을 분석 중입니다... (최대 50초)"):
+                                    try:
+                                        from ai_engine import analyze_box_pattern
+                                        _box_res = analyze_box_pattern(_us_ticker_cur, _real_us_name, detail_us, "US")
+                                        st.session_state[_us_box_key] = _box_res
+                                        st.session_state.pop(_us_box_err_key, None)
+                                    except Exception as _bx_err:
+                                        st.session_state[_us_box_err_key] = str(_bx_err)
+                            if _us_box_err_key in st.session_state:
+                                _bx_msg = st.session_state[_us_box_err_key]
+                                if "TIMEOUT" in _bx_msg:
+                                    st.warning("⏱ AI 응답 시간이 초과되었습니다. 다시 시도해주세요.")
+                                else:
+                                    st.error(f"❌ 분석 실패: {_bx_msg[:100]}")
                             if _us_box_key in st.session_state:
                                 box_res = st.session_state[_us_box_key]
                                 if box_res.get("box_analysis", "-") == "-" or "오류" in box_res.get("box_analysis", ""):
@@ -4291,6 +4284,10 @@ def main():
                             "티커 직접 입력", "", placeholder="예: TSLA",
                             label_visibility="collapsed", key="us_manual_input",
                         ).upper().strip()
+                        
+                        if _us_man and len(_us_man) == 6 and _us_man.isdigit():
+                            st.warning("🇰🇷 국내 종목 코드인 것 같습니다. '국내 주식 검색' 탭을 이용해 주세요.")
+
                         if not _us_man:
                             _us_sel_lbl = st.selectbox(
                                 "종목 검색 (이름·티커 입력하면 필터링)",
@@ -4578,11 +4575,20 @@ def main():
                                 else:
                                     st.info("보유율 데이터가 없습니다.")
                                 st.markdown("#### 🔗 AI 관련주")
+                                _us_rel_key = f"us_related_{_us_ticker_cur}"
+                                _us_rel_err_key = f"us_related_error_{_us_ticker_cur}"
                                 if st.button("🔍 관련주 발굴", use_container_width=True, key="us_related_btn"):
-                                    with st.spinner("관련주 분석 중..."):
-                                        from ai_engine import generate_related_stocks
-                                        _rel = generate_related_stocks(_us_ticker_cur, detail_us.get("sector", ""))
-                                        st.session_state[f"us_related_{_us_ticker_cur}"] = _rel
+                                    st.session_state.pop(_us_rel_err_key, None)
+                                    with st.spinner("관련주 분석 중... (최대 50초)"):
+                                        try:
+                                            from ai_engine import generate_related_stocks
+                                            _rel = generate_related_stocks(_us_ticker_cur, detail_us.get("sector", ""))
+                                            st.session_state[_us_rel_key] = _rel
+                                            st.session_state.pop(_us_rel_err_key, None)
+                                        except Exception as _rel_e:
+                                            st.session_state[_us_rel_err_key] = str(_rel_e)
+                                if _us_rel_err_key in st.session_state:
+                                    st.error(f"분석 실패: {st.session_state[_us_rel_err_key][:100]}")
                                 if f"us_related_{_us_ticker_cur}" in st.session_state:
                                     for _r in st.session_state[f"us_related_{_us_ticker_cur}"]:
                                         _rt = _r.get("ticker", "")
@@ -4642,144 +4648,117 @@ def main():
                                 _cur_p = detail_us["price"]
                                 _chg_p = detail_us["change_pct"]
                                 _us_ai_key  = f"report_{_us_ticker_cur}"
-                                _us_run_key = "_us_ai_pending"
+                                _us_ai_err_key = f"report_error_{_us_ticker_cur}"
+
                                 if st.button("🎯 AI 분석 실행", use_container_width=True,
                                              type="primary", key="us_ai_report_btn"):
-                                    st.session_state[_us_run_key] = _us_ticker_cur
-                                    if _us_ai_key in st.session_state:
-                                        del st.session_state[_us_ai_key]
-                                    st.rerun()
-
-                                if st.session_state.get(_us_run_key) == _us_ticker_cur and _us_ai_key not in st.session_state:
-                                    with st.spinner("AI가 수급·뉴스·차트를 융합 분석 중..."):
+                                    st.session_state.pop(_us_ai_err_key, None)
+                                    with st.spinner("AI가 수급·뉴스·차트를 융합 분석 중... (최대 50초)"):
                                         try:
                                             from ai_engine import generate_stock_report
                                             _rep_j = generate_stock_report(_us_ticker_cur, _cur_p, _chg_p)
+                                            st.session_state[_us_ai_key] = _rep_j
+                                            st.session_state.pop(_us_ai_err_key, None)
+                                            
+                                            try:
+                                                from db import log_ai_recommendation
+                                                log_ai_recommendation(
+                                                    "미국주식분석", _us_ticker_cur,
+                                                    detail_us.get("name", _us_ticker_cur),
+                                                    _rep_j.get("rating","-"), _rep_j.get("buy_target","-"),
+                                                    _rep_j.get("sell_target","-"), _rep_j.get("stop_loss","-"),
+                                                )
+                                            except: pass
                                         except Exception as _e:
-                                            _rep_j = {
-                                                "rating": "분석 실패", "buy_target": "-",
-                                                "sell_target": "-", "stop_loss": "-",
-                                                "analysis": f"오류: {_e}",
-                                            }
-                                        st.session_state[_us_ai_key] = _rep_j
-                                        st.session_state[_us_run_key] = None
-                                        try:
-                                            from db import log_ai_recommendation
-                                            log_ai_recommendation(
-                                                "미국주식분석", _us_ticker_cur,
-                                                detail_us.get("name", _us_ticker_cur),
-                                                _rep_j.get("rating","-"), _rep_j.get("buy_target","-"),
-                                                _rep_j.get("sell_target","-"), _rep_j.get("stop_loss","-"),
-                                            )
-                                        except Exception:
-                                            pass
-                                        if ("추천" in _rep_j.get("rating","") and
-                                                "비추천" not in _rep_j.get("rating","")):
-                                            if "ai_portfolio" not in st.session_state:
-                                                st.session_state.ai_portfolio = []
-                                            if not any(i["ticker"] == _us_ticker_cur
-                                                       for i in st.session_state.ai_portfolio):
-                                                # 이름 보정
-                                                from data_kr import get_us_ticker_map as _get_us_tm_port
-                                                _us_tm_port = _get_us_tm_port()
-                                                _real_port_name = detail_us.get("name", _us_ticker_cur)
-                                                if _us_tm_port and _us_ticker_cur in _us_tm_port:
-                                                    _real_port_name = _us_tm_port[_us_ticker_cur].get("name", _real_port_name)
+                                            st.session_state[_us_ai_err_key] = str(_e)
 
-                                                st.session_state.ai_portfolio.append({
-                                                    "ticker": _us_ticker_cur,
-                                                    "name": _real_port_name,
-                                                    "buy_price": _cur_p, "quantity": 10,
-                                                    "buy_date": (datetime.now() + timedelta(hours=9)).strftime("%Y-%m-%d %H:%M"),
-                                                })
-                                                st.toast(f"AI 자동 담기: {_us_ticker_cur}")
-                                    st.rerun()
+                                # 에러 표시
+                                if _us_ai_err_key in st.session_state:
+                                    _err = st.session_state[_us_ai_err_key]
+                                    if "TIMEOUT" in _err:
+                                        st.warning("⏱ AI 응답 시간이 초과되었습니다. 다시 시도해주세요.")
+                                    else:
+                                        st.error(f"❌ 분석 실패: {_err[:100]}")
+
                                 if _us_ai_key in st.session_state:
                                     _rep = st.session_state[_us_ai_key]
-                                    if "long_term_rating" in _rep:
-                                        t1, t2 = st.tabs(["⚡ 단기 트레이딩 관점", "📈 중장기 투자 관점"])
-                                        with t1:
-                                            _re  = ("🟢" if "강력 추천" in _rep.get("rating","")
-                                                    else "🟡" if "추천" in _rep.get("rating","") else "🔴")
-                                            st.markdown(f"##### {_re} {_rep.get('rating','')}")
-                                            
-                                            _rt1, _rt2, _rt3 = st.columns(3)
-                                            _rt1.metric("분석 기간", _rep.get("short_term_period", "-"))
-                                            _rt2.metric("기대 수익", _rep.get("short_term_target_pct", "-"))
-                                            _rt3.metric("매수가", _rep.get("buy_target","-"))
-                                            
-                                            _rt4, _rt5 = st.columns(2)
-                                            _rt4.metric("단기 목표가", _rep.get("sell_target","-"))
-                                            _rt5.metric("손절", _rep.get("stop_loss","-"))
-                                            
-                                            if st.button("🎒 포트폴리오에 담기", use_container_width=True,
-                                                         type="primary", key="us_port_btn_short"):
-                                                if "portfolio" not in st.session_state:
-                                                    st.session_state.portfolio = []
-                                                if not any(i["ticker"] == _us_ticker_cur for i in st.session_state.portfolio):
-                                                    st.session_state.portfolio.append({
-                                                        "ticker": _us_ticker_cur, "name": detail_us["name"],
-                                                        "buy_price": _cur_p, "quantity": 10,
-                                                        "buy_date": (datetime.now() + timedelta(hours=9)).strftime("%Y-%m-%d %H:%M"),
-                                                    })
-                                                    st.success(f"{_us_ticker_cur} 포트폴리오에 추가!")
-                                                else:
-                                                    st.warning("이미 포트폴리오에 있습니다.")
-                                            if _rep.get("historical_pattern_analysis"):
-                                                with st.expander("🕰️ 역사적 유사 패턴 분석 (프랙탈)", expanded=False):
-                                                    render_ai_content(_rep["historical_pattern_analysis"])
-                                            if _rep.get("analysis"):
-                                                with st.container(border=True):
-                                                    render_ai_content(_rep["analysis"])
-                                        with t2:
-                                            lt_rating = _rep.get("long_term_rating", "")
-                                            lt_emoji = "🟢" if "매수" in lt_rating else "🟡" if "관망" in lt_rating else "🔴"
-                                            st.markdown(f"##### {lt_emoji} {lt_rating}")
-                                            
-                                            _lt1, _lt2, _lt3 = st.columns(3)
-                                            _lt1.metric("권장 기간", _rep.get("long_term_period", "-"))
-                                            _lt2.metric("목표 수익", _rep.get("long_term_target_pct", "-"))
-                                            _lt3.metric("중장기 목표가", _rep.get("long_term_target", "-"))
-                                            
-                                            if st.button("🎒 장기 포트폴리오에 담기", use_container_width=True,
-                                                         type="primary", key="us_port_btn_long"):
-                                                if "portfolio" not in st.session_state:
-                                                    st.session_state.portfolio = []
-                                                if not any(i["ticker"] == _us_ticker_cur for i in st.session_state.portfolio):
-                                                    st.session_state.portfolio.append({
-                                                        "ticker": _us_ticker_cur, "name": detail_us["name"],
-                                                        "buy_price": _cur_p, "quantity": 10,
-                                                        "buy_date": (datetime.now() + timedelta(hours=9)).strftime("%Y-%m-%d %H:%M"),
-                                                    })
-                                                    st.success(f"{_us_ticker_cur} 포트폴리오에 추가!")
-                                                else:
-                                                    st.warning("이미 포트폴리오에 있습니다.")
-                                            if _rep.get("long_term_analysis"):
-                                                with st.container(border=True):
-                                                    st.markdown(_rep["long_term_analysis"])
-                                    else:
-                                        _re  = ("🟢" if "강력 추천" in _rep.get("rating","")
-                                                else "🟡" if "추천" in _rep.get("rating","") else "🔴")
-                                        st.markdown(f"##### {_re} {_rep.get('rating','')}")
-                                        _rt1, _rt2 = st.columns(2)
-                                        _rt1.metric("매수가", _rep.get("buy_target","-"))
-                                        _rt2.metric("목표가", _rep.get("sell_target","-"))
-                                        st.metric("손절", _rep.get("stop_loss","-"))
-                                        if st.button("🎒 포트폴리오에 담기", use_container_width=True,
-                                                     type="primary", key="us_port_btn"):
-                                            if "portfolio" not in st.session_state:
-                                                st.session_state.portfolio = []
-                                            if not any(i["ticker"] == _us_ticker_cur
-                                                       for i in st.session_state.portfolio):
-                                                st.session_state.portfolio.append({
-                                                    "ticker": _us_ticker_cur,
-                                                    "name": detail_us["name"],
-                                                    "buy_price": _cur_p, "quantity": 10,
-                                                    "buy_date": (datetime.now() + timedelta(hours=9)).strftime("%Y-%m-%d %H:%M"),
-                                                })
-                                                st.success(f"{_us_ticker_cur} 포트폴리오에 추가!")
-                                            else:
-                                                st.warning("이미 포트폴리오에 있습니다.")
+                                    cur_sym = "$"
+                                    
+                                    # 등급 배지
+                                    _r = _rep.get("rating", "-")
+                                    _lr = _rep.get("long_term_rating", "-")
+                                    _bc = {"매우 강력 추천":"#00c853","추천":"#69f0ae","중간추천":"#f5c518","비추천":"#ff7043","매우 비추천":"#b71c1c"}.get(_r, "#888")
+                                    st.markdown(
+                                        f"<div style='display:flex;gap:6px;flex-wrap:wrap;margin:10px 0'>"
+                                        f"<span style='background:{_bc}22;border:1px solid {_bc};border-radius:6px;padding:3px 10px;font-size:0.85rem;font-weight:700;color:{_bc}'>단기: {_r}</span>"
+                                        f"<span style='background:#2b7cff22;border:1px solid #2b7cff;border-radius:6px;padding:3px 10px;font-size:0.85rem;font-weight:700;color:#2b7cff'>중장기: {_lr}</span>"
+                                        f"</div>",
+                                        unsafe_allow_html=True
+                                    )
+
+                                    t1, t2, t3, t4 = st.tabs(["⚡ 극단기", "📅 단기", "📆 중기", "🗓 장기"])
+                                    
+                                    with t1:
+                                        st.caption("당일~3일 스캘핑/데이트레이딩")
+                                        _bt = _rep.get("buy_target", "-")
+                                        _st = _rep.get("sell_target", "-")
+                                        _sl = _rep.get("stop_loss", "-")
+                                        _pct = _rep.get("short_term_target_pct", "-")
+                                        c1, c2, c3 = st.columns(3)
+                                        c1.metric("🟢 추천 평단가", _bt)
+                                        c2.metric("🎯 목표가", f"{cur_sym}{_st}" if _st != "-" and not str(_st).startswith(cur_sym) else _st)
+                                        c3.metric("🛑 손절가", f"{cur_sym}{_sl}" if _sl != "-" and not str(_sl).startswith(cur_sym) else _sl)
+                                        st.metric("기대 수익률", _pct)
+
+                                    with t2:
+                                        st.caption(_rep.get("short_term_period", "1주일 이내"))
+                                        _bt = _rep.get("buy_target", "-")
+                                        _st2 = _rep.get("sell_target", "-")
+                                        c1, c2 = st.columns(2)
+                                        c1.metric("🟢 추천 평단가", _bt)
+                                        c2.metric("🎯 단기 목표가", f"{cur_sym}{_st2}" if _st2 != "-" and not str(_st2).startswith(cur_sym) else _st2)
+                                        if _rep.get("analysis"):
+                                            with st.container(border=True):
+                                                st.markdown(_rep["analysis"])
+
+                                    with t3:
+                                        st.caption(_rep.get("long_term_period", "3~6개월"))
+                                        _lt_target = _rep.get("long_term_target", "-")
+                                        _lt_pct = _rep.get("long_term_target_pct", "-")
+                                        c1, c2 = st.columns(2)
+                                        c1.metric("🎯 중기 목표가", f"{cur_sym}{_lt_target}" if _lt_target != "-" and not str(_lt_target).startswith(cur_sym) else _lt_target)
+                                        c2.metric("기대 수익률", _lt_pct)
+                                        if _rep.get("long_term_analysis"):
+                                            with st.container(border=True):
+                                                st.markdown(_rep["long_term_analysis"])
+
+                                    with t4:
+                                        st.caption("6개월 이상 장기 보유")
+                                        _lt_target = _rep.get("long_term_target", "-")
+                                        _lt_pct = _rep.get("long_term_target_pct", "-")
+                                        c1, c2 = st.columns(2)
+                                        c1.metric("🎯 장기 목표가", f"{cur_sym}{_lt_target}" if _lt_target != "-" and not str(_lt_target).startswith(cur_sym) else _lt_target)
+                                        c2.metric("기대 수익률", _lt_pct)
+                                        if _rep.get("historical_pattern_analysis"):
+                                            with st.expander("🕰️ 역사적 유사 패턴 분석", expanded=False):
+                                                st.markdown(_rep["historical_pattern_analysis"])
+
+                                    # 포트폴리오 담기 버튼
+                                    if st.button("🎒 포트폴리오에 담기", use_container_width=True, type="primary", key="us_port_btn_new"):
+                                        if "portfolio" not in st.session_state:
+                                            from db import load_portfolio_from_gsheet
+                                            st.session_state.portfolio = load_portfolio_from_gsheet()
+                                        if not any(i["ticker"] == _us_ticker_cur for i in st.session_state.portfolio):
+                                            st.session_state.portfolio.append({
+                                                "ticker": _us_ticker_cur, "name": detail_us.get("name", _us_ticker_cur),
+                                                "buy_price": detail_us.get("price", 0), "quantity": 10,
+                                                "buy_date": (datetime.now() + timedelta(hours=9)).strftime("%Y-%m-%d %H:%M"),
+                                            })
+                                            from db import save_portfolio_to_gsheet
+                                            save_portfolio_to_gsheet(st.session_state.portfolio)
+                                            st.success(f"{_us_ticker_cur} 포트폴리오에 추가!")
+                                        else:
+                                            st.warning("이미 포트폴리오에 있습니다.")
                                         if _rep.get("historical_pattern_analysis"):
                                             with st.expander("🕰️ 역사적 유사 패턴 분석 (프랙탈)", expanded=False):
                                                 st.markdown(_rep["historical_pattern_analysis"])
@@ -5550,9 +5529,9 @@ def main():
             if show_add:
                 with st.expander("➕ 종목 직접 추가"):
                     c1, c2, c3, c4 = st.columns(4)
-                    nt = c1.text_input("티커 (예: TSLA)", key=f"nt_{portfolio_key}").upper().strip()
+                    nt = c1.text_input("티커 (예: TSLA 또는 005930)", key=f"nt_{portfolio_key}").upper().strip()
                     nn = c2.text_input("종목명 (예: 테슬라)", key=f"nn_{portfolio_key}")
-                    np_val = c3.number_input("매수가($)", min_value=0.01, value=100.0, key=f"np_{portfolio_key}")
+                    np_val = c3.number_input("매수가($, ₩)", min_value=0.01, value=100.0, key=f"np_{portfolio_key}")
                     nq_val = c4.number_input("수량", min_value=1, value=10, step=1, key=f"nq_{portfolio_key}")
                     if st.button("➕ 추가", key=f"add_{portfolio_key}"):
                         if nt and not any(x["ticker"] == nt for x in port_list):
@@ -5575,51 +5554,102 @@ def main():
                 st.info("보유 종목이 없습니다. 분석 탭에서 '포트폴리오에 담기'를 누르거나 위 폼으로 추가하세요.")
                 return
 
-            tickers = list(set(x["ticker"] for x in port_list))
+            # 티커 구분 (국내: 6자리 숫자, 미국: 그 외)
+            all_tickers = [x["ticker"] for x in port_list]
+            kr_tickers = [t for t in all_tickers if len(t) == 6 and t.isdigit()]
+            us_tickers = [t for t in all_tickers if t not in kr_tickers]
+
+            prices = {}
             with st.spinner("실시간 시세 조회 중..."):
-                price_df = get_us_stock_data(tickers)
+                # 미국 주식 시세
+                if us_tickers:
+                    from data import get_us_stock_data
+                    try:
+                        us_df = get_us_stock_data(us_tickers)
+                        if not us_df.empty:
+                            for _, row in us_df.iterrows():
+                                prices[row["심볼"]] = row["현재가($)"]
+                    except: pass
+                
+                # 국내 주식 시세
+                if kr_tickers:
+                    from data_kr import get_kr_stock_price
+                    for kt in kr_tickers:
+                        try:
+                            # 1개씩 조회 (캐시 활용)
+                            kp = get_kr_stock_price(kt)
+                            if kp: prices[kt] = kp["price"]
+                        except: pass
 
-            total_inv, total_cur = 0.0, 0.0
+            # 총계 계산 (통화별 분리)
+            sum_inv_usd, sum_cur_usd = 0.0, 0.0
+            sum_inv_krw, sum_cur_krw = 0.0, 0.0
+
             for item in port_list:
-                bp, qty = item["buy_price"], item["quantity"]
-                total_inv += bp * qty
-                if not price_df.empty and item["ticker"] in price_df["심볼"].values:
-                    cp = price_df[price_df["심볼"] == item["ticker"]].iloc[0]["현재가($)"]
-                    total_cur += cp * qty
+                t = item["ticker"]
+                bp = item["buy_price"]
+                qty = item["quantity"]
+                cp = prices.get(t, bp)
+                
+                if t in kr_tickers:
+                    sum_inv_krw += bp * qty
+                    sum_cur_krw += cp * qty
                 else:
-                    total_cur += bp * qty
+                    sum_inv_usd += bp * qty
+                    sum_cur_usd += cp * qty
 
-            total_pnl = total_cur - total_inv
-            total_pnl_pct = (total_pnl / total_inv * 100) if total_inv > 0 else 0
-
-            cm1, cm2, cm3 = st.columns(3)
-            cm1.metric("총 매수 금액", f"${total_inv:,.2f}")
-            cm2.metric("총 평가 금액", f"${total_cur:,.2f}")
-            cm3.metric("총 수익", f"${total_pnl:,.2f}", f"{total_pnl_pct:.2f}%",
-                       delta_color="normal" if total_pnl >= 0 else "inverse")
+            # 메트릭 표시
+            if sum_inv_krw > 0 and sum_inv_usd > 0:
+                # 혼합 포트폴리오
+                c1, c2 = st.columns(2)
+                with c1:
+                    st.caption("🇰🇷 국내 자산")
+                    pnl = sum_cur_krw - sum_inv_krw
+                    pct = (pnl / sum_inv_krw * 100) if sum_inv_krw > 0 else 0
+                    st.metric("총 매수", f"₩{sum_inv_krw:,.0f}")
+                    st.metric("평가 손익", f"₩{pnl:+,0f}", f"{pct:+.2f}%")
+                with c2:
+                    st.caption("🇺🇸 미국 자산")
+                    pnl = sum_cur_usd - sum_inv_usd
+                    pct = (pnl / sum_inv_usd * 100) if sum_inv_usd > 0 else 0
+                    st.metric("총 매수", f"${sum_inv_usd:,.2f}")
+                    st.metric("평가 손익", f"${pnl:+,2f}", f"{pct:+.2f}%")
+            elif sum_inv_krw > 0:
+                c1, c2, c3 = st.columns(3)
+                pnl = sum_cur_krw - sum_inv_krw
+                pct = (pnl / sum_inv_krw * 100) if sum_inv_krw > 0 else 0
+                c1.metric("총 매수 금액", f"₩{sum_inv_krw:,.0f}")
+                c2.metric("총 평가 금액", f"₩{sum_cur_krw:,.0f}")
+                c3.metric("총 수익", f"₩{pnl:+,0f}", f"{pct:+.2f}%")
+            else:
+                c1, c2, c3 = st.columns(3)
+                pnl = sum_cur_usd - sum_inv_usd
+                pct = (pnl / sum_inv_usd * 100) if sum_inv_usd > 0 else 0
+                c1.metric("총 매수 금액", f"${sum_inv_usd:,.2f}")
+                c2.metric("총 평가 금액", f"${sum_cur_usd:,.2f}")
+                c3.metric("총 수익", f"${pnl:+,2f}", f"{pct:+.2f}%")
 
             st.markdown("---")
 
             for idx, item in enumerate(port_list):
                 ticker = item["ticker"]
-                # 이름 보정 로직 추가
+                is_kr = ticker in kr_tickers
+                cur_sym = "₩" if is_kr else "$"
+                fmt = ",.0f" if is_kr else ",.2f"
+                
                 from data_kr import get_kr_code_to_name_map, get_us_ticker_map
                 _kr_map = get_kr_code_to_name_map()
                 _us_map = get_us_ticker_map()
                 
                 name = item.get("name", ticker)
-                if _kr_map and ticker in _kr_map:
+                if is_kr and _kr_map and ticker in _kr_map:
                     name = _kr_map[ticker]
-                elif _us_map and ticker in _us_map:
+                elif not is_kr and _us_map and ticker in _us_map:
                     name = _us_map[ticker].get("name", name)
                 
                 bp = item["buy_price"]
                 qty = item["quantity"]
-
-                if not price_df.empty and ticker in price_df["심볼"].values:
-                    cp = price_df[price_df["심볼"] == ticker].iloc[0]["현재가($)"]
-                else:
-                    cp = bp
+                cp = prices.get(ticker, bp)
 
                 pnl = (cp - bp) * qty
                 pnl_pct = ((cp - bp) / bp * 100) if bp > 0 else 0
@@ -5631,14 +5661,14 @@ def main():
                         st.markdown(f"**{emoji} {name} ({ticker})** <small style='color:#888'>{item.get('buy_date', '')}</small>",
                                     unsafe_allow_html=True)
                         dc1, dc2, dc3 = st.columns(3)
-                        dc1.metric("매수가", f"${bp:,.2f}")
-                        dc2.metric("현재가", f"${cp:,.2f}")
-                        dc3.metric("수익률", f"{pnl_pct:.2f}%", f"${pnl:,.2f}",
+                        dc1.metric("매수가", f"{cur_sym}{format(bp, fmt)}")
+                        dc2.metric("현재가", f"{cur_sym}{format(cp, fmt)}")
+                        dc3.metric("수익률", f"{pnl_pct:.2f}%", f"{cur_sym}{format(pnl, fmt)}",
                                    delta_color="normal" if pnl >= 0 else "inverse")
                     with cr:
-                        st.markdown("**매도가($) 입력 후 기록**")
+                        st.markdown(f"**매도가({cur_sym}) 입력 후 기록**")
                         sell_p = st.number_input(
-                            "매도가", min_value=0.01, value=float(cp),
+                            "매도가", min_value=0.01 if not is_kr else 1.0, value=float(cp),
                             key=f"sellp_{portfolio_key}_{idx}",
                             label_visibility="collapsed"
                         )

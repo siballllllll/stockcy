@@ -207,11 +207,17 @@ def get_kr_stock_name_kis(stock_code: str) -> tuple:
 
 
 def _format_market_cap(amt_in_eok):
-    if not str(amt_in_eok).isdigit():
+    if not amt_in_eok or amt_in_eok == '-':
+        return '-'
+    # 콤마 제거 후 숫자 여부 확인
+    s_amt = str(amt_in_eok).replace(',', '')
+    if not s_amt.isdigit():
         return str(amt_in_eok)
-    amt = int(amt_in_eok)
+    
+    amt = int(s_amt)
     jo = amt // 10000
     eok = amt % 10000
+    
     if jo > 0:
         if eok == 0:
             return f"{jo:,}조"

@@ -37,7 +37,6 @@ def get_us_stock_data(tickers):
             continue
             
     if not data:
-        st.warning("데이터를 불러오지 못했습니다. 종목 코드를 확인하거나 네트워크 상태를 점검해주세요.")
         return pd.DataFrame()
 
     df = pd.DataFrame(data)

@@ -630,6 +630,7 @@ def generate_kr_stock_report(stock_code: str, name: str, price_data: dict, inves
 [종목 정보]
 종목명: {name} ({stock_code})
 현재가: {price_data['price']:,}원 ({price_data['change_pct']:+.2f}%)
+시가총액: {price_data.get('market_cap', '-')}
 거래량: {price_data['volume']:,}주 / 거래대금: {price_data['amount'] // 100000000:,}억원
 시가: {price_data['open']:,}원 | 고가: {price_data['high']:,}원 | 저가: {price_data['low']:,}원
 52주 최고: {price_data['w52_high']:,}원 | 52주 최저: {price_data['w52_low']:,}원
