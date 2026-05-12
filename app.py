@@ -118,22 +118,20 @@ def _us_echarts_chart(ticker: str, interval: str = "5", height: int = 600, perio
             st.warning("차트 데이터를 불러올 수 없습니다. (데이터 소스: yfinance)")
             return
 
+        # 렌더링용 데이터 클렌징 (NaN -> None 변환으로 JSON 에러 방지)
+        def _clean_val(x): return None if pd.isna(x) else x
+
         category_data = df["datetime"].dt.strftime("%Y-%m-%d %H:%M" if interval != "D" else "%Y-%m-%d").tolist()
-        values = df[["open", "close", "low", "high"]].values.tolist()
+        values = [[_clean_val(v) for v in row] for row in df[["open", "close", "low", "high"]].values.tolist()]
         
-        # 이동평균선 계산 (NaN -> None 처리하여 JSON 에러 방지)
-        _ma5 = df["close"].rolling(window=5).mean()
-        ma5 = _ma5.where(_ma5.notnull(), None).tolist()
-        _ma20 = df["close"].rolling(window=20).mean()
-        ma20 = _ma20.where(_ma20.notnull(), None).tolist()
-        _ma60 = df["close"].rolling(window=60).mean()
-        ma60 = _ma60.where(_ma60.notnull(), None).tolist()
-        _ma120 = df["close"].rolling(window=120).mean()
-        ma120 = _ma120.where(_ma120.notnull(), None).tolist()
+        ma5 = [_clean_val(x) for x in df["close"].rolling(window=5).mean()]
+        ma20 = [_clean_val(x) for x in df["close"].rolling(window=20).mean()]
+        ma60 = [_clean_val(x) for x in df["close"].rolling(window=60).mean()]
+        ma120 = [_clean_val(x) for x in df["close"].rolling(window=120).mean()]
 
         volumes = []
         for i, row in df.iterrows():
-            volumes.append([i, row["volume"], 1 if row["close"] >= row["open"] else -1])
+            volumes.append([i, _clean_val(row["volume"]), 1 if row["close"] >= row["open"] else -1])
 
         options = {
             "backgroundColor": "rgba(0,0,0,0)",
@@ -238,22 +236,20 @@ def _kr_echarts_chart(stock_code: str, interval: str = "1", height: int = 600, p
             else:
                 df = df.tail(300).reset_index(drop=True)
 
+        # 렌더링용 데이터 클렌징 (NaN -> None 변환으로 JSON 에러 방지)
+        def _clean_val(x): return None if pd.isna(x) else x
+
         category_data = df["datetime"].dt.strftime("%Y-%m-%d %H:%M" if interval != "D" else "%Y-%m-%d").tolist()
-        values = df[["open", "close", "low", "high"]].values.tolist()
+        values = [[_clean_val(v) for v in row] for row in df[["open", "close", "low", "high"]].values.tolist()]
         
-        # 이동평균선 계산 (NaN -> None 처리하여 JSON 에러 방지)
-        _ma5 = df["close"].rolling(window=5).mean()
-        ma5 = _ma5.where(_ma5.notnull(), None).tolist()
-        _ma20 = df["close"].rolling(window=20).mean()
-        ma20 = _ma20.where(_ma20.notnull(), None).tolist()
-        _ma60 = df["close"].rolling(window=60).mean()
-        ma60 = _ma60.where(_ma60.notnull(), None).tolist()
-        _ma120 = df["close"].rolling(window=120).mean()
-        ma120 = _ma120.where(_ma120.notnull(), None).tolist()
+        ma5 = [_clean_val(x) for x in df["close"].rolling(window=5).mean()]
+        ma20 = [_clean_val(x) for x in df["close"].rolling(window=20).mean()]
+        ma60 = [_clean_val(x) for x in df["close"].rolling(window=60).mean()]
+        ma120 = [_clean_val(x) for x in df["close"].rolling(window=120).mean()]
 
         volumes = []
         for i, row in df.iterrows():
-            volumes.append([i, row["volume"], 1 if row["close"] >= row["open"] else -1])
+            volumes.append([i, _clean_val(row["volume"]), 1 if row["close"] >= row["open"] else -1])
 
         options = {
             "backgroundColor": "rgba(0,0,0,0)",
