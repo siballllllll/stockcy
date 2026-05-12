@@ -1244,9 +1244,8 @@ def get_us_minute_chart(ticker: str, interval: int = 5) -> pd.DataFrame:
         df = df.rename(columns={dt_col: "datetime"})
         df.columns = [str(c).lower().strip() for c in df.columns]
         needed = ["datetime", "open", "high", "low", "close", "volume"]
-        if not all(c in tmp_cols for tmp_cols in [df.columns] if all(col in tmp_cols for col in needed)):
-             # 이 부분은 needed 체크 로직이므로 기존 로직 유지
-             pass
+        if not all(c in df.columns for c in needed):
+            return pd.DataFrame()
         
         df["datetime"] = pd.to_datetime(df["datetime"])
         if df["datetime"].dt.tz is not None:
