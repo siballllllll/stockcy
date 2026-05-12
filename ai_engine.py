@@ -203,7 +203,7 @@ def generate_stock_report(ticker, current_price, change_pct):
       "rating": "단기 트레이딩 관점 등급 (매우 강력 추천, 추천, 중간추천, 비추천, 매우 비추천 중 하나)",
       "short_term_period": "예상 보유 기간 (예: 1~3일, 1주일 이내 등)",
       "short_term_target_pct": "예상 기대 수익률 (예: 5~8%)",
-      "buy_target": "단기 매수가 (구체적인 숫자)",
+      "buy_target": "단기 매수 적정 구간 및 추격매수 금지선 (예: 15.5~16.0달러 / 16.5달러 이상 추격 금지)",
       "sell_target": "단기 목표가 (구체적인 숫자)",
       "stop_loss": "단기 손절가 (구체적인 숫자)",
       "analysis": "단기 기술적 분석 및 수급, 모멘텀 근거 (상세한 마크다운 텍스트)",
@@ -265,7 +265,7 @@ def discover_hot_day_trading_stock(context=""):
     {{
       "ticker": "티커 (예: SOUN, SMCI, PLTR 등 중소형 변동성 주식)",
       "name_kr": "종목명",
-      "buy_target": "현재가 부근의 실질적 매수가",
+      "buy_target": "현재가 부근의 실질적 매수 적정 구간 및 추격 매수 금지선 (예: $15.50 ~ $16.00 이하)",
       "sell_target": "매수가 대비 5~10% 이익 구간의 목표가",
       "stop_loss": "매수가 대비 -2~3% 구간의 칼같은 손절가",
       "reasoning": "선정 이유: 1) 세력 수급(거래량 급증) 근거, 2) 차트/모멘텀 분석, 3) 관련 재료 (마크다운 포맷으로 주요 포인트이 있게 상세하게 작성)"
@@ -445,13 +445,30 @@ def generate_realtime_picks(
                 + "\n→ 수급이 강한 종목은 기술적 시그널이 약해도 우선 고려하세요.\n"
             )
 
+    # ── 최신 찌라시/뉴스 컨텍스트 구성 (The Link Fetcher) ───────────────────
+    news_block = ""
+    try:
+        from news_fetcher import get_latest_market_news
+        kr_news = get_latest_market_news(market="KR", limit=3)
+        if kr_news:
+            n_lines = [f"- 헤드라인: {n['headline']}\n  본문 요약: {n['body']}" for n in kr_news]
+            news_block = (
+                "\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                "📰 [실시간 텔레그램 뉴스 및 찌라시 (The Link Fetcher)]\n"
+                "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                + "\n\n".join(n_lines)
+                + "\n→ 최신 재료 파악 시 위 뉴스를 우선적으로 참고하여 테마/급등 원인을 분석하세요.\n"
+            )
+    except Exception:
+        pass
+
     prompt = f"""당신은 10년 경력의 한국 주식시장 스캘핑·단타 트레이더이자 테마·세력 추적 전문가입니다.
 지금 즉시 구글 검색으로 오늘의 뉴스·공시·외국인/기관 수급 흐름, 테마 흐름을 파악하세요.
 
 [현재 시장]
 KOSPI : {kospi.get('index',0):,.2f}  ({kospi.get('change_pct',0):+.2f}%)
 KOSDAQ: {kosdaq.get('index',0):,.2f}  ({kosdaq.get('change_pct',0):+.2f}%)
-{hot_sector_block}{investor_block}
+{hot_sector_block}{investor_block}{news_block}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 📊 [실시간 측정된 급등 직전 시그널 후보군]
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -546,6 +563,7 @@ KOSDAQ: {kosdaq.get('index',0):,.2f}  ({kosdaq.get('change_pct',0):+.2f}%)
       "current_price": 현재가_숫자,
       "change_pct": 현재_등락률_숫자,
       "entry": 매수타점_숫자,
+      "entry_limit": 추격매수_금지선_숫자_이_가격_이상_진입_불가,
       "target": 목표가_숫자,
       "stop": 손절가_숫자,
       "urgency": "즉시진입 또는 눌림목대기 또는 내일장초반",
@@ -601,7 +619,7 @@ PER: {price_data['per']} | PBR: {price_data['pbr']}
   "rating": "단기 관점 등급 (매우 강력 추천, 추천, 중간추천, 비추천, 매우 비추천 중 하나)",
   "short_term_period": "예상 보유 기간 (예: 1~3일, 1주일 이내 등)",
   "short_term_target_pct": "예상 기대 수익률 (예: 5~10%)",
-  "buy_target": "단기 매수 타점 (원 단위, 예: 72,500)",
+  "buy_target": "단기 매수 적정 구간 및 추격매수 금지선 (원 단위, 예: 72,000 ~ 73,500원 / 74,000원 이상 추격 금지)",
   "sell_target": "단기 목표가 (원 단위, 예: 78,000)",
   "stop_loss": "단기 손절가 (원 단위, 예: 70,000)",
   "세력분석": "외국인/기관 수급 흐름의 의미를 2~3문장으로 분석",
@@ -991,6 +1009,23 @@ def generate_us_realtime_picks(market_data: dict, volume_rank: list, change_rank
         for s in already_done[:5]
     ]
 
+    # ── 최신 찌라시/뉴스 컨텍스트 구성 (The Link Fetcher) ───────────────────
+    news_block = ""
+    try:
+        from news_fetcher import get_latest_market_news
+        us_news = get_latest_market_news(market="US", limit=3)
+        if us_news:
+            n_lines = [f"- Headline: {n['headline']}\n  Body: {n['body']}" for n in us_news]
+            news_block = (
+                "\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                "📰 [Real-time Telegram News & Rumors (The Link Fetcher)]\n"
+                "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                + "\n\n".join(n_lines)
+                + "\n→ 최신 재료 파악 시 위 뉴스를 우선적으로 참고하여 상승/급락 원인을 분석하세요.\n"
+            )
+    except Exception:
+        pass
+
     prompt = f"""당신은 10년 경력의 미국 주식시장 스캘핑·단타 트레이더입니다.
 지금 즉시 구글 검색으로 오늘의 뉴스·실적·SEC 공시·옵션 플로우를 파악하세요.
 
@@ -998,7 +1033,7 @@ def generate_us_realtime_picks(market_data: dict, volume_rank: list, change_rank
 S&P500 : {sp500.get('price',0):,.2f}  ({sp500.get('change_pct',0):+.2f}%)
 NASDAQ : {nasdaq.get('price',0):,.2f}  ({nasdaq.get('change_pct',0):+.2f}%)
 DOW    : {dow.get('price',0):,.2f}  ({dow.get('change_pct',0):+.2f}%)
-
+{news_block}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 📊 [실시간 측정된 급등 직전 시그널 후보군]
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -1052,6 +1087,7 @@ DOW    : {dow.get('price',0):,.2f}  ({dow.get('change_pct',0):+.2f}%)
       "current_price": 현재가_달러_숫자,
       "change_pct": 현재_등락률_숫자,
       "entry": 매수타점_달러_숫자,
+      "entry_limit": 추격매수_금지선_달러_숫자_이_가격_이상_진입_불가,
       "target": 목표가_달러_숫자,
       "stop": 손절가_달러_숫자,
       "urgency": "즉시진입 또는 눌림목대기 또는 내일장초반",

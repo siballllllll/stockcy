@@ -101,8 +101,30 @@ def _tv_chart(symbol: str, interval: str = "D", height: int = 660) -> None:
         unsafe_allow_html=True,
     )
 
+def _kr_tv_chart(code: str, interval: str = "D", height: int = 660) -> None:
+    """TradingView Advanced Chart 위젯으로 국내 주식 차트 렌더링.
+    KRX:005930 형식으로 한국 종목 지원. 미국 주식과 동일한 고품질 차트.
+    """
+    import streamlit.components.v1 as _kr_tv_comp
+    _kr_sym = f"KRX:{code}"
+    try:
+        _dark = (st.get_option("theme.base") or "dark") != "light"
+    except Exception:
+        _dark = True
+    _theme = "dark" if _dark else "light"
+    _kr_tv_comp.html(
+        f'''<div class="tradingview-widget-container" style="height:{height}px;width:100%">
+      <div class="tradingview-widget-container__widget" style="height:100%;width:100%"></div>
+      <script type="text/javascript"
+        src="https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js" async>
+      {{"autosize":true,"symbol":"{_kr_sym}","interval":"{interval}",
+       "timezone":"Asia/Seoul","theme":"{_theme}","style":"1","locale":"kr",
+       "allow_symbol_change":false,"hide_top_toolbar":false,"save_image":false,
+       "backgroundColor":"rgba(0,0,0,{1 if _dark else 0})"}}
+      </script></div>''', height=height)
+
 def _kr_plotly_chart(code: str, interval: str = "D", height: int = 660) -> None:
-    """Plotly 기반 국내 주식 차트 (TradingView 대안)"""
+    """Plotly 기반 국내 주식 차트 (수급 차트 등 폴백용 보존)"""
     with st.spinner("차트 데이터 로딩 중..."):
         if interval == "D":
             df = get_kr_daily_chart(code)
@@ -543,7 +565,10 @@ def init_session_state():
         st.session_state.kr_mode = "🎯 AI 타점 보드"
     if "us_mode" not in st.session_state:
         st.session_state.us_mode = "🎯 AI 타점 보드"
-    
+    if "portfolio" not in st.session_state:
+        from db import load_portfolio_from_gsheet
+        st.session_state.portfolio = load_portfolio_from_gsheet()
+
 @st.dialog("오늘의 데일리 브리핑 📝")
 def show_daily_briefing():
     with st.spinner("🧠 AI가 글로벌 실시간 뉴스를 분석하여 브리핑을 작성 중입니다..."):
@@ -1425,7 +1450,9 @@ def main():
                                 f"border:1px solid rgba(255,255,255,0.12);border-radius:8px;"
                                 f"padding:6px;text-align:center'>"
                                 f"<div style='font-size:0.6rem;color:var(--sc-text-muted,#888)'>매수 타점</div>"
-                                f"<div style='font-size:0.85rem;font-weight:700'>₩{int(_entry):,}</div></div>"
+                                f"<div style='font-size:0.85rem;font-weight:700'>₩{int(_entry):,}</div>"
+                                + (f"<div style='font-size:0.55rem;color:#ff4b4b;margin-top:3px;word-break:keep-all;line-height:1.2'>마지노선:<br>{_pick.get('entry_limit','')}</div>" if _pick.get('entry_limit') else "")
+                                + f"</div>"
                                 f"<div class='sc-card-sm' style='background:rgba(0,200,83,0.12);"
                                 f"border:1px solid rgba(0,200,83,0.25);border-radius:8px;"
                                 f"padding:6px;text-align:center'>"
@@ -1571,7 +1598,7 @@ def main():
                             else:
                                 st.markdown(f"**{_real_dtv_name}** ({_dtv_code})")
 
-                            _kr_plotly_chart(_dtv_code, interval="5", height=660)
+                            _kr_tv_chart(_dtv_code, interval="5", height=660)
 
                         else:
                             # 섹터 목록 뷰 → KOSPI/KOSDAQ Toss 스타일 라인 차트
@@ -1710,7 +1737,7 @@ def main():
                                 st.rerun()
 
                         _kr_tv_iv = "5" if st.session_state.kr_chart_type == "분봉" else "D"
-                        _kr_plotly_chart(selected_code_kr, interval=_kr_tv_iv, height=660)
+                        _kr_tv_chart(selected_code_kr, interval=_kr_tv_iv, height=660)
 
                 with _right_ctr:
                     if kr_mode == "📊 일반 주식 검색":
@@ -1787,14 +1814,30 @@ def main():
                             # ── 탭 1: 시세 ────────────────────────────────────
                             if st.session_state.kr_right_tab == _rp_tabs[0]:
                                 with st.container(border=True):
-                                    # 즐겨찾기 버튼 (상단 배치)
-                                    _fav_btn_label = "⭐ 즐겨찾기 등록"
-                                    if st.button(_fav_btn_label, use_container_width=True, key=f"fav_btn_kr_top_{selected_code_kr}"):
-                                        from db import save_favorite
-                                        # 빈 데이터 대신, 위에서 찾아둔 진짜 한글 이름 변수를 사용!
-                                        _ok, _msg = save_favorite("국내", selected_code_kr, _real_name)
-                                        if _ok: st.success(_msg)
-                                        else: st.error(_msg)
+                                    # 즐겨찾기 및 포트폴리오 버튼 (상단 배치)
+                                    _f_col1, _f_col2 = st.columns(2)
+                                    with _f_col1:
+                                        if st.button("⭐ 즐겨찾기", use_container_width=True, key=f"fav_btn_kr_top_{selected_code_kr}"):
+                                            from db import save_favorite
+                                            _ok, _msg = save_favorite("국내", selected_code_kr, _real_name)
+                                            if _ok: st.success(_msg)
+                                            else: st.error(_msg)
+                                    with _f_col2:
+                                        if st.button("🎒 포트폴리오", use_container_width=True, key=f"kr_port_btn_search_{selected_code_kr}"):
+                                            if "portfolio" not in st.session_state:
+                                                from db import load_portfolio_from_gsheet
+                                                st.session_state.portfolio = load_portfolio_from_gsheet()
+                                            if not any(i["ticker"] == selected_code_kr for i in st.session_state.portfolio):
+                                                st.session_state.portfolio.append({
+                                                    "ticker": selected_code_kr, "name": _real_name,
+                                                    "buy_price": price_kr["price"], "quantity": 10,
+                                                    "buy_date": (datetime.now() + timedelta(hours=9)).strftime("%Y-%m-%d %H:%M"),
+                                                })
+                                                from db import save_portfolio_to_gsheet
+                                                save_portfolio_to_gsheet(st.session_state.portfolio)
+                                                st.success(f"{_real_name} 포트폴리오에 추가!")
+                                            else:
+                                                st.warning("이미 포트폴리오에 있습니다.")
 
                                     # 현재가 강조
                                     _pc = "#ff4b4b" if is_up else "#2b7cff" if is_dn else "#aaa"
@@ -2083,13 +2126,16 @@ def main():
                                             
                                             if st.button("🎒 포트폴리오에 담기", use_container_width=True, type="primary", key="kr_port_btn_short"):
                                                 if "portfolio" not in st.session_state:
-                                                    st.session_state.portfolio = []
+                                                    from db import load_portfolio_from_gsheet
+                                                    st.session_state.portfolio = load_portfolio_from_gsheet()
                                                 if not any(i["ticker"] == selected_code_kr for i in st.session_state.portfolio):
                                                     st.session_state.portfolio.append({
                                                         "ticker": selected_code_kr, "name": price_kr["name"],
                                                         "buy_price": price_kr["price"], "quantity": 10,
                                                         "buy_date": (datetime.now() + timedelta(hours=9)).strftime("%Y-%m-%d %H:%M"),
                                                     })
+                                                    from db import save_portfolio_to_gsheet
+                                                    save_portfolio_to_gsheet(st.session_state.portfolio)
                                                     st.success(f"{price_kr['name']} 포트폴리오에 추가!")
                                                 else:
                                                     st.warning("이미 포트폴리오에 있습니다.")
@@ -2114,13 +2160,16 @@ def main():
                                             
                                             if st.button("🎒 장기 포트폴리오에 담기", use_container_width=True, type="primary", key="kr_port_btn_long"):
                                                 if "portfolio" not in st.session_state:
-                                                    st.session_state.portfolio = []
+                                                    from db import load_portfolio_from_gsheet
+                                                    st.session_state.portfolio = load_portfolio_from_gsheet()
                                                 if not any(i["ticker"] == selected_code_kr for i in st.session_state.portfolio):
                                                     st.session_state.portfolio.append({
                                                         "ticker": selected_code_kr, "name": price_kr["name"],
                                                         "buy_price": price_kr["price"], "quantity": 10,
                                                         "buy_date": (datetime.now() + timedelta(hours=9)).strftime("%Y-%m-%d %H:%M"),
                                                     })
+                                                    from db import save_portfolio_to_gsheet
+                                                    save_portfolio_to_gsheet(st.session_state.portfolio)
                                                     st.success(f"{price_kr['name']} 포트폴리오에 추가!")
                                                 else:
                                                     st.warning("이미 포트폴리오에 있습니다.")
@@ -2140,13 +2189,16 @@ def main():
                                         
                                         if st.button("🎒 포트폴리오에 담기", use_container_width=True, type="primary", key="kr_port_btn"):
                                             if "portfolio" not in st.session_state:
-                                                st.session_state.portfolio = []
+                                                from db import load_portfolio_from_gsheet
+                                                st.session_state.portfolio = load_portfolio_from_gsheet()
                                             if not any(i["ticker"] == selected_code_kr for i in st.session_state.portfolio):
                                                 st.session_state.portfolio.append({
                                                     "ticker": selected_code_kr, "name": price_kr["name"],
                                                     "buy_price": price_kr["price"], "quantity": 10,
                                                     "buy_date": (datetime.now() + timedelta(hours=9)).strftime("%Y-%m-%d %H:%M"),
                                                 })
+                                                from db import save_portfolio_to_gsheet
+                                                save_portfolio_to_gsheet(st.session_state.portfolio)
                                                 st.success(f"{price_kr['name']} 포트폴리오에 추가!")
                                             else:
                                                 st.warning("이미 포트폴리오에 있습니다.")
@@ -3680,7 +3732,9 @@ def main():
                                 f"border:1px solid rgba(255,255,255,0.12);border-radius:8px;"
                                 f"padding:6px;text-align:center'>"
                                 f"<div style='font-size:0.6rem;color:#888'>매수 타점</div>"
-                                f"<div style='font-size:0.85rem;font-weight:700'>${_up_entry:,.2f}</div></div>"
+                                f"<div style='font-size:0.85rem;font-weight:700'>${_up_entry:,.2f}</div>"
+                                + (f"<div style='font-size:0.55rem;color:#ff4b4b;margin-top:3px;word-break:keep-all;line-height:1.2'>마지노선:<br>{_up.get('entry_limit','')}</div>" if _up.get('entry_limit') else "")
+                                + f"</div>"
                                 f"<div style='background:rgba(0,200,83,0.12);"
                                 f"border:1px solid rgba(0,200,83,0.25);border-radius:8px;"
                                 f"padding:6px;text-align:center'>"
@@ -3731,14 +3785,17 @@ def main():
                     us_mode == "📊 일반 주식 검색"
                     or st.session_state.us_sector_view == "detail"
                 )
-                detail_us = None
-                if _us_need_price:
-                    with st.spinner(""):
-                        detail_us = get_us_stock_detail(_us_ticker_cur)
                 _YF_TO_TV = {
                     "NMS": "NASDAQ", "NGM": "NASDAQ", "NCM": "NASDAQ",
                     "NYQ": "NYSE",   "NYS": "NYSE",   "PCX": "NYSE",   "ASE": "AMEX",
                 }
+                detail_us = None
+                if _us_need_price:
+                    with st.spinner(""):
+                        from data_kr import get_us_ticker_map
+                        _tmp_us_map = get_us_ticker_map()
+                        _us_exch_for_detail = _tmp_us_map.get(_us_ticker_cur, {}).get("exchange", "NASDAQ") if _tmp_us_map else "NASDAQ"
+                        detail_us = get_us_stock_detail(_us_ticker_cur, _us_exch_for_detail)
 
                 col_us_chart, col_us_right = st.columns([5.5, 4.5])
                 with col_us_chart:
@@ -3750,8 +3807,13 @@ def main():
                         if st.session_state.us_sector_view == "detail":
                             _us_dticker   = st.session_state.us_sector_detail_ticker
                             _us_dname     = st.session_state.us_sector_detail_name
-                            _us_dexchange = st.session_state.get("us_sector_detail_exchange", "NASDAQ")
-                            _us_tv_sym    = f"{_us_dexchange}:{_us_dticker}"
+                            from data_kr import get_us_ticker_map as _tmp_tm
+                            _tmp_us_map = _tmp_tm()
+                            _us_dexchange = _tmp_us_map.get(_us_dticker, {}).get("exchange", "NASDAQ") if _tmp_us_map else st.session_state.get("us_sector_detail_exchange", "NASDAQ")
+                            st.session_state.us_sector_detail_exchange = _us_dexchange
+                            _tv_dexchange = _YF_TO_TV.get(_us_dexchange.upper(), _us_dexchange.upper())
+                            if _tv_dexchange not in ("NASDAQ", "NYSE", "AMEX", "CBOE"): _tv_dexchange = "NASDAQ"
+                            _us_tv_sym    = f"{_tv_dexchange}:{_us_dticker}"
 
                             # 이름 보정
                             from data_kr import get_us_ticker_map as _get_us_tm_head
@@ -3891,6 +3953,7 @@ def main():
 
                         _us_tv_iv = "5" if st.session_state.us_chart_type == "분봉" else "D"
                         _us_exch  = (detail_us.get("exchange", "NASDAQ") if detail_us else "NASDAQ").upper()
+                        _us_exch  = _YF_TO_TV.get(_us_exch, _us_exch)
                         if _us_exch not in ("NASDAQ", "NYSE", "AMEX", "CBOE"):
                             _us_exch = "NASDAQ"
                         _tv_chart(f"{_us_exch}:{_us_ticker_cur}", interval=_us_tv_iv, height=660)
@@ -3967,13 +4030,30 @@ def main():
 
                             if st.session_state.us_right_tab == _rp_tabs[0]:
                                 with st.container(border=True):
-                                    # 즐겨찾기 버튼 (US 상단)
-                                    _u_fav_lbl = "⭐ 즐겨찾기 등록"
-                                    if st.button(_u_fav_lbl, use_container_width=True, key=f"fav_btn_us_top_{st.session_state.us_selected_ticker}"):
-                                        from db import save_favorite
-                                        _ok, _msg = save_favorite("미국", st.session_state.us_selected_ticker, detail_us["name"])
-                                        if _ok: st.success(_msg)
-                                        else: st.error(_msg)
+                                    # 즐겨찾기 및 포트폴리오 버튼 (US 상단)
+                                    _u_col1, _u_col2 = st.columns(2)
+                                    with _u_col1:
+                                        if st.button("⭐ 즐겨찾기", use_container_width=True, key=f"fav_btn_us_top_{st.session_state.us_selected_ticker}"):
+                                            from db import save_favorite
+                                            _ok, _msg = save_favorite("미국", st.session_state.us_selected_ticker, detail_us["name"])
+                                            if _ok: st.success(_msg)
+                                            else: st.error(_msg)
+                                    with _u_col2:
+                                        if st.button("🎒 포트폴리오", use_container_width=True, key=f"us_port_btn_search_{st.session_state.us_selected_ticker}"):
+                                            if "portfolio" not in st.session_state:
+                                                from db import load_portfolio_from_gsheet
+                                                st.session_state.portfolio = load_portfolio_from_gsheet()
+                                            if not any(i["ticker"] == st.session_state.us_selected_ticker for i in st.session_state.portfolio):
+                                                st.session_state.portfolio.append({
+                                                    "ticker": st.session_state.us_selected_ticker, "name": detail_us["name"],
+                                                    "buy_price": detail_us["price"], "quantity": 10,
+                                                    "buy_date": (datetime.now() + timedelta(hours=9)).strftime("%Y-%m-%d %H:%M"),
+                                                })
+                                                from db import save_portfolio_to_gsheet
+                                                save_portfolio_to_gsheet(st.session_state.portfolio)
+                                                st.success(f"{detail_us['name']} 포트폴리오에 추가!")
+                                            else:
+                                                st.warning("이미 포트폴리오에 있습니다.")
 
                                     _us_ar = "▲" if _us_chg >= 0 else "▼"
                                     st.markdown(
@@ -4301,9 +4381,16 @@ def main():
                                                 st.session_state.ai_portfolio = []
                                             if not any(i["ticker"] == _us_ticker_cur
                                                        for i in st.session_state.ai_portfolio):
+                                                # 이름 보정
+                                                from data_kr import get_us_ticker_map as _get_us_tm_port
+                                                _us_tm_port = _get_us_tm_port()
+                                                _real_port_name = detail_us.get("name", _us_ticker_cur)
+                                                if _us_tm_port and _us_ticker_cur in _us_tm_port:
+                                                    _real_port_name = _us_tm_port[_us_ticker_cur].get("name", _real_port_name)
+
                                                 st.session_state.ai_portfolio.append({
                                                     "ticker": _us_ticker_cur,
-                                                    "name": detail_us["name"],
+                                                    "name": _real_port_name,
                                                     "buy_price": _cur_p, "quantity": 10,
                                                     "buy_date": (datetime.now() + timedelta(hours=9)).strftime("%Y-%m-%d %H:%M"),
                                                 })
@@ -4435,7 +4522,10 @@ def main():
                         if st.session_state.us_sector_view == "detail":
                             _us_dticker   = st.session_state.us_sector_detail_ticker
                             _us_dname     = st.session_state.us_sector_detail_name
-                            _us_dexchange = st.session_state.get("us_sector_detail_exchange", "NASDAQ")
+                            from data_kr import get_us_ticker_map as _tmp_tm
+                            _tmp_us_map = _tmp_tm()
+                            _us_dexchange = _tmp_us_map.get(_us_dticker, {}).get("exchange", "NASDAQ") if _tmp_us_map else st.session_state.get("us_sector_detail_exchange", "NASDAQ")
+                            st.session_state.us_sector_detail_exchange = _us_dexchange
 
                             if st.button("← 섹터 목록으로", key="us_sec_back", use_container_width=True):
                                 st.session_state.us_sector_view = "list"
@@ -5214,7 +5304,17 @@ def main():
 
             for idx, item in enumerate(port_list):
                 ticker = item["ticker"]
+                # 이름 보정 로직 추가
+                from data_kr import get_kr_code_to_name_map, get_us_ticker_map
+                _kr_map = get_kr_code_to_name_map()
+                _us_map = get_us_ticker_map()
+                
                 name = item.get("name", ticker)
+                if _kr_map and ticker in _kr_map:
+                    name = _kr_map[ticker]
+                elif _us_map and ticker in _us_map:
+                    name = _us_map[ticker].get("name", name)
+                
                 bp = item["buy_price"]
                 qty = item["quantity"]
 

@@ -84,6 +84,27 @@ def save_portfolio_to_gsheet(portfolio_list, current_prices_df=None):
     except Exception as e:
         return False, f"저장 오류: {e}"
 
+def load_portfolio_from_gsheet():
+    """'현재포트폴리오' 탭에서 포트폴리오 목록을 불러옵니다."""
+    sh, msg = _get_spreadsheet()
+    if not sh:
+        return []
+    try:
+        ws = sh.worksheet("현재포트폴리오")
+        records = ws.get_all_records()
+        portfolio_list = []
+        for r in records:
+            portfolio_list.append({
+                "ticker": str(r.get("티커", "")),
+                "name": str(r.get("종목명", "")),
+                "buy_price": float(r.get("매수가($)", 0) or 0),
+                "quantity": int(r.get("수량", 0) or 0),
+                "buy_date": str(r.get("저장시간", ""))
+            })
+        return portfolio_list
+    except Exception:
+        return []
+
 def save_trade_record(trade):
     """완료된 거래 1건을 '거래내역' 탭에 기록합니다."""
     sh, msg = _get_spreadsheet()
