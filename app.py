@@ -312,6 +312,7 @@ def _kr_echarts_chart(stock_code: str, interval: str = "1", height: int = 600, p
                 }
             ],
             "series": [
+                {
                     "name": "Price", "type": "candlestick", "data": values,
                     "barMaxWidth": 30,
                     "itemStyle": {
