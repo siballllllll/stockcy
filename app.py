@@ -117,6 +117,16 @@ def _kr_lightweight_chart(code: str, interval: str = "D", height: int = 600,
             st.warning("차트 데이터를 불러올 수 없습니다.")
             return
 
+        # 분봉 데이터 과밀집(파란 블록 현상) 방지 및 하루 타임라인 고정
+        if interval != "D":
+            if str(interval) in ["1", "5"]:
+                # 1분/5분봉은 HTS처럼 가장 최근 '하루'의 타임라인만 보여줌 (약 390봉/78봉)
+                last_date = df["datetime"].dt.date.max()
+                df = df[df["datetime"].dt.date == last_date].reset_index(drop=True)
+            else:
+                # 15분 이상의 분봉은 최대 200봉 제한
+                df = df.tail(200).reset_index(drop=True)
+
         # 이동평균선
         for w in [5, 20]:
             if len(df) >= w:
