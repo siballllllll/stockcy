@@ -846,41 +846,92 @@ def show_favorites_center():
                     st.markdown(f"**{name}** ({ticker})")
                     st.markdown(f"<h3 style='margin:0;color:{color}'>{price_str} <small>({pct:+.2f}%)</small></h3>", unsafe_allow_html=True)
                     
-                    # AI 타이밍 가이드 (버튼)
-                    if st.button('🤖 AI 전략', key=f'fav_ai_{ticker}', use_container_width=True):
-                        with st.spinner('분석 중...'):
-                            from ai_engine import analyze_stock_theme_position
-                            # 팩트 수집
-                            investor_data = []
+                    # ── AI 매수 추천 분석 ────────────────────────────────
+                    _fav_res_key = f"fav_ai_result_{ticker}"
+                    if st.button('🤖 AI 매수 추천 분석', key=f'fav_ai_{ticker}', use_container_width=True, type="primary"):
+                        with st.spinner('AI가 극단기·단기·중기·장기 전략을 분석 중...'):
                             if mkt == '국내':
+                                from ai_engine import generate_kr_stock_report
+                                from data_kr import get_kr_investor_trend
                                 try:
-                                    from data_kr import get_kr_investor_trend
                                     investor_data = get_kr_investor_trend(ticker)
-                                except: pass
-                            
-                            res = analyze_stock_theme_position(
-                                ticker, name, p_data, investor_data, "관심섹터", 
-                                [{"name": name, "code": ticker, "change_pct": pct}]
-                            )
-                            
-                            if isinstance(res, dict) and "error" in res:
-                                st.error(f"분석 오류: {res['error']}")
+                                except Exception:
+                                    investor_data = []
+                                res = generate_kr_stock_report(ticker, name, p_data, investor_data)
                             else:
-                                st.markdown("---")
-                                pos = res.get('position', '분석불가')
-                                timing = res.get('entry_timing', '-')
-                                reason = res.get('entry_reason', '-')
-                                st.markdown(f"**📍 포지션:** {pos}")
-                                st.markdown(f"**⏱ 타이밍:** `{timing}`")
-                                st.info(f"**💡 전략:** {reason}")
-                                with st.expander("📊 상세 분석 (차트/수급/패턴)"):
-                                    st.markdown(f"**수급분석:** {res.get('supply_analysis','-')}")
-                                    st.markdown(f"**차트패턴:** {res.get('chart_pattern','-')}")
-                                    st.markdown(f"**매수타점:** {res.get('buy_target','-')} | **목표가:** {res.get('sell_target','-')}")
-                    
+                                from ai_engine import generate_stock_report
+                                res = generate_stock_report(ticker, price, pct)
+                            st.session_state[_fav_res_key] = res
+
+                    if _fav_res_key in st.session_state:
+                        res = st.session_state[_fav_res_key]
+                        if "error" in str(res.get("rating", "")):
+                            st.error(res.get("analysis", "분석 오류"))
+                        else:
+                            cur_sym = "₩" if mkt == "국내" else "$"
+                            # ── 등급 배지 ──────────────────────────────────
+                            _rating = res.get("rating", "-")
+                            _lt_rating = res.get("long_term_rating", "-")
+                            _badge_c = {"매우 강력 추천":"#00c853","추천":"#69f0ae","중간추천":"#f5c518","비추천":"#ff7043","매우 비추천":"#b71c1c"}.get(_rating, "#888")
+                            st.markdown(
+                                f"<div style='display:flex;gap:6px;flex-wrap:wrap;margin:4px 0'>"
+                                f"<span style='background:{_badge_c}22;border:1px solid {_badge_c};border-radius:6px;padding:2px 8px;font-size:0.75rem;font-weight:700;color:{_badge_c}'>단기: {_rating}</span>"
+                                f"<span style='background:#2b7cff22;border:1px solid #2b7cff;border-radius:6px;padding:2px 8px;font-size:0.75rem;font-weight:700;color:#2b7cff'>중장기: {_lt_rating}</span>"
+                                f"</div>",
+                                unsafe_allow_html=True
+                            )
+                            st.markdown("---")
+                            # ── 4 단계 기간별 탭 ─────────────────────────
+                            _t1, _t2, _t3, _t4 = st.tabs(["⚡ 극단기", "📅 단기", "📆 중기", "🗓 장기"])
+
+                            with _t1:
+                                st.caption("당일~3일 스캘핑/데이트레이딩")
+                                _bt = res.get("buy_target", "-")
+                                _st = res.get("sell_target", "-")
+                                _sl = res.get("stop_loss", "-")
+                                _pct = res.get("short_term_target_pct", "-")
+                                _c1, _c2, _c3 = st.columns(3)
+                                _c1.metric("🟢 추천 평단가", _bt)
+                                _c2.metric("🎯 목표가", f"{cur_sym}{_st}" if _st != "-" and not str(_st).startswith(cur_sym) else _st)
+                                _c3.metric("🛑 손절가", f"{cur_sym}{_sl}" if _sl != "-" and not str(_sl).startswith(cur_sym) else _sl)
+                                st.metric("기대 수익률", _pct)
+
+                            with _t2:
+                                st.caption(res.get("short_term_period", "1주일 이내"))
+                                _bt = res.get("buy_target", "-")
+                                _st2 = res.get("sell_target", "-")
+                                _c1, _c2 = st.columns(2)
+                                _c1.metric("🟢 추천 평단가", _bt)
+                                _c2.metric("🎯 단기 목표가", f"{cur_sym}{_st2}" if _st2 != "-" and not str(_st2).startswith(cur_sym) else _st2)
+                                if res.get("analysis"):
+                                    with st.expander("📊 단기 분석 보기"):
+                                        st.markdown(res["analysis"])
+
+                            with _t3:
+                                st.caption(res.get("long_term_period", "3~6개월"))
+                                _lt_target = res.get("long_term_target", "-")
+                                _lt_pct = res.get("long_term_target_pct", "-")
+                                _c1, _c2 = st.columns(2)
+                                _c1.metric("🎯 중기 목표가", f"{cur_sym}{_lt_target}" if _lt_target != "-" and not str(_lt_target).startswith(cur_sym) else _lt_target)
+                                _c2.metric("기대 수익률", _lt_pct)
+                                if res.get("long_term_analysis"):
+                                    with st.expander("📊 중기 분석 보기"):
+                                        st.markdown(res["long_term_analysis"])
+
+                            with _t4:
+                                st.caption("6개월 이상 장기 보유")
+                                _lt_target = res.get("long_term_target", "-")
+                                _lt_pct = res.get("long_term_target_pct", "-")
+                                _c1, _c2 = st.columns(2)
+                                _c1.metric("🎯 장기 목표가", f"{cur_sym}{_lt_target}" if _lt_target != "-" and not str(_lt_target).startswith(cur_sym) else _lt_target)
+                                _c2.metric("기대 수익률", _lt_pct)
+                                if res.get("historical_pattern_analysis"):
+                                    with st.expander("📜 역사적 패턴 분석"):
+                                        st.markdown(res["historical_pattern_analysis"])
+
                     if st.button('🗑️ 삭제', key=f'fav_del_{ticker}', use_container_width=True):
                         ok, dmsg = remove_favorite(str(ticker))
-                        if ok: 
+                        if ok:
                             st.success(dmsg)
                             st.rerun()
                         else: st.error(dmsg)
@@ -1909,22 +1960,32 @@ def main():
                         with _tab_chart:
                             _kr_echarts_chart(selected_code_kr, interval=st.session_state.kr_chart_type, height=600, period=_kr_period)
                         with _tab_box:
-                            st.markdown(f"### 📦 {st.session_state.kr_selected_name} 박스권 및 수급 분석")
-                            if st.button("분석 실행", key="kr_box_analyze"):
+                            _kr_box_key = f"kr_box_result_{selected_code_kr}"
+                            st.markdown(
+                                f"<div style='font-size:0.82rem;color:#888;margin-bottom:8px'>'"
+                                f"AI가 구글 검색을 통해 최근 3~6개월 차트 흐름, 거래량 분석, 세력·기관 수급을 파악해 지지선·저항선 및 돌파 확률을 산출합니다.</div>",
+                                unsafe_allow_html=True
+                            )
+                            if st.button("🔍 박스권·수급 AI 분석 실행", key="kr_box_analyze", use_container_width=True):
                                 with st.spinner("AI가 지지선, 저항선 및 수급을 분석 중입니다..."):
                                     from ai_engine import analyze_box_pattern
-                                    box_res = analyze_box_pattern(selected_code_kr, st.session_state.kr_selected_name, price_kr, "KR")
-                                    if box_res:
-                                        c1, c2, c3 = st.columns(3)
-                                        c1.metric("1차 지지선", box_res.get("support_line", "-"))
-                                        c2.metric("1차 저항선", box_res.get("resistance_line", "-"))
-                                        c3.metric("저항선 돌파 확률", box_res.get("breakout_probability", "-"))
-                                        st.markdown("#### 📈 박스권 분석")
-                                        st.info(box_res.get("box_analysis", "-"))
-                                        st.markdown("#### 🐳 세력 수급 동향")
-                                        st.warning(box_res.get("supply_demand_analysis", "-"))
-                                        st.markdown("#### 🎯 대응 전략")
-                                        st.success(box_res.get("action_plan", "-"))
+                                    _box_res = analyze_box_pattern(selected_code_kr, st.session_state.kr_selected_name, price_kr, "KR")
+                                    st.session_state[_kr_box_key] = _box_res
+                            if _kr_box_key in st.session_state:
+                                box_res = st.session_state[_kr_box_key]
+                                if box_res.get("box_analysis", "-") == "-" or "오류" in box_res.get("box_analysis", ""):
+                                    st.error(f"분석 실패: {box_res.get('box_analysis', '알 수 없는 오류')}")
+                                else:
+                                    c1, c2, c3 = st.columns(3)
+                                    c1.metric("🟢 1차 지지선", box_res.get("support_line", "-"))
+                                    c2.metric("🔴 1차 저항선", box_res.get("resistance_line", "-"))
+                                    c3.metric("🎯 돌파 확률", box_res.get("breakout_probability", "-"))
+                                    st.markdown("#### 📈 박스권 분석")
+                                    st.info(box_res.get("box_analysis", "-"))
+                                    st.markdown("#### 🐳 세력·수급 동향")
+                                    st.warning(box_res.get("supply_demand_analysis", "-"))
+                                    st.markdown("#### 🎯 대응 전략")
+                                    st.success(box_res.get("action_plan", "-"))
 
                 with _right_ctr:
                     if kr_mode == "📊 일반 주식 검색":
@@ -4136,22 +4197,32 @@ def main():
                         with _utab_chart:
                             _us_echarts_chart(_us_ticker_cur, interval=_us_iv_cur, height=660)
                         with _utab_box:
-                            st.markdown(f"### 📦 {_real_us_name} 박스권 및 수급 분석")
-                            if st.button("분석 실행", key="us_box_analyze"):
+                            _us_box_key = f"us_box_result_{_us_ticker_cur}"
+                            st.markdown(
+                                f"<div style='font-size:0.82rem;color:#888;margin-bottom:8px'>"
+                                f"AI가 구글 검색을 통해 최근 3~6개월 차트 흐름, 거래량 분석, 세력·기관 수급을 파악해 지지선·저항선 및 돌파 확률을 산출합니다.</div>",
+                                unsafe_allow_html=True
+                            )
+                            if st.button("🔍 박스권·수급 AI 분석 실행", key="us_box_analyze", use_container_width=True):
                                 with st.spinner("AI가 지지선, 저항선 및 수급을 분석 중입니다..."):
                                     from ai_engine import analyze_box_pattern
-                                    box_res = analyze_box_pattern(_us_ticker_cur, _real_us_name, detail_us, "US")
-                                    if box_res:
-                                        c1, c2, c3 = st.columns(3)
-                                        c1.metric("1차 지지선", box_res.get("support_line", "-"))
-                                        c2.metric("1차 저항선", box_res.get("resistance_line", "-"))
-                                        c3.metric("저항선 돌파 확률", box_res.get("breakout_probability", "-"))
-                                        st.markdown("#### 📈 박스권 분석")
-                                        st.info(box_res.get("box_analysis", "-"))
-                                        st.markdown("#### 🐳 세력 수급 동향")
-                                        st.warning(box_res.get("supply_demand_analysis", "-"))
-                                        st.markdown("#### 🎯 대응 전략")
-                                        st.success(box_res.get("action_plan", "-"))
+                                    _box_res = analyze_box_pattern(_us_ticker_cur, _real_us_name, detail_us, "US")
+                                    st.session_state[_us_box_key] = _box_res
+                            if _us_box_key in st.session_state:
+                                box_res = st.session_state[_us_box_key]
+                                if box_res.get("box_analysis", "-") == "-" or "오류" in box_res.get("box_analysis", ""):
+                                    st.error(f"분석 실패: {box_res.get('box_analysis', '알 수 없는 오류')}")
+                                else:
+                                    c1, c2, c3 = st.columns(3)
+                                    c1.metric("🟢 1차 지지선", box_res.get("support_line", "-"))
+                                    c2.metric("🔴 1차 저항선", box_res.get("resistance_line", "-"))
+                                    c3.metric("🎯 돌파 확률", box_res.get("breakout_probability", "-"))
+                                    st.markdown("#### 📈 박스권 분석")
+                                    st.info(box_res.get("box_analysis", "-"))
+                                    st.markdown("#### 🐳 세력·수급 동향")
+                                    st.warning(box_res.get("supply_demand_analysis", "-"))
+                                    st.markdown("#### 🎯 대응 전략")
+                                    st.success(box_res.get("action_plan", "-"))
 
                 with _us_right_ctr:
                     if us_mode == "📊 일반 주식 검색":
