@@ -798,7 +798,14 @@ def show_daily_briefing():
         st.rerun()
 
 def show_favorites_center():
-    st.markdown('### ⭐ AI 즐겨찾기 센터')
+    st.markdown('### ⭐ AI 즐겨찾기 센터', help="""
+[AI 가이드 안내]
+🔥 급등 중: 당일 +5% 이상 상승. 추격 매수보다는 눌림목을 기다리세요.
+💎 바닥권: 52주 최저가 근처(하위 15%). 저가 매수 매력이 높은 구간입니다.
+⚠️ 고점권: 52주 최고가 근처(상위 85%). 저항대 돌파 여부를 신중히 확인하세요.
+🔵 과매도: 당일 -5% 이상 급락. 섣부른 매수보다 바닥 확인이 필요합니다.
+🟢 상승세 유지 / 🔴 약세 흐름: 당일의 완만한 추세 변화를 나타냅니다.
+    """)
     st.markdown('<p style="font-size:0.85rem;color:#888">관심 종목의 실시간 시세와 AI 매수 타이밍을 한눈에 관리합니다.</p>', unsafe_allow_html=True)
     
     from db import load_favorites, remove_favorite
