@@ -202,32 +202,7 @@ def _kr_echarts_chart(stock_code: str, interval: str = "1", height: int = 600, p
         }
 
         st_echarts(options=options, height=f"{height}px", key=f"ec_{stock_code}_{interval}")
-3",
-                    "lineWidth": 1,
-                    "crosshairMarkerVisible": False,
-                    "title": "MA20"
-                }
-            },
-            {
-                "type": "Histogram",
-                "data": volumes,
-                "options": {
-                    "color": "#26a69a",
-                    "priceFormat": {
-                        "type": "volume",
-                    },
-                    "priceScaleId": "" # 빈 문자열은 오버레이 스케일을 의미
-                },
-                "priceScale": {
-                    "scaleMargins": {
-                        "top": 0.85,
-                        "bottom": 0,
-                    }
-                }
-            }
-        ]
 
-        renderLightweightCharts([{"chart": chartOptions, "series": series}], key=f"lwc_{code}_{interval}_{period}")
 
 
 # 1. 페이지 기본 설정 (항상 최상단에 위치)
