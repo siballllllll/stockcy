@@ -101,15 +101,12 @@ def _tv_chart(symbol: str, interval: str = "D", height: int = 660) -> None:
         unsafe_allow_html=True,
     )
 
-def _kr_plotly_chart(code: str, interval: str = "D", height: int = 600,
-                     period: str = "3mo") -> None:
-    """국내 주식 Plotly 차트.
-    interval: 'D'=일봉, '1'/'5'/'15'/'30'/'60'=분봉
-    period: 일봉 데이터 기간 (1mo/3mo/6mo/1y/3y)
-    """
-    from plotly.subplots import make_subplots
-    import math
-    with st.spinner("차트 로딩..."):
+def _kr_lightweight_chart(code: str, interval: str = "D", height: int = 600,
+                          period: str = "3mo") -> None:
+    """국내 주식 Lightweight Chart (실시간 KIS 데이터 + 오픈소스 차트 엔진)"""
+    from streamlit_lightweight_charts import renderLightweightCharts
+    
+    with st.spinner("실시간 차트 로딩..."):
         if interval == "D":
             df = get_kr_daily_chart(code, period=period)
         else:
@@ -120,150 +117,117 @@ def _kr_plotly_chart(code: str, interval: str = "D", height: int = 600,
             st.warning("차트 데이터를 불러올 수 없습니다.")
             return
 
-        # ── 색상 (다크/라이트 양쪽에서 보이는 중간톤) ──
-        _tick_c = "#555555"
-        _grid_c = "rgba(128,128,128,0.15)"
-        _guide_c = "rgba(128,128,128,0.25)"
-
-        # ── 이동평균선 ──
+        # 이동평균선
         for w in [5, 20]:
             if len(df) >= w:
                 df[f"ma{w}"] = df["close"].rolling(w).mean()
 
-        # ── 거래량 색상 ──
-        vol_colors = [
-            "rgba(255,75,75,0.55)" if c >= o else "rgba(43,124,255,0.55)"
-            for c, o in zip(df["close"], df["open"])
+        # Lightweight Charts 날짜/시간 포맷 변환 (Unix timestamp or YYYY-MM-DD)
+        if interval == "D":
+            df["time"] = df["datetime"].dt.strftime("%Y-%m-%d")
+        else:
+            # KST naive datetime을 timezone aware로 바꾸고 UTC 타임스탬프 획득
+            df["time"] = df["datetime"].dt.tz_localize("Asia/Seoul").dt.tz_convert("UTC").astype("int64") // 10**9
+
+        df = df.fillna("")
+        
+        # 캔들스틱 포맷
+        candles = df[["time", "open", "high", "low", "close"]].to_dict("records")
+        
+        # 거래량 포맷
+        volumes = []
+        for _, row in df.iterrows():
+            c = "rgba(255, 75, 75, 0.5)" if row["close"] >= row["open"] else "rgba(43, 124, 255, 0.5)"
+            volumes.append({"time": row["time"], "value": row["volume"], "color": c})
+            
+        # 이동평균선 포맷
+        ma5 = [{"time": row["time"], "value": row["ma5"]} for _, row in df.iterrows() if row["ma5"] != ""]
+        ma20 = [{"time": row["time"], "value": row["ma20"]} for _, row in df.iterrows() if row["ma20"] != ""]
+
+        # 테마 색상 설정
+        try:
+            _base = st.get_option("theme.base") or "dark"
+            _dark = _base != "light"
+        except:
+            _dark = True
+            
+        bg_c = "transparent"
+        text_c = "rgba(255,255,255,0.82)" if _dark else "#333333"
+        grid_c = "rgba(255,255,255,0.1)" if _dark else "rgba(0,0,0,0.1)"
+
+        chartOptions = {
+            "layout": {
+                "textColor": text_c,
+                "background": {"type": "solid", "color": bg_c}
+            },
+            "grid": {
+                "vertLines": {"color": grid_c},
+                "horzLines": {"color": grid_c}
+            },
+            "crosshair": {
+                "mode": 0
+            },
+            "timeScale": {
+                "timeVisible": True,
+                "secondsVisible": False,
+            },
+            "localization": {
+                "locale": "ko-KR",
+            },
+            "height": height
+        }
+        
+        series = [
+            {
+                "type": "Candlestick",
+                "data": candles,
+                "options": {
+                    "upColor": "#ff4b4b",
+                    "downColor": "#2b7cff",
+                    "borderVisible": False,
+                    "wickUpColor": "#ff4b4b",
+                    "wickDownColor": "#2b7cff"
+                }
+            },
+            {
+                "type": "Line",
+                "data": ma5,
+                "options": {
+                    "color": "#f5c518",
+                    "lineWidth": 1,
+                    "crosshairMarkerVisible": False,
+                    "title": "MA5"
+                }
+            },
+            {
+                "type": "Line",
+                "data": ma20,
+                "options": {
+                    "color": "#00c853",
+                    "lineWidth": 1,
+                    "crosshairMarkerVisible": False,
+                    "title": "MA20"
+                }
+            },
+            {
+                "type": "Histogram",
+                "data": volumes,
+                "options": {
+                    "color": "#26a69a",
+                    "priceFormat": {
+                        "type": "volume",
+                    },
+                    "priceScaleId": "",
+                    "scaleMargins": {
+                        "top": 0.8,
+                        "bottom": 0,
+                    }
+                }
+            }
         ]
 
-        # ── 데이터 포인트 제한 (캔들이 너무 얇아지는 현상 방지) ──
-        if interval != "D":
-            # 분봉은 화면에 최대 150개 캔들만 표시하여 두께 확보
-            _max_pts = 150
-            if len(df) > _max_pts:
-                df = df.tail(_max_pts).reset_index(drop=True)
+        renderLightweightCharts([{"chart": chartOptions, "series": series}], key=f"lwc_{code}_{interval}_{period}")
 
-        # ── X축 문자열 변환 (Plotly 카테고리화로 빈 공간/버그 완벽 제거) ──
-        df["dt_str"] = df["datetime"].dt.strftime("%Y-%m-%d %H:%M:%S")
-
-        # ── 서브플롯 ──
-        fig = make_subplots(
-            rows=2, cols=1, shared_xaxes=True,
-            row_heights=[0.78, 0.22], vertical_spacing=0.01,
-        )
-
-        # 캔들스틱
-        fig.add_trace(go.Candlestick(
-            x=df["dt_str"], open=df["open"], high=df["high"],
-            low=df["low"], close=df["close"],
-            increasing_line_color="#ff4b4b", increasing_fillcolor="#ff4b4b",
-            decreasing_line_color="#2b7cff", decreasing_fillcolor="#2b7cff",
-            name="", showlegend=False,
-        ), row=1, col=1)
-
-        # 이동평균선
-        for w, mc, ml in [(5, "#f5c518", "MA5"), (20, "#00c853", "MA20")]:
-            cn = f"ma{w}"
-            if cn in df.columns:
-                fig.add_trace(go.Scatter(
-                    x=df["dt_str"], y=df[cn],
-                    mode="lines", line=dict(color=mc, width=1),
-                    name=ml,
-                ), row=1, col=1)
-
-        # 거래량 바
-        fig.add_trace(go.Bar(
-            x=df["dt_str"], y=df["volume"],
-            marker_color=vol_colors,
-            name="", showlegend=False,
-        ), row=2, col=1)
-
-        # ── Y축 범위 ──
-        _ymin = float(df["low"].min())
-        _ymax = float(df["high"].max())
-        _ypad = (_ymax - _ymin) * 0.05
-        _y_range = [_ymin - _ypad, _ymax + _ypad]
-
-        # ── 가격 구분선 (라운드 넘버 가이드) ──
-        _span = _ymax - _ymin
-        if _span > 100000:   _step = 50000
-        elif _span > 50000:  _step = 10000
-        elif _span > 10000:  _step = 5000
-        elif _span > 5000:   _step = 1000
-        elif _span > 1000:   _step = 500
-        else:                _step = 100
-
-        _gs = math.floor(_ymin / _step) * _step
-        _v = _gs
-        while _v <= _y_range[1]:
-            if _v >= _y_range[0]:
-                fig.add_hline(
-                    y=_v, row=1, col=1,
-                    line=dict(color=_guide_c, width=0.5, dash="dot"),
-                    annotation=dict(
-                        text=f"{_v:,.0f}", font=dict(size=8, color=_tick_c),
-                        xref="paper", x=1.0, showarrow=False,
-                    ),
-                )
-            _v += _step
-
-        # ── 레이아웃 ──
-        fig.update_layout(
-            height=height,
-            margin=dict(l=0, r=55, t=5, b=0),  # 우측 여백 확보 (텍스트 겹침 방지)
-            paper_bgcolor="rgba(0,0,0,0)",
-            plot_bgcolor="rgba(0,0,0,0)",
-            font=dict(color=_tick_c, size=10),
-            legend=dict(
-                orientation="h", yanchor="top", y=0.99,
-                xanchor="left", x=0.01,
-                font=dict(size=9, color=_tick_c),
-                bgcolor="rgba(0,0,0,0)",
-            ),
-            xaxis_rangeslider_visible=False,
-            xaxis2_rangeslider_visible=False,
-            hovermode="x unified",
-            dragmode="pan",
-        )
-
-        # 캔들 Y축
-        fig.update_yaxes(
-            row=1, col=1, side="right", tickformat=",.0f",
-            showgrid=False, zeroline=False,
-            tickfont=dict(size=9, color=_tick_c),
-            range=_y_range, fixedrange=False,
-        )
-        # 거래량 Y축
-        fig.update_yaxes(
-            row=2, col=1, side="right", showticklabels=False,
-            showgrid=False, zeroline=False, fixedrange=True,
-        )
-
-        # X축 (캔들) - Category 기반
-        fig.update_xaxes(
-            row=1, col=1, showticklabels=False,
-            showgrid=True, gridcolor=_grid_c,
-            type="category", fixedrange=False,
-        )
-        
-        # X축 (거래량) - 눈금자 수동 설정
-        _nticks = 6
-        _step_idx = max(1, len(df) // _nticks)
-        _tvals = df["dt_str"].iloc[::_step_idx]
-        _ttext = df["datetime"].iloc[::_step_idx].dt.strftime("%m/%d" if interval == "D" else "%H:%M")
-
-        fig.update_xaxes(
-            row=2, col=1, showgrid=False,
-            type="category",
-            tickvals=_tvals, ticktext=_ttext,
-            tickfont=dict(size=8, color=_tick_c),
-            fixedrange=False,
-        )
-
-        st.plotly_chart(
-            fig, use_container_width=True,
-            config={"displayModeBar": False, "scrollZoom": True},
-        )
 
 # 1. 페이지 기본 설정 (항상 최상단에 위치)
 st.set_page_config(
@@ -1708,7 +1672,7 @@ def main():
                             else:
                                 st.markdown(f"**{_real_dtv_name}** ({_dtv_code})")
 
-                            _tv_chart(f"KRX:{_dtv_code}", interval="5", height=600)
+                            _kr_lightweight_chart(_dtv_code, interval="5", height=600)
 
                         else:
                             # 섹터 목록 뷰 → KOSPI/KOSDAQ Toss 스타일 라인 차트
@@ -1847,7 +1811,21 @@ def main():
                                 st.session_state.kr_chart_type = _ivv
                                 st.rerun()
 
-                        _tv_chart(f"KRX:{selected_code_kr}", interval=st.session_state.kr_chart_type, height=600)
+                        # 일봉 모드일 때 기간 선택 다시 살리기
+                        if st.session_state.kr_chart_type == "D":
+                            _pds = [("1달","1mo"),("3달","3mo"),("6달","6mo"),("1년","1y"),("3년","3y")]
+                            _pd_cols = st.columns(len(_pds))
+                            for _pi, (_pl, _pv) in enumerate(_pds):
+                                if _pd_cols[_pi].button(
+                                    _pl, key=f"kr_dp_{_pv}",
+                                    type="primary" if st.session_state.kr_daily_period == _pv else "secondary",
+                                    use_container_width=True,
+                                ):
+                                    st.session_state.kr_daily_period = _pv
+                                    st.rerun()
+
+                        _kr_period = st.session_state.kr_daily_period if st.session_state.kr_chart_type == "D" else "3mo"
+                        _kr_lightweight_chart(selected_code_kr, interval=st.session_state.kr_chart_type, height=600, period=_kr_period)
 
                 with _right_ctr:
                     if kr_mode == "📊 일반 주식 검색":
