@@ -1410,23 +1410,38 @@ def main():
 
                 # AI 호출 — 버튼 클릭 후 rerun 시 실행 (패널 렌더 전에 처리)
                 if st.session_state.get(_run_key) and _pb_key not in st.session_state:
-                    with st.spinner("AI가 시장·테마·수급·뉴스를 종합 분석 중입니다..."):
+                    with st.status("🎯 AI 종합 분석 진행 중...", expanded=True) as status:
                         try:
                             from ai_engine import generate_realtime_picks
+                            
+                            status.write("📈 시장 지수 및 실시간 거래량 수집 중...")
                             _mkt = get_kr_market_index() or {}
                             _vol = get_kr_volume_ranking() or []
                             _chg = (get_kr_change_ranking("J") or []) + (get_kr_change_ranking("Q") or [])
+                            
+                            status.write("🔥 실시간 핫 섹터 및 주도 테마 발굴 중...")
                             _hot_secs = []
                             try:
                                 from ai_engine import analyze_kr_hot_sectors
                                 _hs_res = analyze_kr_hot_sectors()
                                 if isinstance(_hs_res, dict):
                                     _hot_secs = _hs_res.get("sectors", [])
-                            except Exception:
-                                pass
+                            except Exception as _e_hs:
+                                status.warning(f"섹터 분석 중 일부 지연: {str(_e_hs)}")
+                            
+                            status.write("🤖 AI 타점 및 매매 전략 생성 중 (약 30~50초)...")
                             _picks = generate_realtime_picks(_mkt, _vol, _chg, hot_sectors=_hot_secs)
+                            
+                            if "error" in _picks and "picks" not in _picks:
+                                status.update(label="❌ AI 분석 실패", state="error")
+                            else:
+                                status.update(label="✅ 분석 완료!", state="complete")
+                                
                         except Exception as _pe:
+                            status.update(label="❌ 분석 중 치명적 오류 발생", state="error")
+                            status.exception(_pe)
                             _picks = {"error": str(_pe), "picks": []}
+                        
                         _picks["_ts"] = (datetime.now() + timedelta(hours=9)).strftime("%H:%M")
                         st.session_state[_pb_key] = _picks
                         st.session_state[_run_key] = False
@@ -2974,10 +2989,23 @@ def main():
                                         st.session_state.kr_ai_market_run = True
                                         st.rerun()
                                 else:
-                                    with st.spinner("📊 시장 데이터 불러오는 중..."):
-                                        _tm       = analyze_today_market()
-                                        _ai_res   = analyze_kr_hot_sectors()
-                                        _vol_rank = get_kr_volume_ranking()
+                                    # 단계별 진행 상태 표시
+                                    with st.status("📊 시장 종합 분석 진행 중...", expanded=True) as mstatus:
+                                        try:
+                                            mstatus.write("📈 오늘의 급등 종목 및 거래량 분석 중...")
+                                            _tm       = analyze_today_market()
+                                            _vol_rank = get_kr_volume_ranking()
+                                            
+                                            mstatus.write("🔥 AI 핫 섹터 및 주도 테마 발굴 중...")
+                                            _ai_res   = analyze_kr_hot_sectors()
+                                            
+                                            mstatus.update(label="✅ 분석 완료!", state="complete")
+                                        except Exception as _me:
+                                            mstatus.update(label="❌ 분석 중 오류 발생", state="error")
+                                            mstatus.exception(_me)
+                                            _tm = {"error": str(_me)}
+                                            _ai_res = {"error": str(_me)}
+                                            _vol_rank = []
 
                                     _quota_err = (
                                         (isinstance(_tm, dict) and _tm.get("error") == "QUOTA") or
@@ -3768,16 +3796,29 @@ def main():
 
                 # AI 호출 — 버튼 클릭 후 rerun 시 실행 (패널 렌더 전에 처리)
                 if st.session_state.get(_us_run_key) and _us_pb_key not in st.session_state:
-                    with st.spinner("AI가 US 시장·뉴스·옵션플로우를 분석 중입니다..."):
+                    with st.status("🎯 US AI 종합 분석 진행 중...", expanded=True) as status_us:
                         try:
                             from ai_engine import generate_us_realtime_picks
                             from data_kr import get_us_volume_ranking, get_us_change_ranking
-                            _us_mkt  = get_us_market_indices() or {}
-                            _us_vol  = get_us_volume_ranking() or []
-                            _us_chg  = get_us_change_ranking() or []
+                            
+                            status_us.write("📈 US 시장 지수 및 실시간 거래량 수집 중...")
+                            _us_mkt = get_us_market_indices() or {}
+                            _us_vol = get_us_volume_ranking() or []
+                            _us_chg = get_us_change_ranking() or []
+                            
+                            status_us.write("🤖 US AI 타점 및 매매 전략 생성 중 (약 30~50초)...")
                             _us_picks = generate_us_realtime_picks(_us_mkt, _us_vol, _us_chg)
+                            
+                            if "error" in _us_picks and "picks" not in _us_picks:
+                                status_us.update(label="❌ AI 분석 실패", state="error")
+                            else:
+                                status_us.update(label="✅ 분석 완료!", state="complete")
+                                
                         except Exception as _upe:
+                            status_us.update(label="❌ 분석 중 치명적 오류 발생", state="error")
+                            status_us.exception(_upe)
                             _us_picks = {"error": str(_upe), "picks": []}
+                        
                         _us_picks["_ts"] = (datetime.now() + timedelta(hours=9)).strftime("%H:%M")
                         st.session_state[_us_pb_key] = _us_picks
                         st.session_state[_us_run_key] = False
@@ -5089,9 +5130,21 @@ def main():
                                         st.session_state.us_ai_market_run = True
                                         st.rerun()
                                 else:
-                                    with st.spinner("US 시장 분석 중..."):
-                                        _us_mkt_res = analyze_us_today_market()
-                                        _us_ai_res  = analyze_us_hot_sectors()
+                                    with st.status("📊 US 시장 종합 분석 진행 중...", expanded=True) as mstatus_us:
+                                        try:
+                                            mstatus_us.write("📈 오늘의 급등 종목 및 모멘텀 분석 중...")
+                                            _us_mkt_res = analyze_us_today_market()
+                                            
+                                            mstatus_us.write("🔥 AI 핫 섹터 및 주도 테마 발굴 중...")
+                                            from ai_engine import analyze_us_hot_sectors
+                                            _us_ai_res  = analyze_us_hot_sectors()
+                                            
+                                            mstatus_us.update(label="✅ 분석 완료!", state="complete")
+                                        except Exception as _ume:
+                                            mstatus_us.update(label="❌ 분석 중 오류 발생", state="error")
+                                            mstatus_us.exception(_ume)
+                                            _us_mkt_res = {"error": str(_ume)}
+                                            _us_ai_res = {"error": str(_ume)}
 
                                     _us_quota_err = (
                                         isinstance(_us_mkt_res, dict) and _us_mkt_res.get("error") == "QUOTA"
