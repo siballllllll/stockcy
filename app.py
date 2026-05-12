@@ -120,6 +120,13 @@ def _us_echarts_chart(ticker: str, interval: str = "5", height: int = 600, perio
 
         category_data = df["datetime"].dt.strftime("%Y-%m-%d %H:%M" if interval != "D" else "%Y-%m-%d").tolist()
         values = df[["open", "close", "low", "high"]].values.tolist()
+        
+        # 이동평균선 계산
+        ma5 = df["close"].rolling(window=5).mean().tolist()
+        ma20 = df["close"].rolling(window=20).mean().tolist()
+        ma60 = df["close"].rolling(window=60).mean().tolist()
+        ma120 = df["close"].rolling(window=120).mean().tolist()
+
         volumes = []
         for i, row in df.iterrows():
             volumes.append([i, row["volume"], 1 if row["close"] >= row["open"] else -1])
@@ -129,7 +136,7 @@ def _us_echarts_chart(ticker: str, interval: str = "5", height: int = 600, perio
             "animation": False,
             "legend": {
                 "bottom": 10, "left": "center",
-                "data": ["Price", "MA5", "MA20"],
+                "data": ["Price", "MA5", "MA20", "MA60", "MA120"],
                 "textStyle": {"color": "#888", "fontSize": 12}
             },
             "tooltip": {
@@ -189,6 +196,10 @@ def _us_echarts_chart(ticker: str, interval: str = "5", height: int = 600, perio
                         "borderColor": "#ff4b4b", "borderColor0": "#2b7cff"
                     }
                 },
+                {"name": "MA5", "type": "line", "data": ma5, "smooth": True, "showSymbol": False, "lineStyle": {"width": 1, "color": "#f5c518"}},
+                {"name": "MA20", "type": "line", "data": ma20, "smooth": True, "showSymbol": False, "lineStyle": {"width": 1, "color": "#f06292"}},
+                {"name": "MA60", "type": "line", "data": ma60, "smooth": True, "showSymbol": False, "lineStyle": {"width": 1, "color": "#4db6ac"}},
+                {"name": "MA120", "type": "line", "data": ma120, "smooth": True, "showSymbol": False, "lineStyle": {"width": 1, "color": "#81d4fa"}},
                 {
                     "name": "Volume", "type": "bar", "xAxisIndex": 1, "yAxisIndex": 1, "data": volumes,
                     "itemStyle": {
@@ -225,6 +236,13 @@ def _kr_echarts_chart(stock_code: str, interval: str = "1", height: int = 600, p
 
         category_data = df["datetime"].dt.strftime("%Y-%m-%d %H:%M" if interval != "D" else "%Y-%m-%d").tolist()
         values = df[["open", "close", "low", "high"]].values.tolist()
+        
+        # 이동평균선 계산
+        ma5 = df["close"].rolling(window=5).mean().tolist()
+        ma20 = df["close"].rolling(window=20).mean().tolist()
+        ma60 = df["close"].rolling(window=60).mean().tolist()
+        ma120 = df["close"].rolling(window=120).mean().tolist()
+
         volumes = []
         for i, row in df.iterrows():
             volumes.append([i, row["volume"], 1 if row["close"] >= row["open"] else -1])
@@ -234,7 +252,7 @@ def _kr_echarts_chart(stock_code: str, interval: str = "1", height: int = 600, p
             "animation": False,
             "legend": {
                 "bottom": 10, "left": "center",
-                "data": ["Price", "MA5", "MA20"],
+                "data": ["Price", "MA5", "MA20", "MA60", "MA120"],
                 "textStyle": {"color": "#888", "fontSize": 12}
             },
             "tooltip": {
@@ -294,6 +312,10 @@ def _kr_echarts_chart(stock_code: str, interval: str = "1", height: int = 600, p
                         "borderColor": "#ff4b4b", "borderColor0": "#2b7cff"
                     }
                 },
+                {"name": "MA5", "type": "line", "data": ma5, "smooth": True, "showSymbol": False, "lineStyle": {"width": 1, "color": "#f5c518"}},
+                {"name": "MA20", "type": "line", "data": ma20, "smooth": True, "showSymbol": False, "lineStyle": {"width": 1, "color": "#f06292"}},
+                {"name": "MA60", "type": "line", "data": ma60, "smooth": True, "showSymbol": False, "lineStyle": {"width": 1, "color": "#4db6ac"}},
+                {"name": "MA120", "type": "line", "data": ma120, "smooth": True, "showSymbol": False, "lineStyle": {"width": 1, "color": "#81d4fa"}},
                 {
                     "name": "Volume", "type": "bar", "xAxisIndex": 1, "yAxisIndex": 1, "data": volumes,
                     "itemStyle": {
