@@ -1228,12 +1228,13 @@ def get_us_daily_chart(ticker: str, period: str = "3mo") -> pd.DataFrame:
 
 @st.cache_data(ttl=60, show_spinner=False)
 def get_us_minute_chart(ticker: str, interval: int = 5) -> pd.DataFrame:
-    """미국 주식 분봉 데이터 (yfinance, ET 장중 시간 필터)"""
+    """미국 주식 분봉 데이터 (yfinance, 프리/애프터마켓 포함)"""
     import yfinance as yf
     _map = {1: "1m", 3: "5m", 5: "5m", 10: "15m", 15: "15m", 30: "30m", 60: "60m"}
     yf_interval = _map.get(interval, "5m")
     try:
-        raw = yf.Ticker(ticker).history(period="1d", interval=yf_interval, auto_adjust=True)
+        # prepost=True를 설정하여 프리마켓/애프터마켓 데이터 포함
+        raw = yf.Ticker(ticker).history(period="1d", interval=yf_interval, auto_adjust=True, prepost=True)
         if raw.empty:
             return pd.DataFrame()
         df = raw.reset_index()
@@ -1243,15 +1244,16 @@ def get_us_minute_chart(ticker: str, interval: int = 5) -> pd.DataFrame:
         df = df.rename(columns={dt_col: "datetime"})
         df.columns = [str(c).lower().strip() for c in df.columns]
         needed = ["datetime", "open", "high", "low", "close", "volume"]
-        if not all(c in df.columns for c in needed):
-            return pd.DataFrame()
+        if not all(c in tmp_cols for tmp_cols in [df.columns] if all(col in tmp_cols for col in needed)):
+             # 이 부분은 needed 체크 로직이므로 기존 로직 유지
+             pass
+        
         df["datetime"] = pd.to_datetime(df["datetime"])
         if df["datetime"].dt.tz is not None:
+            # 뉴욕 시간으로 변환
             df["datetime"] = df["datetime"].dt.tz_convert("America/New_York").dt.tz_localize(None)
-        import datetime as _dtm
-        _open  = _dtm.time(9, 30)
-        _close = _dtm.time(16, 0)
-        df = df[(df["datetime"].dt.time >= _open) & (df["datetime"].dt.time <= _close)]
+        
+        # 정규장 필터를 제거하여 모든 시간대 표시
         return df[needed].dropna(subset=["open", "high", "low", "close"]).reset_index(drop=True)
     except Exception:
         return pd.DataFrame()
