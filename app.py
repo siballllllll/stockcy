@@ -848,20 +848,37 @@ def show_favorites_center():
                     
                     # ── AI 매수 추천 분석 ────────────────────────────────
                     _fav_res_key = f"fav_ai_result_{ticker}"
+                    _fav_err_key = f"fav_ai_error_{ticker}"
                     if st.button('🤖 AI 매수 추천 분석', key=f'fav_ai_{ticker}', use_container_width=True, type="primary"):
-                        with st.spinner('AI가 극단기·단기·중기·장기 전략을 분석 중...'):
-                            if mkt == '국내':
-                                from ai_engine import generate_kr_stock_report
-                                from data_kr import get_kr_investor_trend
-                                try:
-                                    investor_data = get_kr_investor_trend(ticker)
-                                except Exception:
-                                    investor_data = []
-                                res = generate_kr_stock_report(ticker, name, p_data, investor_data)
-                            else:
-                                from ai_engine import generate_stock_report
-                                res = generate_stock_report(ticker, price, pct)
-                            st.session_state[_fav_res_key] = res
+                        st.session_state.pop(_fav_err_key, None)
+                        with st.spinner('AI가 극단기·단기·중기·장기 전략을 분석 중... (최대 50초)'):
+                            try:
+                                if mkt == '국내':
+                                    from ai_engine import generate_kr_stock_report
+                                    from data_kr import get_kr_investor_trend
+                                    try:
+                                        investor_data = get_kr_investor_trend(ticker)
+                                    except Exception:
+                                        investor_data = []
+                                    res = generate_kr_stock_report(ticker, name, p_data, investor_data)
+                                else:
+                                    from ai_engine import generate_stock_report
+                                    res = generate_stock_report(ticker, price, pct)
+                                st.session_state[_fav_res_key] = res
+                                st.session_state.pop(_fav_err_key, None)
+                            except Exception as _ai_err:
+                                st.session_state[_fav_err_key] = str(_ai_err)
+
+                    # 에러 상태 표시 + 재시도 안내
+                    if _fav_err_key in st.session_state:
+                        _err_msg = st.session_state[_fav_err_key]
+                        if "TIMEOUT" in _err_msg:
+                            st.warning("⏱ AI 응답 시간이 초과되었습니다. 버튼을 다시 눌러 재시도하세요.")
+                        elif "QUOTA" in _err_msg:
+                            st.error("📵 오늘 AI 사용량이 초과되었습니다. 내일 다시 시도해주세요.")
+                        else:
+                            st.error(f"❌ 분석 실패: {_err_msg[:120]}...")
+                            st.caption("버튼을 다시 눌러 재시도할 수 있습니다.")
 
                     if _fav_res_key in st.session_state:
                         res = st.session_state[_fav_res_key]
@@ -1966,11 +1983,26 @@ def main():
                                 f"AI가 구글 검색을 통해 최근 3~6개월 차트 흐름, 거래량 분석, 세력·기관 수급을 파악해 지지선·저항선 및 돌파 확률을 산출합니다.</div>",
                                 unsafe_allow_html=True
                             )
+                            _kr_box_err_key = f"kr_box_error_{selected_code_kr}"
                             if st.button("🔍 박스권·수급 AI 분석 실행", key="kr_box_analyze", use_container_width=True):
-                                with st.spinner("AI가 지지선, 저항선 및 수급을 분석 중입니다..."):
-                                    from ai_engine import analyze_box_pattern
-                                    _box_res = analyze_box_pattern(selected_code_kr, st.session_state.kr_selected_name, price_kr, "KR")
-                                    st.session_state[_kr_box_key] = _box_res
+                                st.session_state.pop(_kr_box_err_key, None)
+                                with st.spinner("AI가 지지선, 저항선 및 수급을 분석 중입니다... (최대 50초)"):
+                                    try:
+                                        from ai_engine import analyze_box_pattern
+                                        _box_res = analyze_box_pattern(selected_code_kr, st.session_state.kr_selected_name, price_kr, "KR")
+                                        st.session_state[_kr_box_key] = _box_res
+                                        st.session_state.pop(_kr_box_err_key, None)
+                                    except Exception as _bx_err:
+                                        st.session_state[_kr_box_err_key] = str(_bx_err)
+                            if _kr_box_err_key in st.session_state:
+                                _bx_msg = st.session_state[_kr_box_err_key]
+                                if "TIMEOUT" in _bx_msg:
+                                    st.warning("⏱ AI 응답 시간이 초과되었습니다. 버튼을 다시 눠러 재시도하세요.")
+                                elif "QUOTA" in _bx_msg:
+                                    st.error("📵 오늘 AI 사용량이 초과되었습니다.")
+                                else:
+                                    st.error(f"❌ 분석 실패: {_bx_msg[:100]}")
+                                    st.caption("버튼을 다시 눠러 재시도할 수 있습니다.")
                             if _kr_box_key in st.session_state:
                                 box_res = st.session_state[_kr_box_key]
                                 if box_res.get("box_analysis", "-") == "-" or "오류" in box_res.get("box_analysis", ""):

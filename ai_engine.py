@@ -63,9 +63,13 @@ _MODEL_FALLBACK = [
 # 할당량 소진 여부 (세션 중 반복 호출 방지)
 _QUOTA_EXHAUSTED = False
 
+# API 호출 타임아웃 (초) — Streamlit Cloud WebSocket 끊김 방지
+_API_TIMEOUT_SEC = 50
+
 
 def _call_gemini(prompt, use_search=False, temperature=0.7, response_mime_type=None):
-    """Gemini API 호출 공통 헬퍼 (모델 폴백 + 재시도 포함)."""
+    """Gemini API 호출 공통 헬퍼 (모델 폴백 + 재시도 + 50초 타임아웃)."""
+    import concurrent.futures
     global _QUOTA_EXHAUSTED
 
     if _QUOTA_EXHAUSTED:
@@ -77,33 +81,42 @@ def _call_gemini(prompt, use_search=False, temperature=0.7, response_mime_type=N
     config_kwargs = {"temperature": temperature}
     if use_search:
         config_kwargs["tools"] = [{"google_search": {}}]
-        # Google Search grounding과 JSON 응답 모드는 동시 사용 불가 → 무시
     elif response_mime_type:
         config_kwargs["response_mime_type"] = response_mime_type
 
     config = types.GenerateContentConfig(**config_kwargs)
 
+    def _do_call(mdl, cfg):
+        return client.models.generate_content(model=mdl, contents=prompt, config=cfg)
+
     last_err = None
     for model in _MODEL_FALLBACK:
-        for attempt in range(2):  # 모델당 최대 2회 시도 (1회 재시도)
+        for attempt in range(2):
             try:
-                response = client.models.generate_content(
-                    model=model,
-                    contents=prompt,
-                    config=config,
-                )
+                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
+                    future = ex.submit(_do_call, model, config)
+                    try:
+                        response = future.result(timeout=_API_TIMEOUT_SEC)
+                    except concurrent.futures.TimeoutError:
+                        raise Exception(f"API_TIMEOUT: AI 응답 대기 시간({_API_TIMEOUT_SEC}초)을 초과했습니다. 잠시 후 다시 시도해주세요.")
+
                 _QUOTA_EXHAUSTED = False
                 return response
+
             except Exception as api_err:
                 err_str = str(api_err)
                 last_err = api_err
 
-                # 할당량 초과 — 같은 키 쓰는 다른 모델도 동일하게 막히므로 즉시 중단
+                # 타임아웃 — 즉시 중단 (재시도 무의미)
+                if "API_TIMEOUT" in err_str:
+                    raise api_err
+
+                # 할당량 초과 — 즉시 중단
                 if "429" in err_str or "RESOURCE_EXHAUSTED" in err_str:
                     _QUOTA_EXHAUSTED = True
                     raise api_err
 
-                # 서버 일시 오류 — 1회만 재시도 후 다음 모델로
+                # 서버 일시 오류 — 1회 재시도 후 다음 모델로
                 if "503" in err_str or "UNAVAILABLE" in err_str:
                     if attempt == 0:
                         time.sleep(3)
@@ -114,19 +127,15 @@ def _call_gemini(prompt, use_search=False, temperature=0.7, response_mime_type=N
                 if "404" in err_str or "NOT_FOUND" in err_str:
                     break
 
-                # 구글 검색 권한 오류 (403) 시 검색 없이 재시도
+                # Google Search 권한 오류 (403) → 검색 없이 재시도
                 if "403" in err_str and use_search:
-                    print(f"Warning: Google Search tool denied (403). Retrying without search for {model}...")
                     config_no_search = types.GenerateContentConfig(temperature=temperature)
                     if response_mime_type:
                         config_no_search.response_mime_type = response_mime_type
-                    
                     try:
-                        response = client.models.generate_content(
-                            model=model,
-                            contents=prompt,
-                            config=config_no_search,
-                        )
+                        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
+                            future = ex.submit(_do_call, model, config_no_search)
+                            response = future.result(timeout=_API_TIMEOUT_SEC)
                         return response
                     except Exception as fallback_err:
                         print(f"Fallback without search also failed: {fallback_err}")
