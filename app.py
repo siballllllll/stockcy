@@ -2054,36 +2054,49 @@ def main():
                                 unsafe_allow_html=True,
                             )
 
-                        # HTS 스타일 타임프레임 선택
-                        _kr_ivs = [("1분","1"),("5분","5"),("15분","15"),("30분","30"),("1시간","60"),("일봉","D")]
-                        _iv_cols = st.columns(len(_kr_ivs))
-                        for _ivi, (_ivl, _ivv) in enumerate(_kr_ivs):
-                            if _iv_cols[_ivi].button(
-                                _ivl, key=f"kr_iv_{_ivv}",
-                                type="primary" if st.session_state.kr_chart_type == _ivv else "secondary",
-                                use_container_width=True,
-                            ):
-                                st.session_state.kr_chart_type = _ivv
-                                st.rerun()
-
-                        # 일봉 모드일 때 기간 선택 다시 살리기
-                        if st.session_state.kr_chart_type == "D":
-                            _pds = [("1달","1mo"),("3달","3mo"),("6달","6mo"),("1년","1y"),("3년","3y"),("5년","5y"),("10년","10y")]
-                            _pd_cols = st.columns(len(_pds))
-                            for _pi, (_pl, _pv) in enumerate(_pds):
-                                if _pd_cols[_pi].button(
-                                    _pl, key=f"kr_dp_{_pv}",
-                                    type="primary" if st.session_state.kr_daily_period == _pv else "secondary",
-                                    use_container_width=True,
-                                ):
-                                    st.session_state.kr_daily_period = _pv
-                                    st.rerun()
-
-                        _kr_period = st.session_state.kr_daily_period if st.session_state.kr_chart_type == "D" else "3mo"
+                        # 드롭다운 스타일 타임프레임 선택 (KR)
+                        _tf_c1, _tf_c2, _tf_c3 = st.columns([2, 3, 5])
+                        with _tf_c1:
+                            _kr_main_options = ["일봉", "주봉", "월봉", "분봉"]
+                            _kr_main_tf = st.selectbox(
+                                "단위", _kr_main_options, 
+                                index=0 if st.session_state.kr_chart_type == "D" else 
+                                      1 if st.session_state.kr_chart_type == "W" else
+                                      2 if st.session_state.kr_chart_type == "M" else 3,
+                                label_visibility="collapsed", key="kr_main_tf"
+                            )
                         
+                        with _tf_c2:
+                            if _kr_main_tf == "분봉":
+                                _kr_min_options = ["1분", "5분", "15분", "30분", "60분"]
+                                _cur_min = f"{st.session_state.kr_chart_type}분" if st.session_state.kr_chart_type.isdigit() else "5분"
+                                _kr_sub_tf = st.selectbox(
+                                    "간격", _kr_min_options,
+                                    index=_kr_min_options.index(_cur_min) if _cur_min in _kr_min_options else 1,
+                                    label_visibility="collapsed", key="kr_sub_tf_min"
+                                )
+                                _new_iv = _kr_sub_tf.replace("분", "")
+                            else:
+                                _kr_pd_options = ["1달", "3달", "6달", "1년", "3년", "5년", "10년"]
+                                _cur_pd_lbl = {"1mo":"1달","3mo":"3달","6mo":"6달","1y":"1년","3y":"3년","5y":"5년","10y":"10년"}.get(st.session_state.kr_daily_period, "3달")
+                                _kr_sub_tf = st.selectbox(
+                                    "기간", _kr_pd_options,
+                                    index=_kr_pd_options.index(_cur_pd_lbl) if _cur_pd_lbl in _kr_pd_options else 1,
+                                    label_visibility="collapsed", key="kr_sub_tf_pd"
+                                )
+                                _new_iv = "D" if _kr_main_tf == "일봉" else "W" if _kr_main_tf == "주봉" else "M"
+                                _new_pd = {"1달":"1mo","3달":"3mo","6달":"6mo","1년":"1y","3년":"3y","5년":"5y","10년":"10y"}[_kr_sub_tf]
+                                st.session_state.kr_daily_period = _new_pd
+
+                        if _new_iv != st.session_state.kr_chart_type:
+                            st.session_state.kr_chart_type = _new_iv
+                            st.rerun()
+
+                        _kr_period = st.session_state.kr_daily_period if st.session_state.kr_chart_type in ["D", "W", "M"] else "3mo"
                         _tab_chart, _tab_box = st.tabs(["📊 차트", "📦 박스권·수급 분석"])
                         with _tab_chart:
-                            _kr_echarts_chart(selected_code_kr, interval=st.session_state.kr_chart_type, height=600, period=_kr_period)
+                            st.caption("ℹ️ 이동평균선 안내: 🟡5일(단기) | 💗20일(생명) | 🟢60일(수급) | 🔵120일(경기)")
+                            _kr_echarts_chart(selected_code_kr, interval=st.session_state.kr_chart_type, height=500, period=_kr_period)
                         with _tab_box:
                             _kr_box_key = f"kr_box_result_{selected_code_kr}"
                             st.markdown(
@@ -4327,36 +4340,50 @@ def main():
                                 unsafe_allow_html=True,
                             )
 
-                        # HTS 스타일 타임프레임 선택 (US) - 국내와 동일하게 세분화
-                        _us_ivs = [("1분","1"),("5분","5"),("15분","15"),("30분","30"),("1시간","60"),("일봉","D")]
-                        _us_iv_cols = st.columns(len(_us_ivs))
-                        for _uvi, (_uvl, _uvv) in enumerate(_us_ivs):
-                            if _us_iv_cols[_uvi].button(
-                                _uvl, key=f"us_iv_{_uvv}",
-                                type="primary" if st.session_state.us_chart_type == _uvv else "secondary",
-                                use_container_width=True,
-                            ):
-                                st.session_state.us_chart_type = _uvv
-                                st.rerun()
+                        # 드롭다운 스타일 타임프레임 선택 (US)
+                        _utf_c1, _utf_c2, _utf_c3 = st.columns([2, 3, 5])
+                        with _utf_c1:
+                            _us_main_options = ["일봉", "주봉", "월봉", "분봉"]
+                            _us_main_tf = st.selectbox(
+                                "단위", _us_main_options,
+                                index=0 if st.session_state.us_chart_type == "D" else 
+                                      1 if st.session_state.us_chart_type == "1wk" else
+                                      2 if st.session_state.us_chart_type == "1mo" else 3,
+                                label_visibility="collapsed", key="us_main_tf"
+                            )
+                        
+                        with _utf_c2:
+                            if _us_main_tf == "분봉":
+                                _us_min_options = ["1분", "5분", "15분", "30분", "60분"]
+                                _cur_us_min = f"{st.session_state.us_chart_type}분" if st.session_state.us_chart_type.isdigit() else "5분"
+                                _us_sub_tf = st.selectbox(
+                                    "간격", _us_min_options,
+                                    index=_us_min_options.index(_cur_us_min) if _cur_us_min in _us_min_options else 1,
+                                    label_visibility="collapsed", key="us_sub_tf_min"
+                                )
+                                _new_us_iv = _us_sub_tf.replace("분", "")
+                            else:
+                                _us_pd_options = ["1달", "3달", "6달", "1년", "3년", "5년", "10년"]
+                                _cur_us_pd_lbl = {"1mo":"1달","3mo":"3달","6mo":"6달","1y":"1년","3y":"3년","5y":"5년","10y":"10년"}.get(st.session_state.us_daily_period, "3달")
+                                _us_sub_tf = st.selectbox(
+                                    "기간", _us_pd_options,
+                                    index=_us_pd_options.index(_cur_us_pd_lbl) if _cur_us_pd_lbl in _us_pd_options else 1,
+                                    label_visibility="collapsed", key="us_sub_tf_pd"
+                                )
+                                _new_us_iv = "D" if _us_main_tf == "일봉" else "1wk" if _us_main_tf == "주봉" else "1mo"
+                                _new_us_pd = {"1달":"1mo","3달":"3mo","6달":"6mo","1년":"1y","3년":"3y","5년":"5y","10년":"10y"}[_us_sub_tf]
+                                st.session_state.us_daily_period = _new_us_pd
 
-                        # 일봉 모드일 때 기간 선택 (1달~10년)
-                        if st.session_state.us_chart_type == "D":
-                            _us_pds = [("1달","1mo"),("3달","3mo"),("6달","6mo"),("1년","1y"),("3년","3y"),("5년","5y"),("10년","10y")]
-                            _us_pd_cols = st.columns(len(_us_pds))
-                            for _upi, (_upl, _upv) in enumerate(_us_pds):
-                                if _us_pd_cols[_upi].button(
-                                    _upl, key=f"us_dp_{_upv}",
-                                    type="primary" if st.session_state.us_daily_period == _upv else "secondary",
-                                    use_container_width=True,
-                                ):
-                                    st.session_state.us_daily_period = _upv
-                                    st.rerun()
+                        if _new_us_iv != st.session_state.us_chart_type:
+                            st.session_state.us_chart_type = _new_us_iv
+                            st.rerun()
 
                         _us_iv_cur = st.session_state.us_chart_type
-                        _us_period = st.session_state.us_daily_period if _us_iv_cur == "D" else "3mo"
+                        _us_period = st.session_state.us_daily_period if _us_iv_cur in ["D", "1wk", "1mo"] else "3mo"
                         
                         _utab_chart, _utab_box = st.tabs(["📊 차트", "📦 박스권·수급 분석"])
                         with _utab_chart:
+                            st.caption("ℹ️ 이동평균선 안내: 🟡5일(단기) | 💗20일(생명) | 🟢60일(수급) | 🔵120일(경기)")
                             _us_echarts_chart(_us_ticker_cur, interval=_us_iv_cur, height=500, period=_us_period)
                         with _utab_box:
                             _us_box_key = f"us_box_result_{_us_ticker_cur}"
