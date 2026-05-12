@@ -4248,8 +4248,7 @@ def main():
                 detail_us = None
                 if _us_need_price:
                     with st.spinner(""):
-                        from data_kr import get_us_ticker_map
-                        _tmp_us_map = get_us_ticker_map()
+                        _tmp_us_map = st.session_state.us_ticker_map
                         _us_exch_for_detail = _tmp_us_map.get(_us_ticker_cur, {}).get("exchange", "NASDAQ") if _tmp_us_map else "NASDAQ"
                         detail_us = get_us_stock_detail(_us_ticker_cur, _us_exch_for_detail)
 
@@ -4263,8 +4262,7 @@ def main():
                         if st.session_state.us_sector_view == "detail":
                             _us_dticker   = st.session_state.us_sector_detail_ticker
                             _us_dname     = st.session_state.us_sector_detail_name
-                            from data_kr import get_us_ticker_map as _tmp_tm
-                            _tmp_us_map = _tmp_tm()
+                            _tmp_us_map = st.session_state.us_ticker_map
                             _us_dexchange = _tmp_us_map.get(_us_dticker, {}).get("exchange", "NASDAQ") if _tmp_us_map else st.session_state.get("us_sector_detail_exchange", "NASDAQ")
                             st.session_state.us_sector_detail_exchange = _us_dexchange
                             _tv_dexchange = _YF_TO_TV.get(_us_dexchange.upper(), _us_dexchange.upper())
@@ -4272,8 +4270,7 @@ def main():
                             _us_tv_sym    = f"{_tv_dexchange}:{_us_dticker}"
 
                             # 이름 보정
-                            from data_kr import get_us_ticker_map as _get_us_tm_head
-                            _us_tm_head = _get_us_tm_head()
+                            _us_tm_head = st.session_state.us_ticker_map
                             _real_us_dname = _us_dname
                             if _us_tm_head and _us_dticker in _us_tm_head:
                                 _real_us_dname = _us_tm_head[_us_dticker].get("name", _us_dname)
@@ -5012,8 +5009,7 @@ def main():
                         if st.session_state.us_sector_view == "detail":
                             _us_dticker   = st.session_state.us_sector_detail_ticker
                             _us_dname     = st.session_state.us_sector_detail_name
-                            from data_kr import get_us_ticker_map as _tmp_tm
-                            _tmp_us_map = _tmp_tm()
+                            _tmp_us_map = st.session_state.us_ticker_map
                             _us_dexchange = _tmp_us_map.get(_us_dticker, {}).get("exchange", "NASDAQ") if _tmp_us_map else st.session_state.get("us_sector_detail_exchange", "NASDAQ")
                             st.session_state.us_sector_detail_exchange = _us_dexchange
 
@@ -5856,9 +5852,8 @@ def main():
 
             st.markdown("---")
 
-            from data_kr import get_kr_code_to_name_map, get_us_ticker_map
-            _kr_map = get_kr_code_to_name_map()
-            _us_map = get_us_ticker_map()
+            _kr_map = st.session_state.kr_code_to_name
+            _us_map = st.session_state.us_ticker_map
 
             for idx, item in enumerate(port_list):
                 ticker = item["ticker"]
