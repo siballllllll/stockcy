@@ -109,7 +109,7 @@ def _kr_echarts_chart(stock_code: str, interval: str = "1", height: int = 600, p
 
     with st.spinner("전문 차트 데이터 로드 중..."):
         if interval == "D":
-            df = get_kr_daily_chart(stock_code, days=int(period) if period.isdigit() else 150)
+            df = get_kr_daily_chart(stock_code, period=period if isinstance(period, str) else "3mo")
         else:
             _min_iv = int(interval) if interval.isdigit() else 5
             df = get_kr_minute_chart(stock_code, interval=_min_iv)
