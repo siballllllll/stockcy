@@ -10,3 +10,4 @@ plotly>=5.0.0
 pykrx>=1.0.45
 finance-datareader>=0.9.50
 feedparser>=6.0.11
+streamlit-lightweight-charts
