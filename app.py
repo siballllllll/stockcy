@@ -141,12 +141,12 @@ def _us_echarts_chart(ticker: str, interval: str = "5", height: int = 600, perio
             "legend": {
                 "bottom": 10, "left": "center",
                 "data": ["Price", "MA5", "MA20", "MA60", "MA120"],
-                "textStyle": {"color": "#888", "fontSize": 12}
+                "textStyle": {"color": "#888", "fontSize": 14}
             },
             "tooltip": {
                 "trigger": "axis", "axisPointer": {"type": "cross"},
                 "backgroundColor": "rgba(30, 30, 30, 0.9)",
-                "borderColor": "#444", "textStyle": {"color": "#ccc", "fontSize": 12}
+                "borderColor": "#444", "textStyle": {"color": "#ccc", "fontSize": 14}
             },
             "axisPointer": {"link": [{"xAxisIndex": "all"}]},
             "grid": [
@@ -159,7 +159,7 @@ def _us_echarts_chart(ticker: str, interval: str = "5", height: int = 600, perio
                     "axisLine": {"onZero": False, "lineStyle": {"color": "#444"}},
                     "splitLine": {"show": False}, "min": "dataMin", "max": "dataMax",
                     "axisPointer": {"z": 100},
-                    "axisLabel": {"color": "#888", "fontSize": 12}
+                    "axisLabel": {"color": "#888", "fontSize": 14}
                 },
                 {
                     "type": "category", "gridIndex": 1, "data": category_data, "boundaryGap": False,
@@ -173,7 +173,7 @@ def _us_echarts_chart(ticker: str, interval: str = "5", height: int = 600, perio
                     "scale": True, "splitArea": {"show": False},
                     "axisLine": {"lineStyle": {"color": "#444"}},
                     "splitLine": {"lineStyle": {"color": "rgba(255,255,255,0.05)"}},
-                    "axisLabel": {"color": "#888", "fontSize": 12}
+                    "axisLabel": {"color": "#888", "fontSize": 14}
                 },
                 {
                     "scale": True, "gridIndex": 1, "splitNumber": 2,
@@ -261,12 +261,12 @@ def _kr_echarts_chart(stock_code: str, interval: str = "1", height: int = 600, p
             "legend": {
                 "bottom": 10, "left": "center",
                 "data": ["Price", "MA5", "MA20", "MA60", "MA120"],
-                "textStyle": {"color": "#888", "fontSize": 12}
+                "textStyle": {"color": "#888", "fontSize": 14}
             },
             "tooltip": {
                 "trigger": "axis", "axisPointer": {"type": "cross"},
                 "backgroundColor": "rgba(30, 30, 30, 0.9)",
-                "borderColor": "#444", "textStyle": {"color": "#ccc", "fontSize": 12}
+                "borderColor": "#444", "textStyle": {"color": "#ccc", "fontSize": 14}
             },
             "axisPointer": {"link": [{"xAxisIndex": "all"}]},
             "grid": [
@@ -279,7 +279,7 @@ def _kr_echarts_chart(stock_code: str, interval: str = "1", height: int = 600, p
                     "axisLine": {"onZero": False, "lineStyle": {"color": "#444"}},
                     "splitLine": {"show": False}, "min": "dataMin", "max": "dataMax",
                     "axisPointer": {"z": 100},
-                    "axisLabel": {"color": "#888", "fontSize": 12}
+                    "axisLabel": {"color": "#888", "fontSize": 14}
                 },
                 {
                     "type": "category", "gridIndex": 1, "data": category_data, "boundaryGap": False,
@@ -293,7 +293,7 @@ def _kr_echarts_chart(stock_code: str, interval: str = "1", height: int = 600, p
                     "scale": True, "splitArea": {"show": False},
                     "axisLine": {"lineStyle": {"color": "#444"}},
                     "splitLine": {"lineStyle": {"color": "rgba(255,255,255,0.05)"}},
-                    "axisLabel": {"color": "#888", "fontSize": 12}
+                    "axisLabel": {"color": "#888", "fontSize": 14}
                 },
                 {
                     "scale": True, "gridIndex": 1, "splitNumber": 2,
@@ -358,7 +358,7 @@ def inject_custom_css():
     st.markdown("""
         <style>
         /* ── 77% 축소 — zoom + 높이 보정으로 클리핑 방지 ── */
-        html { zoom: 0.77; font-size: 19px; }
+        html { zoom: 0.77; font-size: 21px; }
         .stApp,
         [data-testid="stAppViewContainer"],
         [data-testid="stMain"] {
