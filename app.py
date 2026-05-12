@@ -14,7 +14,8 @@ from data_kr import (get_us_prices_bulk_kis, get_kr_index_history,
                      get_kr_change_ranking, get_kr_prices_bulk,
                      get_kr_minute_chart, get_kr_daily_chart,
                      get_kr_stock_name_kis, get_kr_name_to_code_map,
-                     get_kr_code_to_name_map, get_kr_major_tickers)
+                     get_kr_code_to_name_map, get_kr_major_tickers,
+                     get_us_ticker_map)
 from ai_engine import analyze_sector_rotation
 import re
 
@@ -153,7 +154,7 @@ def _us_echarts_chart(ticker: str, interval: str = "5", height: int = 600, perio
             ],
             "xAxis": [
                 {
-                    "type": "category", "data": category_data, "boundaryGap": False,
+                    "type": "category", "data": category_data, "boundaryGap": True,
                     "axisLine": {"onZero": False, "lineStyle": {"color": "#444"}},
                     "splitLine": {"show": False}, "min": "dataMin", "max": "dataMax",
                     "axisPointer": {"z": 100},
@@ -193,6 +194,7 @@ def _us_echarts_chart(ticker: str, interval: str = "5", height: int = 600, perio
             "series": [
                 {
                     "name": "Price", "type": "candlestick", "data": values,
+                    "barMaxWidth": 30,
                     "itemStyle": {
                         "color": "#ff4b4b", "color0": "#2b7cff",
                         "borderColor": "#ff4b4b", "borderColor0": "#2b7cff"
@@ -204,13 +206,14 @@ def _us_echarts_chart(ticker: str, interval: str = "5", height: int = 600, perio
                 {"name": "MA120", "type": "line", "data": ma120, "smooth": True, "showSymbol": False, "lineStyle": {"width": 1, "color": "#81d4fa"}},
                 {
                     "name": "Volume", "type": "bar", "xAxisIndex": 1, "yAxisIndex": 1, "data": volumes,
+                    "barMaxWidth": 30,
                     "itemStyle": {
                         "color": "#ff4b4b", "color0": "#2b7cff"
                     }
                 }
             ]
         }
-        st_echarts(options=options, height=f"500px", key=f"us_echart_{ticker}_{interval}")
+        st_echarts(options=options, height=f"500px", key=f"us_echart_{ticker}_{interval}_{period}")
 
 def _kr_echarts_chart(stock_code: str, interval: str = "1", height: int = 600, period: str = "150"):
     """Apache ECharts 기반 국내 주식 차트 (캔들 + 거래량 분리)"""
@@ -271,7 +274,7 @@ def _kr_echarts_chart(stock_code: str, interval: str = "1", height: int = 600, p
             ],
             "xAxis": [
                 {
-                    "type": "category", "data": category_data, "boundaryGap": False,
+                    "type": "category", "data": category_data, "boundaryGap": True,
                     "axisLine": {"onZero": False, "lineStyle": {"color": "#444"}},
                     "splitLine": {"show": False}, "min": "dataMin", "max": "dataMax",
                     "axisPointer": {"z": 100},
@@ -309,8 +312,8 @@ def _kr_echarts_chart(stock_code: str, interval: str = "1", height: int = 600, p
                 }
             ],
             "series": [
-                {
                     "name": "Price", "type": "candlestick", "data": values,
+                    "barMaxWidth": 30,
                     "itemStyle": {
                         "color": "#ff4b4b", "color0": "#2b7cff",
                         "borderColor": "#ff4b4b", "borderColor0": "#2b7cff"
@@ -322,13 +325,14 @@ def _kr_echarts_chart(stock_code: str, interval: str = "1", height: int = 600, p
                 {"name": "MA120", "type": "line", "data": ma120, "smooth": True, "showSymbol": False, "lineStyle": {"width": 1, "color": "#81d4fa"}},
                 {
                     "name": "Volume", "type": "bar", "xAxisIndex": 1, "yAxisIndex": 1, "data": volumes,
+                    "barMaxWidth": 30,
                     "itemStyle": {
                         "color": "#ff4b4b", "color0": "#2b7cff"
                     }
                 }
             ]
         }
-        st_echarts(options=options, height=f"500px", key=f"kr_echart_{stock_code}_{interval}")
+        st_echarts(options=options, height=f"500px", key=f"kr_echart_{stock_code}_{interval}_{period}")
 
 
 

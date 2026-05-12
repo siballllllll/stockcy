@@ -889,7 +889,7 @@ def get_kr_daily_chart(stock_code: str, period: str = "3mo") -> pd.DataFrame:
     _period_days = {
         "1d": 2, "5d": 8, "15d": 22, "1mo": 35,
         "3mo": 95, "6mo": 185, "1y": 370,
-        "2y": 740, "3y": 1100, "5y": 1830,
+        "2y": 740, "3y": 1100, "5y": 1830, "10y": 3650,
     }
     _days = _period_days.get(period, 95)
     _end_dt  = _dt.now()
@@ -1195,7 +1195,7 @@ def get_us_fdr_sector_map() -> dict:
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def get_us_daily_chart(ticker: str, period: str = "3mo") -> pd.DataFrame:
-    """미국 주식 일봉 데이터 (yfinance). period: 1d/5d/15d/1mo/3mo/6mo/1y/2y/3y/5y"""
+    """미국 주식 일봉 데이터 (yfinance). period: 1d/5d/15d/1mo/3mo/6mo/1y/2y/3y/5y/10y"""
     import yfinance as yf
     from datetime import datetime as _dt, timedelta as _td
     _custom = {"15d": 21, "3y": 1100}
@@ -1233,8 +1233,8 @@ def get_us_minute_chart(ticker: str, interval: int = 5) -> pd.DataFrame:
     _map = {1: "1m", 3: "5m", 5: "5m", 10: "15m", 15: "15m", 30: "30m", 60: "60m"}
     yf_interval = _map.get(interval, "5m")
     try:
-        # prepost=True를 설정하여 프리마켓/애프터마켓 데이터 포함
-        raw = yf.Ticker(ticker).history(period="1d", interval=yf_interval, auto_adjust=True, prepost=True)
+        # prepost=True를 설정하여 프리마켓/애프터마켓 데이터 포함. period="5d"로 안정적 데이터 확보
+        raw = yf.Ticker(ticker).history(period="5d", interval=yf_interval, auto_adjust=True, prepost=True)
         if raw.empty:
             return pd.DataFrame()
         df = raw.reset_index()
