@@ -5607,27 +5607,27 @@ def main():
                     pnl = sum_cur_krw - sum_inv_krw
                     pct = (pnl / sum_inv_krw * 100) if sum_inv_krw > 0 else 0
                     st.metric("총 매수", f"₩{sum_inv_krw:,.0f}")
-                    st.metric("평가 손익", f"₩{pnl:+,0f}", f"{pct:+.2f}%")
+                    st.metric("평가 손익", f"₩{pnl:+,.0f}", f"{pct:+.2f}%")
                 with c2:
                     st.caption("🇺🇸 미국 자산")
                     pnl = sum_cur_usd - sum_inv_usd
                     pct = (pnl / sum_inv_usd * 100) if sum_inv_usd > 0 else 0
                     st.metric("총 매수", f"${sum_inv_usd:,.2f}")
-                    st.metric("평가 손익", f"${pnl:+,2f}", f"{pct:+.2f}%")
+                    st.metric("평가 손익", f"${pnl:+,.2f}", f"{pct:+.2f}%")
             elif sum_inv_krw > 0:
                 c1, c2, c3 = st.columns(3)
                 pnl = sum_cur_krw - sum_inv_krw
                 pct = (pnl / sum_inv_krw * 100) if sum_inv_krw > 0 else 0
                 c1.metric("총 매수 금액", f"₩{sum_inv_krw:,.0f}")
                 c2.metric("총 평가 금액", f"₩{sum_cur_krw:,.0f}")
-                c3.metric("총 수익", f"₩{pnl:+,0f}", f"{pct:+.2f}%")
+                c3.metric("총 수익", f"₩{pnl:+,.0f}", f"{pct:+.2f}%")
             else:
                 c1, c2, c3 = st.columns(3)
                 pnl = sum_cur_usd - sum_inv_usd
                 pct = (pnl / sum_inv_usd * 100) if sum_inv_usd > 0 else 0
                 c1.metric("총 매수 금액", f"${sum_inv_usd:,.2f}")
                 c2.metric("총 평가 금액", f"${sum_cur_usd:,.2f}")
-                c3.metric("총 수익", f"${pnl:+,2f}", f"{pct:+.2f}%")
+                c3.metric("총 수익", f"${pnl:+,.2f}", f"{pct:+.2f}%")
 
             st.markdown("---")
 
