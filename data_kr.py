@@ -421,7 +421,7 @@ def _kis_minute_chart_raw(stock_code: str) -> pd.DataFrame:
     return df.dropna(subset=["open", "high", "low", "close"]).reset_index(drop=True)
 
 
-def _kis_daily_chart_raw(stock_code: str, start_yyyymmdd: str, end_yyyymmdd: str) -> pd.DataFrame:
+def _kis_daily_chart_raw(stock_code: str, start_yyyymmdd: str, end_yyyymmdd: str, unit: str = "D") -> pd.DataFrame:
     """KIS API 일봉 데이터 (최대 10회 호출 × 100봉 = ~1000봉)"""
     all_rows: list = []
     query_end = end_yyyymmdd
@@ -434,7 +434,7 @@ def _kis_daily_chart_raw(stock_code: str, start_yyyymmdd: str, end_yyyymmdd: str
                 "FID_INPUT_ISCD": stock_code,
                 "FID_INPUT_DATE_1": start_yyyymmdd,
                 "FID_INPUT_DATE_2": query_end,
-                "FID_PERIOD_DIV_CODE": "D",
+                "FID_PERIOD_DIV_CODE": unit,
                 "FID_ORG_ADJ_PRC": "1",
             },
         )
@@ -882,12 +882,12 @@ def get_kr_change_ranking(market: str = "J") -> list:
 
 
 @st.cache_data(ttl=300)
-def get_kr_daily_chart(stock_code: str, period: str = "3mo") -> pd.DataFrame:
-    """국내 주식 일봉 데이터 (KIS API → yfinance 폴백). period: 1d/5d/15d/1mo/3mo/6mo/1y/2y/3y/5y"""
+def get_kr_daily_chart(stock_code: str, period: str = "3mo", unit: str = "D") -> pd.DataFrame:
+    """국내 주식 일/주/월봉 데이터. unit: D, W, M"""
     from datetime import datetime as _dt, timedelta as _td
 
     _period_days = {
-        "1d": 2, "5d": 8, "15d": 22, "1mo": 35,
+        "1d": 2, "3d": 5, "1w": 8, "15d": 22, "1mo": 35,
         "3mo": 95, "6mo": 185, "1y": 370,
         "2y": 740, "3y": 1100, "5y": 1830, "10y": 3650,
     }
@@ -899,7 +899,7 @@ def get_kr_daily_chart(stock_code: str, period: str = "3mo") -> pd.DataFrame:
 
     # ── 1차: KIS API ──────────────────────────────────────────────────────────
     try:
-        df = _kis_daily_chart_raw(stock_code, _start_str, _end_str)
+        df = _kis_daily_chart_raw(stock_code, _start_str, _end_str, unit=unit)
         if not df.empty:
             return df
     except Exception:
@@ -912,10 +912,11 @@ def get_kr_daily_chart(stock_code: str, period: str = "3mo") -> pd.DataFrame:
         _hist_kw = {"start": _start_dt.strftime("%Y-%m-%d"), "end": _end_dt.strftime("%Y-%m-%d")}
     else:
         _hist_kw = {"period": period}
+    _yf_iv = "1d" if unit == "D" else "1wk" if unit == "W" else "1mo"
     for suffix in [".KS", ".KQ"]:
         try:
             raw = yf.Ticker(f"{stock_code}{suffix}").history(
-                **_hist_kw, interval="1d", auto_adjust=True
+                **_hist_kw, interval=_yf_iv, auto_adjust=True
             )
             if raw.empty:
                 continue
@@ -1194,8 +1195,8 @@ def get_us_fdr_sector_map() -> dict:
 
 
 @st.cache_data(ttl=3600, show_spinner=False)
-def get_us_daily_chart(ticker: str, period: str = "3mo") -> pd.DataFrame:
-    """미국 주식 일봉 데이터 (yfinance). period: 1d/5d/15d/1mo/3mo/6mo/1y/2y/3y/5y/10y"""
+def get_us_daily_chart(ticker: str, period: str = "3mo", unit: str = "D") -> pd.DataFrame:
+    """미국 주식 일/주/월봉 데이터 (yfinance). unit: D, W, M"""
     import yfinance as yf
     from datetime import datetime as _dt, timedelta as _td
     _custom = {"15d": 21, "3y": 1100}
@@ -1205,8 +1206,9 @@ def get_us_daily_chart(ticker: str, period: str = "3mo") -> pd.DataFrame:
         _hist_kw = {"start": _start, "end": _end.strftime("%Y-%m-%d")}
     else:
         _hist_kw = {"period": period}
+    _yf_iv = "1d" if unit == "D" else "1wk" if unit == "W" else "1mo"
     try:
-        raw = yf.Ticker(ticker).history(**_hist_kw, interval="1d", auto_adjust=True)
+        raw = yf.Ticker(ticker).history(**_hist_kw, interval=_yf_iv, auto_adjust=True)
         if raw.empty:
             return pd.DataFrame()
         df = raw.reset_index()
