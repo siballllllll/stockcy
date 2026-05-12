@@ -5711,6 +5711,33 @@ def main():
                 with st.container(border=True):
                     cl, cr = st.columns([3, 2])
                     with cl:
+                        # ── 자동 AI 가이드 로직 ──
+                        guide_text = "⚪ 관망"
+                        guide_color = "#888"
+                        if pnl_pct >= 5.0:
+                            guide_text = "🚀 수익 실현 대기"
+                            guide_color = "#ff4b4b"
+                        elif 0 < pnl_pct < 5.0:
+                            guide_text = "📈 보유 유지"
+                            guide_color = "#ff4b4b"
+                        elif -3.0 <= pnl_pct <= 0:
+                            guide_text = "🟡 대기 요망"
+                            guide_color = "#f5c518"
+                        elif -8.0 <= pnl_pct < -3.0:
+                            guide_text = "🛠️ 추매 추천 (분할)"
+                            guide_color = "#2b7cff"
+                        elif pnl_pct < -8.0:
+                            guide_text = "⚠️ 손절 검토 필요"
+                            guide_color = "#2b7cff"
+
+                        st.markdown(
+                            f"<div style='display:inline-block;padding:2px 8px;border-radius:4px;"
+                            f"background:{guide_color}22;border:1px solid {guide_color};"
+                            f"color:{guide_color};font-size:0.68rem;font-weight:700;margin-bottom:6px'>"
+                            f"{guide_text}</div>",
+                            unsafe_allow_html=True
+                        )
+
                         st.markdown(f"**{emoji} {name} ({ticker})** <small style='color:#888'>{item.get('buy_date', '')}</small>",
                                     unsafe_allow_html=True)
                         dc1, dc2, dc3 = st.columns(3)
