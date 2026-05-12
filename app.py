@@ -1070,6 +1070,18 @@ def main():
     init_session_state()
     inject_custom_css()
     
+    # ── 무거운 데이터 맵 사전 로드 (세션 캐싱) ──────────────────────────
+    if "kr_name_to_code" not in st.session_state:
+        st.session_state.kr_name_to_code = get_kr_name_to_code_map()
+    if "kr_code_to_name" not in st.session_state:
+        st.session_state.kr_code_to_name = get_kr_code_to_name_map()
+    if "us_ticker_map" not in st.session_state:
+        st.session_state.us_ticker_map = get_us_ticker_map()
+    
+    _krx_map = st.session_state.kr_name_to_code
+    _c2n_kr  = st.session_state.kr_code_to_name
+    _us_map  = st.session_state.us_ticker_map
+    
     _is_kr_nav = "국내" in st.session_state.market
     _nav_mode_key = "kr_mode" if _is_kr_nav else "us_mode"
 
@@ -1341,46 +1353,60 @@ def main():
 
     _is_us_mode = "미국" in st.session_state.get("market", "")
 
-    if _is_us_mode:
-        # ── 미국 주식 슬라이딩 티커 ──
-        try:
-            _us_tick_data = get_kr_change_ranking_us() or []
-        except Exception:
-            _us_tick_data = []
-        _us_idx_data = get_us_market_indices() or {}
-        _us_tick_items = []
-        for _in, _id in [("S&P 500", _us_idx_data.get("S&P 500", {})),
-                          ("NASDAQ",  _us_idx_data.get("NASDAQ", {})),
-                          ("DOW",     _us_idx_data.get("DOW", {}))]:
-            _iv = _id.get("price", 0)
-            _ip = _id.get("change_pct", 0)
-            if _iv > 0:
-                _us_tick_items.append(_ticker_pill(_in, f"{_iv:,.2f}", _ip, is_index=True))
-        for _t in _us_tick_data[:18]:
-            _us_tick_items.append(_ticker_pill(
-                _t.get("name", _t.get("티커", _t.get("ticker", ""))),
-                f'${_t.get("현재가($)", _t.get("price", 0)):,.2f}',
-                _t.get("등락률(%)", _t.get("change_pct", 0))
-            ))
-        # 데이터 없을 때도 티커 바가 사라지지 않도록 폴백 아이템 추가
-        if not _us_tick_items:
-            for _fb in ["NVDA", "TSLA", "AAPL", "MSFT", "META", "AMZN"]:
-                _us_tick_items.append(_ticker_pill(_fb, "—", 0.0))
-        _render_scroll_ticker(_us_tick_items, speed=60)
+    # 티커 데이터 캐싱 (세션 상태 활용하여 중복 호출 방지)
+    _tk_last_run = "_ticker_last_run_ts"
+    _tk_data_key = "_ticker_last_data"
+    _now_tk = datetime.now()
+    _should_refresh_tk = False
+    if _tk_last_run not in st.session_state: _should_refresh_tk = True
     else:
-        # ── 국내 주식 슬라이딩 티커 ──
-        _kr_idx   = get_kr_market_index() or {}
-        _kr_ticks = get_kr_major_tickers()
-        _kr_items = []
-        for _iname, _id in _kr_idx.items():
-            _ip = _id.get("change_pct", 0)
-            _iv = _id.get("index", 0)
-            _kr_items.append(_ticker_pill(_iname, f"{_iv:,.2f}", _ip, is_index=True))
-        for _t in _kr_ticks:
-            _kr_items.append(_ticker_pill(_t["name"], f'₩{_t["price"]:,}', _t["pct"]))
-        if not _kr_items:
-            _kr_items.append(_ticker_pill("KOSPI", "—", 0.0, is_index=True))
-        _render_scroll_ticker(_kr_items, speed=50)
+        if (_now_tk - st.session_state[_tk_last_run]).total_seconds() > 60: # 1분 간격
+            _should_refresh_tk = True
+
+    if _is_us_mode:
+        if _should_refresh_tk or "us_tick_items" not in st.session_state.get(_tk_data_key, {}):
+            try:
+                from data_kr import get_kr_change_ranking_us
+                _us_tick_data = get_kr_change_ranking_us() or []
+            except Exception: _us_tick_data = []
+            _us_idx_data = get_us_market_indices() or {}
+            _us_tick_items = []
+            for _in, _id in [("S&P 500", _us_idx_data.get("S&P 500", {})),
+                              ("NASDAQ",  _us_idx_data.get("NASDAQ", {})),
+                              ("DOW",     _us_idx_data.get("DOW", {}))]:
+                _iv = _id.get("price", 0); _ip = _id.get("change_pct", 0)
+                if _iv > 0: _us_tick_items.append(_ticker_pill(_in, f"{_iv:,.2f}", _ip, is_index=True))
+            for _t in _us_tick_data[:18]:
+                _us_tick_items.append(_ticker_pill(
+                    _t.get("name", _t.get("티커", _t.get("ticker", ""))),
+                    f'${_t.get("현재가($)", _t.get("price", 0)):,.2f}',
+                    _t.get("등락률(%)", _t.get("change_pct", 0))
+                ))
+            if not _us_tick_items:
+                for _fb in ["NVDA", "TSLA", "AAPL", "MSFT", "META", "AMZN"]: _us_tick_items.append(_ticker_pill(_fb, "—", 0.0))
+            
+            if _tk_data_key not in st.session_state: st.session_state[_tk_data_key] = {}
+            st.session_state[_tk_data_key]["us_tick_items"] = _us_tick_items
+            st.session_state[_tk_last_run] = _now_tk
+        
+        _render_scroll_ticker(st.session_state[_tk_data_key].get("us_tick_items", []), speed=60)
+    else:
+        if _should_refresh_tk or "kr_items" not in st.session_state.get(_tk_data_key, {}):
+            _kr_idx   = get_kr_market_index() or {}
+            _kr_ticks = get_kr_major_tickers()
+            _kr_items = []
+            for _iname, _id in _kr_idx.items():
+                _ip = _id.get("change_pct", 0); _iv = _id.get("index", 0)
+                _kr_items.append(_ticker_pill(_iname, f"{_iv:,.2f}", _ip, is_index=True))
+            for _t in _kr_ticks:
+                _kr_items.append(_ticker_pill(_t["name"], f'₩{_t["price"]:,}', _t["pct"]))
+            if not _kr_items: _kr_items.append(_ticker_pill("KOSPI", "—", 0.0, is_index=True))
+            
+            if _tk_data_key not in st.session_state: st.session_state[_tk_data_key] = {}
+            st.session_state[_tk_data_key]["kr_items"] = _kr_items
+            st.session_state[_tk_last_run] = _now_tk
+
+        _render_scroll_ticker(st.session_state[_tk_data_key].get("kr_items", []), speed=50)
 
     # ── 미국·글로벌 TradingView 티커 ────────────────────────────────────
     components.html("""
@@ -1471,25 +1497,37 @@ def main():
 
             selected_code_kr = st.session_state.kr_selected_code
 
-            # ── 신호 스캔 (모드 무관, 항상 실행 → 네비 배지용) ──────────────
-            if _HAVE_AUTOREFRESH:
-                _st_autorefresh(interval=180_000, key="kr_signal_autorefresh")
-
-            def _quick_signal_scan() -> int:
-                try:
-                    from ai_engine import _compute_prebreakout_signals
-                    _qvol = get_kr_volume_ranking() or []
-                    _qchg = (get_kr_change_ranking("J") or []) + (get_kr_change_ranking("Q") or [])
-                    _qpre, _ = _compute_prebreakout_signals(_qvol, _qchg)
-                    return sum(1 for x in _qpre if x.get("_signal", {}).get("signal_score", 0) >= 3)
-                except Exception:
-                    return 0
-
+            # ── 신호 스캔 (쓰로틀링 적용: 2분 간격) ──────────────
             _sig_count_key = "_kr_sig_count_last"
             _sig_ts_key    = "_kr_sig_ts_last"
-            _new_count = _quick_signal_scan()
-            st.session_state[_sig_count_key] = _new_count
-            st.session_state[_sig_ts_key] = (datetime.now() + timedelta(hours=9)).strftime("%H:%M")
+            _sig_last_run  = "_kr_sig_run_ts"
+            
+            _now_dt = datetime.now()
+            _should_scan = False
+            if _sig_last_run not in st.session_state:
+                _should_scan = True
+            else:
+                _diff = (_now_dt - st.session_state[_sig_last_run]).total_seconds()
+                if _diff > 120: # 2분
+                    _should_scan = True
+            
+            if _should_scan:
+                def _quick_signal_scan() -> int:
+                    try:
+                        from ai_engine import _compute_prebreakout_signals
+                        _qvol = get_kr_volume_ranking() or []
+                        _qchg = (get_kr_change_ranking("J") or []) + (get_kr_change_ranking("Q") or [])
+                        _qpre, _ = _compute_prebreakout_signals(_qvol, _qchg)
+                        return sum(1 for x in _qpre if x.get("_signal", {}).get("signal_score", 0) >= 3)
+                    except Exception:
+                        return 0
+                
+                st.session_state[_sig_count_key] = _quick_signal_scan()
+                st.session_state[_sig_ts_key] = (_now_dt + timedelta(hours=9)).strftime("%H:%M")
+                st.session_state[_sig_last_run] = _now_dt
+            
+            _new_count = st.session_state.get(_sig_count_key, 0)
+            _sig_ts = st.session_state.get(_sig_ts_key, "")
             _sig_ts = st.session_state.get(_sig_ts_key, "")
 
             # ══════════════════════════════════════════════════════════════
@@ -1905,7 +1943,7 @@ def main():
                             _dtv_name = st.session_state.kr_sector_detail_name
                             
                             # 이름 보정: 마스터 맵에서 실제 이름 조회
-                            _c2n_d = get_kr_code_to_name_map()
+                            _c2n_d = st.session_state.kr_code_to_name
                             _real_dtv_name = _c2n_d.get(_dtv_code, _dtv_name)
                             if _real_dtv_name == _dtv_code and price_kr and price_kr.get('name'):
                                 _real_dtv_name = price_kr['name']
@@ -2036,7 +2074,7 @@ def main():
                     else:
                         if price_kr:
                             # 이름 보정: 마스터 맵에서 먼저 찾고, 없으면 시세 데이터 사용
-                            _c2n = get_kr_code_to_name_map()
+                            _c2n = st.session_state.kr_code_to_name
                             _real_name = _c2n.get(selected_code_kr, price_kr.get('name') or selected_code_kr)
                             
                             # 세션 이름 업데이트 (코드로 박혀있는 경우 방지)
@@ -2149,7 +2187,7 @@ def main():
                     if kr_mode == "📊 일반 주식 검색":
                         _cur_code = st.session_state.kr_selected_code
                         _cur_name = st.session_state.kr_selected_name
-                        _krx_map = get_kr_name_to_code_map()
+                        _krx_map = st.session_state.kr_name_to_code
                         new_code = _cur_code
                         new_name = _cur_name
                         if _krx_map:
@@ -2203,7 +2241,7 @@ def main():
                             if manual_code_kr and len(manual_code_kr) == 6 and manual_code_kr.isdigit():
                                 new_code = manual_code_kr
                                 # 이름 찾기 시도
-                                _c2n = get_kr_code_to_name_map()
+                                _c2n = st.session_state.kr_code_to_name
                                 new_name = _c2n.get(new_code, new_code)
                         if new_code != st.session_state.kr_selected_code:
                             st.session_state.kr_selected_code = new_code
@@ -4321,8 +4359,7 @@ def main():
                     else:
                         if detail_us:
                             # 이름 보정
-                            from data_kr import get_us_ticker_map as _get_us_tm_head_g
-                            _us_tm_head_g = _get_us_tm_head_g()
+                            _us_tm_head_g = st.session_state.us_ticker_map
                             _real_us_name = _us_ticker_cur
                             if _us_tm_head_g and _us_ticker_cur in _us_tm_head_g:
                                 _real_us_name = _us_tm_head_g[_us_ticker_cur].get("name", _us_ticker_cur)
@@ -4437,8 +4474,7 @@ def main():
 
                 with _us_right_ctr:
                     if us_mode == "📊 일반 주식 검색":
-                        from data_kr import get_us_ticker_map as _get_us_tm
-                        _us_tm = _get_us_tm()  # {ticker: {"name": name, "exchange": exch}}
+                        _us_tm = st.session_state.us_ticker_map
                         _us_all_stk: dict = {}
                         if _us_tm:
                             for _tk, _ti in _us_tm.items():
@@ -5815,15 +5851,15 @@ def main():
 
             st.markdown("---")
 
+            from data_kr import get_kr_code_to_name_map, get_us_ticker_map
+            _kr_map = get_kr_code_to_name_map()
+            _us_map = get_us_ticker_map()
+
             for idx, item in enumerate(port_list):
                 ticker = item["ticker"]
                 is_kr = ticker in kr_tickers
                 cur_sym = "₩" if is_kr else "$"
                 fmt = ",.0f" if is_kr else ",.2f"
-                
-                from data_kr import get_kr_code_to_name_map, get_us_ticker_map
-                _kr_map = get_kr_code_to_name_map()
-                _us_map = get_us_ticker_map()
                 
                 name = item.get("name", ticker)
                 if is_kr and _kr_map and ticker in _kr_map:
