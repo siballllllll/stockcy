@@ -132,16 +132,17 @@ def _kr_lightweight_chart(code: str, interval: str = "D", height: int = 600,
             if len(df) >= w:
                 df[f"ma{w}"] = df["close"].rolling(w).mean()
 
-        # Lightweight Charts 날짜/시간 포맷 변환 (Unix timestamp or YYYY-MM-DD)
+        # Lightweight Charts 날짜/시간 포맷 변환 (YYYY-MM-DD HH:MM:SS)
+        # 문자열로 그대로 넘겨야 Lightweight Charts 내부에서 타임존 변환 오동작 없이 한국 시간으로 완벽히 렌더링됩니다.
         if interval == "D":
             df["time"] = df["datetime"].dt.strftime("%Y-%m-%d")
         else:
-            # tz-aware 인지 확인 후 안전하게 UTC 타임스탬프(초)로 변환
-            if df["datetime"].dt.tz is None:
-                _utc_dt = df["datetime"].dt.tz_localize("Asia/Seoul").dt.tz_convert("UTC")
+            # 타임존이 포함되어 있다면 제거하고 순수 한국 시간 문자열로 변환
+            if df["datetime"].dt.tz is not None:
+                _dt_naive = df["datetime"].dt.tz_convert("Asia/Seoul").dt.tz_localize(None)
             else:
-                _utc_dt = df["datetime"].dt.tz_convert("UTC")
-            df["time"] = _utc_dt.astype("int64") // 10**9
+                _dt_naive = df["datetime"]
+            df["time"] = _dt_naive.dt.strftime("%Y-%m-%d %H:%M:%S")
 
         df = df.fillna("")
         
@@ -152,8 +153,8 @@ def _kr_lightweight_chart(code: str, interval: str = "D", height: int = 600,
         ma20 = []
         
         for _, row in df.iterrows():
-            # 시간은 일봉이면 str, 분봉이면 순수 int
-            t = str(row["time"]) if interval == "D" else int(row["time"])
+            # 모두 문자열로 통일
+            t = str(row["time"])
             
             candles.append({
                 "time": t, "open": float(row["open"]), "high": float(row["high"]),
