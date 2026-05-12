@@ -334,6 +334,7 @@ def _kis_minute_chart_raw(stock_code: str) -> pd.DataFrame:
     _query_time = min(_now.strftime("%H%M%S"), "153000")
 
     all_rows: list = []
+    _target_date = None
     for _ in range(14):
         data = _get(
             "/uapi/domestic-stock/v1/quotations/inquire-time-itemchartprice",
@@ -347,7 +348,17 @@ def _kis_minute_chart_raw(stock_code: str) -> pd.DataFrame:
         )
         if not data:
             break
-        rows = [r for r in (data.get("output2") or []) if r.get("stck_bsop_date") == _today]
+            
+        output2 = data.get("output2") or []
+        if not output2:
+            break
+            
+        if _target_date is None:
+            _target_date = output2[0].get("stck_bsop_date")
+            if not _target_date:
+                break
+                
+        rows = [r for r in output2 if r.get("stck_bsop_date") == _target_date]
         if not rows:
             break
         all_rows.extend(rows)
