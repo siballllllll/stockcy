@@ -130,17 +130,17 @@ def _us_echarts_chart(ticker: str, interval: str = "5", height: int = 600, perio
             "legend": {
                 "bottom": 10, "left": "center",
                 "data": ["Price", "MA5", "MA20"],
-                "textStyle": {"color": "#888", "fontSize": 10}
+                "textStyle": {"color": "#888", "fontSize": 12}
             },
             "tooltip": {
                 "trigger": "axis", "axisPointer": {"type": "cross"},
                 "backgroundColor": "rgba(30, 30, 30, 0.9)",
-                "borderColor": "#444", "textStyle": {"color": "#ccc", "fontSize": 11}
+                "borderColor": "#444", "textStyle": {"color": "#ccc", "fontSize": 12}
             },
             "axisPointer": {"link": [{"xAxisIndex": "all"}]},
             "grid": [
-                {"left": "8%", "right": "3%", "top": "10%", "height": "60%"},
-                {"left": "8%", "right": "3%", "top": "75%", "height": "15%"}
+                {"left": "8%", "right": "3%", "top": "10%", "height": "55%"},
+                {"left": "8%", "right": "3%", "top": "70%", "height": "15%"}
             ],
             "xAxis": [
                 {
@@ -148,7 +148,7 @@ def _us_echarts_chart(ticker: str, interval: str = "5", height: int = 600, perio
                     "axisLine": {"onZero": False, "lineStyle": {"color": "#444"}},
                     "splitLine": {"show": False}, "min": "dataMin", "max": "dataMax",
                     "axisPointer": {"z": 100},
-                    "axisLabel": {"color": "#888", "fontSize": 10}
+                    "axisLabel": {"color": "#888", "fontSize": 12}
                 },
                 {
                     "type": "category", "gridIndex": 1, "data": category_data, "boundaryGap": False,
@@ -162,7 +162,7 @@ def _us_echarts_chart(ticker: str, interval: str = "5", height: int = 600, perio
                     "scale": True, "splitArea": {"show": False},
                     "axisLine": {"lineStyle": {"color": "#444"}},
                     "splitLine": {"lineStyle": {"color": "rgba(255,255,255,0.05)"}},
-                    "axisLabel": {"color": "#888", "fontSize": 10}
+                    "axisLabel": {"color": "#888", "fontSize": 12}
                 },
                 {
                     "scale": True, "gridIndex": 1, "splitNumber": 2,
@@ -174,7 +174,7 @@ def _us_echarts_chart(ticker: str, interval: str = "5", height: int = 600, perio
                 {"type": "inside", "xAxisIndex": [0, 1], "start": 80, "end": 100},
                 {
                     "show": True, "xAxisIndex": [0, 1], "type": "slider",
-                    "top": "92%", "start": 80, "end": 100,
+                    "top": "88%", "start": 80, "end": 100,
                     "backgroundColor": "rgba(0,0,0,0)",
                     "fillerColor": "rgba(255,255,255,0.05)",
                     "borderColor": "rgba(255,255,255,0.1)",
@@ -197,7 +197,7 @@ def _us_echarts_chart(ticker: str, interval: str = "5", height: int = 600, perio
                 }
             ]
         }
-        st_echarts(options=options, height=f"{height}px", key=f"us_echart_{ticker}_{interval}")
+        st_echarts(options=options, height=f"500px", key=f"us_echart_{ticker}_{interval}")
 
 def _kr_echarts_chart(stock_code: str, interval: str = "1", height: int = 600, period: str = "150"):
     """Apache ECharts 기반 국내 주식 차트 (캔들 + 거래량 분리)"""
@@ -235,17 +235,17 @@ def _kr_echarts_chart(stock_code: str, interval: str = "1", height: int = 600, p
             "legend": {
                 "bottom": 10, "left": "center",
                 "data": ["Price", "MA5", "MA20"],
-                "textStyle": {"color": "#888", "fontSize": 10}
+                "textStyle": {"color": "#888", "fontSize": 12}
             },
             "tooltip": {
                 "trigger": "axis", "axisPointer": {"type": "cross"},
                 "backgroundColor": "rgba(30, 30, 30, 0.9)",
-                "borderColor": "#444", "textStyle": {"color": "#ccc", "fontSize": 11}
+                "borderColor": "#444", "textStyle": {"color": "#ccc", "fontSize": 12}
             },
             "axisPointer": {"link": [{"xAxisIndex": "all"}]},
             "grid": [
-                {"left": "8%", "right": "3%", "top": "10%", "height": "60%"},
-                {"left": "8%", "right": "3%", "top": "75%", "height": "15%"}
+                {"left": "8%", "right": "3%", "top": "10%", "height": "55%"},
+                {"left": "8%", "right": "3%", "top": "70%", "height": "15%"}
             ],
             "xAxis": [
                 {
@@ -253,7 +253,7 @@ def _kr_echarts_chart(stock_code: str, interval: str = "1", height: int = 600, p
                     "axisLine": {"onZero": False, "lineStyle": {"color": "#444"}},
                     "splitLine": {"show": False}, "min": "dataMin", "max": "dataMax",
                     "axisPointer": {"z": 100},
-                    "axisLabel": {"color": "#888", "fontSize": 10}
+                    "axisLabel": {"color": "#888", "fontSize": 12}
                 },
                 {
                     "type": "category", "gridIndex": 1, "data": category_data, "boundaryGap": False,
@@ -267,7 +267,7 @@ def _kr_echarts_chart(stock_code: str, interval: str = "1", height: int = 600, p
                     "scale": True, "splitArea": {"show": False},
                     "axisLine": {"lineStyle": {"color": "#444"}},
                     "splitLine": {"lineStyle": {"color": "rgba(255,255,255,0.05)"}},
-                    "axisLabel": {"color": "#888", "fontSize": 10}
+                    "axisLabel": {"color": "#888", "fontSize": 12}
                 },
                 {
                     "scale": True, "gridIndex": 1, "splitNumber": 2,
@@ -279,7 +279,7 @@ def _kr_echarts_chart(stock_code: str, interval: str = "1", height: int = 600, p
                 {"type": "inside", "xAxisIndex": [0, 1], "start": 50, "end": 100},
                 {
                     "show": True, "xAxisIndex": [0, 1], "type": "slider",
-                    "top": "92%", "start": 50, "end": 100,
+                    "top": "88%", "start": 50, "end": 100,
                     "backgroundColor": "rgba(0,0,0,0)",
                     "fillerColor": "rgba(255,255,255,0.05)",
                     "borderColor": "rgba(255,255,255,0.1)",
@@ -302,7 +302,7 @@ def _kr_echarts_chart(stock_code: str, interval: str = "1", height: int = 600, p
                 }
             ]
         }
-        st_echarts(options=options, height=f"{height}px", key=f"kr_echart_{stock_code}_{interval}")
+        st_echarts(options=options, height=f"500px", key=f"kr_echart_{stock_code}_{interval}")
 
 
 
@@ -4388,29 +4388,15 @@ def main():
                         _us_opts    = sorted(_us_all_stk.keys())
                         _us_def_lbl = next((l for l in _us_opts if f"({_us_ticker_cur})" in l), _us_opts[0] if _us_opts else "")
 
-                        _us_man = st.text_input(
-                            "티커 직접 입력", "", placeholder="예: TSLA",
-                            label_visibility="collapsed", key="us_manual_input",
-                        ).upper().strip()
+                        _us_sel_lbl = st.selectbox(
+                            "종목 검색 (이름·티커 입력하면 필터링)",
+                            _us_opts,
+                            index=_us_opts.index(_us_def_lbl) if _us_def_lbl in _us_opts else 0,
+                            key="us_stock_search",
+                        )
+                        _new_ticker = _us_all_stk[_us_sel_lbl]["ticker"]
+                        _new_name   = _us_sel_lbl.split(" (")[0]
                         
-                        if _us_man and len(_us_man) == 6 and _us_man.isdigit():
-                            st.warning("🇰🇷 국내 종목 코드인 것 같습니다. '국내 주식 검색' 탭을 이용해 주세요.")
-
-                        if not _us_man:
-                            _us_sel_lbl = st.selectbox(
-                                "종목 검색 (이름·티커 입력하면 필터링)",
-                                _us_opts,
-                                index=_us_opts.index(_us_def_lbl) if _us_def_lbl in _us_opts else 0,
-                                key="us_stock_search",
-                            )
-                            _new_ticker = _us_all_stk[_us_sel_lbl]["ticker"]
-                            _new_name   = _us_sel_lbl.split(" (")[0]
-                        else:
-                            _new_ticker = _us_man
-                            # 이름 찾기 시도
-                            _new_name = _us_man
-                            if _us_tm and _us_man in _us_tm:
-                                _new_name = _us_tm[_us_man].get("name", _us_man)
                         if _new_ticker != st.session_state.us_selected_ticker:
                             st.session_state.us_selected_ticker = _new_ticker
                             st.session_state.us_selected_name   = _new_name
