@@ -101,142 +101,108 @@ def _tv_chart(symbol: str, interval: str = "D", height: int = 660) -> None:
         unsafe_allow_html=True,
     )
 
-def _kr_lightweight_chart(code: str, interval: str = "D", height: int = 600,
-                          period: str = "3mo") -> None:
-    """국내 주식 Lightweight Chart (실시간 KIS 데이터 + 오픈소스 차트 엔진)"""
-    from streamlit_lightweight_charts import renderLightweightCharts
-    
-    with st.spinner("실시간 차트 로딩..."):
+def _kr_echarts_chart(stock_code: str, interval: str = "1", height: int = 600, period: str = "150"):
+    """Apache ECharts 기반 국내 주식 차트 (캔들 + 거래량 분리)"""
+    from streamlit_echarts import st_echarts
+    import pandas as pd
+    from data_kr import get_kr_minute_chart, get_kr_daily_chart
+
+    with st.spinner("전문 차트 데이터 로드 중..."):
         if interval == "D":
-            df = get_kr_daily_chart(code, period=period)
+            df = get_kr_daily_chart(stock_code, days=int(period) if period.isdigit() else 150)
         else:
             _min_iv = int(interval) if interval.isdigit() else 5
-            df = get_kr_minute_chart(code, interval=_min_iv)
+            df = get_kr_minute_chart(stock_code, interval=_min_iv)
 
         if df is None or df.empty:
             st.warning("차트 데이터를 불러올 수 없습니다.")
             return
 
-        # 분봉 데이터 과밀집(파란 블록 현상) 방지 및 하루 타임라인 고정
+        # 분봉 데이터 필터링
         if interval != "D":
             if str(interval) in ["1", "5"]:
-                # 1분/5분봉은 HTS처럼 가장 최근 '하루'의 타임라인만 보여줌 (약 390봉/78봉)
+                # 1분/5분봉은 당일 데이터 위주
                 last_date = df["datetime"].dt.date.max()
                 df = df[df["datetime"].dt.date == last_date].reset_index(drop=True)
             else:
-                # 15분 이상의 분봉은 최대 200봉 제한
-                df = df.tail(200).reset_index(drop=True)
+                # 15분/30분/60분봉은 넉넉하게 최근 200~300개 봉 표시
+                df = df.tail(300).reset_index(drop=True)
+
+        # 데이터 가공 (ECharts 포맷: [date, open, close, low, high])
+        times = df["datetime"].dt.strftime("%Y-%m-%d %H:%M" if interval != "D" else "%Y-%m-%d").tolist()
+        values = df[["open", "close", "low", "high"]].values.tolist()
+        
+        # 거래량 데이터 및 색상
+        v_data = []
+        for i, row in df.iterrows():
+            v_data.append({
+                "value": int(row["volume"]),
+                "itemStyle": {"color": "#ff4b4b" if row["close"] >= row["open"] else "#2b7cff"}
+            })
 
         # 이동평균선
-        for w in [5, 20]:
-            if len(df) >= w:
-                df[f"ma{w}"] = df["close"].rolling(w).mean()
+        ma5 = df["close"].rolling(5).mean().fillna("-").tolist()
+        ma20 = df["close"].rolling(20).mean().fillna("-").tolist()
 
-        # Lightweight Charts 날짜/시간 포맷 변환 (YYYY-MM-DD HH:MM:SS)
-        # 문자열로 그대로 넘겨야 Lightweight Charts 내부에서 타임존 변환 오동작 없이 한국 시간으로 완벽히 렌더링됩니다.
-        if interval == "D":
-            df["time"] = df["datetime"].dt.strftime("%Y-%m-%d")
-        else:
-            # 타임존이 포함되어 있다면 제거하고 순수 한국 시간 문자열로 변환
-            if df["datetime"].dt.tz is not None:
-                _dt_naive = df["datetime"].dt.tz_convert("Asia/Seoul").dt.tz_localize(None)
-            else:
-                _dt_naive = df["datetime"]
-            df["time"] = _dt_naive.dt.strftime("%Y-%m-%d %H:%M:%S")
-
-        df = df.fillna("")
-        
-        # 순수 Python 타입으로 변환하여 JSON 직렬화 오류 방지
-        candles = []
-        volumes = []
-        ma5 = []
-        ma20 = []
-        
-        for _, row in df.iterrows():
-            # 모두 문자열로 통일
-            t = str(row["time"])
-            
-            candles.append({
-                "time": t, "open": float(row["open"]), "high": float(row["high"]),
-                "low": float(row["low"]), "close": float(row["close"])
-            })
-            
-            c = "rgba(255, 75, 75, 0.5)" if row["close"] >= row["open"] else "rgba(43, 124, 255, 0.5)"
-            volumes.append({"time": t, "value": float(row["volume"]), "color": c})
-            
-            if row["ma5"] != "": ma5.append({"time": t, "value": float(row["ma5"])})
-            if row["ma20"] != "": ma20.append({"time": t, "value": float(row["ma20"])})
-
-        # 테마 색상 설정
-        try:
-            _base = st.get_option("theme.base") or "dark"
-            _dark = _base != "light"
-        except:
-            _dark = True
-            
-        bg_c = "transparent"
-        text_c = "rgba(255,255,255,0.82)" if _dark else "#333333"
-        grid_c = "rgba(255,255,255,0.1)" if _dark else "rgba(0,0,0,0.1)"
-
-        chartOptions = {
-            "layout": {
-                "textColor": text_c,
-                "background": {"type": "solid", "color": bg_c}
+        # ECharts Option
+        options = {
+            "backgroundColor": "transparent",
+            "tooltip": {
+                "trigger": "axis",
+                "axisPointer": {"type": "cross"},
+                "backgroundColor": "rgba(255, 255, 255, 0.9)",
+                "textStyle": {"color": "#000"}
             },
-            "grid": {
-                "vertLines": {"color": grid_c},
-                "horzLines": {"color": grid_c}
-            },
-            "crosshair": {
-                "mode": 0
-            },
-            "timeScale": {
-                "timeVisible": True,
-                "secondsVisible": False,
-            },
-            "localization": {
-                "locale": "ko-KR",
-            },
-            "rightPriceScale": {
-                "scaleMargins": {
-                    "top": 0.1,
-                    "bottom": 0.2, # 하단에 볼륨이 들어갈 수 있도록 캔들 차트를 위로 약간 올림
+            "axisPointer": {"link": [{"xAxisIndex": "all"}]},
+            "grid": [
+                {"left": "8%", "right": "8%", "height": "60%", "top": "10%"}, # 캔들
+                {"left": "8%", "right": "8%", "top": "75%", "height": "15%"}  # 거래량
+            ],
+            "xAxis": [
+                {
+                    "type": "category",
+                    "data": times,
+                    "boundaryGap": False,
+                    "axisLine": {"onZero": False, "lineStyle": {"color": "#888"}},
+                    "splitLine": {"show": False},
+                    "min": "dataMin",
+                    "max": "dataMax"
                 },
-                "borderVisible": False,
-            },
-            "leftPriceScale": {
-                "visible": False, # 왼쪽 볼륨 스케일의 숫자는 숨김
-            },
-            "height": height
+                {
+                    "type": "category",
+                    "gridIndex": 1,
+                    "data": times,
+                    "boundaryGap": False,
+                    "axisLine": {"onZero": False, "lineStyle": {"color": "#888"}},
+                    "axisLabel": {"show": False}
+                }
+            ],
+            "yAxis": [
+                {"scale": True, "splitArea": {"show": False}, "splitLine": {"lineStyle": {"color": "#eee"}}},
+                {"scale": True, "gridIndex": 1, "splitNumber": 2, "axisLabel": {"show": False}, "axisLine": {"show": False}, "axisTick": {"show": False}, "splitLine": {"show": False}}
+            ],
+            "dataZoom": [
+                {"type": "inside", "xAxisIndex": [0, 1], "start": 70, "end": 100},
+                {"show": True, "xAxisIndex": [0, 1], "type": "slider", "top": "93%", "start": 70, "end": 100}
+            ],
+            "series": [
+                {
+                    "name": "캔들",
+                    "type": "candlestick",
+                    "data": values,
+                    "itemStyle": {
+                        "color": "#ff4b4b", "color0": "#2b7cff",
+                        "borderColor": "#ff4b4b", "borderColor0": "#2b7cff"
+                    }
+                },
+                {"name": "MA5", "type": "line", "data": ma5, "smooth": True, "lineStyle": {"opacity": 0.5, "color": "#f1c40f", "width": 1}, "showSymbol": False},
+                {"name": "MA20", "type": "line", "data": ma20, "smooth": True, "lineStyle": {"opacity": 0.5, "color": "#2ecc71", "width": 1}, "showSymbol": False},
+                {"name": "거래량", "type": "bar", "xAxisIndex": 1, "yAxisIndex": 1, "data": v_data}
+            ]
         }
-        
-        series = [
-            {
-                "type": "Candlestick",
-                "data": candles,
-                "options": {
-                    "upColor": "#ff4b4b",
-                    "downColor": "#2b7cff",
-                    "borderVisible": False,
-                    "wickUpColor": "#ff4b4b",
-                    "wickDownColor": "#2b7cff"
-                }
-            },
-            {
-                "type": "Line",
-                "data": ma5,
-                "options": {
-                    "color": "#f5c518",
-                    "lineWidth": 1,
-                    "crosshairMarkerVisible": False,
-                    "title": "MA5"
-                }
-            },
-            {
-                "type": "Line",
-                "data": ma20,
-                "options": {
-                    "color": "#00c853",
+
+        st_echarts(options=options, height=f"{height}px", key=f"ec_{stock_code}_{interval}")
+3",
                     "lineWidth": 1,
                     "crosshairMarkerVisible": False,
                     "title": "MA20"
@@ -1707,7 +1673,7 @@ def main():
                             else:
                                 st.markdown(f"**{_real_dtv_name}** ({_dtv_code})")
 
-                            _kr_lightweight_chart(_dtv_code, interval="5", height=600)
+                            _kr_echarts_chart(_dtv_code, interval="5", height=600)
 
                         else:
                             # 섹터 목록 뷰 → KOSPI/KOSDAQ Toss 스타일 라인 차트
@@ -1860,7 +1826,7 @@ def main():
                                     st.rerun()
 
                         _kr_period = st.session_state.kr_daily_period if st.session_state.kr_chart_type == "D" else "3mo"
-                        _kr_lightweight_chart(selected_code_kr, interval=st.session_state.kr_chart_type, height=600, period=_kr_period)
+                        _kr_echarts_chart(selected_code_kr, interval=st.session_state.kr_chart_type, height=600, period=_kr_period)
 
                 with _right_ctr:
                     if kr_mode == "📊 일반 주식 검색":
