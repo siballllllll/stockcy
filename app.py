@@ -121,11 +121,15 @@ def _us_echarts_chart(ticker: str, interval: str = "5", height: int = 600, perio
         category_data = df["datetime"].dt.strftime("%Y-%m-%d %H:%M" if interval != "D" else "%Y-%m-%d").tolist()
         values = df[["open", "close", "low", "high"]].values.tolist()
         
-        # 이동평균선 계산
-        ma5 = df["close"].rolling(window=5).mean().tolist()
-        ma20 = df["close"].rolling(window=20).mean().tolist()
-        ma60 = df["close"].rolling(window=60).mean().tolist()
-        ma120 = df["close"].rolling(window=120).mean().tolist()
+        # 이동평균선 계산 (NaN -> None 처리하여 JSON 에러 방지)
+        _ma5 = df["close"].rolling(window=5).mean()
+        ma5 = _ma5.where(_ma5.notnull(), None).tolist()
+        _ma20 = df["close"].rolling(window=20).mean()
+        ma20 = _ma20.where(_ma20.notnull(), None).tolist()
+        _ma60 = df["close"].rolling(window=60).mean()
+        ma60 = _ma60.where(_ma60.notnull(), None).tolist()
+        _ma120 = df["close"].rolling(window=120).mean()
+        ma120 = _ma120.where(_ma120.notnull(), None).tolist()
 
         volumes = []
         for i, row in df.iterrows():
@@ -237,11 +241,15 @@ def _kr_echarts_chart(stock_code: str, interval: str = "1", height: int = 600, p
         category_data = df["datetime"].dt.strftime("%Y-%m-%d %H:%M" if interval != "D" else "%Y-%m-%d").tolist()
         values = df[["open", "close", "low", "high"]].values.tolist()
         
-        # 이동평균선 계산
-        ma5 = df["close"].rolling(window=5).mean().tolist()
-        ma20 = df["close"].rolling(window=20).mean().tolist()
-        ma60 = df["close"].rolling(window=60).mean().tolist()
-        ma120 = df["close"].rolling(window=120).mean().tolist()
+        # 이동평균선 계산 (NaN -> None 처리하여 JSON 에러 방지)
+        _ma5 = df["close"].rolling(window=5).mean()
+        ma5 = _ma5.where(_ma5.notnull(), None).tolist()
+        _ma20 = df["close"].rolling(window=20).mean()
+        ma20 = _ma20.where(_ma20.notnull(), None).tolist()
+        _ma60 = df["close"].rolling(window=60).mean()
+        ma60 = _ma60.where(_ma60.notnull(), None).tolist()
+        _ma120 = df["close"].rolling(window=120).mean()
+        ma120 = _ma120.where(_ma120.notnull(), None).tolist()
 
         volumes = []
         for i, row in df.iterrows():
