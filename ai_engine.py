@@ -56,9 +56,8 @@ def get_market_news(category="general"):
 
 # 모델 폴백 순서 (분석 품질을 위해 Pro 모델을 최상단에 배치)
 _MODEL_FALLBACK = [
-    "gemini-2.0-flash",
-    "gemini-2.0-flash-lite",
-    "gemini-1.5-flash",
+    "gemini-2.5-flash",
+    "gemini-3.1-flash-lite",
 ]
 
 # 할당량 소진 여부 (세션 중 반복 호출 방지)
@@ -122,12 +121,16 @@ def _call_gemini(prompt, use_search=False, temperature=0.7, response_mime_type=N
                     if response_mime_type:
                         config_no_search.response_mime_type = response_mime_type
                     
-                    response = client.models.generate_content(
-                        model=model,
-                        contents=prompt,
-                        config=config_no_search,
-                    )
-                    return response
+                    try:
+                        response = client.models.generate_content(
+                            model=model,
+                            contents=prompt,
+                            config=config_no_search,
+                        )
+                        return response
+                    except Exception as fallback_err:
+                        print(f"Fallback without search also failed: {fallback_err}")
+                        break
 
                 raise api_err
 
