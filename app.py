@@ -136,6 +136,12 @@ def _kr_plotly_chart(code: str, interval: str = "D", height: int = 600,
             for c, o in zip(df["close"], df["open"])
         ]
 
+        # ── 데이터 포인트 제한 (캔들이 너무 얇아지는 현상 방지) ──
+        if interval != "D":
+            _max_pts = 390 if interval == "1" else 300
+            if len(df) > _max_pts:
+                df = df.tail(_max_pts).reset_index(drop=True)
+
         # ── 서브플롯 ──
         fig = make_subplots(
             rows=2, cols=1, shared_xaxes=True,
@@ -197,19 +203,20 @@ def _kr_plotly_chart(code: str, interval: str = "D", height: int = 600,
                 )
             _v += _step
 
-        # ── X축: 비거래 구간 제거 (빈 공간 원인 해결) ──
+        # ── X축 범위 & 비거래 구간 제거 ──
+        _x_range = [df["datetime"].iloc[0], df["datetime"].iloc[-1]]
         if interval == "D":
-            _rbreaks = [dict(bounds=["sat", "mon"])]  # 주말 제거
+            _rbreaks = [dict(bounds=["sat", "mon"])]
         else:
             _rbreaks = [
-                dict(bounds=["sat", "mon"]),           # 주말 제거
-                dict(bounds=[15.5, 9], pattern="hour"), # 장외시간 제거 (15:30~09:00)
+                dict(bounds=["sat", "mon"]),
+                dict(bounds=[15.5, 9], pattern="hour"),
             ]
 
         # ── 레이아웃 ──
         fig.update_layout(
             height=height,
-            margin=dict(l=0, r=10, t=5, b=0),
+            margin=dict(l=0, r=55, t=5, b=0),
             paper_bgcolor="rgba(0,0,0,0)",
             plot_bgcolor="rgba(0,0,0,0)",
             font=dict(color=_tick_c, size=10),
@@ -237,19 +244,21 @@ def _kr_plotly_chart(code: str, interval: str = "D", height: int = 600,
             row=2, col=1, side="right", showticklabels=False,
             showgrid=False, zeroline=False, fixedrange=True,
         )
+
         # X축 (캔들)
         fig.update_xaxes(
             row=1, col=1, showticklabels=False,
             showgrid=True, gridcolor=_grid_c,
-            rangebreaks=_rbreaks, fixedrange=False,
+            range=_x_range, rangebreaks=_rbreaks, fixedrange=False,
         )
+        
         # X축 (거래량)
         _tfmt = "%m/%d" if interval == "D" else "%H:%M"
         fig.update_xaxes(
             row=2, col=1, showgrid=False,
             tickformat=_tfmt,
             tickfont=dict(size=8, color=_tick_c),
-            rangebreaks=_rbreaks, fixedrange=False,
+            range=_x_range, rangebreaks=_rbreaks, fixedrange=False,
         )
 
         st.plotly_chart(
