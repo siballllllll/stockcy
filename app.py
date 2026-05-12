@@ -2076,7 +2076,7 @@ def main():
                                     label_visibility="collapsed", key="kr_sub_tf_min"
                                 )
                                 _new_iv = _kr_sub_tf.replace("분", "")
-                            else:
+                            elif _kr_main_tf == "일봉":
                                 _kr_pd_options = ["1달", "3달", "6달", "1년", "3년", "5년", "10년"]
                                 _cur_pd_lbl = {"1mo":"1달","3mo":"3달","6mo":"6달","1y":"1년","3y":"3년","5y":"5년","10y":"10년"}.get(st.session_state.kr_daily_period, "3달")
                                 _kr_sub_tf = st.selectbox(
@@ -2084,9 +2084,14 @@ def main():
                                     index=_kr_pd_options.index(_cur_pd_lbl) if _cur_pd_lbl in _kr_pd_options else 1,
                                     label_visibility="collapsed", key="kr_sub_tf_pd"
                                 )
-                                _new_iv = "D" if _kr_main_tf == "일봉" else "W" if _kr_main_tf == "주봉" else "M"
+                                _new_iv = "D"
                                 _new_pd = {"1달":"1mo","3달":"3mo","6달":"6mo","1년":"1y","3년":"3y","5년":"5y","10년":"10y"}[_kr_sub_tf]
                                 st.session_state.kr_daily_period = _new_pd
+                            else:
+                                # 주봉/월봉은 기간 선택 숨김 (기본 5년/10년 데이터)
+                                _new_iv = "W" if _kr_main_tf == "주봉" else "M"
+                                if _new_iv == "W": st.session_state.kr_daily_period = "5y"
+                                else: st.session_state.kr_daily_period = "10y"
 
                         if _new_iv != st.session_state.kr_chart_type:
                             st.session_state.kr_chart_type = _new_iv
@@ -4362,7 +4367,7 @@ def main():
                                     label_visibility="collapsed", key="us_sub_tf_min"
                                 )
                                 _new_us_iv = _us_sub_tf.replace("분", "")
-                            else:
+                            elif _us_main_tf == "일봉":
                                 _us_pd_options = ["1달", "3달", "6달", "1년", "3년", "5년", "10년"]
                                 _cur_us_pd_lbl = {"1mo":"1달","3mo":"3달","6mo":"6달","1y":"1년","3y":"3년","5y":"5년","10y":"10년"}.get(st.session_state.us_daily_period, "3달")
                                 _us_sub_tf = st.selectbox(
@@ -4370,9 +4375,14 @@ def main():
                                     index=_us_pd_options.index(_cur_us_pd_lbl) if _cur_us_pd_lbl in _us_pd_options else 1,
                                     label_visibility="collapsed", key="us_sub_tf_pd"
                                 )
-                                _new_us_iv = "D" if _us_main_tf == "일봉" else "1wk" if _us_main_tf == "주봉" else "1mo"
+                                _new_us_iv = "D"
                                 _new_us_pd = {"1달":"1mo","3달":"3mo","6달":"6mo","1년":"1y","3년":"3y","5년":"5y","10년":"10y"}[_us_sub_tf]
                                 st.session_state.us_daily_period = _new_us_pd
+                            else:
+                                # 주봉/월봉은 기간 선택 숨김 (기본 5년/10년 데이터)
+                                _new_us_iv = "1wk" if _us_main_tf == "주봉" else "1mo"
+                                if _new_us_iv == "1wk": st.session_state.us_daily_period = "5y"
+                                else: st.session_state.us_daily_period = "10y"
 
                         if _new_us_iv != st.session_state.us_chart_type:
                             st.session_state.us_chart_type = _new_us_iv
