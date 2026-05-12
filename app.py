@@ -2042,7 +2042,7 @@ def main():
 
                         # 일봉 모드일 때 기간 선택 다시 살리기
                         if st.session_state.kr_chart_type == "D":
-                            _pds = [("1달","1mo"),("3달","3mo"),("6달","6mo"),("1년","1y"),("3년","3y")]
+                            _pds = [("1달","1mo"),("3달","3mo"),("6달","6mo"),("1년","1y"),("3년","3y"),("5년","5y"),("10년","10y")]
                             _pd_cols = st.columns(len(_pds))
                             for _pi, (_pl, _pv) in enumerate(_pds):
                                 if _pd_cols[_pi].button(
@@ -4301,22 +4301,37 @@ def main():
                                 unsafe_allow_html=True,
                             )
 
-                        # 차트 타입 토글: 일봉 | 분봉
-                        _us_ct_c1, _us_ct_c2, _ = st.columns([1, 1, 6])
-                        for _us_ctcol, _us_ctn in [(_us_ct_c1, "일봉"), (_us_ct_c2, "분봉")]:
-                            if _us_ctcol.button(
-                                _us_ctn, key=f"us_chart_type_{_us_ctn}",
-                                type="primary" if st.session_state.us_chart_type == _us_ctn else "secondary",
+                        # HTS 스타일 타임프레임 선택 (US) - 국내와 동일하게 세분화
+                        _us_ivs = [("1분","1"),("5분","5"),("15분","15"),("30분","30"),("1시간","60"),("일봉","D")]
+                        _us_iv_cols = st.columns(len(_us_ivs))
+                        for _uvi, (_uvl, _uvv) in enumerate(_us_ivs):
+                            if _us_iv_cols[_uvi].button(
+                                _uvl, key=f"us_iv_{_uvv}",
+                                type="primary" if st.session_state.us_chart_type == _uvv else "secondary",
                                 use_container_width=True,
                             ):
-                                st.session_state.us_chart_type = _us_ctn
+                                st.session_state.us_chart_type = _uvv
                                 st.rerun()
 
-                        _us_iv_cur = "D" if st.session_state.us_chart_type == "일봉" else "5"
+                        # 일봉 모드일 때 기간 선택 (1달~10년)
+                        if st.session_state.us_chart_type == "D":
+                            _us_pds = [("1달","1mo"),("3달","3mo"),("6달","6mo"),("1년","1y"),("3년","3y"),("5년","5y"),("10년","10y")]
+                            _us_pd_cols = st.columns(len(_us_pds))
+                            for _upi, (_upl, _upv) in enumerate(_us_pds):
+                                if _us_pd_cols[_upi].button(
+                                    _upl, key=f"us_dp_{_upv}",
+                                    type="primary" if st.session_state.us_daily_period == _upv else "secondary",
+                                    use_container_width=True,
+                                ):
+                                    st.session_state.us_daily_period = _upv
+                                    st.rerun()
+
+                        _us_iv_cur = st.session_state.us_chart_type
+                        _us_period = st.session_state.us_daily_period if _us_iv_cur == "D" else "3mo"
                         
                         _utab_chart, _utab_box = st.tabs(["📊 차트", "📦 박스권·수급 분석"])
                         with _utab_chart:
-                            _us_echarts_chart(_us_ticker_cur, interval=_us_iv_cur, height=660)
+                            _us_echarts_chart(_us_ticker_cur, interval=_us_iv_cur, height=500, period=_us_period)
                         with _utab_box:
                             _us_box_key = f"us_box_result_{_us_ticker_cur}"
                             st.markdown(
