@@ -239,7 +239,9 @@ def _kr_lightweight_chart(code: str, interval: str = "D", height: int = 600,
                     "priceFormat": {
                         "type": "volume",
                     },
-                    "priceScaleId": "left", # 볼륨을 왼쪽 스케일로 분리하여 캔들스틱과 겹치지 않게 함
+                    "priceScaleId": "" # 빈 문자열은 오버레이 스케일을 의미
+                },
+                "priceScale": {
                     "scaleMargins": {
                         "top": 0.85,
                         "bottom": 0,
