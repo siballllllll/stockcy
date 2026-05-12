@@ -126,23 +126,35 @@ def _kr_lightweight_chart(code: str, interval: str = "D", height: int = 600,
         if interval == "D":
             df["time"] = df["datetime"].dt.strftime("%Y-%m-%d")
         else:
-            # KST naive datetime을 timezone aware로 바꾸고 UTC 타임스탬프 획득
-            df["time"] = df["datetime"].dt.tz_localize("Asia/Seoul").dt.tz_convert("UTC").astype("int64") // 10**9
+            # tz-aware 인지 확인 후 안전하게 UTC 타임스탬프(초)로 변환
+            if df["datetime"].dt.tz is None:
+                _utc_dt = df["datetime"].dt.tz_localize("Asia/Seoul").dt.tz_convert("UTC")
+            else:
+                _utc_dt = df["datetime"].dt.tz_convert("UTC")
+            df["time"] = _utc_dt.astype("int64") // 10**9
 
         df = df.fillna("")
         
-        # 캔들스틱 포맷
-        candles = df[["time", "open", "high", "low", "close"]].to_dict("records")
-        
-        # 거래량 포맷
+        # 순수 Python 타입으로 변환하여 JSON 직렬화 오류 방지
+        candles = []
         volumes = []
+        ma5 = []
+        ma20 = []
+        
         for _, row in df.iterrows():
-            c = "rgba(255, 75, 75, 0.5)" if row["close"] >= row["open"] else "rgba(43, 124, 255, 0.5)"
-            volumes.append({"time": row["time"], "value": row["volume"], "color": c})
+            # 시간은 일봉이면 str, 분봉이면 순수 int
+            t = str(row["time"]) if interval == "D" else int(row["time"])
             
-        # 이동평균선 포맷
-        ma5 = [{"time": row["time"], "value": row["ma5"]} for _, row in df.iterrows() if row["ma5"] != ""]
-        ma20 = [{"time": row["time"], "value": row["ma20"]} for _, row in df.iterrows() if row["ma20"] != ""]
+            candles.append({
+                "time": t, "open": float(row["open"]), "high": float(row["high"]),
+                "low": float(row["low"]), "close": float(row["close"])
+            })
+            
+            c = "rgba(255, 75, 75, 0.5)" if row["close"] >= row["open"] else "rgba(43, 124, 255, 0.5)"
+            volumes.append({"time": t, "value": float(row["volume"]), "color": c})
+            
+            if row["ma5"] != "": ma5.append({"time": t, "value": float(row["ma5"])})
+            if row["ma20"] != "": ma20.append({"time": t, "value": float(row["ma20"])})
 
         # 테마 색상 설정
         try:
@@ -173,6 +185,16 @@ def _kr_lightweight_chart(code: str, interval: str = "D", height: int = 600,
             },
             "localization": {
                 "locale": "ko-KR",
+            },
+            "rightPriceScale": {
+                "scaleMargins": {
+                    "top": 0.1,
+                    "bottom": 0.2, # 하단에 볼륨이 들어갈 수 있도록 캔들 차트를 위로 약간 올림
+                },
+                "borderVisible": False,
+            },
+            "leftPriceScale": {
+                "visible": False, # 왼쪽 볼륨 스케일의 숫자는 숨김
             },
             "height": height
         }
@@ -217,9 +239,9 @@ def _kr_lightweight_chart(code: str, interval: str = "D", height: int = 600,
                     "priceFormat": {
                         "type": "volume",
                     },
-                    "priceScaleId": "",
+                    "priceScaleId": "left", # 볼륨을 왼쪽 스케일로 분리하여 캔들스틱과 겹치지 않게 함
                     "scaleMargins": {
-                        "top": 0.8,
+                        "top": 0.85,
                         "bottom": 0,
                     }
                 }
