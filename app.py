@@ -5748,9 +5748,20 @@ def main():
                                 st.toast(f"✅ {ticker} 매도 기록 완료!")
                                 st.rerun()
                         with bc2:
-                            if st.button("🗑️ 삭제", key=f"del_{portfolio_key}_{idx}",
-                                         use_container_width=True):
+                            if st.button("🗑️", key=f"del_{portfolio_key}_{idx}",
+                                         use_container_width=True, help="기록 삭제 (수익 미포함)"):
                                 st.session_state[pending_key] = ticker
+                                st.rerun()
+                        
+                        # ── 수정 기능 추가 ──
+                        with st.popover("✏️ 수정", use_container_width=True):
+                            st.markdown(f"**{name}** 정보 수정")
+                            new_bp = st.number_input("매수가", value=float(bp), min_value=0.01, key=f"edit_p_{portfolio_key}_{idx}")
+                            new_qty = st.number_input("수량", value=int(qty), min_value=1, step=1, key=f"edit_q_{portfolio_key}_{idx}")
+                            if st.button("💾 저장", key=f"edit_save_{portfolio_key}_{idx}", use_container_width=True, type="primary"):
+                                st.session_state[portfolio_key][idx]["buy_price"] = new_bp
+                                st.session_state[portfolio_key][idx]["quantity"] = new_qty
+                                st.success("수정되었습니다!")
                                 st.rerun()
 
             st.markdown("---")
