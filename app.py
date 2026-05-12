@@ -1708,7 +1708,7 @@ def main():
                             else:
                                 st.markdown(f"**{_real_dtv_name}** ({_dtv_code})")
 
-                            _kr_plotly_chart(_dtv_code, interval="5", height=600)
+                            _tv_chart(f"KRX:{_dtv_code}", interval="5", height=600)
 
                         else:
                             # 섹터 목록 뷰 → KOSPI/KOSDAQ Toss 스타일 라인 차트
@@ -1847,22 +1847,7 @@ def main():
                                 st.session_state.kr_chart_type = _ivv
                                 st.rerun()
 
-                        # 일봉 모드일 때 기간 선택
-                        if st.session_state.kr_chart_type == "D":
-                            _pds = [("1달","1mo"),("3달","3mo"),("6달","6mo"),("1년","1y"),("3년","3y")]
-                            _pd_cols = st.columns(len(_pds))
-                            for _pi, (_pl, _pv) in enumerate(_pds):
-                                if _pd_cols[_pi].button(
-                                    _pl, key=f"kr_dp_{_pv}",
-                                    type="primary" if st.session_state.kr_daily_period == _pv else "secondary",
-                                    use_container_width=True,
-                                ):
-                                    st.session_state.kr_daily_period = _pv
-                                    st.rerun()
-
-                        _kr_period = st.session_state.kr_daily_period if st.session_state.kr_chart_type == "D" else "3mo"
-                        _kr_plotly_chart(selected_code_kr, interval=st.session_state.kr_chart_type,
-                                         height=600, period=_kr_period)
+                        _tv_chart(f"KRX:{selected_code_kr}", interval=st.session_state.kr_chart_type, height=600)
 
                 with _right_ctr:
                     if kr_mode == "📊 일반 주식 검색":
