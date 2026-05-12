@@ -846,28 +846,50 @@ def show_favorites_center():
                     st.markdown(f"**{name}** ({ticker})")
                     st.markdown(f"<h3 style='margin:0;color:{color}'>{price_str} <small>({pct:+.2f}%)</small></h3>", unsafe_allow_html=True)
                     
-                    # ── AI 매수 추천 분석 ────────────────────────────────
+                    # ── 버튼 레이아웃: AI 분석 | 포트폴리오 추가 ─────────────────
                     _fav_res_key = f"fav_ai_result_{ticker}"
                     _fav_err_key = f"fav_ai_error_{ticker}"
-                    if st.button('🤖 AI 매수 추천 분석', key=f'fav_ai_{ticker}', use_container_width=True, type="primary"):
-                        st.session_state.pop(_fav_err_key, None)
-                        with st.spinner('AI가 극단기·단기·중기·장기 전략을 분석 중... (최대 50초)'):
-                            try:
-                                if mkt == '국내':
-                                    from ai_engine import generate_kr_stock_report
-                                    from data_kr import get_kr_investor_trend
-                                    try:
-                                        investor_data = get_kr_investor_trend(ticker)
-                                    except Exception:
-                                        investor_data = []
-                                    res = generate_kr_stock_report(ticker, name, p_data, investor_data)
-                                else:
-                                    from ai_engine import generate_stock_report
-                                    res = generate_stock_report(ticker, price, pct)
-                                st.session_state[_fav_res_key] = res
-                                st.session_state.pop(_fav_err_key, None)
-                            except Exception as _ai_err:
-                                st.session_state[_fav_err_key] = str(_ai_err)
+                    
+                    _btn_col1, _btn_col2 = st.columns([3, 1])
+                    with _btn_col1:
+                        if st.button('🤖 AI 분석', key=f'fav_ai_{ticker}', use_container_width=True, type="primary"):
+                            st.session_state.pop(_fav_err_key, None)
+                            with st.spinner('AI 분석 중...'):
+                                try:
+                                    if mkt == '국내':
+                                        from ai_engine import generate_kr_stock_report
+                                        from data_kr import get_kr_investor_trend
+                                        try:
+                                            investor_data = get_kr_investor_trend(ticker)
+                                        except Exception:
+                                            investor_data = []
+                                        res = generate_kr_stock_report(ticker, name, p_data, investor_data)
+                                    else:
+                                        from ai_engine import generate_stock_report
+                                        res = generate_stock_report(ticker, price, pct)
+                                    st.session_state[_fav_res_key] = res
+                                    st.session_state.pop(_fav_err_key, None)
+                                except Exception as _ai_err:
+                                    st.session_state[_fav_err_key] = str(_ai_err)
+                    
+                    with _btn_col2:
+                        if st.button('🎒', key=f'fav_port_{ticker}', use_container_width=True, help="포트폴리오에 즉시 추가"):
+                            if "portfolio" not in st.session_state:
+                                from db import load_portfolio_from_gsheet
+                                st.session_state.portfolio = load_portfolio_from_gsheet()
+                            
+                            if not any(i["ticker"] == ticker for i in st.session_state.portfolio):
+                                st.session_state.portfolio.append({
+                                    "ticker": ticker, "name": name,
+                                    "buy_price": float(price), "quantity": 10,
+                                    "buy_date": (datetime.now() + timedelta(hours=9)).strftime("%Y-%m-%d %H:%M"),
+                                })
+                                from db import save_portfolio_to_gsheet
+                                save_portfolio_to_gsheet(st.session_state.portfolio)
+                                st.toast(f"✅ {name} 포트폴리오 추가 완료!")
+                                st.rerun()
+                            else:
+                                st.warning("이미 등록됨")
 
                     # 에러 상태 표시 + 재시도 안내
                     if _fav_err_key in st.session_state:
