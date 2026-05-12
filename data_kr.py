@@ -206,6 +206,19 @@ def get_kr_stock_name_kis(stock_code: str) -> tuple:
         return None, str(e)
 
 
+def _format_market_cap(amt_in_eok):
+    if not str(amt_in_eok).isdigit():
+        return str(amt_in_eok)
+    amt = int(amt_in_eok)
+    jo = amt // 10000
+    eok = amt % 10000
+    if jo > 0:
+        if eok == 0:
+            return f"{jo:,}조"
+        return f"{jo:,}조 {eok:,}억"
+    return f"{amt:,}억"
+
+
 @st.cache_data(ttl=60)
 def get_kr_stock_price(stock_code: str):
     """국내 주식 현재가 및 기본 정보 조회 (KIS API → yfinance 폴백, 1분 캐싱)"""
@@ -228,11 +241,11 @@ def get_kr_stock_price(stock_code: str):
             "open": int(o.get("stck_oprc", 0) or 0),
             "high": int(o.get("stck_hgpr", 0) or 0),
             "low": int(o.get("stck_lwpr", 0) or 0),
-            "w52_high": int(o.get("w52hgpr", 0) or 0),
-            "w52_low": int(o.get("w52lwpr", 0) or 0),
+            "w52_high": int(o.get("w52_hgpr", 0) or 0),
+            "w52_low": int(o.get("w52_lwpr", 0) or 0),
             "per": o.get("per", "-"),
             "pbr": o.get("pbr", "-"),
-            "market_cap": o.get("hts_avls", "-"),
+            "market_cap": _format_market_cap(o.get("hts_avls", "")),
         }
 
     # KIS API 실패 → yfinance 폴백 (.KS 우선, .KQ 차선)
@@ -266,7 +279,7 @@ def get_kr_stock_price(stock_code: str):
                 "w52_low":  round(fi.get("fiftyTwoWeekLow", 0) or 0),
                 "per": round(info.get("trailingPE", 0) or 0, 1) or "-",
                 "pbr": round(info.get("priceToBook", 0) or 0, 2) or "-",
-                "market_cap": "-",
+                "market_cap": _format_market_cap(info.get("marketCap", 0) // 100000000) if info.get("marketCap") else "-",
                 "_source": "yfinance",
             }
         except Exception:

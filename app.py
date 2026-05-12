@@ -101,6 +101,104 @@ def _tv_chart(symbol: str, interval: str = "D", height: int = 660) -> None:
         unsafe_allow_html=True,
     )
 
+def _us_echarts_chart(ticker: str, interval: str = "5", height: int = 600, period: str = "3mo"):
+    """Apache ECharts 기반 미국 주식 차트 (yfinance 데이터 활용)"""
+    from streamlit_echarts import st_echarts
+    import pandas as pd
+    from data_kr import get_us_minute_chart, get_us_daily_chart
+
+    with st.spinner("미국 전문 차트 데이터 로드 중..."):
+        if interval == "D":
+            df = get_us_daily_chart(ticker, period=period)
+        else:
+            _min_iv = int(interval) if interval.isdigit() else 5
+            df = get_us_minute_chart(ticker, interval=_min_iv)
+
+        if df is None or df.empty:
+            st.warning("차트 데이터를 불러올 수 없습니다. (데이터 소스: yfinance)")
+            return
+
+        category_data = df["datetime"].dt.strftime("%Y-%m-%d %H:%M" if interval != "D" else "%Y-%m-%d").tolist()
+        values = df[["open", "close", "low", "high"]].values.tolist()
+        volumes = []
+        for i, row in df.iterrows():
+            volumes.append([i, row["volume"], 1 if row["close"] >= row["open"] else -1])
+
+        options = {
+            "backgroundColor": "rgba(0,0,0,0)",
+            "animation": False,
+            "legend": {
+                "bottom": 10, "left": "center",
+                "data": ["Price", "MA5", "MA20"],
+                "textStyle": {"color": "#888", "fontSize": 10}
+            },
+            "tooltip": {
+                "trigger": "axis", "axisPointer": {"type": "cross"},
+                "backgroundColor": "rgba(30, 30, 30, 0.9)",
+                "borderColor": "#444", "textStyle": {"color": "#ccc", "fontSize": 11}
+            },
+            "axisPointer": {"link": [{"xAxisIndex": "all"}]},
+            "grid": [
+                {"left": "8%", "right": "3%", "top": "10%", "height": "60%"},
+                {"left": "8%", "right": "3%", "top": "75%", "height": "15%"}
+            ],
+            "xAxis": [
+                {
+                    "type": "category", "data": category_data, "boundaryGap": False,
+                    "axisLine": {"onZero": False, "lineStyle": {"color": "#444"}},
+                    "splitLine": {"show": False}, "min": "dataMin", "max": "dataMax",
+                    "axisPointer": {"z": 100},
+                    "axisLabel": {"color": "#888", "fontSize": 10}
+                },
+                {
+                    "type": "category", "gridIndex": 1, "data": category_data, "boundaryGap": False,
+                    "axisLine": {"onZero": False, "lineStyle": {"color": "#444"}},
+                    "axisTick": {"show": False}, "splitLine": {"show": False},
+                    "axisLabel": {"show": False}, "min": "dataMin", "max": "dataMax"
+                }
+            ],
+            "yAxis": [
+                {
+                    "scale": True, "splitArea": {"show": False},
+                    "axisLine": {"lineStyle": {"color": "#444"}},
+                    "splitLine": {"lineStyle": {"color": "rgba(255,255,255,0.05)"}},
+                    "axisLabel": {"color": "#888", "fontSize": 10}
+                },
+                {
+                    "scale": True, "gridIndex": 1, "splitNumber": 2,
+                    "axisLabel": {"show": False}, "axisLine": {"show": False},
+                    "axisTick": {"show": False}, "splitLine": {"show": False}
+                }
+            ],
+            "dataZoom": [
+                {"type": "inside", "xAxisIndex": [0, 1], "start": 80, "end": 100},
+                {
+                    "show": True, "xAxisIndex": [0, 1], "type": "slider",
+                    "top": "92%", "start": 80, "end": 100,
+                    "backgroundColor": "rgba(0,0,0,0)",
+                    "fillerColor": "rgba(255,255,255,0.05)",
+                    "borderColor": "rgba(255,255,255,0.1)",
+                    "handleStyle": {"color": "#666"}
+                }
+            ],
+            "series": [
+                {
+                    "name": "Price", "type": "candlestick", "data": values,
+                    "itemStyle": {
+                        "color": "#ff4b4b", "color0": "#2b7cff",
+                        "borderColor": "#ff4b4b", "borderColor0": "#2b7cff"
+                    }
+                },
+                {
+                    "name": "Volume", "type": "bar", "xAxisIndex": 1, "yAxisIndex": 1, "data": volumes,
+                    "itemStyle": {
+                        "color": "#ff4b4b", "color0": "#2b7cff"
+                    }
+                }
+            ]
+        }
+        st_echarts(options=options, height=f"{height}px", key=f"us_echart_{ticker}_{interval}")
+
 def _kr_echarts_chart(stock_code: str, interval: str = "1", height: int = 600, period: str = "150"):
     """Apache ECharts 기반 국내 주식 차트 (캔들 + 거래량 분리)"""
     from streamlit_echarts import st_echarts
@@ -118,90 +216,95 @@ def _kr_echarts_chart(stock_code: str, interval: str = "1", height: int = 600, p
             st.warning("차트 데이터를 불러올 수 없습니다.")
             return
 
-        # 분봉 데이터 필터링
         if interval != "D":
             if str(interval) in ["1", "5"]:
-                # 1분/5분봉은 당일 데이터 위주
                 last_date = df["datetime"].dt.date.max()
                 df = df[df["datetime"].dt.date == last_date].reset_index(drop=True)
             else:
-                # 15분/30분/60분봉은 넉넉하게 최근 200~300개 봉 표시
                 df = df.tail(300).reset_index(drop=True)
 
-        # 데이터 가공 (ECharts 포맷: [date, open, close, low, high])
-        times = df["datetime"].dt.strftime("%Y-%m-%d %H:%M" if interval != "D" else "%Y-%m-%d").tolist()
+        category_data = df["datetime"].dt.strftime("%Y-%m-%d %H:%M" if interval != "D" else "%Y-%m-%d").tolist()
         values = df[["open", "close", "low", "high"]].values.tolist()
-        
-        # 거래량 데이터 및 색상
-        v_data = []
+        volumes = []
         for i, row in df.iterrows():
-            v_data.append({
-                "value": int(row["volume"]),
-                "itemStyle": {"color": "#ff4b4b" if row["close"] >= row["open"] else "#2b7cff"}
-            })
+            volumes.append([i, row["volume"], 1 if row["close"] >= row["open"] else -1])
 
-        # 이동평균선
-        ma5 = df["close"].rolling(5).mean().fillna("-").tolist()
-        ma20 = df["close"].rolling(20).mean().fillna("-").tolist()
-
-        # ECharts Option
         options = {
-            "backgroundColor": "transparent",
+            "backgroundColor": "rgba(0,0,0,0)",
+            "animation": False,
+            "legend": {
+                "bottom": 10, "left": "center",
+                "data": ["Price", "MA5", "MA20"],
+                "textStyle": {"color": "#888", "fontSize": 10}
+            },
             "tooltip": {
-                "trigger": "axis",
-                "axisPointer": {"type": "cross"},
-                "backgroundColor": "rgba(255, 255, 255, 0.9)",
-                "textStyle": {"color": "#000"}
+                "trigger": "axis", "axisPointer": {"type": "cross"},
+                "backgroundColor": "rgba(30, 30, 30, 0.9)",
+                "borderColor": "#444", "textStyle": {"color": "#ccc", "fontSize": 11}
             },
             "axisPointer": {"link": [{"xAxisIndex": "all"}]},
             "grid": [
-                {"left": "8%", "right": "8%", "height": "60%", "top": "10%"}, # 캔들
-                {"left": "8%", "right": "8%", "top": "75%", "height": "15%"}  # 거래량
+                {"left": "8%", "right": "3%", "top": "10%", "height": "60%"},
+                {"left": "8%", "right": "3%", "top": "75%", "height": "15%"}
             ],
             "xAxis": [
                 {
-                    "type": "category",
-                    "data": times,
-                    "boundaryGap": False,
-                    "axisLine": {"onZero": False, "lineStyle": {"color": "#888"}},
-                    "splitLine": {"show": False},
-                    "min": "dataMin",
-                    "max": "dataMax"
+                    "type": "category", "data": category_data, "boundaryGap": False,
+                    "axisLine": {"onZero": False, "lineStyle": {"color": "#444"}},
+                    "splitLine": {"show": False}, "min": "dataMin", "max": "dataMax",
+                    "axisPointer": {"z": 100},
+                    "axisLabel": {"color": "#888", "fontSize": 10}
                 },
                 {
-                    "type": "category",
-                    "gridIndex": 1,
-                    "data": times,
-                    "boundaryGap": False,
-                    "axisLine": {"onZero": False, "lineStyle": {"color": "#888"}},
-                    "axisLabel": {"show": False}
+                    "type": "category", "gridIndex": 1, "data": category_data, "boundaryGap": False,
+                    "axisLine": {"onZero": False, "lineStyle": {"color": "#444"}},
+                    "axisTick": {"show": False}, "splitLine": {"show": False},
+                    "axisLabel": {"show": False}, "min": "dataMin", "max": "dataMax"
                 }
             ],
             "yAxis": [
-                {"scale": True, "splitArea": {"show": False}, "splitLine": {"lineStyle": {"color": "#eee"}}},
-                {"scale": True, "gridIndex": 1, "splitNumber": 2, "axisLabel": {"show": False}, "axisLine": {"show": False}, "axisTick": {"show": False}, "splitLine": {"show": False}}
+                {
+                    "scale": True, "splitArea": {"show": False},
+                    "axisLine": {"lineStyle": {"color": "#444"}},
+                    "splitLine": {"lineStyle": {"color": "rgba(255,255,255,0.05)"}},
+                    "axisLabel": {"color": "#888", "fontSize": 10}
+                },
+                {
+                    "scale": True, "gridIndex": 1, "splitNumber": 2,
+                    "axisLabel": {"show": False}, "axisLine": {"show": False},
+                    "axisTick": {"show": False}, "splitLine": {"show": False}
+                }
             ],
             "dataZoom": [
-                {"type": "inside", "xAxisIndex": [0, 1], "start": 70, "end": 100},
-                {"show": True, "xAxisIndex": [0, 1], "type": "slider", "top": "93%", "start": 70, "end": 100}
+                {"type": "inside", "xAxisIndex": [0, 1], "start": 50, "end": 100},
+                {
+                    "show": True, "xAxisIndex": [0, 1], "type": "slider",
+                    "top": "92%", "start": 50, "end": 100,
+                    "backgroundColor": "rgba(0,0,0,0)",
+                    "fillerColor": "rgba(255,255,255,0.05)",
+                    "borderColor": "rgba(255,255,255,0.1)",
+                    "handleStyle": {"color": "#666"}
+                }
             ],
             "series": [
                 {
-                    "name": "캔들",
-                    "type": "candlestick",
-                    "data": values,
+                    "name": "Price", "type": "candlestick", "data": values,
                     "itemStyle": {
                         "color": "#ff4b4b", "color0": "#2b7cff",
                         "borderColor": "#ff4b4b", "borderColor0": "#2b7cff"
                     }
                 },
-                {"name": "MA5", "type": "line", "data": ma5, "smooth": True, "lineStyle": {"opacity": 0.5, "color": "#f1c40f", "width": 1}, "showSymbol": False},
-                {"name": "MA20", "type": "line", "data": ma20, "smooth": True, "lineStyle": {"opacity": 0.5, "color": "#2ecc71", "width": 1}, "showSymbol": False},
-                {"name": "거래량", "type": "bar", "xAxisIndex": 1, "yAxisIndex": 1, "data": v_data}
+                {
+                    "name": "Volume", "type": "bar", "xAxisIndex": 1, "yAxisIndex": 1, "data": volumes,
+                    "itemStyle": {
+                        "color": "#ff4b4b", "color0": "#2b7cff"
+                    }
+                }
             ]
         }
+        st_echarts(options=options, height=f"{height}px", key=f"kr_echart_{stock_code}_{interval}")
 
-        st_echarts(options=options, height=f"{height}px", key=f"ec_{stock_code}_{interval}")
+
 
 
 
@@ -1916,7 +2019,7 @@ def main():
                                     _m1, _m2, _m3 = st.columns(3)
                                     _m1.metric("거래량", f"{price_kr['volume']:,}주")
                                     _m2.metric("거래대금", f"₩{price_kr['amount']//100000000:,}억" if price_kr['amount']>0 else "-")
-                                    _m3.metric("시가총액", f"₩{price_kr['market_cap']}억" if price_kr['market_cap'] != '-' else "-")
+                                    _m3.metric("시가총액", f"₩{price_kr['market_cap']}" if price_kr['market_cap'] != '-' else "-")
                                     _m4, _m5, _m6 = st.columns(3)
                                     _m4.metric("시가", f"₩{price_kr['open']:,}")
                                     _m5.metric("고가", f"₩{price_kr['high']:,}")
@@ -3917,16 +4020,8 @@ def main():
                                     st.session_state.us_tv_interval = _tiv
                                     st.rerun()
                             _tv_iv_cur = st.session_state.us_tv_interval
-                            components.html(
-                                f'''<div class="tradingview-widget-container" style="height:480px;width:100%">
-                              <div class="tradingview-widget-container__widget" style="height:100%;width:100%"></div>
-                              <script type="text/javascript"
-                                src="https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js" async>
-                              {{"autosize":true,"symbol":"{_us_tv_sym}","interval":"{_tv_iv_cur}",
-                               "timezone":"America/New_York","theme":"dark","style":"1","locale":"kr",
-                               "allow_symbol_change":false,"hide_top_toolbar":false,"save_image":false,
-                               "backgroundColor":"rgba(0,0,0,1)"}}
-                              </script></div>''', height=480)
+                            _us_echart_iv = "D" if _tv_iv_cur == "D" else _tv_iv_cur
+                            _us_echarts_chart(_us_dticker, interval=_us_echart_iv, height=480)
                         else:
                             _US_IDX_TV = {"S&P500": "SP:SPX", "NASDAQ": "NASDAQ:IXIC", "DOW": "DJ:DJI"}
                             _us_idx_list = list(_US_IDX_TV.keys())
@@ -4015,12 +4110,8 @@ def main():
                                 st.session_state.us_chart_type = _us_ctn
                                 st.rerun()
 
-                        _us_tv_iv = "5" if st.session_state.us_chart_type == "분봉" else "D"
-                        _us_exch  = (detail_us.get("exchange", "NASDAQ") if detail_us else "NASDAQ").upper()
-                        _us_exch  = _YF_TO_TV.get(_us_exch, _us_exch)
-                        if _us_exch not in ("NASDAQ", "NYSE", "AMEX", "CBOE"):
-                            _us_exch = "NASDAQ"
-                        _tv_chart(f"{_us_exch}:{_us_ticker_cur}", interval=_us_tv_iv, height=660)
+                        _us_iv_cur = "D" if st.session_state.us_chart_type == "일봉" else "5"
+                        _us_echarts_chart(_us_ticker_cur, interval=_us_iv_cur, height=660)
 
                 with _us_right_ctr:
                     if us_mode == "📊 일반 주식 검색":

@@ -56,9 +56,9 @@ def get_market_news(category="general"):
 
 # 모델 폴백 순서 (분석 품질을 위해 Pro 모델을 최상단에 배치)
 _MODEL_FALLBACK = [
-    "gemini-1.5-pro",
-    "gemini-2.5-flash-preview-05-20",
-    "gemini-2.5-flash",
+    "gemini-2.0-flash",
+    "gemini-2.0-flash-lite",
+    "gemini-1.5-flash",
 ]
 
 # 할당량 소진 여부 (세션 중 반복 호출 방지)
@@ -115,9 +115,19 @@ def _call_gemini(prompt, use_search=False, temperature=0.7, response_mime_type=N
                 if "404" in err_str or "NOT_FOUND" in err_str:
                     break
 
-                # 잘못된 요청 — 재시도/다른 모델 의미 없음
-                if "400" in err_str or "INVALID_ARGUMENT" in err_str:
-                    raise api_err
+                # 구글 검색 권한 오류 (403) 시 검색 없이 재시도
+                if "403" in err_str and use_search:
+                    print(f"Warning: Google Search tool denied (403). Retrying without search for {model}...")
+                    config_no_search = types.GenerateContentConfig(temperature=temperature)
+                    if response_mime_type:
+                        config_no_search.response_mime_type = response_mime_type
+                    
+                    response = client.models.generate_content(
+                        model=model,
+                        contents=prompt,
+                        config=config_no_search,
+                    )
+                    return response
 
                 raise api_err
 
