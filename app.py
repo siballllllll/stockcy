@@ -138,9 +138,13 @@ def _kr_plotly_chart(code: str, interval: str = "D", height: int = 600,
 
         # ── 데이터 포인트 제한 (캔들이 너무 얇아지는 현상 방지) ──
         if interval != "D":
-            _max_pts = 390 if interval == "1" else 300
+            # 분봉은 화면에 최대 150개 캔들만 표시하여 두께 확보
+            _max_pts = 150
             if len(df) > _max_pts:
                 df = df.tail(_max_pts).reset_index(drop=True)
+
+        # ── X축 문자열 변환 (Plotly 카테고리화로 빈 공간/버그 완벽 제거) ──
+        df["dt_str"] = df["datetime"].dt.strftime("%Y-%m-%d %H:%M:%S")
 
         # ── 서브플롯 ──
         fig = make_subplots(
@@ -150,7 +154,7 @@ def _kr_plotly_chart(code: str, interval: str = "D", height: int = 600,
 
         # 캔들스틱
         fig.add_trace(go.Candlestick(
-            x=df["datetime"], open=df["open"], high=df["high"],
+            x=df["dt_str"], open=df["open"], high=df["high"],
             low=df["low"], close=df["close"],
             increasing_line_color="#ff4b4b", increasing_fillcolor="#ff4b4b",
             decreasing_line_color="#2b7cff", decreasing_fillcolor="#2b7cff",
@@ -162,14 +166,14 @@ def _kr_plotly_chart(code: str, interval: str = "D", height: int = 600,
             cn = f"ma{w}"
             if cn in df.columns:
                 fig.add_trace(go.Scatter(
-                    x=df["datetime"], y=df[cn],
+                    x=df["dt_str"], y=df[cn],
                     mode="lines", line=dict(color=mc, width=1),
                     name=ml,
                 ), row=1, col=1)
 
         # 거래량 바
         fig.add_trace(go.Bar(
-            x=df["datetime"], y=df["volume"],
+            x=df["dt_str"], y=df["volume"],
             marker_color=vol_colors,
             name="", showlegend=False,
         ), row=2, col=1)
@@ -203,20 +207,10 @@ def _kr_plotly_chart(code: str, interval: str = "D", height: int = 600,
                 )
             _v += _step
 
-        # ── X축 범위 & 비거래 구간 제거 ──
-        _x_range = [df["datetime"].iloc[0], df["datetime"].iloc[-1]]
-        if interval == "D":
-            _rbreaks = [dict(bounds=["sat", "mon"])]
-        else:
-            _rbreaks = [
-                dict(bounds=["sat", "mon"]),
-                dict(bounds=[15.5, 9], pattern="hour"),
-            ]
-
         # ── 레이아웃 ──
         fig.update_layout(
             height=height,
-            margin=dict(l=0, r=55, t=5, b=0),
+            margin=dict(l=0, r=55, t=5, b=0),  # 우측 여백 확보 (텍스트 겹침 방지)
             paper_bgcolor="rgba(0,0,0,0)",
             plot_bgcolor="rgba(0,0,0,0)",
             font=dict(color=_tick_c, size=10),
@@ -245,20 +239,25 @@ def _kr_plotly_chart(code: str, interval: str = "D", height: int = 600,
             showgrid=False, zeroline=False, fixedrange=True,
         )
 
-        # X축 (캔들)
+        # X축 (캔들) - Category 기반
         fig.update_xaxes(
             row=1, col=1, showticklabels=False,
             showgrid=True, gridcolor=_grid_c,
-            range=_x_range, rangebreaks=_rbreaks, fixedrange=False,
+            type="category", fixedrange=False,
         )
         
-        # X축 (거래량)
-        _tfmt = "%m/%d" if interval == "D" else "%H:%M"
+        # X축 (거래량) - 눈금자 수동 설정
+        _nticks = 6
+        _step_idx = max(1, len(df) // _nticks)
+        _tvals = df["dt_str"].iloc[::_step_idx]
+        _ttext = df["datetime"].iloc[::_step_idx].dt.strftime("%m/%d" if interval == "D" else "%H:%M")
+
         fig.update_xaxes(
             row=2, col=1, showgrid=False,
-            tickformat=_tfmt,
+            type="category",
+            tickvals=_tvals, ticktext=_ttext,
             tickfont=dict(size=8, color=_tick_c),
-            range=_x_range, rangebreaks=_rbreaks, fixedrange=False,
+            fixedrange=False,
         )
 
         st.plotly_chart(
