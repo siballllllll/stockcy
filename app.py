@@ -1904,7 +1904,27 @@ def main():
                                     st.rerun()
 
                         _kr_period = st.session_state.kr_daily_period if st.session_state.kr_chart_type == "D" else "3mo"
-                        _kr_echarts_chart(selected_code_kr, interval=st.session_state.kr_chart_type, height=600, period=_kr_period)
+                        
+                        _tab_chart, _tab_box = st.tabs(["📊 차트", "📦 박스권·수급 분석"])
+                        with _tab_chart:
+                            _kr_echarts_chart(selected_code_kr, interval=st.session_state.kr_chart_type, height=600, period=_kr_period)
+                        with _tab_box:
+                            st.markdown(f"### 📦 {st.session_state.kr_selected_name} 박스권 및 수급 분석")
+                            if st.button("분석 실행", key="kr_box_analyze"):
+                                with st.spinner("AI가 지지선, 저항선 및 수급을 분석 중입니다..."):
+                                    from ai_engine import analyze_box_pattern
+                                    box_res = analyze_box_pattern(selected_code_kr, st.session_state.kr_selected_name, price_kr, "KR")
+                                    if box_res:
+                                        c1, c2, c3 = st.columns(3)
+                                        c1.metric("1차 지지선", box_res.get("support_line", "-"))
+                                        c2.metric("1차 저항선", box_res.get("resistance_line", "-"))
+                                        c3.metric("저항선 돌파 확률", box_res.get("breakout_probability", "-"))
+                                        st.markdown("#### 📈 박스권 분석")
+                                        st.info(box_res.get("box_analysis", "-"))
+                                        st.markdown("#### 🐳 세력 수급 동향")
+                                        st.warning(box_res.get("supply_demand_analysis", "-"))
+                                        st.markdown("#### 🎯 대응 전략")
+                                        st.success(box_res.get("action_plan", "-"))
 
                 with _right_ctr:
                     if kr_mode == "📊 일반 주식 검색":
@@ -4111,7 +4131,27 @@ def main():
                                 st.rerun()
 
                         _us_iv_cur = "D" if st.session_state.us_chart_type == "일봉" else "5"
-                        _us_echarts_chart(_us_ticker_cur, interval=_us_iv_cur, height=660)
+                        
+                        _utab_chart, _utab_box = st.tabs(["📊 차트", "📦 박스권·수급 분석"])
+                        with _utab_chart:
+                            _us_echarts_chart(_us_ticker_cur, interval=_us_iv_cur, height=660)
+                        with _utab_box:
+                            st.markdown(f"### 📦 {_real_us_name} 박스권 및 수급 분석")
+                            if st.button("분석 실행", key="us_box_analyze"):
+                                with st.spinner("AI가 지지선, 저항선 및 수급을 분석 중입니다..."):
+                                    from ai_engine import analyze_box_pattern
+                                    box_res = analyze_box_pattern(_us_ticker_cur, _real_us_name, detail_us, "US")
+                                    if box_res:
+                                        c1, c2, c3 = st.columns(3)
+                                        c1.metric("1차 지지선", box_res.get("support_line", "-"))
+                                        c2.metric("1차 저항선", box_res.get("resistance_line", "-"))
+                                        c3.metric("저항선 돌파 확률", box_res.get("breakout_probability", "-"))
+                                        st.markdown("#### 📈 박스권 분석")
+                                        st.info(box_res.get("box_analysis", "-"))
+                                        st.markdown("#### 🐳 세력 수급 동향")
+                                        st.warning(box_res.get("supply_demand_analysis", "-"))
+                                        st.markdown("#### 🎯 대응 전략")
+                                        st.success(box_res.get("action_plan", "-"))
 
                 with _us_right_ctr:
                     if us_mode == "📊 일반 주식 검색":

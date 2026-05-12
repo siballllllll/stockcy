@@ -664,6 +664,44 @@ PER: {price_data['per']} | PBR: {price_data['pbr']}
         }
 
 
+def analyze_box_pattern(ticker: str, name: str, price_data: dict, market: str = "KR"):
+    """
+    현재 주가의 박스권(지지선/저항선), 돌파 가능성, 세력 및 수급 동향을 분석합니다.
+    """
+    price_str = f"{price_data.get('price', 0):,}" if market == "KR" else f"{price_data.get('price', 0):.2f}"
+    currency = "원" if market == "KR" else "달러"
+    
+    prompt = f"""
+    당신은 15년 경력의 월스트리트 기술적 분석 및 세력 수급 추적 전문가입니다.
+    현재 {name}({ticker})의 주가는 {price_str}{currency} 입니다.
+    구글 검색을 통해 최근 3개월~6개월 간의 차트 흐름, 거래량 터진 구간, 그리고 주요 주체(외국인/기관/세력)의 매집/이탈 동향을 파악하세요.
+    
+    반드시 아래 JSON 형식으로만 응답하세요 (마크다운 백틱 없이):
+    {{
+      "support_line": "1차 지지선 가격 (예: 72,000원)",
+      "resistance_line": "1차 저항선 가격 (예: 78,000원)",
+      "breakout_probability": "저항선 돌파 확률 (예: 75%)",
+      "box_analysis": "현재 박스권(지지/저항) 형성 배경과 돌파 또는 이탈 가능성에 대한 기술적 분석 (3~4문장)",
+      "supply_demand_analysis": "최근 세력(외국인/기관/고래)의 수급 동향 및 매집/분산 여부 파악 (3~4문장)",
+      "action_plan": "현재 자리에서의 구체적인 대응 전략 (매수/관망/매도 등)"
+    }}
+    """
+    try:
+        response = _call_gemini(prompt, use_search=True, temperature=0.5)
+        text = re.sub(r'```(?:json)?', '', response.text).strip()
+        start = text.find('{')
+        if start != -1:
+            result, _ = json.JSONDecoder().raw_decode(text, start)
+            return result
+        return json.loads(text)
+    except Exception as e:
+        return {
+            "support_line": "-", "resistance_line": "-", "breakout_probability": "-",
+            "box_analysis": f"분석 오류: {e}",
+            "supply_demand_analysis": "-", "action_plan": "-"
+        }
+
+
 @st.cache_data(ttl=600)
 def generate_dynamic_themes():
     """
