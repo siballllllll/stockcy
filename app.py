@@ -846,6 +846,44 @@ def show_favorites_center():
                     st.markdown(f"**{name}** ({ticker})")
                     st.markdown(f"<h3 style='margin:0;color:{color}'>{price_str} <small>({pct:+.2f}%)</small></h3>", unsafe_allow_html=True)
                     
+                    # ── 즐겨찾기용 자동 AI 가이드 로직 ──────────────────────
+                    _fav_guide = "⚪ 관망"
+                    _fav_g_color = "#888"
+                    
+                    # 52주 위치 정보 (데이터가 있을 경우)
+                    _w_low = p_data.get('w52_low', 0) or 0
+                    _w_high = p_data.get('w52_high', 0) or 0
+                    _pos_pct = 50
+                    if _w_high > _w_low > 0:
+                        _pos_pct = (price - _w_low) / (_w_high - _w_low) * 100
+
+                    if pct >= 5.0:
+                        _fav_guide = "🔥 급등 중 (추격 신중)"
+                        _fav_g_color = "#ff4b4b"
+                    elif pct <= -5.0:
+                        _fav_guide = "🔵 과매도 (반등 확인)"
+                        _fav_g_color = "#2b7cff"
+                    elif _pos_pct <= 15:
+                        _fav_guide = "💎 바닥권 (매수 매력)"
+                        _fav_g_color = "#00c853"
+                    elif _pos_pct >= 85:
+                        _fav_guide = "⚠️ 고점권 (돌파 체크)"
+                        _fav_g_color = "#ff9800"
+                    elif pct >= 2.0:
+                        _fav_guide = "🟢 상승세 유지"
+                        _fav_g_color = "#ff4b4b"
+                    elif pct <= -2.0:
+                        _fav_guide = "🔴 약세 흐름"
+                        _fav_g_color = "#2b7cff"
+                    
+                    st.markdown(
+                        f"<div style='display:inline-block;padding:2px 8px;border-radius:4px;"
+                        f"background:{_fav_g_color}15;border:1px solid {_fav_g_color}66;"
+                        f"color:{_fav_g_color};font-size:0.68rem;font-weight:700;margin:6px 0'>"
+                        f"{_fav_guide}</div>",
+                        unsafe_allow_html=True
+                    )
+                    
                     # ── 버튼 레이아웃: AI 분석 | 포트폴리오 추가 ─────────────────
                     _fav_res_key = f"fav_ai_result_{ticker}"
                     _fav_err_key = f"fav_ai_error_{ticker}"
