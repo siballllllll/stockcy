@@ -959,12 +959,18 @@ def show_trade_analysis_modal():
         _mdate = _td.get("sell_date", "")
         _cache_key = f"_modal_res_{_mticker}_{_mdate}"
         if _cache_key not in st.session_state:
-            from db import load_trade_analysis_records as _ltar
-            _past_recs, _ = _ltar()
-            _past_lessons = [r.get("교훈", "") for r in _past_recs if r.get("교훈")]
+            try:
+                from db import load_trade_analysis_records as _ltar
+                _past_recs, _ = _ltar()
+                _past_lessons = [r.get("교훈", "") for r in _past_recs if r.get("교훈")]
+            except Exception:
+                _past_lessons = []
             with st.spinner(f"🤖 {_td.get('name','?')} 분석 중... (최대 50초)"):
                 from ai_engine import analyze_trade_history as _ata
-                _res = _ata([_td], past_lessons=_past_lessons)
+                try:
+                    _res = _ata([_td], past_lessons=_past_lessons)
+                except TypeError:
+                    _res = _ata([_td])
             st.session_state[_cache_key] = _res
             # 자동 저장 (오류 없는 경우만)
             if "error" not in _res:
