@@ -72,6 +72,10 @@ _API_TIMEOUT_SEC = 90
 def _clean_ai_json(raw: str) -> str:
     """AI 응답 텍스트에서 JSON을 추출 가능한 형태로 정제합니다."""
     text = re.sub(r'```(?:json)?', '', raw).strip()
+    # /* ... */ 블록 주석 제거
+    text = re.sub(r'/\*.*?\*/', '', text, flags=re.DOTALL)
+    # // 한줄 주석 제거 (문자열 내부 URL 등 오탐 가능성 낮음)
+    text = re.sub(r'//[^\n"]*', '', text)
     # trailing comma 제거: ,} 또는 ,]
     text = re.sub(r',\s*([}\]])', r'\1', text)
     return text
