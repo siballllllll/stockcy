@@ -2555,7 +2555,21 @@ def main():
                                             )
                                             st.session_state[_ai_key] = kr_rep
                                             st.session_state.pop(_ai_err_key, None)
-                                            
+
+                                            # AI 등급 '추천' 이상이면 ai_portfolio 자동 추가
+                                            _kr_rating = kr_rep.get("rating", "-")
+                                            if _kr_rating in ("추천", "매우 강력 추천"):
+                                                if "ai_portfolio" not in st.session_state:
+                                                    st.session_state.ai_portfolio = []
+                                                if not any(i["ticker"] == selected_code_kr for i in st.session_state.ai_portfolio):
+                                                    st.session_state.ai_portfolio.append({
+                                                        "ticker": selected_code_kr,
+                                                        "name": price_kr["name"],
+                                                        "buy_price": price_kr["price"],
+                                                        "quantity": 10,
+                                                        "buy_date": (datetime.now() + timedelta(hours=9)).strftime("%Y-%m-%d %H:%M"),
+                                                    })
+
                                             try:
                                                 from db import log_ai_recommendation
                                                 log_ai_recommendation(
@@ -2885,6 +2899,21 @@ def main():
                                             price_kr or {}, _inv_ai
                                         )
                                         st.session_state[f"sec_rep_{detail_code}"] = _rep
+
+                                        # AI 등급 '추천' 이상이면 ai_portfolio 자동 추가
+                                        _sec_rating = _rep.get("rating", "-")
+                                        if _sec_rating in ("추천", "매우 강력 추천"):
+                                            if "ai_portfolio" not in st.session_state:
+                                                st.session_state.ai_portfolio = []
+                                            if not any(i["ticker"] == detail_code for i in st.session_state.ai_portfolio):
+                                                st.session_state.ai_portfolio.append({
+                                                    "ticker": detail_code,
+                                                    "name": detail_name,
+                                                    "buy_price": price_kr.get("price", 0) if price_kr else 0,
+                                                    "quantity": 10,
+                                                    "buy_date": (datetime.now() + timedelta(hours=9)).strftime("%Y-%m-%d %H:%M"),
+                                                })
+
                                         from db import log_ai_recommendation
                                         log_ai_recommendation(
                                             "섹터단타분석", detail_code, detail_name,
@@ -4897,7 +4926,22 @@ def main():
                                             _rep_j = generate_stock_report(_us_ticker_cur, _cur_p, _chg_p)
                                             st.session_state[_us_ai_key] = _rep_j
                                             st.session_state.pop(_us_ai_err_key, None)
-                                            
+
+                                            # AI 등급 '추천' 이상이면 ai_portfolio 자동 추가
+                                            _us_rating = _rep_j.get("rating", "-")
+                                            if _us_rating in ("추천", "매우 강력 추천"):
+                                                if "ai_portfolio" not in st.session_state:
+                                                    st.session_state.ai_portfolio = []
+                                                _us_auto_name = detail_us.get("name", _us_ticker_cur)
+                                                if not any(i["ticker"] == _us_ticker_cur for i in st.session_state.ai_portfolio):
+                                                    st.session_state.ai_portfolio.append({
+                                                        "ticker": _us_ticker_cur,
+                                                        "name": _us_auto_name,
+                                                        "buy_price": detail_us.get("price", 0),
+                                                        "quantity": 10,
+                                                        "buy_date": (datetime.now() + timedelta(hours=9)).strftime("%Y-%m-%d %H:%M"),
+                                                    })
+
                                             try:
                                                 from db import log_ai_recommendation
                                                 log_ai_recommendation(
@@ -5144,6 +5188,21 @@ def main():
                                             from ai_engine import generate_stock_report
                                             _us_rep = generate_stock_report(_us_dticker, us_detail["price"], chg)
                                             st.session_state[f"us_sec_rep_{_us_dticker}"] = _us_rep
+
+                                            # AI 등급 '추천' 이상이면 ai_portfolio 자동 추가
+                                            _us_sec_rating = _us_rep.get("rating", "-")
+                                            if _us_sec_rating in ("추천", "매우 강력 추천"):
+                                                if "ai_portfolio" not in st.session_state:
+                                                    st.session_state.ai_portfolio = []
+                                                if not any(i["ticker"] == _us_dticker for i in st.session_state.ai_portfolio):
+                                                    st.session_state.ai_portfolio.append({
+                                                        "ticker": _us_dticker,
+                                                        "name": _us_dname,
+                                                        "buy_price": us_detail.get("price", 0),
+                                                        "quantity": 10,
+                                                        "buy_date": (datetime.now() + timedelta(hours=9)).strftime("%Y-%m-%d %H:%M"),
+                                                    })
+
                                             from db import log_ai_recommendation
                                             log_ai_recommendation(
                                                 "미국섹터단타", _us_dticker, _us_dname,
@@ -5947,18 +6006,52 @@ def main():
                             key=f"sellp_{portfolio_key}_{idx}",
                             label_visibility="collapsed"
                         )
+                        # 예상 수수료 미리보기
+                        _inv_prev = bp * qty
+                        _sv_prev  = sell_p * qty
+                        if is_kr:
+                            _bc_pct = st.session_state.get("comm_kr_buy", 0.015) / 100
+                            _sc_pct = (st.session_state.get("comm_kr_sell", 0.015) + 0.18) / 100
+                        else:
+                            _bc_pct = st.session_state.get("comm_us_buy", 0.0) / 100
+                            _sc_pct = st.session_state.get("comm_us_sell", 0.0) / 100
+                        _fee_prev = _inv_prev * _bc_pct + _sv_prev * _sc_pct
+                        _net_prev = _sv_prev - _inv_prev - _fee_prev
+                        _net_pct_prev = (_net_prev / _inv_prev * 100) if _inv_prev > 0 else 0
+                        _fee_fmt = f"{cur_sym}{_fee_prev:,.0f}" if is_kr else f"{cur_sym}{_fee_prev:,.2f}"
+                        _net_color = "#00c853" if _net_prev >= 0 else "#ff4b4b"
+                        st.caption(
+                            f"수수료 <b>{_fee_fmt}</b> 차감 → 순수익 "
+                            f"<span style='color:{_net_color};font-weight:700'>"
+                            f"{'+' if _net_prev>=0 else ''}{_net_pct_prev:.2f}%</span>",
+                            unsafe_allow_html=True
+                        )
                         bc1, bc2 = st.columns(2)
                         with bc1:
                             if st.button("✅ 매도", key=f"sell_{portfolio_key}_{idx}",
                                          type="primary", use_container_width=True):
                                 invested = bp * qty
                                 sell_val = sell_p * qty
-                                p = sell_val - invested
+
+                                # 수수료 계산
+                                if is_kr:
+                                    buy_comm_pct  = st.session_state.get("comm_kr_buy", 0.015) / 100
+                                    sell_comm_pct = (st.session_state.get("comm_kr_sell", 0.015) + 0.18) / 100
+                                else:
+                                    buy_comm_pct  = st.session_state.get("comm_us_buy", 0.0) / 100
+                                    sell_comm_pct = st.session_state.get("comm_us_sell", 0.0) / 100
+
+                                buy_fee  = invested * buy_comm_pct
+                                sell_fee = sell_val * sell_comm_pct
+                                total_fee = buy_fee + sell_fee
+
+                                p = sell_val - invested - total_fee
                                 p_pct = (p / invested * 100) if invested > 0 else 0
                                 trade = {
                                     "ticker": ticker, "name": name, "quantity": qty,
                                     "buy_price": bp, "sell_price": sell_p,
                                     "profit": p, "profit_pct": p_pct,
+                                    "commission": round(total_fee, 2),
                                     "buy_date": item.get("buy_date", "-"),
                                     "sell_date": (datetime.now() + timedelta(hours=9)).strftime("%Y-%m-%d %H:%M"),
                                     "result": "승" if p >= 0 else "패"
@@ -5967,7 +6060,7 @@ def main():
                                 from db import save_trade_record
                                 save_trade_record(trade)
                                 st.session_state[pending_key] = ticker
-                                st.toast(f"✅ {ticker} 매도 기록 완료!")
+                                st.toast(f"✅ {ticker} 매도 기록 완료! (수수료 {cur_sym}{total_fee:,.2f} 차감)")
                                 st.rerun()
                         with bc2:
                             if st.button("🗑️", key=f"del_{portfolio_key}_{idx}",
@@ -5992,6 +6085,39 @@ def main():
                 st.rerun()
 
         with tab_holding:
+            # ── 수수료 설정 ─────────────────────────────────────────────
+            with st.expander("⚙️ 수수료 설정", expanded=False):
+                _fc1, _fc2 = st.columns(2)
+                with _fc1:
+                    st.caption("🇰🇷 국내주식 (증권거래세 0.18% 자동 포함)")
+                    _kr_buy_comm = st.number_input(
+                        "매수 수수료 (%)", min_value=0.0, max_value=5.0,
+                        value=st.session_state.get("comm_kr_buy", 0.015),
+                        step=0.001, format="%.3f", key="comm_kr_buy_input"
+                    )
+                    _kr_sell_comm = st.number_input(
+                        "매도 수수료 (%)", min_value=0.0, max_value=5.0,
+                        value=st.session_state.get("comm_kr_sell", 0.015),
+                        step=0.001, format="%.3f", key="comm_kr_sell_input"
+                    )
+                    st.caption(f"실효 매도율: {_kr_sell_comm + 0.18:.3f}% (수수료 + 거래세 0.18%)")
+                with _fc2:
+                    st.caption("🇺🇸 미국주식")
+                    _us_buy_comm = st.number_input(
+                        "매수 수수료 (%)", min_value=0.0, max_value=5.0,
+                        value=st.session_state.get("comm_us_buy", 0.0),
+                        step=0.001, format="%.3f", key="comm_us_buy_input"
+                    )
+                    _us_sell_comm = st.number_input(
+                        "매도 수수료 (%)", min_value=0.0, max_value=5.0,
+                        value=st.session_state.get("comm_us_sell", 0.0),
+                        step=0.001, format="%.3f", key="comm_us_sell_input"
+                    )
+                st.session_state.comm_kr_buy  = _kr_buy_comm
+                st.session_state.comm_kr_sell = _kr_sell_comm
+                st.session_state.comm_us_buy  = _us_buy_comm
+                st.session_state.comm_us_sell = _us_sell_comm
+
             st.markdown("### 🤖 AI 자동 추천 종목")
             st.caption("AI 분석에서 '추천' 이상 등급을 받으면 자동으로 기록됩니다.")
             render_holdings("ai_portfolio", show_add=False)
@@ -6079,15 +6205,20 @@ def main():
                     st.plotly_chart(fig, use_container_width=True)
 
                 st.markdown("### 📋 거래 내역")
+                def _hist_sym(t):
+                    tk = t.get("ticker", "")
+                    return "₩" if (len(tk) == 6 and tk.isdigit()) else "$"
+
                 df_hist = pd.DataFrame([{
                     "매도일": t.get("sell_date", ""),
                     "티커": t.get("ticker", ""),
                     "종목명": t.get("name", ""),
                     "수량": t.get("quantity", 0),
-                    "매수가": f"${float(t.get('buy_price', 0)):,.2f}",
-                    "매도가": f"${float(t.get('sell_price', 0)):,.2f}",
-                    "수익금": f"${float(t.get('profit', 0)):,.2f}",
-                    "수익률": f"{float(t.get('profit_pct', 0)):.2f}%",
+                    "매수가": f"{_hist_sym(t)}{float(t.get('buy_price', 0)):,.2f}",
+                    "매도가": f"{_hist_sym(t)}{float(t.get('sell_price', 0)):,.2f}",
+                    "수수료": f"{_hist_sym(t)}{float(t.get('commission', 0)):,.2f}" if t.get('commission') is not None else "-",
+                    "순수익": f"{_hist_sym(t)}{float(t.get('profit', 0)):+,.2f}",
+                    "수익률": f"{float(t.get('profit_pct', 0)):+.2f}%",
                     "결과": t.get("result", "")
                 } for t in reversed(history)])
 
@@ -6098,8 +6229,18 @@ def main():
                         return "color: #ff4b4b; font-weight: bold"
                     return ""
 
+                def color_pnl(val):
+                    try:
+                        num = float(str(val).replace("+", "").replace("%", "").replace(",", "").replace("$", "").replace("₩", ""))
+                        if num > 0: return "color: #00c853"
+                        if num < 0: return "color: #ff4b4b"
+                    except: pass
+                    return ""
+
                 st.dataframe(
-                    df_hist.style.map(color_result, subset=["결과"]),
+                    df_hist.style
+                        .map(color_result, subset=["결과"])
+                        .map(color_pnl, subset=["순수익", "수익률"]),
                     use_container_width=True, hide_index=True
                 )
 
