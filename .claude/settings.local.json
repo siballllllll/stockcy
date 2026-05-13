@@ -74,7 +74,8 @@
       "Bash(git revert *)",
       "Bash(git *)",
       "Bash(python -c \"import re; content=open\\('app.py',encoding='utf-8'\\).read\\(\\); matches=re.findall\\(r'unsafe_allow_html', content\\); print\\(len\\(matches\\)\\)\")",
-      "Bash(python -c \"import ast; ast.parse\\(open\\('app.py', encoding='utf-8'\\).read\\(\\)\\); print\\('OK - 문법 오류 없음'\\)\")"
+      "Bash(python -c \"import ast; ast.parse\\(open\\('app.py', encoding='utf-8'\\).read\\(\\)\\); print\\('OK - 문법 오류 없음'\\)\")",
+      "Bash(python -c \"import ast; ast.parse\\(open\\('app.py', encoding='utf-8'\\).read\\(\\)\\); print\\('Syntax OK'\\)\")"
     ]
   }
 }

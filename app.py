@@ -421,7 +421,7 @@ def inject_custom_css():
         <style>
         @import url("https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.8/dist/web/variable/pretendardvariable.css");
         
-        html, body, [data-testid="stAppViewContainer"] * {
+        html, body, .stApp {
             font-family: "Pretendard Variable", Pretendard, -apple-system, BlinkMacSystemFont, system-ui, Roboto, "Helvetica Neue", "Segoe UI", "Apple SD Gothic Neo", "Noto Sans KR", "Malgun Gothic", "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", sans-serif !important;
         }
 
@@ -437,11 +437,20 @@ def inject_custom_css():
         /* ── 이탤릭/강조 시 폰트 변형 방지 ── */
         em, i {
             font-style: italic !important;
-            font-family: inherit !important;
         }
         strong, b {
             font-weight: 700 !important;
-            font-family: inherit !important;
+        }
+        
+        /* ── 접기/펼치기(Expander) 레이아웃 보정 ── */
+        .stExpander summary {
+            font-size: 1.1rem !important;
+            font-weight: 600 !important;
+            padding: 0.5rem 1rem !important;
+        }
+        .stExpander summary svg {
+            width: 1.5rem !important;
+            height: 1.5rem !important;
         }
     </style>""", unsafe_allow_html=True)
     st.markdown("""
