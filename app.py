@@ -5837,30 +5837,39 @@ def main():
             if show_add:
                 with st.expander("➕ 종목 직접 추가"):
                     # 국내 + 미국 통합 검색 옵션 빌드 (캐시 활용)
+                    # 옵션 값은 (ticker, full_name) 튜플 — format_func로 표시 텍스트 별도 관리
                     _add_kr_map = st.session_state.get("kr_code_to_name", {})
                     _add_us_map = st.session_state.get("us_ticker_map", {})
-                    _opts_kr = [f"{name} ({code}) 🇰🇷" for code, name in _add_kr_map.items()]
-                    _opts_us = [
-                        f"{(info.get('name', tk) if isinstance(info, dict) else str(info))} ({tk}) 🇺🇸"
-                        for tk, info in _add_us_map.items()
-                    ]
-                    _all_opts = sorted(_opts_kr) + sorted(_opts_us)
+                    _opts_kr = sorted(
+                        [(code, name, "🇰🇷") for code, name in _add_kr_map.items()],
+                        key=lambda x: x[1]
+                    )
+                    _opts_us = sorted(
+                        [(tk, info.get("name", tk) if isinstance(info, dict) else str(info), "🇺🇸")
+                         for tk, info in _add_us_map.items()],
+                        key=lambda x: x[1]
+                    )
+                    _all_opts = _opts_kr + _opts_us
+
+                    def _fmt_stock(opt):
+                        if opt is None:
+                            return ""
+                        tk, nm, flag = opt
+                        display_nm = nm if len(nm) <= 22 else nm[:21] + "…"
+                        return f"{display_nm} ({tk}) {flag}"
 
                     _sel = st.selectbox(
                         "종목 검색 (종목명 또는 티커 입력)",
                         options=_all_opts,
+                        format_func=_fmt_stock,
                         index=None,
                         placeholder="예: 삼성전자 / 005930 / TSLA / Apple",
                         key=f"search_{portfolio_key}",
                     )
 
-                    # 선택된 종목에서 티커·이름 추출
-                    # 형식: "종목명 (티커) 🇰🇷" 또는 "종목명 (티커) 🇺🇸"
-                    import re as _re
+                    # 선택된 종목에서 티커·이름 추출 (튜플이므로 직접 분리)
                     if _sel:
-                        _ticker_m = _re.search(r'\(([^)]+)\)', _sel)
-                        nt = _ticker_m.group(1).strip() if _ticker_m else ""
-                        nn = _sel.rsplit("(", 1)[0].strip()
+                        nt, nn = _sel[0], _sel[1]
                     else:
                         nt, nn = "", ""
 
