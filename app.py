@@ -6593,8 +6593,8 @@ def main():
                     return "₩" if (len(tk) == 6 and tk.isdigit()) else "$"
 
                 # ── 헤더 ──────────────────────────────────────────────
-                _hdr_col, _, _ = st.columns([10, 0.65, 0.65])
-                _hdr_col.markdown(
+                # ── 헤더 (데이터 행과 동일한 너비로 조정) ──
+                st.markdown(
                     "<div style='display:flex;align-items:center;padding:10px 12px;min-height:44px;"
                     "background:rgba(255,255,255,0.05);border-radius:6px 6px 0 0;"
                     "border:1px solid rgba(255,255,255,0.13);border-bottom:2px solid rgba(255,255,255,0.22);"
@@ -6608,7 +6608,7 @@ def main():
                     "<span style='flex:1.3'>순수익</span>"
                     "<span style='flex:1.0'>수익률</span>"
                     "<span style='flex:0.6'>결과</span>"
-                    "<span style='flex:1.3'></span>"
+                    "<span style='flex:1.3'></span>" # 버튼 영역 매칭
                     "</div>",
                     unsafe_allow_html=True,
                 )
