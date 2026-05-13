@@ -877,6 +877,110 @@ def init_session_state():
         from db import load_portfolio_from_gsheet
         st.session_state.portfolio = load_portfolio_from_gsheet()
 
+@st.dialog("📈 오늘의 시장 시나리오", width="large")
+def show_market_scenarios():
+    if "market_scenarios_data" not in st.session_state:
+        with st.spinner("🔍 오늘의 핫뉴스를 분석해 시나리오를 작성 중입니다... (최대 60초)"):
+            from ai_engine import generate_market_scenarios
+            st.session_state.market_scenarios_data = generate_market_scenarios()
+
+    data = st.session_state.market_scenarios_data
+
+    if not data or "error" in data:
+        st.error(f"시나리오 생성 실패: {data.get('error','알 수 없는 오류') if data else '응답 없음'}")
+        if st.button("다시 시도"):
+            st.session_state.pop("market_scenarios_data", None)
+            st.rerun()
+    else:
+        st.markdown(
+            f"<div style='padding:8px 12px;background:rgba(255,215,64,0.1);border-left:3px solid #ffd740;"
+            f"border-radius:4px;margin-bottom:16px;font-size:0.88rem;color:#ccc'>"
+            f"📰 <b>오늘의 핵심 뉴스</b><br>{data.get('news_summary','')}</div>",
+            unsafe_allow_html=True,
+        )
+
+        _DIR_COLOR = {"강세": "#00c853", "약세": "#ff4b4b", "혼조": "#ffd740"}
+        _PROB_COLOR = {"높음": "#00c853", "보통": "#ffd740", "낮음": "#888"}
+        _scenarios = data.get("scenarios", [])
+
+        for _sc in _scenarios:
+            _lbl = _sc.get("label", "")
+            _title = _sc.get("title", "")
+            _prob = _sc.get("probability", "")
+            _prob_pct = _sc.get("probability_pct", "")
+            _mdir = _sc.get("market_direction", "")
+            _dir_clr = _DIR_COLOR.get(_mdir, "#aaa")
+            _prob_clr = _PROB_COLOR.get(_prob, "#aaa")
+
+            with st.expander(
+                f"시나리오 {_lbl} — {_title}",
+                expanded=(_lbl == "A"),
+            ):
+                _hc1, _hc2, _hc3 = st.columns(3)
+                with _hc1:
+                    st.markdown(
+                        f"<div style='text-align:center'>"
+                        f"<div style='font-size:0.75rem;color:#888'>시장 방향</div>"
+                        f"<div style='font-size:1.1rem;font-weight:700;color:{_dir_clr}'>{_mdir}</div>"
+                        f"</div>", unsafe_allow_html=True
+                    )
+                with _hc2:
+                    st.markdown(
+                        f"<div style='text-align:center'>"
+                        f"<div style='font-size:0.75rem;color:#888'>실현 가능성</div>"
+                        f"<div style='font-size:1.1rem;font-weight:700;color:{_prob_clr}'>{_prob} ({_prob_pct}%)</div>"
+                        f"</div>", unsafe_allow_html=True
+                    )
+                with _hc3:
+                    st.markdown(
+                        f"<div style='text-align:center'>"
+                        f"<div style='font-size:0.75rem;color:#888'>촉발 조건</div>"
+                        f"<div style='font-size:0.82rem;color:#ccc'>{_sc.get('trigger','')}</div>"
+                        f"</div>", unsafe_allow_html=True
+                    )
+
+                st.markdown(
+                    f"<div style='margin:10px 0 12px;padding:8px 12px;background:rgba(255,255,255,0.05);"
+                    f"border-radius:6px;font-size:0.88rem;color:#ddd'>{_sc.get('market_impact','')}</div>",
+                    unsafe_allow_html=True
+                )
+
+                _sc1, _sc2 = st.columns(2)
+                with _sc1:
+                    st.markdown("**🟢 상승 예상 종목**")
+                    for _s in _sc.get("rising_stocks", []):
+                        st.markdown(
+                            f"<div style='padding:5px 0;border-bottom:1px solid rgba(255,255,255,0.07)'>"
+                            f"<span style='color:#00c853;font-weight:600'>{_s.get('name','')} "
+                            f"<span style='font-size:0.8rem;color:#888'>({_s.get('ticker','')})</span></span><br>"
+                            f"<span style='font-size:0.8rem;color:#aaa'>{_s.get('reason','')}</span>"
+                            f"</div>",
+                            unsafe_allow_html=True
+                        )
+                with _sc2:
+                    st.markdown("**🔴 하락 예상 종목**")
+                    for _s in _sc.get("falling_stocks", []):
+                        st.markdown(
+                            f"<div style='padding:5px 0;border-bottom:1px solid rgba(255,255,255,0.07)'>"
+                            f"<span style='color:#ff4b4b;font-weight:600'>{_s.get('name','')} "
+                            f"<span style='font-size:0.8rem;color:#888'>({_s.get('ticker','')})</span></span><br>"
+                            f"<span style='font-size:0.8rem;color:#aaa'>{_s.get('reason','')}</span>"
+                            f"</div>",
+                            unsafe_allow_html=True
+                        )
+
+                st.info(f"**전략:** {_sc.get('strategy','')}")
+
+        _ref_col, _close_col = st.columns([3, 1])
+        with _ref_col:
+            if st.button("🔄 새로 분석", use_container_width=True):
+                st.session_state.pop("market_scenarios_data", None)
+                st.rerun()
+        with _close_col:
+            if st.button("닫기", use_container_width=True):
+                st.rerun()
+
+
 @st.dialog("오늘의 데일리 브리핑 📝")
 def show_daily_briefing():
     with st.spinner("🧠 AI가 글로벌 실시간 뉴스를 분석하여 브리핑을 작성 중입니다..."):
@@ -1494,8 +1598,8 @@ def main():
     _nav_sig_n = st.session_state.get(_nav_sig_k, 0)
     _picks_label = f"🎯 타점보드" + (f" {_nav_sig_n}" if _nav_sig_n > 0 else "")
 
-    _hdr_l, _hn1, _hn2, _hn3, _hn5, _hn4, _sp, _hm1, _hm2, _hset, _hcache = st.columns(
-        [0.85, 0.55, 0.55, 0.55, 0.55, 0.45, 1.35, 0.75, 0.75, 0.4, 0.4], gap="small"
+    _hdr_l, _hn1, _hn2, _hn3, _hn5, _hn4, _hn6, _sp, _hm1, _hm2, _hset, _hcache = st.columns(
+        [0.85, 0.55, 0.55, 0.55, 0.55, 0.45, 0.5, 0.85, 0.75, 0.75, 0.4, 0.4], gap="small"
     )
     with _hdr_l:
         st.markdown(
@@ -1530,6 +1634,9 @@ def main():
     with _hn4:
         if st.button("📰 브리핑", key="top_nav_briefing", use_container_width=True):
             show_daily_briefing()
+    with _hn6:
+        if st.button("📈 시나리오", key="top_nav_scenario", use_container_width=True):
+            show_market_scenarios()
     with _hm1:
         if st.button("🇰🇷 국내", key="top_mkt_kr",
                      type="primary" if _is_kr_nav else "secondary",

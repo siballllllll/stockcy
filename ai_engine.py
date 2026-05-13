@@ -182,6 +182,48 @@ def generate_daily_briefing():
         return {"error": str(e)}
 
 
+def generate_market_scenarios() -> dict:
+    """오늘의 핫뉴스 기반 A/B/C 시나리오와 시나리오별 종목 추천을 생성합니다."""
+    prompt = (
+        "당신은 월스트리트 20년 경력의 매크로 전략가이자 단타 트레이더입니다.\n"
+        "지금 즉시 구글 검색으로 오늘 가장 시장에 영향을 줄 수 있는 핫뉴스 3~5개를 파악하고,\n"
+        "그 뉴스를 토대로 증시가 전개될 수 있는 3가지 시나리오(A/B/C)를 작성하세요.\n\n"
+        "각 시나리오는 서로 다른 방향성을 가져야 하며, 시나리오별로 실제로 매매 가능한 종목을 추천하세요.\n\n"
+        "반드시 아래 JSON 형식으로만 응답하세요 (마크다운 백틱, 주석 절대 금지):\n\n"
+        "{\n"
+        '  "news_summary": "오늘의 핵심 뉴스 2~3줄 요약",\n'
+        '  "scenarios": [\n'
+        "    {\n"
+        '      "label": "A",\n'
+        '      "title": "시나리오 제목 (예: 美中 관세 협상 타결)",\n'
+        '      "probability": "높음/보통/낮음",\n'
+        '      "probability_pct": 확률(정수 0~100),\n'
+        '      "market_direction": "강세/약세/혼조",\n'
+        '      "trigger": "이 시나리오가 현실화될 조건/신호 (1문장)",\n'
+        '      "market_impact": "증시에 미치는 영향 설명 (2~3문장)",\n'
+        '      "rising_stocks": [\n'
+        '        {"name": "종목명", "ticker": "티커", "reason": "상승 이유 (1문장)"}\n'
+        "      ],\n"
+        '      "falling_stocks": [\n'
+        '        {"name": "종목명", "ticker": "티커", "reason": "하락 이유 (1문장)"}\n'
+        "      ],\n"
+        '      "strategy": "이 시나리오에서 취해야 할 단타 전략 (1~2문장)"\n'
+        "    }\n"
+        "  ]\n"
+        "}"
+    )
+    try:
+        response = _call_gemini(prompt, use_search=True, temperature=0.6)
+        text = re.sub(r'```(?:json)?', '', response.text).strip()
+        start = text.find('{')
+        if start != -1:
+            result, _ = json.JSONDecoder().raw_decode(text, start)
+            return result
+        return json.loads(text)
+    except Exception as e:
+        return {"error": str(e)}
+
+
 def generate_mindmap_data():
     """
     최신 뉴스를 바탕으로 급등/급락 인과관계 마인드맵(Mermaid 문법)을 생성합니다.
