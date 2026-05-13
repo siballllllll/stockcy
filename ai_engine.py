@@ -69,6 +69,14 @@ _QUOTA_EXHAUSTED = False
 _API_TIMEOUT_SEC = 90
 
 
+def _clean_ai_json(raw: str) -> str:
+    """AI 응답 텍스트에서 JSON을 추출 가능한 형태로 정제합니다."""
+    text = re.sub(r'```(?:json)?', '', raw).strip()
+    # trailing comma 제거: ,} 또는 ,]
+    text = re.sub(r',\s*([}\]])', r'\1', text)
+    return text
+
+
 def _call_gemini(prompt, use_search=False, temperature=0.7, response_mime_type=None, timeout_sec=None):
     """Gemini API 호출 공통 헬퍼 (모델 폴백 + 재시도 + 타임아웃)."""
     import concurrent.futures
@@ -176,7 +184,7 @@ def generate_daily_briefing():
     """
     try:
         response = _call_gemini(prompt, use_search=True, temperature=0.7)
-        text = re.sub(r'```(?:json)?', '', response.text).strip()
+        text = _clean_ai_json(response.text)
         start = text.find('{')
         if start != -1:
             result, _ = json.JSONDecoder().raw_decode(text, start)
@@ -233,7 +241,7 @@ def generate_market_scenarios() -> dict:
     )
     try:
         response = _call_gemini(prompt, use_search=True, temperature=0.6, timeout_sec=120)
-        text = re.sub(r'```(?:json)?', '', response.text).strip()
+        text = _clean_ai_json(response.text)
         start = text.find('{')
         if start != -1:
             result, _ = json.JSONDecoder().raw_decode(text, start)
@@ -281,7 +289,7 @@ def generate_scenario_detail(issue_title: str, scenario_title: str, economic_ana
     )
     try:
         response = _call_gemini(prompt, use_search=True, temperature=0.5, timeout_sec=120)
-        text = re.sub(r'```(?:json)?', '', response.text).strip()
+        text = _clean_ai_json(response.text)
         start = text.find('{')
         if start != -1:
             result, _ = json.JSONDecoder().raw_decode(text, start)
@@ -366,7 +374,7 @@ def generate_stock_report(ticker, current_price, change_pct):
 """
     try:
         response = _call_gemini(prompt, use_search=False, temperature=0.7)
-        text = re.sub(r'```(?:json)?', '', response.text).strip()
+        text = _clean_ai_json(response.text)
         start = text.find('{')
         if start != -1:
             result, _ = json.JSONDecoder().raw_decode(text, start)
@@ -725,7 +733,7 @@ KOSDAQ: {kosdaq.get('index',0):,.2f}  ({kosdaq.get('change_pct',0):+.2f}%)
 
     try:
         response = _call_gemini(prompt, use_search=True, temperature=0.35)
-        text = re.sub(r'```(?:json)?', '', response.text).strip()
+        text = _clean_ai_json(response.text)
         start = text.find('{')
         if start != -1:
             result, _ = json.JSONDecoder().raw_decode(text, start)
@@ -798,7 +806,7 @@ PER: {price_data['per']} | PBR: {price_data['pbr']}
 """
     try:
         response = _call_gemini(prompt, use_search=True, temperature=0.7)
-        text = re.sub(r'```(?:json)?', '', response.text).strip()
+        text = _clean_ai_json(response.text)
         start = text.find('{')
         if start != -1:
             result, _ = json.JSONDecoder().raw_decode(text, start)
@@ -837,7 +845,7 @@ def analyze_box_pattern(ticker: str, name: str, price_data: dict, market: str = 
     """
     try:
         response = _call_gemini(prompt, use_search=True, temperature=0.5)
-        text = re.sub(r'```(?:json)?', '', response.text).strip()
+        text = _clean_ai_json(response.text)
         start = text.find('{')
         if start != -1:
             result, _ = json.JSONDecoder().raw_decode(text, start)
@@ -974,7 +982,7 @@ def analyze_kr_hot_sectors() -> dict:
 
     try:
         response = _call_gemini(prompt, use_search=True, temperature=0.5)
-        text  = re.sub(r'```(?:json)?', '', response.text).strip()
+        text = _clean_ai_json(response.text)
         start = text.find('{')
         if start != -1:
             result, _ = json.JSONDecoder().raw_decode(text, start)
@@ -1049,7 +1057,7 @@ def analyze_today_market() -> dict:
 
     try:
         response = _call_gemini(prompt, use_search=True, temperature=0.4)
-        text  = re.sub(r'```(?:json)?', '', response.text).strip()
+        text = _clean_ai_json(response.text)
         start = text.find('{')
         if start != -1:
             result, _ = json.JSONDecoder().raw_decode(text, start)
@@ -1091,7 +1099,7 @@ def analyze_market_pattern(keyword: str) -> dict:
 }}"""
     try:
         response = _call_gemini(prompt, use_search=True, temperature=0.5)
-        text = re.sub(r'```(?:json)?', '', response.text).strip()
+        text = _clean_ai_json(response.text)
         start = text.find('{')
         if start != -1:
             result, _ = json.JSONDecoder().raw_decode(text, start)
@@ -1114,7 +1122,7 @@ def generate_related_stocks(ticker: str, sector: str = "") -> list:
 ]"""
     try:
         response = _call_gemini(prompt, use_search=True, temperature=0.5)
-        text = re.sub(r'```(?:json)?', '', response.text).strip()
+        text = _clean_ai_json(response.text)
         start = text.find('[')
         if start != -1:
             result, _ = json.JSONDecoder().raw_decode(text, start)
@@ -1297,7 +1305,7 @@ DOW    : {dow.get('price',0):,.2f}  ({dow.get('change_pct',0):+.2f}%)
 
     try:
         response = _call_gemini(prompt, use_search=True, temperature=0.35)
-        text = re.sub(r'```(?:json)?', '', response.text).strip()
+        text = _clean_ai_json(response.text)
         start = text.find('{')
         if start != -1:
             result, _ = json.JSONDecoder().raw_decode(text, start)
@@ -1349,7 +1357,7 @@ def analyze_us_today_market() -> dict:
 
     try:
         response = _call_gemini(prompt, use_search=True, temperature=0.4)
-        text  = re.sub(r'```(?:json)?', '', response.text).strip()
+        text = _clean_ai_json(response.text)
         start = text.find('{')
         if start != -1:
             result, _ = json.JSONDecoder().raw_decode(text, start)
@@ -1414,7 +1422,7 @@ def analyze_us_hot_sectors() -> dict:
 
     try:
         response = _call_gemini(prompt, use_search=True, temperature=0.5)
-        text  = re.sub(r'```(?:json)?', '', response.text).strip()
+        text = _clean_ai_json(response.text)
         start = text.find('{')
         if start != -1:
             result, _ = json.JSONDecoder().raw_decode(text, start)
@@ -1664,7 +1672,7 @@ def generate_macro_phase_analysis():
     """
     try:
         response = _call_gemini(prompt, use_search=False, temperature=0.5)
-        text = re.sub(r'```(?:json)?', '', response.text).strip()
+        text = _clean_ai_json(response.text)
         start = text.find('{{')
         if start != -1:
             result, _ = json.JSONDecoder().raw_decode(text, start)
@@ -1790,7 +1798,7 @@ def analyze_trade_history(trades: list, past_lessons: list = None) -> dict:
 
     try:
         response = _call_gemini(prompt, use_search=True, temperature=0.4)
-        text = re.sub(r'```(?:json)?', '', response.text).strip()
+        text = _clean_ai_json(response.text)
         start = text.find('{')
         if start != -1:
             result, _ = json.JSONDecoder().raw_decode(text, start)
@@ -1852,7 +1860,7 @@ def analyze_trading_patterns(records: list) -> dict:
 
     try:
         response = _call_gemini(prompt, use_search=False, temperature=0.4)
-        text = re.sub(r'```(?:json)?', '', response.text).strip()
+        text = _clean_ai_json(response.text)
         start = text.find('{')
         if start != -1:
             result, _ = json.JSONDecoder().raw_decode(text, start)
