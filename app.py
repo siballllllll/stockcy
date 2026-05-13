@@ -892,10 +892,18 @@ def _sc_goto_stock(ticker: str):
     st.rerun()
 
 
+def _sc_finance_url(ticker: str) -> str:
+    """종목 코드에 맞는 외부 금융 정보 URL 반환."""
+    _is_kr = len(ticker) == 6 and ticker.isdigit()
+    if _is_kr:
+        return f"https://finance.naver.com/item/main.naver?code={ticker}"
+    return f"https://finance.yahoo.com/quote/{ticker}"
+
+
 def _render_stock_popover(stocks: list, color: str, label: str, key_prefix: str):
-    """종목 목록을 popover 버튼으로 렌더링."""
+    """종목 목록을 popover 버튼으로 렌더링 (최대 5개)."""
     st.markdown(f"**{label}**")
-    for _i, _s in enumerate(stocks):
+    for _i, _s in enumerate(stocks[:5]):
         _tk  = str(_s.get("ticker", ""))
         _nm  = str(_s.get("name", ""))
         _rsn = str(_s.get("reason", ""))
@@ -913,8 +921,7 @@ def _render_stock_popover(stocks: list, color: str, label: str, key_prefix: str)
             st.markdown(f"**{'상승' if color=='up' else '하락'} 이유:** {_rsn}")
             if _vn:
                 st.info(f"📐 {_vn}")
-            if st.button("📊 종목 분석 보러가기", key=f"{key_prefix}_{color}_{_i}"):
-                _sc_goto_stock(_tk)
+            st.link_button("📊 종목 분석 보러가기", url=_sc_finance_url(_tk), use_container_width=True)
 
 
 @st.dialog("📈 이슈별 시장 시나리오", width="large")
