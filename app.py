@@ -877,10 +877,10 @@ def init_session_state():
         from db import load_portfolio_from_gsheet
         st.session_state.portfolio = load_portfolio_from_gsheet()
 
-@st.dialog("📈 오늘의 시장 시나리오", width="large")
+@st.dialog("📈 이슈별 시장 시나리오", width="large")
 def show_market_scenarios():
     if "market_scenarios_data" not in st.session_state:
-        with st.spinner("🔍 오늘의 핫뉴스를 분석해 시나리오를 작성 중입니다... (최대 60초)"):
+        with st.spinner("🔍 오늘의 주요 이슈를 분석해 시나리오를 작성 중입니다... (최대 90초)"):
             from ai_engine import generate_market_scenarios
             st.session_state.market_scenarios_data = generate_market_scenarios()
 
@@ -891,94 +891,119 @@ def show_market_scenarios():
         if st.button("다시 시도"):
             st.session_state.pop("market_scenarios_data", None)
             st.rerun()
+        return
+
+    _DIR_COLOR  = {"강세": "#00c853", "약세": "#ff4b4b", "혼조": "#ffd740"}
+    _PROB_COLOR = {"높음": "#00c853", "보통": "#ffd740", "낮음": "#888"}
+    _URGENCY_COLOR = {"긴급": "#ff4b4b", "보통": "#ffd740", "장기": "#5c9bd6"}
+
+    _issues = data.get("issues", [])
+    if not _issues:
+        st.warning("이슈 데이터를 불러오지 못했습니다.")
     else:
-        st.markdown(
-            f"<div style='padding:8px 12px;background:rgba(255,215,64,0.1);border-left:3px solid #ffd740;"
-            f"border-radius:4px;margin-bottom:16px;font-size:0.88rem;color:#ccc'>"
-            f"📰 <b>오늘의 핵심 뉴스</b><br>{data.get('news_summary','')}</div>",
-            unsafe_allow_html=True,
-        )
+        # 이슈 탭 생성
+        _issue_labels = [f"#{iss.get('issue_no',i+1)} {iss.get('title','')}" for i, iss in enumerate(_issues)]
+        _issue_tabs = st.tabs(_issue_labels)
 
-        _DIR_COLOR = {"강세": "#00c853", "약세": "#ff4b4b", "혼조": "#ffd740"}
-        _PROB_COLOR = {"높음": "#00c853", "보통": "#ffd740", "낮음": "#888"}
-        _scenarios = data.get("scenarios", [])
-
-        for _sc in _scenarios:
-            _lbl = _sc.get("label", "")
-            _title = _sc.get("title", "")
-            _prob = _sc.get("probability", "")
-            _prob_pct = _sc.get("probability_pct", "")
-            _mdir = _sc.get("market_direction", "")
-            _dir_clr = _DIR_COLOR.get(_mdir, "#aaa")
-            _prob_clr = _PROB_COLOR.get(_prob, "#aaa")
-
-            with st.expander(
-                f"시나리오 {_lbl} — {_title}",
-                expanded=(_lbl == "A"),
-            ):
-                _hc1, _hc2, _hc3 = st.columns(3)
-                with _hc1:
-                    st.markdown(
-                        f"<div style='text-align:center'>"
-                        f"<div style='font-size:0.75rem;color:#888'>시장 방향</div>"
-                        f"<div style='font-size:1.1rem;font-weight:700;color:{_dir_clr}'>{_mdir}</div>"
-                        f"</div>", unsafe_allow_html=True
-                    )
-                with _hc2:
-                    st.markdown(
-                        f"<div style='text-align:center'>"
-                        f"<div style='font-size:0.75rem;color:#888'>실현 가능성</div>"
-                        f"<div style='font-size:1.1rem;font-weight:700;color:{_prob_clr}'>{_prob} ({_prob_pct}%)</div>"
-                        f"</div>", unsafe_allow_html=True
-                    )
-                with _hc3:
-                    st.markdown(
-                        f"<div style='text-align:center'>"
-                        f"<div style='font-size:0.75rem;color:#888'>촉발 조건</div>"
-                        f"<div style='font-size:0.82rem;color:#ccc'>{_sc.get('trigger','')}</div>"
-                        f"</div>", unsafe_allow_html=True
-                    )
-
+        for _itab, _issue in zip(_issue_tabs, _issues):
+            with _itab:
+                _urgency = _issue.get("urgency", "보통")
+                _urg_clr = _URGENCY_COLOR.get(_urgency, "#aaa")
                 st.markdown(
-                    f"<div style='margin:10px 0 12px;padding:8px 12px;background:rgba(255,255,255,0.05);"
-                    f"border-radius:6px;font-size:0.88rem;color:#ddd'>{_sc.get('market_impact','')}</div>",
-                    unsafe_allow_html=True
+                    f"<div style='padding:8px 12px;background:rgba(255,255,255,0.05);"
+                    f"border-left:3px solid {_urg_clr};border-radius:4px;margin-bottom:14px'>"
+                    f"<span style='font-size:0.72rem;color:{_urg_clr};font-weight:700'>{_urgency}</span>"
+                    f"&nbsp;&nbsp;<span style='font-size:0.88rem;color:#ccc'>{_issue.get('summary','')}</span>"
+                    f"</div>",
+                    unsafe_allow_html=True,
                 )
 
-                _sc1, _sc2 = st.columns(2)
-                with _sc1:
-                    st.markdown("**🟢 상승 예상 종목**")
-                    for _s in _sc.get("rising_stocks", []):
+                _scenarios = _issue.get("scenarios", [])
+                if not _scenarios:
+                    st.info("이 이슈에 대한 시나리오가 없습니다.")
+                    continue
+
+                _sc_labels = [f"시나리오 {sc.get('label','?')} — {sc.get('title','')}" for sc in _scenarios]
+                _sc_tabs = st.tabs(_sc_labels)
+
+                for _stab, _sc in zip(_sc_tabs, _scenarios):
+                    with _stab:
+                        _prob  = _sc.get("probability", "")
+                        _ppct  = _sc.get("probability_pct", "")
+                        _mdir  = _sc.get("market_direction", "")
+                        _dc    = _DIR_COLOR.get(_mdir, "#aaa")
+                        _pc    = _PROB_COLOR.get(_prob, "#aaa")
+
+                        # 메타 배지 행
+                        _m1, _m2, _m3 = st.columns(3)
+                        with _m1:
+                            st.markdown(
+                                f"<div style='text-align:center;padding:6px;background:rgba(255,255,255,0.04);border-radius:6px'>"
+                                f"<div style='font-size:0.7rem;color:#888'>시장 방향</div>"
+                                f"<div style='font-size:1.05rem;font-weight:700;color:{_dc}'>{_mdir}</div>"
+                                f"</div>", unsafe_allow_html=True)
+                        with _m2:
+                            st.markdown(
+                                f"<div style='text-align:center;padding:6px;background:rgba(255,255,255,0.04);border-radius:6px'>"
+                                f"<div style='font-size:0.7rem;color:#888'>실현 가능성</div>"
+                                f"<div style='font-size:1.05rem;font-weight:700;color:{_pc}'>{_prob} {_ppct}%</div>"
+                                f"</div>", unsafe_allow_html=True)
+                        with _m3:
+                            st.markdown(
+                                f"<div style='text-align:center;padding:6px;background:rgba(255,255,255,0.04);border-radius:6px'>"
+                                f"<div style='font-size:0.7rem;color:#888'>촉발 조건</div>"
+                                f"<div style='font-size:0.78rem;color:#ccc'>{_sc.get('trigger','')}</div>"
+                                f"</div>", unsafe_allow_html=True)
+
+                        # 경제 분석 박스
                         st.markdown(
-                            f"<div style='padding:5px 0;border-bottom:1px solid rgba(255,255,255,0.07)'>"
-                            f"<span style='color:#00c853;font-weight:600'>{_s.get('name','')} "
-                            f"<span style='font-size:0.8rem;color:#888'>({_s.get('ticker','')})</span></span><br>"
-                            f"<span style='font-size:0.8rem;color:#aaa'>{_s.get('reason','')}</span>"
+                            f"<div style='margin:10px 0;padding:10px 14px;"
+                            f"background:rgba(92,155,214,0.08);border-left:3px solid #5c9bd6;"
+                            f"border-radius:4px;font-size:0.86rem;color:#ccc'>"
+                            f"📊 <b>경제 분석</b><br>{_sc.get('economic_analysis','')}"
                             f"</div>",
-                            unsafe_allow_html=True
-                        )
-                with _sc2:
-                    st.markdown("**🔴 하락 예상 종목**")
-                    for _s in _sc.get("falling_stocks", []):
-                        st.markdown(
-                            f"<div style='padding:5px 0;border-bottom:1px solid rgba(255,255,255,0.07)'>"
-                            f"<span style='color:#ff4b4b;font-weight:600'>{_s.get('name','')} "
-                            f"<span style='font-size:0.8rem;color:#888'>({_s.get('ticker','')})</span></span><br>"
-                            f"<span style='font-size:0.8rem;color:#aaa'>{_s.get('reason','')}</span>"
-                            f"</div>",
-                            unsafe_allow_html=True
+                            unsafe_allow_html=True,
                         )
 
-                st.info(f"**전략:** {_sc.get('strategy','')}")
+                        # 상승/하락 종목 2컬럼
+                        _sc1, _sc2 = st.columns(2)
+                        with _sc1:
+                            st.markdown("**🟢 상승 예상 종목**")
+                            for _s in _sc.get("rising_stocks", []):
+                                _vn = _s.get("valuation_note", "")
+                                st.markdown(
+                                    f"<div style='padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.07)'>"
+                                    f"<span style='color:#00c853;font-weight:600'>{_s.get('name','')} "
+                                    f"<span style='font-size:0.78rem;color:#888'>({_s.get('ticker','')})</span></span><br>"
+                                    f"<span style='font-size:0.79rem;color:#aaa'>{_s.get('reason','')}</span>"
+                                    + (f"<br><span style='font-size:0.75rem;color:#5c9bd6'>📐 {_vn}</span>" if _vn else "")
+                                    + f"</div>",
+                                    unsafe_allow_html=True,
+                                )
+                        with _sc2:
+                            st.markdown("**🔴 하락 예상 종목**")
+                            for _s in _sc.get("falling_stocks", []):
+                                _vn = _s.get("valuation_note", "")
+                                st.markdown(
+                                    f"<div style='padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.07)'>"
+                                    f"<span style='color:#ff4b4b;font-weight:600'>{_s.get('name','')} "
+                                    f"<span style='font-size:0.78rem;color:#888'>({_s.get('ticker','')})</span></span><br>"
+                                    f"<span style='font-size:0.79rem;color:#aaa'>{_s.get('reason','')}</span>"
+                                    + (f"<br><span style='font-size:0.75rem;color:#5c9bd6'>📐 {_vn}</span>" if _vn else "")
+                                    + f"</div>",
+                                    unsafe_allow_html=True,
+                                )
 
-        _ref_col, _close_col = st.columns([3, 1])
-        with _ref_col:
-            if st.button("🔄 새로 분석", use_container_width=True):
-                st.session_state.pop("market_scenarios_data", None)
-                st.rerun()
-        with _close_col:
-            if st.button("닫기", use_container_width=True):
-                st.rerun()
+                        st.info(f"**단타 전략:** {_sc.get('strategy','')}")
+
+    _ref_col, _close_col = st.columns([3, 1])
+    with _ref_col:
+        if st.button("🔄 새로 분석", use_container_width=True):
+            st.session_state.pop("market_scenarios_data", None)
+            st.rerun()
+    with _close_col:
+        if st.button("닫기", use_container_width=True):
+            st.rerun()
 
 
 @st.dialog("오늘의 데일리 브리핑 📝")
