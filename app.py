@@ -953,6 +953,59 @@ def show_daily_briefing():
     if st.button("닫기"):
         st.rerun()
 
+@st.dialog("🧠 AI 거래 분석 결과")
+def show_trade_analysis_modal():
+    _td = st.session_state.get("_modal_analysis_trade", {})
+    _mticker = _td.get("ticker", "")
+    _mname = _td.get("name", "")
+    _mdate = _td.get("sell_date", "")
+    _mprofit = float(_td.get("profit", 0))
+    _mpct = float(_td.get("profit_pct", 0))
+    _mresult = _td.get("result", "")
+    _mp_clr = "#00c853" if _mprofit >= 0 else "#ff4b4b"
+    _mr_clr = "#00c853" if _mresult == "승" else ("#ff4b4b" if _mresult == "패" else "#aaa")
+    _msym = "₩" if (len(_mticker) == 6 and _mticker.isdigit()) else "$"
+    st.markdown(
+        f"<div style='padding:8px 0 14px;border-bottom:1px solid rgba(255,255,255,0.15);margin-bottom:14px'>"
+        f"<span style='font-size:1.1rem;font-weight:700'>{_mname}</span>"
+        f"&nbsp;<span style='color:#888;font-size:0.88rem'>({_mticker})</span>"
+        f"&nbsp;&nbsp;<span style='color:#aaa;font-size:0.82rem'>{_mdate}</span>"
+        f"&nbsp;&nbsp;<span style='color:{_mp_clr};font-weight:600'>{_msym}{_mprofit:+,.2f} ({_mpct:+.2f}%)</span>"
+        f"&nbsp;&nbsp;<span style='color:{_mr_clr};font-weight:700'>{_mresult}</span>"
+        f"</div>",
+        unsafe_allow_html=True,
+    )
+    _cache_key = f"_modal_res_{_mticker}_{_mdate}"
+    if _cache_key not in st.session_state:
+        with st.spinner(f"🤖 {_mname} 분석 중... (최대 50초)"):
+            from ai_engine import analyze_trade_history as _ata
+            _res = _ata([_td])
+        st.session_state[_cache_key] = _res
+    _res = st.session_state[_cache_key]
+    _trades_r = _res.get("trades", [])
+    _tr = _trades_r[0] if _trades_r else None
+    if "error" in _res:
+        st.error(f"분석 오류: {_res['error']}")
+    elif _tr:
+        _mc1, _mc2 = st.columns(2)
+        with _mc1:
+            st.markdown(f"**섹터/테마:** {_tr.get('sector', '-')}")
+            st.markdown(f"**섹터 특성:** {_tr.get('sector_characteristic', '-')}")
+            st.markdown(f"**사회적 요인:** {_tr.get('social_factor', '-')}")
+        with _mc2:
+            st.markdown(f"**수급·세력:** {_tr.get('institutional_factor', '-')}")
+            st.markdown(f"**기술적 분석:** {_tr.get('technical_factor', '-')}")
+        if _tr.get("result") == "승" and _tr.get("success_reason"):
+            st.success(f"**성공 이유:** {_tr['success_reason']}")
+        elif _tr.get("result") == "패" and _tr.get("failure_reason"):
+            st.error(f"**실패 이유:** {_tr['failure_reason']}")
+        if _tr.get("lesson"):
+            st.info(f"**교훈:** {_tr['lesson']}")
+    else:
+        st.warning("분석 결과를 가져올 수 없습니다.")
+    if st.button("닫기"):
+        st.rerun()
+
 def show_favorites_center():
     st.markdown('### ⭐ AI 즐겨찾기 센터', help="""
 [AI 가이드 안내]
@@ -6561,54 +6614,8 @@ def main():
                     )
                     st.plotly_chart(fig, use_container_width=True)
 
-                @st.dialog("🧠 AI 거래 분석 결과", width="large")
-                def _trade_analysis_modal():
-                    _res = st.session_state.get("_modal_analysis_result", {})
-                    _td = st.session_state.get("_modal_analysis_trade", {})
-                    _trades_r = _res.get("trades", [])
-                    _tr = _trades_r[0] if _trades_r else None
-                    _mticker = _td.get("ticker", "")
-                    _mname = _td.get("name", "")
-                    _mdate = _td.get("sell_date", "")
-                    _mprofit = float(_td.get("profit", 0))
-                    _mpct = float(_td.get("profit_pct", 0))
-                    _mresult = _td.get("result", "")
-                    _mp_clr = "#00c853" if _mprofit >= 0 else "#ff4b4b"
-                    _mr_clr = "#00c853" if _mresult == "승" else ("#ff4b4b" if _mresult == "패" else "#aaa")
-                    _msym = "₩" if (len(_mticker) == 6 and _mticker.isdigit()) else "$"
-                    st.markdown(
-                        f"<div style='padding:10px 0 14px;border-bottom:1px solid rgba(255,255,255,0.15);margin-bottom:14px'>"
-                        f"<span style='font-size:1.1rem;font-weight:700'>{_mname}</span>"
-                        f"&nbsp;<span style='color:#888;font-size:0.88rem'>({_mticker})</span>"
-                        f"&nbsp;&nbsp;<span style='color:#aaa;font-size:0.82rem'>{_mdate}</span>"
-                        f"&nbsp;&nbsp;<span style='color:{_mp_clr};font-weight:600'>{_msym}{_mprofit:+,.2f}"
-                        f" ({_mpct:+.2f}%)</span>"
-                        f"&nbsp;&nbsp;<span style='color:{_mr_clr};font-weight:700'>{_mresult}</span>"
-                        f"</div>",
-                        unsafe_allow_html=True,
-                    )
-                    if "error" in _res:
-                        st.error(f"분석 오류: {_res['error']}")
-                    elif _tr:
-                        _mc1, _mc2 = st.columns(2)
-                        with _mc1:
-                            st.markdown(f"**섹터/테마:** {_tr.get('sector', '-')}")
-                            st.markdown(f"**섹터 특성:** {_tr.get('sector_characteristic', '-')}")
-                            st.markdown(f"**사회적 요인:** {_tr.get('social_factor', '-')}")
-                        with _mc2:
-                            st.markdown(f"**수급·세력:** {_tr.get('institutional_factor', '-')}")
-                            st.markdown(f"**기술적 분석:** {_tr.get('technical_factor', '-')}")
-                        if _tr.get("result") == "승" and _tr.get("success_reason"):
-                            st.success(f"**성공 이유:** {_tr['success_reason']}")
-                        elif _tr.get("result") == "패" and _tr.get("failure_reason"):
-                            st.error(f"**실패 이유:** {_tr['failure_reason']}")
-                        if _tr.get("lesson"):
-                            st.info(f"**교훈:** {_tr['lesson']}")
-                    else:
-                        st.warning("분석 결과를 가져올 수 없습니다.")
-
                 if st.session_state.pop("_modal_open", False):
-                    _trade_analysis_modal()
+                    show_trade_analysis_modal()
 
                 st.markdown("### 📋 거래 내역")
 
@@ -6625,19 +6632,6 @@ def main():
                             pass
                     history = st.session_state.trade_history
                     st.rerun()
-
-                # 개별 AI 분석 pending 처리
-                if "_analyze_trade_key" in st.session_state:
-                    _ap_key = st.session_state.pop("_analyze_trade_key")
-                    _ap_trade = st.session_state.pop("_analyze_trade_data", None)
-                    if _ap_trade:
-                        from ai_engine import analyze_trade_history as _ata
-                        with st.spinner(f"🤖 {_ap_trade.get('name','?')} 분석 중... (최대 50초)"):
-                            _ap_result = _ata([_ap_trade])
-                        st.session_state["_modal_analysis_result"] = _ap_result
-                        st.session_state["_modal_analysis_trade"] = _ap_trade
-                        st.session_state["_modal_open"] = True
-                        st.rerun()
 
                 def _hist_sym(t):
                     tk = t.get("ticker", "")
@@ -6688,8 +6682,8 @@ def main():
                                 st.query_params.clear()
                                 st.rerun()
                             elif _act == "ana" and _idx == _orig_idx:
-                                st.session_state["_analyze_trade_key"] = _tsa_key
-                                st.session_state["_analyze_trade_data"] = _t
+                                st.session_state["_modal_analysis_trade"] = _t
+                                st.session_state["_modal_open"] = True
                                 st.query_params.clear()
                                 st.rerun()
                         except: pass
