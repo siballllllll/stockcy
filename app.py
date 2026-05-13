@@ -443,7 +443,7 @@ def inject_custom_css():
         }
         
         /* ── 거래 내역 버튼 정렬 보정 (Nudge) ── */
-        button[key*="ai_trade_"], button[key*="del_trade_"] {
+        .trade-btn-container [data-testid="stButton"] button {
             margin-top: 10px !important;
         }
 
@@ -6625,13 +6625,20 @@ def main():
                         f"</div>",
                         unsafe_allow_html=True,
                     )
-                    if _ai_c.button("🤖", key=f"ai_trade_{_orig_idx}_{_t.get('sell_date','')}", help="AI 분석", use_container_width=True):
-                        st.session_state["_analyze_trade_key"] = _tsa_key
-                        st.session_state["_analyze_trade_data"] = _t
-                        st.rerun()
-                    if _del_c.button("🗑️", key=f"del_trade_{_orig_idx}_{_t.get('sell_date','')}", help="삭제", use_container_width=True):
-                        st.session_state["_del_trade_idx"] = _orig_idx
-                        st.rerun()
+                    with _ai_c:
+                        st.markdown("<div class='trade-btn-container'>", unsafe_allow_html=True)
+                        if st.button("🤖", key=f"ai_trade_{_orig_idx}_{_t.get('sell_date','')}", help="AI 분석", use_container_width=True):
+                            st.session_state["_analyze_trade_key"] = _tsa_key
+                            st.session_state["_analyze_trade_data"] = _t
+                            st.rerun()
+                        st.markdown("</div>", unsafe_allow_html=True)
+
+                    with _del_c:
+                        st.markdown("<div class='trade-btn-container'>", unsafe_allow_html=True)
+                        if st.button("🗑️", key=f"del_trade_{_orig_idx}_{_t.get('sell_date','')}", help="삭제", use_container_width=True):
+                            st.session_state["_del_trade_idx"] = _orig_idx
+                            st.rerun()
+                        st.markdown("</div>", unsafe_allow_html=True)
 
                     # 분석 결과 표시
                     _tsa = st.session_state.get(_tsa_key)
