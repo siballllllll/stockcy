@@ -442,8 +442,27 @@ def inject_custom_css():
             font-weight: 700 !important;
         }
         
-        /* ── 거래 내역 버튼 정렬 보정 (Reset) ── */
-        /* 추가적인 마진 없이 행 높이 조절로 해결 */
+        /* ── 거래 내역 일체형 버튼 스타일 ── */
+        .trade-action-btn {
+            display: inline-flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+            width: 32px !important;
+            height: 32px !important;
+            background: rgba(255,255,255,0.05) !important;
+            border: 1px solid rgba(255,255,255,0.1) !important;
+            border-radius: 6px !important;
+            text-decoration: none !important;
+            font-size: 1rem !important;
+            transition: all 0.2s !important;
+            cursor: pointer !important;
+            margin-left: 4px !important;
+        }
+        .trade-action-btn:hover {
+            background: rgba(255,255,255,0.15) !important;
+            border-color: rgba(255,255,255,0.3) !important;
+            transform: translateY(-1px);
+        }
 
         /* ── 접기/펼치기(Expander) 레이아웃 보정 ── */
         .stExpander summary {
@@ -6589,6 +6608,7 @@ def main():
                     "<span style='flex:1.3'>순수익</span>"
                     "<span style='flex:1.0'>수익률</span>"
                     "<span style='flex:0.6'>결과</span>"
+                    "<span style='flex:1.3'></span>"
                     "</div>",
                     unsafe_allow_html=True,
                 )
@@ -6604,13 +6624,31 @@ def main():
                     _tsa_key = f"_tsa_{_t.get('ticker','')}_{_t.get('sell_date','')}"
                     _row_bg = "rgba(255,255,255,0.02)" if _di % 2 == 0 else "transparent"
 
-                    _dc, _ai_c, _del_c = st.columns([10, 0.65, 0.65], vertical_alignment="center")
-                    _dc.markdown(
-                        f"<div style='display:flex;align-items:center;padding:0px 12px;min-height:40px;line-height:40px;"
+                    # ── URL 매개변수를 통한 동작 처리 (일체형 버튼 클릭 대응) ──
+                    _q = st.query_params
+                    if "_act" in _q and "_idx" in _q:
+                        _act = _q["_act"]
+                        _idx_str = _q["_idx"]
+                        try:
+                            _idx = int(_idx_str)
+                            if _act == "del" and _idx == _orig_idx:
+                                st.session_state["_del_trade_idx"] = _idx
+                                st.query_params.clear()
+                                st.rerun()
+                            elif _act == "ana" and _idx == _orig_idx:
+                                st.session_state["_analyze_trade_key"] = _tsa_key
+                                st.session_state["_analyze_trade_data"] = _t
+                                st.query_params.clear()
+                                st.rerun()
+                        except: pass
+
+                    # ── 일체형 행 렌더링 (텍스트 + 버튼 통합) ──
+                    _row_html = (
+                        f"<div style='display:flex;align-items:center;padding:0px 12px;min-height:46px;line-height:46px;"
                         f"background:{_row_bg};"
                         f"border-left:1px solid rgba(255,255,255,0.10);"
                         f"border-right:1px solid rgba(255,255,255,0.10);"
-                        f"border-bottom:1px solid rgba(255,255,255,0.08);font-size:0.9rem;gap:0'>"
+                        f"border-bottom:1px solid rgba(255,255,255,0.08);font-size:0.875rem;'>"
                         f"<span style='flex:2.0;color:#999;font-size:0.77rem'>{_t.get('sell_date','')}</span>"
                         f"<span style='flex:1.0'>{_t.get('ticker','')}</span>"
                         f"<span style='flex:1.6'>{_t.get('name','')}</span>"
@@ -6620,19 +6658,14 @@ def main():
                         f"<span style='flex:1.3;color:{_clr};font-weight:600'>{_sym}{_profit:+,.2f}</span>"
                         f"<span style='flex:1.0;color:{_clr};font-weight:600'>{_pct:+.2f}%</span>"
                         f"<span style='flex:0.6;color:{_rclr};font-weight:700'>{_res}</span>"
-                        f"</div>",
-                        unsafe_allow_html=True,
+                        # 버튼을 하나의 셀로 포함
+                        f"<div style='flex:1.3;display:flex;justify-content:flex-end;gap:5px;'>"
+                        f"<a href='?_act=ana&_idx={_orig_idx}' target='_self' class='trade-action-btn' title='AI 분석'>🤖</a>"
+                        f"<a href='?_act=del&_idx={_orig_idx}' target='_self' class='trade-action-btn' title='삭제'>🗑️</a>"
+                        f"</div>"
+                        f"</div>"
                     )
-                    with _ai_c:
-                        if st.button("🤖", key=f"ai_trade_{_orig_idx}_{_t.get('sell_date','')}", help="AI 분석", use_container_width=True):
-                            st.session_state["_analyze_trade_key"] = _tsa_key
-                            st.session_state["_analyze_trade_data"] = _t
-                            st.rerun()
-
-                    with _del_c:
-                        if st.button("🗑️", key=f"del_trade_{_orig_idx}_{_t.get('sell_date','')}", help="삭제", use_container_width=True):
-                            st.session_state["_del_trade_idx"] = _orig_idx
-                            st.rerun()
+                    st.markdown(_row_html, unsafe_allow_html=True)
 
                     # 분석 결과 표시
                     _tsa = st.session_state.get(_tsa_key)
