@@ -938,12 +938,11 @@ def show_favorites_center():
                         _fav_guide = "🔴 약세 흐름"
                         _fav_g_color = "#2b7cff"
                     
-                    st.markdown(
+                    st.html(
                         f"<div style='display:inline-block;padding:2px 8px;border-radius:4px;"
                         f"background:{_fav_g_color}15;border:1px solid {_fav_g_color}66;"
                         f"color:{_fav_g_color};font-size:0.88rem;font-weight:700;margin:6px 0'>"
-                        f"{_fav_guide}</div>",
-                        unsafe_allow_html=True
+                        f"{_fav_guide}</div>"
                     )
                     
                     # ── 버튼 레이아웃: AI 분석 | 포트폴리오 추가 ─────────────────
@@ -6214,7 +6213,7 @@ def main():
                                 f"🤖 {_rating_val}</div>"
                             )
                         _badges += "</div>"
-                        st.markdown(_badges, unsafe_allow_html=True)
+                        st.html(_badges)
 
                         st.markdown(f"**{emoji} {name} ({ticker})** <small style='color:#888'>{item.get('buy_date', '')}</small>",
                                     unsafe_allow_html=True)
