@@ -5833,6 +5833,42 @@ def main():
         if "ai_portfolio" not in st.session_state:
             st.session_state.ai_portfolio = []
 
+        # 앱 시작 시 Google Sheets에서 자동 로드 (세션당 한 번)
+        if "portfolio_auto_loaded" not in st.session_state:
+            st.session_state.portfolio_auto_loaded = True
+            with st.spinner("저장된 데이터 불러오는 중..."):
+                try:
+                    from db import load_portfolio_from_gsheet
+                    _auto_port = load_portfolio_from_gsheet()
+                    if _auto_port:
+                        st.session_state.portfolio = _auto_port
+                except Exception:
+                    pass
+                try:
+                    from db import load_trade_history_from_gsheet
+                    _auto_df, _ = load_trade_history_from_gsheet()
+                    if _auto_df is not None and not _auto_df.empty:
+                        _exist_keys = {
+                            (t.get("ticker", ""), t.get("sell_date", ""))
+                            for t in st.session_state.trade_history
+                        }
+                        for _row in _auto_df.to_dict("records"):
+                            _k = (str(_row.get("티커", "")), str(_row.get("매도시간", "")))
+                            if _k not in _exist_keys:
+                                st.session_state.trade_history.append({
+                                    "ticker":     str(_row.get("티커", "")),
+                                    "name":       str(_row.get("종목명", "")),
+                                    "quantity":   _row.get("수량", 0),
+                                    "buy_price":  float(_row.get("매수가($)", 0) or 0),
+                                    "sell_price": float(_row.get("매도가($)", 0) or 0),
+                                    "profit":     float(_row.get("수익금($)", 0) or 0),
+                                    "profit_pct": float(_row.get("수익률(%)", 0) or 0),
+                                    "sell_date":  str(_row.get("매도시간", "")),
+                                    "result":     str(_row.get("결과", "")),
+                                })
+                except Exception:
+                    pass
+
         tab_holding, tab_history = st.tabs([
             "📈 보유 종목",
             "📋 거래 성과",
@@ -5847,6 +5883,13 @@ def main():
                     x for x in st.session_state.get(portfolio_key, [])
                     if x["ticker"] != ticker_to_remove
                 ]
+                # 변경된 포트폴리오를 Google Sheets에 자동 저장
+                if portfolio_key == "portfolio":
+                    try:
+                        from db import save_portfolio_to_gsheet
+                        save_portfolio_to_gsheet(st.session_state[portfolio_key])
+                    except Exception:
+                        pass
 
             port_list = st.session_state.get(portfolio_key, [])
 
@@ -5902,6 +5945,12 @@ def main():
                                 "quantity": int(nq_val),
                                 "buy_date": (datetime.now() + timedelta(hours=9)).strftime("%Y-%m-%d %H:%M")
                             })
+                            if portfolio_key == "portfolio":
+                                try:
+                                    from db import save_portfolio_to_gsheet
+                                    save_portfolio_to_gsheet(st.session_state[portfolio_key])
+                                except Exception:
+                                    pass
                             st.success(f"{nn or nt} ({nt}) 추가 완료!")
                             st.rerun()
                         elif not nt:
