@@ -1683,12 +1683,14 @@ def main():
                                     with _s_col:
                                         render_star_toggle("국내", _pick.get("code", ""), _pick.get("name", ""), f"pick_{_ci}")
                                     with _c_col:
-                                        st.markdown(
+                                        st.html(
                                             f"<div style='background:{_row_bg};border:{_row_bdr};"
                                             f"border-radius:8px;padding:8px 10px;margin-bottom:2px'>"
                                             f"<div style='display:flex;justify-content:space-between;align-items:center'>"
                                             f"<span style='font-size:1.04rem;font-weight:700'>{_pick.get('name','')}</span>"
-                                            f"<span style='font-size:0.88rem;color:{_urg_color2};font-weight:600'>"
+                                            f"<span style='display:inline-block;padding:1px 7px;border-radius:4px;"
+                                            f"background:{_urg_color2}33;border:1px solid {_urg_color2};"
+                                            f"color:{_urg_color2};font-size:0.82rem;font-weight:700'>"
                                             f"{_urg_icon2} {_urg2}</span>"
                                             f"</div>"
                                             f"<div style='display:flex;justify-content:space-between;margin-top:3px'>"
@@ -1696,8 +1698,7 @@ def main():
                                             f"매수 ₩{int(_entry2):,} → +{_upside2}%</span>"
                                             f"<span style='font-size:0.88rem;color:{_cpct_c2};font-weight:600'>"
                                             f"{'▲' if _cpct2>=0 else '▼'}{abs(_cpct2):.1f}%</span>"
-                                            f"</div></div>",
-                                            unsafe_allow_html=True,
+                                            f"</div></div>"
                                         )
                                     if st.button(
                                         "✓ 선택됨" if _is_sel else "▶ 상세보기",
@@ -3363,6 +3364,11 @@ def main():
                                                         f"<span style='font-size:1.14rem;font-weight:700;color:{_col}'>{_cpct:+.1f}%</span>",
                                                         unsafe_allow_html=True,
                                                     )
+                                                    _rk_lbl = "🔥 급등" if _cpct >= 5 else "▲ 상승" if _cpct >= 2 else "▼ 하락" if _cpct <= -2 else "⚪ 보합"
+                                                    _rk_col = "#ff4b4b" if _cpct >= 2 else "#2b7cff" if _cpct <= -2 else "#888"
+                                                    st.html(f"<span style='display:inline-block;padding:1px 7px;border-radius:4px;"
+                                                            f"background:{_rk_col}22;border:1px solid {_rk_col}66;"
+                                                            f"color:{_rk_col};font-size:0.82rem;font-weight:700'>{_rk_lbl}</span>")
                                                     if _thm:
                                                         st.markdown(
                                                             f"<span style='font-size:0.87rem;background:rgba(255,152,0,0.15);"
@@ -3840,7 +3846,13 @@ def main():
                                         c_star, c0, c1, c2, c3, c4 = st.columns([0.45, 0.35, 2.8, 1.8, 1.4, 0.45])
                                         with c_star:
                                             render_star_toggle("국내", s["code"], s["name"], key_suffix=f"sec_stk_{s['code']}_{i}")
-                                        c0.markdown("✅" if pct >= 3.0 else "&nbsp;", unsafe_allow_html=True)
+                                        _kr_sig_lbl = "🔥" if pct >= 5 else "▲" if pct >= 0.5 else "▼" if pct <= -0.5 else "━"
+                                        _kr_sig_col = "#ff4b4b" if pct >= 0.5 else "#2b7cff" if pct <= -0.5 else "#666"
+                                        with c0:
+                                            st.html(f"<div style='text-align:center;padding:2px 3px;border-radius:4px;"
+                                                    f"background:{_kr_sig_col}22;border:1px solid {_kr_sig_col}66;"
+                                                    f"color:{_kr_sig_col};font-size:0.85rem;font-weight:700;margin-top:3px'>"
+                                                    f"{_kr_sig_lbl}</div>")
                                         name_html = (
                                             f"<span style='font-size:1.10rem'>{s['name']}</span>"
                                             + (f"<span style='font-size:0.91rem;color:#666'> 🔗</span>" if other_locs else "")
@@ -4156,12 +4168,14 @@ def main():
                                     with _u_star_col:
                                         render_star_toggle("미국", _up_ticker, _up_name, f"us_pick_{_uci}")
                                     with _u_card_col:
-                                        st.markdown(
+                                        st.html(
                                             f"<div style='background:{_up_row_bg};border:{_up_row_bdr};"
                                             f"border-radius:8px;padding:8px 10px;margin-bottom:2px'>"
                                             f"<div style='display:flex;justify-content:space-between;align-items:center'>"
                                             f"<span style='font-size:1.04rem;font-weight:700'>{_up_name} <span style='font-size:1.1rem;color:#666'>({_up_ticker})</span></span>"
-                                            f"<span style='font-size:0.88rem;color:{_up_urg_color};font-weight:600'>"
+                                            f"<span style='display:inline-block;padding:1px 7px;border-radius:4px;"
+                                            f"background:{_up_urg_color}33;border:1px solid {_up_urg_color};"
+                                            f"color:{_up_urg_color};font-size:0.82rem;font-weight:700'>"
                                             f"{_up_urg_icon} {_up_urg}</span>"
                                             f"</div>"
                                             f"<div style='display:flex;justify-content:space-between;margin-top:3px'>"
@@ -4169,8 +4183,7 @@ def main():
                                             f"진입 ${_up_entry:,.2f} → +{_up_upside}%</span>"
                                             f"<span style='font-size:0.88rem;color:{_up_chg_c};font-weight:600'>"
                                             f"{'▲' if _up_chg>=0 else '▼'}{abs(_up_chg):.1f}%</span>"
-                                            f"</div></div>",
-                                            unsafe_allow_html=True,
+                                            f"</div></div>"
                                         )
                                     if st.button(
                                         "✓ 선택됨" if _up_is_sel else "▶ 상세보기",
@@ -5874,7 +5887,13 @@ def main():
                                                     _uc_star, _uc0, _uc1, _uc2, _uc3, _uc4 = st.columns([0.45, 0.35, 2.8, 1.8, 1.4, 0.45])
                                                     with _uc_star:
                                                         render_star_toggle("미국", _us["ticker"], _us["name"], key_suffix=f"us_sec_stk_{_us['ticker']}_{_ui}")
-                                                    _uc0.markdown("✅" if _upct >= 3.0 else "&nbsp;", unsafe_allow_html=True)
+                                                    _us_sig_lbl = "🔥" if _upct >= 5 else "▲" if _upct >= 0.5 else "▼" if _upct <= -0.5 else "━"
+                                                    _us_sig_col = "#00c853" if _upct >= 0.5 else "#ff4b4b" if _upct <= -0.5 else "#666"
+                                                    with _uc0:
+                                                        st.html(f"<div style='text-align:center;padding:2px 3px;border-radius:4px;"
+                                                                f"background:{_us_sig_col}22;border:1px solid {_us_sig_col}66;"
+                                                                f"color:{_us_sig_col};font-size:0.85rem;font-weight:700;margin-top:3px'>"
+                                                                f"{_us_sig_lbl}</div>")
                                                     _uc1.markdown(
                                                         f"<span style='font-size:1.10rem'>{_us['name']}"
                                                         f"{'&nbsp;🔗' if _other_locs else ''}</span>",
