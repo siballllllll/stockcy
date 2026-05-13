@@ -892,14 +892,6 @@ def _sc_goto_stock(ticker: str):
     st.rerun()
 
 
-def _sc_finance_url(ticker: str) -> str:
-    """종목 코드에 맞는 외부 금융 정보 URL 반환."""
-    _is_kr = len(ticker) == 6 and ticker.isdigit()
-    if _is_kr:
-        return f"https://finance.naver.com/item/main.naver?code={ticker}"
-    return f"https://finance.yahoo.com/quote/{ticker}"
-
-
 def _render_stock_popover(stocks: list, color: str, label: str, key_prefix: str):
     """종목 목록을 popover 버튼으로 렌더링 (최대 5개)."""
     st.markdown(f"**{label}**")
@@ -908,6 +900,7 @@ def _render_stock_popover(stocks: list, color: str, label: str, key_prefix: str)
         _nm  = str(_s.get("name", ""))
         _rsn = str(_s.get("reason", ""))
         _vn  = str(_s.get("valuation_note", ""))
+        _mkt = "KR" if (len(_tk) == 6 and _tk.isdigit()) else "US"
         with st.popover(
             f"{'🟢' if color == 'up' else '🔴'} {_nm} ({_tk})",
             use_container_width=True,
@@ -921,7 +914,13 @@ def _render_stock_popover(stocks: list, color: str, label: str, key_prefix: str)
             st.markdown(f"**{'상승' if color=='up' else '하락'} 이유:** {_rsn}")
             if _vn:
                 st.info(f"📐 {_vn}")
-            st.link_button("📊 종목 분석 보러가기", url=_sc_finance_url(_tk), use_container_width=True)
+            st.markdown(
+                f"<a href='/?market={_mkt}&code={_tk}' target='_blank' "
+                f"style='display:block;text-align:center;padding:8px;border-radius:6px;"
+                f"background:#262730;color:#fafafa;text-decoration:none;font-size:0.9rem;"
+                f"border:1px solid #555;margin-top:6px;'>📊 종목 분석 보러가기</a>",
+                unsafe_allow_html=True,
+            )
 
 
 @st.dialog("📈 이슈별 시장 시나리오", width="large")
