@@ -442,26 +442,23 @@ def inject_custom_css():
             font-weight: 700 !important;
         }
         
-        /* ── 거래 내역 일체형 버튼 스타일 ── */
-        .trade-action-btn {
-            display: inline-flex !important;
-            align-items: center !important;
-            justify-content: center !important;
-            width: 32px !important;
-            height: 32px !important;
+        /* ── 거래 내역 액션 버튼 (st.button) ── */
+        [data-testid="stHorizontalBlock"]:has([data-testid="stButton"] button[title="AI 분석"]) [data-testid="stButton"] > button,
+        [data-testid="stHorizontalBlock"]:has([data-testid="stButton"] button[title="삭제"]) [data-testid="stButton"] > button {
             background: rgba(255,255,255,0.05) !important;
-            border: 1px solid rgba(255,255,255,0.1) !important;
+            border: 1px solid rgba(255,255,255,0.12) !important;
             border-radius: 6px !important;
-            text-decoration: none !important;
+            color: rgba(255,255,255,0.85) !important;
             font-size: 1rem !important;
+            padding: 0 !important;
+            min-height: 34px !important;
+            height: 34px !important;
             transition: all 0.2s !important;
-            cursor: pointer !important;
-            margin-left: 4px !important;
         }
-        .trade-action-btn:hover {
+        [data-testid="stHorizontalBlock"]:has([data-testid="stButton"] button[title="AI 분석"]) [data-testid="stButton"] > button:hover,
+        [data-testid="stHorizontalBlock"]:has([data-testid="stButton"] button[title="삭제"]) [data-testid="stButton"] > button:hover {
             background: rgba(255,255,255,0.15) !important;
             border-color: rgba(255,255,255,0.3) !important;
-            transform: translateY(-1px);
         }
 
         /* ── 접기/펼치기(Expander) 레이아웃 보정 ── */
@@ -6638,26 +6635,46 @@ def main():
                     return "₩" if (len(tk) == 6 and tk.isdigit()) else "$"
 
                 # ── 헤더 ──────────────────────────────────────────────
-                # ── 헤더 (데이터 행과 동일한 너비로 조정) ──
-                st.markdown(
-                    "<div style='display:flex;align-items:center;padding:10px 12px;min-height:44px;"
-                    "background:rgba(255,255,255,0.05);border-radius:6px 6px 0 0;"
-                    "border:1px solid rgba(255,255,255,0.13);border-bottom:2px solid rgba(255,255,255,0.22);"
-                    "font-size:0.85rem;color:#aaa;font-weight:600;gap:0'>"
-                    "<span style='flex:2.0'>매도일</span>"
-                    "<span style='flex:1.0'>티커</span>"
-                    "<span style='flex:1.6'>종목명</span>"
-                    "<span style='flex:0.55'>수량</span>"
-                    "<span style='flex:1.1'>매수가</span>"
-                    "<span style='flex:1.1'>매도가</span>"
-                    "<span style='flex:1.3'>순수익</span>"
-                    "<span style='flex:1.0'>수익률</span>"
-                    "<span style='flex:0.6'>결과</span>"
-                    "<span style='flex:0.8;text-align:center;'>AI분석</span>"
-                    "<span style='flex:0.5;text-align:center;'>삭제</span>"
-                    "</div>",
-                    unsafe_allow_html=True,
-                )
+                _hd, _hai, _hdel = st.columns([10.25, 0.8, 0.5], gap="small")
+                with _hd:
+                    st.markdown(
+                        "<div style='display:flex;align-items:center;padding:10px 12px;min-height:44px;"
+                        "background:rgba(255,255,255,0.05);border-radius:6px 6px 0 0;"
+                        "border-left:1px solid rgba(255,255,255,0.13);"
+                        "border-top:1px solid rgba(255,255,255,0.13);"
+                        "border-bottom:2px solid rgba(255,255,255,0.22);"
+                        "font-size:0.85rem;color:#aaa;font-weight:600;'>"
+                        "<span style='flex:2.0'>매도일</span>"
+                        "<span style='flex:1.0'>티커</span>"
+                        "<span style='flex:1.6'>종목명</span>"
+                        "<span style='flex:0.55'>수량</span>"
+                        "<span style='flex:1.1'>매수가</span>"
+                        "<span style='flex:1.1'>매도가</span>"
+                        "<span style='flex:1.3'>순수익</span>"
+                        "<span style='flex:1.0'>수익률</span>"
+                        "<span style='flex:0.6'>결과</span>"
+                        "</div>",
+                        unsafe_allow_html=True,
+                    )
+                with _hai:
+                    st.markdown(
+                        "<div style='text-align:center;padding:10px 0;min-height:44px;line-height:24px;"
+                        "background:rgba(255,255,255,0.05);"
+                        "border-top:1px solid rgba(255,255,255,0.13);"
+                        "border-bottom:2px solid rgba(255,255,255,0.22);"
+                        "font-size:0.85rem;color:#aaa;font-weight:600;'>AI분석</div>",
+                        unsafe_allow_html=True,
+                    )
+                with _hdel:
+                    st.markdown(
+                        "<div style='text-align:center;padding:10px 0;min-height:44px;line-height:24px;"
+                        "background:rgba(255,255,255,0.05);border-radius:0 6px 0 0;"
+                        "border-top:1px solid rgba(255,255,255,0.13);"
+                        "border-right:1px solid rgba(255,255,255,0.13);"
+                        "border-bottom:2px solid rgba(255,255,255,0.22);"
+                        "font-size:0.85rem;color:#aaa;font-weight:600;'>삭제</div>",
+                        unsafe_allow_html=True,
+                    )
 
                 for _di, _t in enumerate(reversed(history)):
                     _orig_idx = len(history) - 1 - _di
@@ -6667,48 +6684,36 @@ def main():
                     _res = _t.get("result", "")
                     _clr = "#00c853" if _profit >= 0 else "#ff4b4b"
                     _rclr = "#00c853" if _res == "승" else ("#ff4b4b" if _res == "패" else "#aaa")
-                    _tsa_key = f"_tsa_{_t.get('ticker','')}_{_t.get('sell_date','')}"
                     _row_bg = "rgba(255,255,255,0.02)" if _di % 2 == 0 else "transparent"
 
-                    # ── URL 매개변수를 통한 동작 처리 (일체형 버튼 클릭 대응) ──
-                    _q = st.query_params
-                    if "_act" in _q and "_idx" in _q:
-                        _act = _q["_act"]
-                        _idx_str = _q["_idx"]
-                        try:
-                            _idx = int(_idx_str)
-                            if _act == "del" and _idx == _orig_idx:
-                                st.session_state["_del_trade_idx"] = _idx
-                                st.query_params.clear()
-                                st.rerun()
-                            elif _act == "ana" and _idx == _orig_idx:
-                                st.session_state["_modal_analysis_trade"] = _t
-                                st.session_state["_modal_open"] = True
-                                st.query_params.clear()
-                                st.rerun()
-                        except: pass
-
-                    # ── 일체형 행 렌더링 (텍스트 + 버튼 통합) ──
-                    _row_html = (
-                        f"<div style='display:flex;align-items:center;padding:0px 12px;min-height:46px;line-height:46px;"
-                        f"background:{_row_bg};"
-                        f"border-left:1px solid rgba(255,255,255,0.10);"
-                        f"border-right:1px solid rgba(255,255,255,0.10);"
-                        f"border-bottom:1px solid rgba(255,255,255,0.08);font-size:0.875rem;'>"
-                        f"<span style='flex:2.0;color:#999;font-size:0.77rem'>{_t.get('sell_date','')}</span>"
-                        f"<span style='flex:1.0'>{_t.get('ticker','')}</span>"
-                        f"<span style='flex:1.6'>{_t.get('name','')}</span>"
-                        f"<span style='flex:0.55'>{_t.get('quantity',0)}</span>"
-                        f"<span style='flex:1.1'>{_sym}{float(_t.get('buy_price',0)):,.2f}</span>"
-                        f"<span style='flex:1.1'>{_sym}{float(_t.get('sell_price',0)):,.2f}</span>"
-                        f"<span style='flex:1.3;color:{_clr};font-weight:600'>{_sym}{_profit:+,.2f}</span>"
-                        f"<span style='flex:1.0;color:{_clr};font-weight:600'>{_pct:+.2f}%</span>"
-                        f"<span style='flex:0.6;color:{_rclr};font-weight:700'>{_res}</span>"
-                        f"<div style='flex:0.8;display:flex;justify-content:center;'><a href='?_act=ana&_idx={_orig_idx}' target='_self' class='trade-action-btn' title='AI 분석'>🤖</a></div>"
-                        f"<div style='flex:0.5;display:flex;justify-content:center;'><a href='?_act=del&_idx={_orig_idx}' target='_self' class='trade-action-btn' title='삭제'>🗑️</a></div>"
-                        f"</div>"
-                    )
-                    st.markdown(_row_html, unsafe_allow_html=True)
+                    _rcol_d, _rcol_ai, _rcol_del = st.columns([10.25, 0.8, 0.5], gap="small")
+                    with _rcol_d:
+                        _row_html = (
+                            f"<div style='display:flex;align-items:center;padding:0px 12px;min-height:46px;line-height:46px;"
+                            f"background:{_row_bg};"
+                            f"border-left:1px solid rgba(255,255,255,0.10);"
+                            f"border-bottom:1px solid rgba(255,255,255,0.08);font-size:0.875rem;'>"
+                            f"<span style='flex:2.0;color:#999;font-size:0.77rem'>{_t.get('sell_date','')}</span>"
+                            f"<span style='flex:1.0'>{_t.get('ticker','')}</span>"
+                            f"<span style='flex:1.6'>{_t.get('name','')}</span>"
+                            f"<span style='flex:0.55'>{_t.get('quantity',0)}</span>"
+                            f"<span style='flex:1.1'>{_sym}{float(_t.get('buy_price',0)):,.2f}</span>"
+                            f"<span style='flex:1.1'>{_sym}{float(_t.get('sell_price',0)):,.2f}</span>"
+                            f"<span style='flex:1.3;color:{_clr};font-weight:600'>{_sym}{_profit:+,.2f}</span>"
+                            f"<span style='flex:1.0;color:{_clr};font-weight:600'>{_pct:+.2f}%</span>"
+                            f"<span style='flex:0.6;color:{_rclr};font-weight:700'>{_res}</span>"
+                            f"</div>"
+                        )
+                        st.markdown(_row_html, unsafe_allow_html=True)
+                    with _rcol_ai:
+                        if st.button("🤖", key=f"t_ai_{_orig_idx}", use_container_width=True, help="AI 분석"):
+                            st.session_state["_modal_analysis_trade"] = _t
+                            st.session_state["_modal_open"] = True
+                            st.rerun()
+                    with _rcol_del:
+                        if st.button("🗑️", key=f"t_del_{_orig_idx}", use_container_width=True, help="삭제"):
+                            st.session_state["_del_trade_idx"] = _orig_idx
+                            st.rerun()
 
 
                 st.divider()
