@@ -6570,10 +6570,25 @@ def main():
                     tk = t.get("ticker", "")
                     return "₩" if (len(tk) == 6 and tk.isdigit()) else "$"
 
-                # 헤더
-                _th = st.columns([2.0, 1.0, 1.5, 0.6, 1.1, 1.1, 1.3, 1.0, 0.6, 0.45, 0.45])
-                for _lbl, _tc in zip(["매도일", "티커", "종목명", "수량", "매수가", "매도가", "순수익", "수익률", "결과", "", ""], _th):
-                    _tc.markdown(f"<span style='font-size:0.78rem;color:#888'>{_lbl}</span>", unsafe_allow_html=True)
+                # ── 헤더 ──────────────────────────────────────────────
+                _hdr_col, _, _ = st.columns([10, 0.65, 0.65])
+                _hdr_col.markdown(
+                    "<div style='display:flex;align-items:center;padding:6px 8px;"
+                    "background:rgba(255,255,255,0.05);border-radius:6px 6px 0 0;"
+                    "border:1px solid rgba(255,255,255,0.13);border-bottom:2px solid rgba(255,255,255,0.22);"
+                    "font-size:0.78rem;color:#aaa;font-weight:600;gap:0'>"
+                    "<span style='flex:2.0'>매도일</span>"
+                    "<span style='flex:1.0'>티커</span>"
+                    "<span style='flex:1.6'>종목명</span>"
+                    "<span style='flex:0.55'>수량</span>"
+                    "<span style='flex:1.1'>매수가</span>"
+                    "<span style='flex:1.1'>매도가</span>"
+                    "<span style='flex:1.3'>순수익</span>"
+                    "<span style='flex:1.0'>수익률</span>"
+                    "<span style='flex:0.6'>결과</span>"
+                    "</div>",
+                    unsafe_allow_html=True,
+                )
 
                 for _di, _t in enumerate(reversed(history)):
                     _orig_idx = len(history) - 1 - _di
@@ -6584,22 +6599,32 @@ def main():
                     _clr = "#00c853" if _profit >= 0 else "#ff4b4b"
                     _rclr = "#00c853" if _res == "승" else ("#ff4b4b" if _res == "패" else "#aaa")
                     _tsa_key = f"_tsa_{_t.get('ticker','')}_{_t.get('sell_date','')}"
+                    _row_bg = "rgba(255,255,255,0.02)" if _di % 2 == 0 else "transparent"
 
-                    _rc = st.columns([2.0, 1.0, 1.5, 0.6, 1.1, 1.1, 1.3, 1.0, 0.6, 0.45, 0.45])
-                    _rc[0].caption(_t.get("sell_date", ""))
-                    _rc[1].markdown(_t.get("ticker", ""))
-                    _rc[2].markdown(_t.get("name", ""))
-                    _rc[3].markdown(str(_t.get("quantity", 0)))
-                    _rc[4].markdown(f"{_sym}{float(_t.get('buy_price',0)):,.2f}")
-                    _rc[5].markdown(f"{_sym}{float(_t.get('sell_price',0)):,.2f}")
-                    _rc[6].markdown(f"<span style='color:{_clr}'>{_sym}{_profit:+,.2f}</span>", unsafe_allow_html=True)
-                    _rc[7].markdown(f"<span style='color:{_clr}'>{_pct:+.2f}%</span>", unsafe_allow_html=True)
-                    _rc[8].markdown(f"<span style='color:{_rclr};font-weight:bold'>{_res}</span>", unsafe_allow_html=True)
-                    if _rc[9].button("🤖", key=f"ai_trade_{_orig_idx}_{_t.get('sell_date','')}", help="AI 분석"):
+                    _dc, _ai_c, _del_c = st.columns([10, 0.65, 0.65])
+                    _dc.markdown(
+                        f"<div style='display:flex;align-items:center;padding:5px 8px;min-height:38px;"
+                        f"background:{_row_bg};"
+                        f"border-left:1px solid rgba(255,255,255,0.10);"
+                        f"border-right:1px solid rgba(255,255,255,0.10);"
+                        f"border-bottom:1px solid rgba(255,255,255,0.08);font-size:0.875rem;gap:0'>"
+                        f"<span style='flex:2.0;color:#999;font-size:0.77rem'>{_t.get('sell_date','')}</span>"
+                        f"<span style='flex:1.0'>{_t.get('ticker','')}</span>"
+                        f"<span style='flex:1.6'>{_t.get('name','')}</span>"
+                        f"<span style='flex:0.55'>{_t.get('quantity',0)}</span>"
+                        f"<span style='flex:1.1'>{_sym}{float(_t.get('buy_price',0)):,.2f}</span>"
+                        f"<span style='flex:1.1'>{_sym}{float(_t.get('sell_price',0)):,.2f}</span>"
+                        f"<span style='flex:1.3;color:{_clr};font-weight:600'>{_sym}{_profit:+,.2f}</span>"
+                        f"<span style='flex:1.0;color:{_clr};font-weight:600'>{_pct:+.2f}%</span>"
+                        f"<span style='flex:0.6;color:{_rclr};font-weight:700'>{_res}</span>"
+                        f"</div>",
+                        unsafe_allow_html=True,
+                    )
+                    if _ai_c.button("🤖", key=f"ai_trade_{_orig_idx}_{_t.get('sell_date','')}", help="AI 분석", use_container_width=True):
                         st.session_state["_analyze_trade_key"] = _tsa_key
                         st.session_state["_analyze_trade_data"] = _t
                         st.rerun()
-                    if _rc[10].button("🗑️", key=f"del_trade_{_orig_idx}_{_t.get('sell_date','')}", help="삭제"):
+                    if _del_c.button("🗑️", key=f"del_trade_{_orig_idx}_{_t.get('sell_date','')}", help="삭제", use_container_width=True):
                         st.session_state["_del_trade_idx"] = _orig_idx
                         st.rerun()
 
