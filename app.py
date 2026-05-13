@@ -5987,7 +5987,13 @@ def main():
 
             port_list = st.session_state.get(portfolio_key, [])
             if not port_list:
-                st.info("보유 종목이 없습니다. 분석 탭에서 '포트폴리오에 담기'를 누르거나 위 폼으로 추가하세요.")
+                if portfolio_key == "ai_portfolio":
+                    st.info("아직 기록된 AI 추천 종목이 없습니다.\n\n"
+                            "메인 화면에서 국내·미국 종목을 검색한 뒤 **🎯 AI 분석 실행** 버튼을 눌러보세요. "
+                            "AI 등급이 **추천** 또는 **매우 강력 추천**으로 나오면 자동으로 여기에 추가됩니다.\n\n"
+                            "💡 참고: **관심·중간추천·비추천** 등급은 자동 기록 대상이 아닙니다.")
+                else:
+                    st.info("보유 종목이 없습니다. 🎒 포트폴리오에 담기 버튼을 누르거나 아래 폼으로 추가하세요.")
                 return
 
             # 티커 구분 (국내: 6자리 숫자, 미국: 그 외)
@@ -6247,12 +6253,12 @@ def main():
                 st.session_state.comm_us_sell = _us_sell_comm
 
             st.markdown("### 🤖 AI 자동 추천 종목")
-            st.caption("AI 분석에서 '추천' 이상 등급을 받으면 자동으로 기록됩니다.")
+            st.caption("종목 검색 후 **🎯 AI 분석 실행** 버튼을 눌렀을 때 AI 등급이 **추천** 또는 **매우 강력 추천**이면 자동으로 여기에 기록됩니다. (중간추천·비추천은 기록 안 됨)")
             render_holdings("ai_portfolio", show_add=False)
 
             st.markdown("---")
             st.markdown("### 👤 내 수동 포트폴리오")
-            st.caption("분석 탭에서 '포트폴리오에 담기'를 눌렀거나 아래 폼으로 직접 추가한 종목입니다.")
+            st.caption("🎒 포트폴리오에 담기 버튼을 눌렀거나 아래 폼으로 직접 추가한 종목입니다.")
             render_holdings("portfolio", show_add=True)
 
         with tab_history:
