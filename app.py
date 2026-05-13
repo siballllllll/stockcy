@@ -360,13 +360,20 @@ def inject_custom_css():
             transition: opacity 0.1s ease-in-out !important;
         }
 
-        [data-baseweb="popover"]{
-            zoom: 1.1 !important;
-            transform-origin: top left !important;
-            max-width: 650px !important;
+        [data-baseweb="popover"] {
+            /* 줌 제거: 좌표 어긋남 방지 */
+            zoom: 1.0 !important; 
+            max-width: none !important;
+            min-width: auto !important;
+        }
+        [data-baseweb="menu"] {
+            /* 드롭다운 메뉴 너비를 검색창에 맞춤 */
+            max-width: 100% !important;
+            border-radius: 12px !important;
         }
         [data-baseweb="list-item"] {
-            font-size: 0.92rem !important;
+            font-size: 1.1rem !important;
+            padding: 10px 16px !important;
             white-space: nowrap !important;
             overflow: hidden !important;
             text-overflow: ellipsis !important;
