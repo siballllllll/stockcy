@@ -6542,6 +6542,109 @@ def main():
                     st.session_state.trade_history = []
                     st.rerun()
 
+                st.divider()
+                st.markdown("### 🧠 AI 매도 이력 심층 분석")
+                st.caption("AI가 매도 완료된 종목들을 섹터·사회적 흐름·세력 수급 관점에서 분석하고 성공/실패 패턴을 도출합니다.")
+
+                _ta_cols = st.columns([2, 2, 3])
+                with _ta_cols[0]:
+                    _run_analysis = st.button("🔍 AI 분석 실행", type="primary", use_container_width=True,
+                                              help="Gemini AI가 거래 내역 전체를 분석합니다 (최대 50초)")
+                with _ta_cols[1]:
+                    _load_prev = st.button("☁️ 이전 분석 불러오기", use_container_width=True,
+                                           help="구글 시트 '매매분석일지' 탭에서 최근 분석 결과를 불러옵니다")
+                with _ta_cols[2]:
+                    st.caption(f"분석 대상: {len(history)}건 거래 / 승 {sum(1 for t in history if t.get('result')=='승')}건 패 {sum(1 for t in history if t.get('result')=='패')}건")
+
+                if _run_analysis:
+                    from ai_engine import analyze_trade_history as _ata
+                    with st.spinner("🤖 AI가 매도 이력을 심층 분석 중입니다... (최대 50초)"):
+                        _ta_result = _ata(history)
+                    if "error" in _ta_result:
+                        st.error(f"분석 오류: {_ta_result['error']}")
+                    else:
+                        st.session_state["trade_analysis_result"] = _ta_result
+                        from db import save_trade_analysis as _sta
+                        _ok, _smsg = _sta(_ta_result)
+                        if _ok:
+                            st.success(f"✅ 분석 완료! 구글 시트에도 저장되었습니다.")
+                        else:
+                            st.success("✅ 분석 완료!")
+                            st.warning(f"구글 시트 저장 실패: {_smsg}")
+                        st.rerun()
+
+                if _load_prev:
+                    from db import load_trade_analysis as _lta
+                    with st.spinner("구글 시트에서 이전 분석 불러오는 중..."):
+                        _prev, _pmsg = _lta()
+                    if _prev:
+                        st.session_state["trade_analysis_result"] = _prev
+                        st.success(f"분석 결과 로드 완료! (분석 시각: {_prev.get('analyzed_at','')})")
+                        st.rerun()
+                    else:
+                        st.info(_pmsg)
+
+                _ta_data = st.session_state.get("trade_analysis_result")
+                if _ta_data and "summary" in _ta_data:
+                    _ts = _ta_data["summary"]
+                    analyzed_at = _ta_data.get("analyzed_at", "")
+                    if analyzed_at:
+                        st.caption(f"분석 시각: {analyzed_at}")
+
+                    st.markdown("#### 📊 분석 요약")
+                    _mc1, _mc2, _mc3, _mc4 = st.columns(4)
+                    _mc1.metric("분석 거래 수", f"{_ts.get('total', 0)}건")
+                    _mc2.metric("승리", f"{_ts.get('win_count', 0)}건")
+                    _mc3.metric("패배", f"{_ts.get('loss_count', 0)}건")
+                    _mc4.metric("승률", f"{_ts.get('win_rate', round(_ts.get('win_count',0)/max(_ts.get('total',1),1)*100,1))}%")
+
+                    _wp_col, _lp_col = st.columns(2)
+                    with _wp_col:
+                        with st.container(border=True):
+                            st.markdown("**✅ 공통 성공 패턴**")
+                            st.write(_ts.get("win_pattern", "-"))
+                    with _lp_col:
+                        with st.container(border=True):
+                            st.markdown("**❌ 공통 실패 패턴**")
+                            st.write(_ts.get("loss_pattern", "-"))
+
+                    _insights = _ts.get("key_insights", [])
+                    if _insights:
+                        with st.container(border=True):
+                            st.markdown("**💡 핵심 인사이트**")
+                            for _ins in _insights:
+                                st.markdown(f"- {_ins}")
+
+                    _fs = _ts.get("future_strategy", "")
+                    if _fs:
+                        with st.container(border=True):
+                            st.markdown("**🎯 향후 전략 원칙**")
+                            st.info(_fs)
+
+                    _trade_analyses = _ta_data.get("trades", [])
+                    if _trade_analyses:
+                        st.markdown("#### 📋 종목별 상세 분석")
+                        for _tr in _trade_analyses:
+                            _res = _tr.get("result", "")
+                            _pct = float(_tr.get("profit_pct", 0))
+                            _badge = "🟢 승" if _res == "승" else "🔴 패"
+                            _pct_str = f"{_pct:+.2f}%"
+                            with st.expander(f"{_badge} | {_tr.get('name','?')}({_tr.get('ticker','?')}) | {_pct_str} | 섹터: {_tr.get('sector','-')}"):
+                                _ec1, _ec2 = st.columns(2)
+                                with _ec1:
+                                    st.markdown(f"**섹터/테마:** {_tr.get('sector','-')}")
+                                    st.markdown(f"**섹터 특성:** {_tr.get('sector_characteristic','-')}")
+                                    st.markdown(f"**사회적 요인:** {_tr.get('social_factor','-')}")
+                                with _ec2:
+                                    st.markdown(f"**수급·세력:** {_tr.get('institutional_factor','-')}")
+                                    st.markdown(f"**기술적 분석:** {_tr.get('technical_factor','-')}")
+                                if _res == "승" and _tr.get("success_reason"):
+                                    st.success(f"**성공 이유:** {_tr['success_reason']}")
+                                elif _res == "패" and _tr.get("failure_reason"):
+                                    st.error(f"**실패 이유:** {_tr['failure_reason']}")
+                                if _tr.get("lesson"):
+                                    st.info(f"**교훈:** {_tr['lesson']}")
+
     with tab3:
         st.subheader("🔧 관리자")
 

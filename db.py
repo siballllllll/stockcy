@@ -474,6 +474,73 @@ def init_sector_sheet():
         return False, f"업로드 오류: {e}"
 
 
+def save_trade_analysis(analysis: dict):
+    """AI 거래 분석 결과를 '매매분석일지' 탭에 저장합니다."""
+    import json as _json
+    sh, msg = _get_spreadsheet()
+    if not sh:
+        return False, msg
+    try:
+        headers = ["분석시간", "총거래", "승", "패", "승률(%)", "성공패턴", "실패패턴", "핵심인사이트", "향후전략", "종목별분석(JSON)"]
+        ws = _get_or_create_worksheet(sh, "매매분석일지", headers)
+        summary = analysis.get("summary", {})
+        total = summary.get("total", 0)
+        wins = summary.get("win_count", 0)
+        losses = summary.get("loss_count", 0)
+        win_rate = round(wins / total * 100, 1) if total > 0 else 0
+        insights = " | ".join(summary.get("key_insights", []))
+        trades_json = _json.dumps(analysis.get("trades", []), ensure_ascii=False)
+        ws.append_row([
+            datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            total, wins, losses, win_rate,
+            summary.get("win_pattern", ""),
+            summary.get("loss_pattern", ""),
+            insights,
+            summary.get("future_strategy", ""),
+            trades_json,
+        ])
+        return True, "매매 분석 결과가 구글 시트 '매매분석일지' 탭에 저장되었습니다."
+    except Exception as e:
+        return False, f"저장 오류: {e}"
+
+
+def load_trade_analysis():
+    """'매매분석일지' 탭에서 가장 최근 분석 결과를 불러옵니다."""
+    import json as _json
+    sh, msg = _get_spreadsheet()
+    if not sh:
+        return None, msg
+    try:
+        ws = sh.worksheet("매매분석일지")
+        records = ws.get_all_records()
+        if not records:
+            return None, "저장된 분석 결과가 없습니다."
+        last = records[-1]
+        trades_raw = last.get("종목별분석(JSON)", "[]")
+        try:
+            trades = _json.loads(trades_raw)
+        except Exception:
+            trades = []
+        return {
+            "analyzed_at": last.get("분석시간", ""),
+            "summary": {
+                "total": last.get("총거래", 0),
+                "win_count": last.get("승", 0),
+                "loss_count": last.get("패", 0),
+                "win_rate": last.get("승률(%)", 0),
+                "win_pattern": last.get("성공패턴", ""),
+                "loss_pattern": last.get("실패패턴", ""),
+                "key_insights": [i.strip() for i in str(last.get("핵심인사이트", "")).split("|") if i.strip()],
+                "future_strategy": last.get("향후전략", ""),
+            },
+            "trades": trades,
+        }, "성공"
+    except gspread.WorksheetNotFound:
+        return None, "아직 저장된 분석이 없습니다. AI 분석 후 저장하세요."
+    except Exception as e:
+        return None, f"로드 오류: {e}"
+
+
 def test_connection_and_write():
     """연결 테스트용 함수 (하위 호환성 유지)."""
     sh, msg = _get_spreadsheet()

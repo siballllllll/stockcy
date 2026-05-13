@@ -1620,3 +1620,67 @@ def analyze_sector_rotation(market_type, raw_market_data):
     except Exception as e:
         return f"분석 중 오류 발생: {e}"
 
+
+def analyze_trade_history(trades: list) -> dict:
+    """매도 완료된 거래 내역을 AI로 분석하여 성공/실패 패턴과 교훈을 추출합니다."""
+    if not trades:
+        return {"error": "분석할 거래 내역이 없습니다."}
+
+    trade_lines = []
+    for t in trades:
+        sym = "₩" if (len(str(t.get("ticker", ""))) == 6 and str(t.get("ticker", "")).isdigit()) else "$"
+        trade_lines.append(
+            f"- {t.get('sell_date','?')} | {t.get('name','?')}({t.get('ticker','?')}) | "
+            f"매수 {sym}{float(t.get('buy_price',0)):,.2f} → 매도 {sym}{float(t.get('sell_price',0)):,.2f} | "
+            f"수익률 {float(t.get('profit_pct',0)):+.2f}% | 결과: {t.get('result','?')}"
+        )
+    trades_text = "\n".join(trade_lines)
+
+    prompt = f"""당신은 20년 경력의 국내외 단타 트레이딩 전문가이자 퀀트 애널리스트입니다.
+아래는 실제 매매 완료된 거래 내역입니다. 각 종목에 대해 심층 분석하여 성공/실패 이유와 패턴을 도출하세요.
+
+## 거래 내역
+{trades_text}
+
+구글 검색을 활용하여 각 종목의 매도 시점 전후 뉴스, 섹터 흐름, 세력 수급 동향을 파악하고,
+반드시 아래 JSON 형식으로만 응답하세요 (마크다운 백틱, 주석 절대 금지):
+
+{{
+  "summary": {{
+    "total": {len(trades)},
+    "win_count": 승리 건수(정수),
+    "loss_count": 패배 건수(정수),
+    "win_pattern": "공통적인 성공 패턴 요약 (섹터·타이밍·뉴스·수급 등 2~3문장)",
+    "loss_pattern": "공통적인 실패 패턴 요약 (섹터·타이밍·뉴스·수급 등 2~3문장)",
+    "key_insights": ["핵심 인사이트1", "핵심 인사이트2", "핵심 인사이트3"],
+    "future_strategy": "이 분석을 바탕으로 향후 단타 전략에서 반드시 지켜야 할 원칙 3가지"
+  }},
+  "trades": [
+    {{
+      "ticker": "종목코드",
+      "name": "종목명",
+      "result": "승 또는 패",
+      "profit_pct": 수익률(숫자),
+      "sector": "섹터/테마 (예: 반도체, AI, 바이오, 2차전지 등)",
+      "sector_characteristic": "해당 섹터의 당시 시장 특성 및 트렌드",
+      "social_factor": "매매 시점 전후 사회적·뉴스·정치·정책 요인",
+      "institutional_factor": "세력·외국인·기관 수급 동향",
+      "technical_factor": "기술적 분석 관점 (차트패턴, 거래량, 변동성)",
+      "success_reason": "성공 이유 (승인 경우, 패면 빈 문자열)",
+      "failure_reason": "실패 이유 (패인 경우, 승이면 빈 문자열)",
+      "lesson": "이 종목 매매에서 얻어야 할 핵심 교훈 (1~2문장)"
+    }}
+  ]
+}}"""
+
+    try:
+        response = _call_gemini(prompt, use_search=True, temperature=0.4)
+        text = re.sub(r'```(?:json)?', '', response.text).strip()
+        start = text.find('{')
+        if start != -1:
+            result, _ = json.JSONDecoder().raw_decode(text, start)
+            return result
+        return json.loads(text)
+    except Exception as e:
+        return {"error": str(e)}
+
