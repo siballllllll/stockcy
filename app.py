@@ -442,10 +442,10 @@ def inject_custom_css():
             font-weight: 700 !important;
         }
         
-        /* ── 거래 내역 버튼 정렬 보정 (Relative Position) ── */
+        /* ── 거래 내역 버튼 정렬 보정 (Offset Compensation) ── */
         .trade-btn-container [data-testid="stButton"] button {
-            position: relative !important;
-            top: 10px !important;
+            margin-top: 7px !important;
+            margin-bottom: -7px !important;
         }
 
         /* ── 접기/펼치기(Expander) 레이아웃 보정 ── */
@@ -6609,7 +6609,7 @@ def main():
 
                     _dc, _ai_c, _del_c = st.columns([10, 0.65, 0.65], vertical_alignment="center")
                     _dc.markdown(
-                        f"<div style='display:flex;align-items:center;padding:12px 12px;min-height:52px;"
+                        f"<div style='display:flex;align-items:center;padding:10px 12px;min-height:48px;"
                         f"background:{_row_bg};"
                         f"border-left:1px solid rgba(255,255,255,0.10);"
                         f"border-right:1px solid rgba(255,255,255,0.10);"
