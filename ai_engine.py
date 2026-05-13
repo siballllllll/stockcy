@@ -128,6 +128,7 @@ def _call_gemini(prompt, use_search=False, temperature=0.7, response_mime_type=N
 
                 # 모델 없음 — 다음 모델로
                 if "404" in err_str or "NOT_FOUND" in err_str:
+                    print(f"[AI] 모델 {model} 사용 불가 (404), 다음 모델로 폴백. 에러: {err_str[:120]}")
                     break
 
                 # Google Search 권한 오류 (403) → 검색 없이 재시도
