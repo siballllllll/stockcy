@@ -877,12 +877,65 @@ def init_session_state():
         from db import load_portfolio_from_gsheet
         st.session_state.portfolio = load_portfolio_from_gsheet()
 
+def _sc_goto_stock(ticker: str):
+    """시나리오에서 종목 클릭 시 해당 종목 분석 탭으로 이동."""
+    _is_kr = len(ticker) == 6 and ticker.isdigit()
+    if _is_kr:
+        st.session_state.market = "국내 주식 🇰🇷"
+        st.session_state.kr_mode = "📊 일반 주식 검색"
+        st.session_state.kr_selected_code = ticker
+    else:
+        st.session_state.market = "미국 주식 🇺🇸"
+        st.session_state.us_mode = "📊 일반 주식 검색"
+        st.session_state.us_selected_ticker = ticker
+    st.session_state.pop("_dialog_open", None)
+    st.rerun()
+
+
+def _render_stock_popover(stocks: list, color: str, label: str, key_prefix: str):
+    """종목 목록을 popover 버튼으로 렌더링."""
+    st.markdown(f"**{label}**")
+    for _i, _s in enumerate(stocks):
+        _tk  = str(_s.get("ticker", ""))
+        _nm  = str(_s.get("name", ""))
+        _rsn = str(_s.get("reason", ""))
+        _vn  = str(_s.get("valuation_note", ""))
+        with st.popover(
+            f"{'🟢' if color == 'up' else '🔴'} {_nm} ({_tk})",
+            use_container_width=True,
+        ):
+            st.markdown(
+                f"<span style='font-size:1rem;font-weight:700;color:"
+                f"{'#00c853' if color=='up' else '#ff4b4b'}'>{_nm}</span>"
+                f"&nbsp;<code>{_tk}</code>",
+                unsafe_allow_html=True,
+            )
+            st.markdown(f"**{'상승' if color=='up' else '하락'} 이유:** {_rsn}")
+            if _vn:
+                st.info(f"📐 {_vn}")
+            if st.button("📊 종목 분석 보러가기", key=f"{key_prefix}_{color}_{_i}"):
+                _sc_goto_stock(_tk)
+
+
 @st.dialog("📈 이슈별 시장 시나리오", width="large")
 def show_market_scenarios():
+    _today = __import__("datetime").date.today().strftime("%Y-%m-%d")
+    _cache_key = f"market_scenarios_{_today}"
+
     if "market_scenarios_data" not in st.session_state:
-        with st.spinner("🔍 오늘의 주요 이슈를 분석해 시나리오를 작성 중입니다... (최대 120초)"):
-            from ai_engine import generate_market_scenarios
-            st.session_state.market_scenarios_data = generate_market_scenarios()
+        # Google Sheets 캐시 확인
+        from db import load_ai_cache, save_ai_cache
+        _cached = load_ai_cache(_cache_key)
+        if _cached:
+            st.session_state.market_scenarios_data = _cached
+            st.caption("📦 오늘 생성된 캐시에서 불러왔습니다.")
+        else:
+            with st.spinner("🔍 오늘의 주요 이슈를 분석해 시나리오를 작성 중입니다... (최대 120초)"):
+                from ai_engine import generate_market_scenarios
+                _new = generate_market_scenarios()
+            st.session_state.market_scenarios_data = _new
+            if "error" not in _new:
+                save_ai_cache(_cache_key, _new, ttl_hours=12)
 
     data = st.session_state.market_scenarios_data
 
@@ -968,30 +1021,17 @@ def show_market_scenarios():
                             unsafe_allow_html=True,
                         )
 
-                        # 상승/하락 종목
+                        # 상승/하락 종목 — popover 클릭으로 상세 보기 + 분석 이동
+                        _pk = f"{_issue.get('issue_no',0)}_{_sc.get('label','')}"
                         _sc1, _sc2 = st.columns(2)
                         with _sc1:
-                            st.markdown("**🟢 상승 예상 종목**")
-                            for _s in _sc.get("rising_stocks", []):
-                                _vn = _s.get("valuation_note", "")
-                                st.markdown(
-                                    f"<div style='padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.07)'>"
-                                    f"<span style='color:#00c853;font-weight:600'>{_s.get('name','')} "
-                                    f"<span style='font-size:0.78rem;color:#888'>({_s.get('ticker','')})</span></span><br>"
-                                    f"<span style='font-size:0.79rem;color:#aaa'>{_s.get('reason','')}</span>"
-                                    + (f"<br><span style='font-size:0.75rem;color:#5c9bd6'>📐 {_vn}</span>" if _vn else "")
-                                    + "</div>", unsafe_allow_html=True)
+                            _render_stock_popover(
+                                _sc.get("rising_stocks", []), "up", "🟢 상승 예상 종목", f"r_{_pk}"
+                            )
                         with _sc2:
-                            st.markdown("**🔴 하락 예상 종목**")
-                            for _s in _sc.get("falling_stocks", []):
-                                _vn = _s.get("valuation_note", "")
-                                st.markdown(
-                                    f"<div style='padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.07)'>"
-                                    f"<span style='color:#ff4b4b;font-weight:600'>{_s.get('name','')} "
-                                    f"<span style='font-size:0.78rem;color:#888'>({_s.get('ticker','')})</span></span><br>"
-                                    f"<span style='font-size:0.79rem;color:#aaa'>{_s.get('reason','')}</span>"
-                                    + (f"<br><span style='font-size:0.75rem;color:#5c9bd6'>📐 {_vn}</span>" if _vn else "")
-                                    + "</div>", unsafe_allow_html=True)
+                            _render_stock_popover(
+                                _sc.get("falling_stocks", []), "dn", "🔴 하락 예상 종목", f"d_{_pk}"
+                            )
 
                         # 단타/장타 전략
                         _str_short = _sc.get("short_strategy", _sc.get("strategy", ""))
@@ -1097,6 +1137,11 @@ def show_market_scenarios():
             for _k in list(st.session_state.keys()):
                 if _k.startswith("_sc_detail_") or _k == "market_scenarios_data":
                     st.session_state.pop(_k, None)
+            try:
+                from db import delete_ai_cache
+                delete_ai_cache(_cache_key)
+            except Exception:
+                pass
             st.rerun()
     with _close_col:
         if st.button("닫기", use_container_width=True):

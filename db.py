@@ -1,7 +1,7 @@
 import gspread
 import streamlit as st
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, timedelta
 
 @st.cache_resource
 def get_gsheet_client():
@@ -638,3 +638,78 @@ def test_connection_and_write():
         return True, f"연결 성공! '{sh.title}' 시트에 테스트 데이터가 입력되었습니다."
     except Exception as e:
         return False, f"에러 발생: {e}"
+
+
+def save_ai_cache(cache_key: str, data: dict, ttl_hours: int = 12):
+    """AI 생성 결과를 'AI캐시' 탭에 저장합니다 (기존 동일 키는 덮어씀)."""
+    import json as _json
+    sh, msg = _get_spreadsheet()
+    if not sh:
+        return False, msg
+    try:
+        headers = ["캐시키", "저장시간", "만료시간", "데이터"]
+        ws = _get_or_create_worksheet(sh, "AI캐시", headers)
+        # 기존 동일 키 행 삭제 (역순)
+        rows = ws.get_all_values()
+        for i in range(len(rows) - 1, 0, -1):
+            if len(rows[i]) >= 1 and rows[i][0] == cache_key:
+                ws.delete_rows(i + 1)
+        now = datetime.now()
+        expire = now + timedelta(hours=ttl_hours)
+        ws.append_row([
+            cache_key,
+            now.strftime("%Y-%m-%d %H:%M:%S"),
+            expire.strftime("%Y-%m-%d %H:%M:%S"),
+            _json.dumps(data, ensure_ascii=False),
+        ])
+        return True, "캐시 저장 완료"
+    except Exception as e:
+        return False, f"캐시 저장 오류: {e}"
+
+
+def load_ai_cache(cache_key: str) -> dict | None:
+    """'AI캐시' 탭에서 유효한 캐시를 로드합니다. 만료·없으면 None."""
+    import json as _json
+    sh, msg = _get_spreadsheet()
+    if not sh:
+        return None
+    try:
+        ws = sh.worksheet("AI캐시")
+        rows = ws.get_all_records()
+        for r in rows:
+            if str(r.get("캐시키", "")) != cache_key:
+                continue
+            expire_str = str(r.get("만료시간", ""))
+            if expire_str:
+                try:
+                    expire_dt = datetime.strptime(expire_str, "%Y-%m-%d %H:%M:%S")
+                    if datetime.now() > expire_dt:
+                        return None
+                except ValueError:
+                    pass
+            data_str = str(r.get("데이터", ""))
+            if data_str:
+                return _json.loads(data_str)
+        return None
+    except gspread.WorksheetNotFound:
+        return None
+    except Exception:
+        return None
+
+
+def delete_ai_cache(cache_key: str):
+    """'AI캐시' 탭에서 특정 키의 캐시를 삭제합니다."""
+    sh, msg = _get_spreadsheet()
+    if not sh:
+        return False
+    try:
+        ws = sh.worksheet("AI캐시")
+        rows = ws.get_all_values()
+        for i in range(len(rows) - 1, 0, -1):
+            if len(rows[i]) >= 1 and rows[i][0] == cache_key:
+                ws.delete_rows(i + 1)
+        return True
+    except gspread.WorksheetNotFound:
+        return True
+    except Exception:
+        return False
