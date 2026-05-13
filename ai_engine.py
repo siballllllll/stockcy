@@ -58,7 +58,7 @@ def get_market_news(category="general"):
 _MODEL_FALLBACK = [
     "gemini-2.5-flash",
     "gemini-2.0-flash",
-    "gemini-2.0-flash-lite",
+    "gemini-1.5-flash",
 ]
 
 # 할당량 소진 여부 (세션 중 반복 호출 방지)
