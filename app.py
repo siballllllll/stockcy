@@ -6608,7 +6608,7 @@ def main():
                     "<span style='flex:1.3'>순수익</span>"
                     "<span style='flex:1.0'>수익률</span>"
                     "<span style='flex:0.6'>결과</span>"
-                    "<span style='flex:1.3'></span>" # 버튼 영역 매칭
+                    "<span style='flex:1.3;display:flex;justify-content:center;font-size:0.75rem;color:#888;'>AI | 삭제</span>"
                     "</div>",
                     unsafe_allow_html=True,
                 )
@@ -6659,7 +6659,7 @@ def main():
                         f"<span style='flex:1.0;color:{_clr};font-weight:600'>{_pct:+.2f}%</span>"
                         f"<span style='flex:0.6;color:{_rclr};font-weight:700'>{_res}</span>"
                         # 버튼을 하나의 셀로 포함
-                        f"<div style='flex:1.3;display:flex;justify-content:flex-end;gap:5px;'>"
+                        f"<div style='flex:1.3;display:flex;justify-content:flex-end;gap:12px;'>"
                         f"<a href='?_act=ana&_idx={_orig_idx}' target='_self' class='trade-action-btn' title='AI 분석'>🤖</a>"
                         f"<a href='?_act=del&_idx={_orig_idx}' target='_self' class='trade-action-btn' title='삭제'>🗑️</a>"
                         f"</div>"
