@@ -126,7 +126,7 @@ def _us_echarts_chart(ticker: str, interval: str = "5", height: int = 600, perio
             last_date = df["datetime"].dt.date.max()
             df = df[df["datetime"].dt.date == last_date].reset_index(drop=True)
         else:
-            df = df.tail(500).reset_index(drop=True)
+            df = df.tail(3000).reset_index(drop=True)  # 10년치 일봉 최대 ~2500개 커버
 
         # 렌더링용 데이터 클렌징 (NaN -> None 변환으로 JSON 에러 방지)
         def _clean_val(x): return None if pd.isna(x) else x
@@ -259,7 +259,7 @@ def _kr_echarts_chart(stock_code: str, interval: str = "1", height: int = 600, p
             last_date = df["datetime"].dt.date.max()
             df = df[df["datetime"].dt.date == last_date].reset_index(drop=True)
         else:
-            df = df.tail(500).reset_index(drop=True)
+            df = df.tail(3000).reset_index(drop=True)  # 10년치 일봉 최대 ~2500개 커버
 
         # 렌더링용 데이터 클렌징 (NaN -> None 변환으로 JSON 에러 방지)
         def _clean_val(x): return None if pd.isna(x) else x
