@@ -442,6 +442,11 @@ def inject_custom_css():
             font-weight: 700 !important;
         }
         
+        /* ── 거래 내역 버튼 정렬 보정 (Nudge) ── */
+        button[key*="ai_trade_"], button[key*="del_trade_"] {
+            margin-top: 5px !important;
+        }
+
         /* ── 접기/펼치기(Expander) 레이아웃 보정 ── */
         .stExpander summary {
             font-size: 1.1rem !important;
@@ -6603,7 +6608,7 @@ def main():
 
                     _dc, _ai_c, _del_c = st.columns([10, 0.65, 0.65], vertical_alignment="center")
                     _dc.markdown(
-                        f"<div style='display:flex;align-items:center;padding:10px 12px;min-height:44px;"
+                        f"<div style='display:flex;align-items:center;padding:10px 12px;min-height:46px;"
                         f"background:{_row_bg};"
                         f"border-left:1px solid rgba(255,255,255,0.10);"
                         f"border-right:1px solid rgba(255,255,255,0.10);"
