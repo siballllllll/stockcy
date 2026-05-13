@@ -893,34 +893,45 @@ def _sc_goto_stock(ticker: str):
 
 
 def _render_stock_popover(stocks: list, color: str, label: str, key_prefix: str):
-    """종목 목록을 popover 버튼으로 렌더링 (최대 5개)."""
+    """종목 목록을 KR/US로 분리해 popover 버튼으로 렌더링 (각 최대 5개)."""
+    _icon = "🟢" if color == "up" else "🔴"
+    _dir  = "상승" if color == "up" else "하락"
+    _clr  = "#00c853" if color == "up" else "#ff4b4b"
+
+    _kr_stocks = [s for s in stocks if (lambda t: len(t)==6 and t.isdigit())(str(s.get("ticker","")))]
+    _us_stocks = [s for s in stocks if not (lambda t: len(t)==6 and t.isdigit())(str(s.get("ticker","")))]
+
     st.markdown(f"**{label}**")
-    for _i, _s in enumerate(stocks[:5]):
-        _tk  = str(_s.get("ticker", ""))
-        _nm  = str(_s.get("name", ""))
-        _rsn = str(_s.get("reason", ""))
-        _vn  = str(_s.get("valuation_note", ""))
-        _mkt = "KR" if (len(_tk) == 6 and _tk.isdigit()) else "US"
-        with st.popover(
-            f"{'🟢' if color == 'up' else '🔴'} {_nm} ({_tk})",
-            use_container_width=True,
-        ):
+
+    for _region, _group, _mkt in [("🇰🇷 국내", _kr_stocks, "KR"), ("🇺🇸 미국", _us_stocks, "US")]:
+        st.caption(_region)
+        if not _group:
             st.markdown(
-                f"<span style='font-size:1rem;font-weight:700;color:"
-                f"{'#00c853' if color=='up' else '#ff4b4b'}'>{_nm}</span>"
-                f"&nbsp;<code>{_tk}</code>",
+                "<span style='font-size:0.8rem;color:#888;'>해당 시나리오와 이슈에 해당하는 종목 없음</span>",
                 unsafe_allow_html=True,
             )
-            st.markdown(f"**{'상승' if color=='up' else '하락'} 이유:** {_rsn}")
-            if _vn:
-                st.info(f"📐 {_vn}")
-            st.markdown(
-                f"<a href='/?market={_mkt}&code={_tk}' target='_blank' "
-                f"style='display:block;text-align:center;padding:8px;border-radius:6px;"
-                f"background:#262730;color:#fafafa;text-decoration:none;font-size:0.9rem;"
-                f"border:1px solid #555;margin-top:6px;'>📊 종목 분석 보러가기</a>",
-                unsafe_allow_html=True,
-            )
+            continue
+        for _i, _s in enumerate(_group[:5]):
+            _tk  = str(_s.get("ticker", ""))
+            _nm  = str(_s.get("name", ""))
+            _rsn = str(_s.get("reason", ""))
+            _vn  = str(_s.get("valuation_note", ""))
+            with st.popover(f"{_icon} {_nm} ({_tk})", use_container_width=True):
+                st.markdown(
+                    f"<span style='font-size:1rem;font-weight:700;color:{_clr}'>{_nm}</span>"
+                    f"&nbsp;<code>{_tk}</code>",
+                    unsafe_allow_html=True,
+                )
+                st.markdown(f"**{_dir} 이유:** {_rsn}")
+                if _vn:
+                    st.info(f"📐 {_vn}")
+                st.markdown(
+                    f"<a href='/?market={_mkt}&code={_tk}' target='_blank' "
+                    f"style='display:block;text-align:center;padding:8px;border-radius:6px;"
+                    f"background:#262730;color:#fafafa;text-decoration:none;font-size:0.9rem;"
+                    f"border:1px solid #555;margin-top:6px;'>📊 종목 분석 보러가기</a>",
+                    unsafe_allow_html=True,
+                )
 
 
 @st.dialog("📈 이슈별 시장 시나리오", width="large")
