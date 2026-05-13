@@ -1884,6 +1884,26 @@ def main():
                                              use_container_width=True):
                                     st.session_state[f"pk_thm_run_{_pick.get('code','')}"] = True
                                     st.rerun()
+                            _pk_code = _pick.get("code", "")
+                            _pk_name = _pick.get("name", "")
+                            _pk_price = float(_pick.get("entry", _pick.get("current_price", 0)) or 0)
+                            _pk_urg   = _pick.get("urgency", "-")
+                            if st.button("🎒 포트폴리오에 담기", key=f"pk_port_{_pk_code}_{_sel_idx}",
+                                         use_container_width=True, type="primary"):
+                                if "portfolio" not in st.session_state:
+                                    st.session_state.portfolio = []
+                                if _pk_code and not any(i["ticker"] == _pk_code for i in st.session_state.portfolio):
+                                    st.session_state.portfolio.append({
+                                        "ticker": _pk_code, "name": _pk_name,
+                                        "buy_price": _pk_price, "quantity": 10,
+                                        "buy_date": (datetime.now() + timedelta(hours=9)).strftime("%Y-%m-%d %H:%M"),
+                                        "rating": f"타점:{_pk_urg}",
+                                    })
+                                    from db import save_portfolio_to_gsheet
+                                    save_portfolio_to_gsheet(st.session_state.portfolio)
+                                    st.success(f"{_pk_name} 포트폴리오에 추가!")
+                                else:
+                                    st.warning("이미 포트폴리오에 있습니다.")
 
                             _pk_thm_run = f"pk_thm_run_{_pick.get('code','')}"
                             _pk_thm_res = f"pk_thm_res_{_pick.get('code','')}"
@@ -4293,7 +4313,7 @@ def main():
                             )
                             st.markdown(_up_card_html, unsafe_allow_html=True)
 
-                            _up_btn_c1, _up_btn_c2 = st.columns(2)
+                            _up_btn_c1, _up_btn_c2, _up_btn_c3 = st.columns(3)
                             with _up_btn_c1:
                                 if st.button("상세 분석 →", key=f"us_pk_detail_{_up_ticker}_{_us_sel_idx}",
                                              use_container_width=True):
@@ -4311,6 +4331,29 @@ def main():
                                     st.session_state.us_sector_view          = "detail"
                                     st.session_state.us_mode                 = "🔥 오늘의 이슈 섹터"
                                     st.rerun()
+                            with _up_btn_c3:
+                                if st.button("🎒 포트폴리오 담기", key=f"us_pk_port_{_up_ticker}_{_us_sel_idx}",
+                                             use_container_width=True, type="primary"):
+                                    _up_entry_price = float(_up_entry or _up_cur or 0)
+                                    if _up_ticker and not any(i["ticker"] == _up_ticker for i in st.session_state.get("portfolio", [])):
+                                        if "portfolio" not in st.session_state:
+                                            st.session_state.portfolio = []
+                                        st.session_state.portfolio.append({
+                                            "ticker": _up_ticker,
+                                            "name": _up_name,
+                                            "buy_price": _up_entry_price,
+                                            "quantity": 1,
+                                            "buy_date": (datetime.now() + timedelta(hours=9)).strftime("%Y-%m-%d %H:%M"),
+                                            "rating": f"타점:{_up_urg}",
+                                        })
+                                        try:
+                                            from db import save_portfolio_to_gsheet
+                                            save_portfolio_to_gsheet(st.session_state.portfolio)
+                                        except Exception:
+                                            pass
+                                        st.success(f"{_up_name} 포트폴리오에 추가!")
+                                    else:
+                                        st.warning("이미 포트폴리오에 있습니다.")
 
             # ══════════════════════════════════════════════════════════════
             # 📊 종목검색 / 🔥 섹터분석 (상단 네비로 전환)

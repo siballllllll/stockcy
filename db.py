@@ -55,7 +55,7 @@ def save_portfolio_to_gsheet(portfolio_list, current_prices_df=None):
         return False, msg
 
     try:
-        headers = ["저장시간", "티커", "종목명", "수량", "매수가($)", "현재가($)", "수익금($)", "수익률(%)"]
+        headers = ["저장시간", "티커", "종목명", "수량", "매수가($)", "현재가($)", "수익금($)", "수익률(%)", "등급"]
         ws = _get_or_create_worksheet(sh, "현재포트폴리오", headers)
         ws.clear()
         ws.append_row(headers)
@@ -66,6 +66,7 @@ def save_portfolio_to_gsheet(portfolio_list, current_prices_df=None):
             bp = item["buy_price"]
             qty = item["quantity"]
             name = item.get("name", ticker)
+            rating = item.get("rating", "-")
 
             cp = bp
             profit, profit_pct = 0.0, 0.0
@@ -78,7 +79,7 @@ def save_portfolio_to_gsheet(portfolio_list, current_prices_df=None):
 
             ws.append_row([now, ticker, name, qty,
                            round(bp, 2), round(cp, 2),
-                           round(profit, 2), round(profit_pct, 2)])
+                           round(profit, 2), round(profit_pct, 2), rating])
 
         return True, f"'{sh.title}' > '현재포트폴리오' 탭에 {len(portfolio_list)}개 종목 저장 완료!"
     except Exception as e:
@@ -99,7 +100,8 @@ def load_portfolio_from_gsheet():
                 "name": str(r.get("종목명", "")),
                 "buy_price": float(r.get("매수가($)", 0) or 0),
                 "quantity": int(r.get("수량", 0) or 0),
-                "buy_date": str(r.get("저장시간", ""))
+                "buy_date": str(r.get("저장시간", "")),
+                "rating": str(r.get("등급", "-")),
             })
         return portfolio_list
     except Exception:
@@ -111,7 +113,7 @@ def save_ai_portfolio_to_gsheet(portfolio_list):
     if not sh:
         return False, msg
     try:
-        headers = ["저장시간", "티커", "종목명", "수량", "매수가($)"]
+        headers = ["저장시간", "티커", "종목명", "수량", "매수가($)", "등급"]
         ws = _get_or_create_worksheet(sh, "AI추천포트폴리오", headers)
         ws.clear()
         ws.append_row(headers)
@@ -123,6 +125,7 @@ def save_ai_portfolio_to_gsheet(portfolio_list):
                 item.get("name", item["ticker"]),
                 item.get("quantity", 0),
                 round(float(item.get("buy_price", 0)), 2),
+                item.get("rating", "-"),
             ])
         return True, f"AI 추천 포트폴리오 {len(portfolio_list)}개 저장 완료!"
     except Exception as e:
@@ -144,6 +147,7 @@ def load_ai_portfolio_from_gsheet():
                 "buy_price": float(r.get("매수가($)", 0) or 0),
                 "quantity":  int(r.get("수량", 0) or 0),
                 "buy_date":  str(r.get("저장시간", "")),
+                "rating":    str(r.get("등급", "-")),
             }
             for r in records if r.get("티커")
         ]
