@@ -68,9 +68,10 @@ _QUOTA_EXHAUSTED = False
 _API_TIMEOUT_SEC = 90
 
 
-def _call_gemini(prompt, use_search=False, temperature=0.7, response_mime_type=None):
-    """Gemini API 호출 공통 헬퍼 (모델 폴백 + 재시도 + 50초 타임아웃)."""
+def _call_gemini(prompt, use_search=False, temperature=0.7, response_mime_type=None, timeout_sec=None):
+    """Gemini API 호출 공통 헬퍼 (모델 폴백 + 재시도 + 타임아웃)."""
     import concurrent.futures
+    _timeout = timeout_sec if timeout_sec else _API_TIMEOUT_SEC
     global _QUOTA_EXHAUSTED
 
     if _QUOTA_EXHAUSTED:
@@ -97,9 +98,9 @@ def _call_gemini(prompt, use_search=False, temperature=0.7, response_mime_type=N
                 with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
                     future = ex.submit(_do_call, model, config)
                     try:
-                        response = future.result(timeout=_API_TIMEOUT_SEC)
+                        response = future.result(timeout=_timeout)
                     except concurrent.futures.TimeoutError:
-                        raise Exception(f"API_TIMEOUT: AI 응답 대기 시간({_API_TIMEOUT_SEC}초)을 초과했습니다. 잠시 후 다시 시도해주세요.")
+                        raise Exception(f"API_TIMEOUT: AI 응답 대기 시간({_timeout}초)을 초과했습니다. 잠시 후 다시 시도해주세요.")
 
                 _QUOTA_EXHAUSTED = False
                 return response
@@ -136,7 +137,7 @@ def _call_gemini(prompt, use_search=False, temperature=0.7, response_mime_type=N
                     try:
                         with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
                             future = ex.submit(_do_call, model, config_no_search)
-                            response = future.result(timeout=_API_TIMEOUT_SEC)
+                            response = future.result(timeout=_timeout)
                         return response
                     except Exception as fallback_err:
                         print(f"Fallback without search also failed: {fallback_err}")
@@ -184,38 +185,37 @@ def generate_daily_briefing():
 
 
 def generate_market_scenarios() -> dict:
-    """오늘의 주요 이슈별 시나리오 분석 — 이슈마다 2~3개 시나리오, 밸류에이션 포함."""
+    """오늘의 주요 이슈별 시나리오 분석 — 이슈 3개 × 시나리오 2개, 밸류에이션 포함."""
     prompt = (
         "당신은 월스트리트 20년 경력의 매크로 전략가이자 퀀트 트레이더입니다.\n"
-        "지금 즉시 구글 검색으로 오늘 글로벌 증시에 영향을 줄 수 있는 주요 이슈 4~5개를 파악하세요.\n"
-        "(예: 미·중 무역협상, 반도체 공급망, 우크라이나 전쟁, SpaceX/우주, 연준 금리, 유가 등)\n\n"
-        "각 이슈별로 전개될 수 있는 2~3가지 시나리오를 작성하세요.\n"
-        "시나리오에는 반드시 PER(밸류에이션) 관점의 경제 분석을 포함하세요.\n"
-        "(예: 'PER 35x 이상 고평가 성장주는 금리 상승 시나리오에서 밸류에이션 압박')\n\n"
+        "구글 검색으로 오늘 증시에 가장 큰 영향을 줄 수 있는 주요 이슈 3개를 파악하세요.\n"
+        "(예: 미·중 무역협상, 반도체, 전쟁, 연준 금리, 유가, SpaceX 등)\n\n"
+        "각 이슈별로 2가지 시나리오(A: 낙관, B: 비관)를 작성하세요.\n"
+        "PER/밸류에이션 관점을 반드시 포함하세요.\n\n"
         "반드시 아래 JSON 형식으로만 응답하세요 (마크다운 백틱, 주석 절대 금지):\n\n"
         "{\n"
         '  "issues": [\n'
         "    {\n"
         '      "issue_no": 1,\n'
-        '      "title": "이슈 제목 (예: 미·중 무역 협상)",\n'
-        '      "summary": "이슈 현황 요약 (2문장)",\n'
+        '      "title": "이슈 제목",\n'
+        '      "summary": "현황 요약 (1~2문장)",\n'
         '      "urgency": "긴급/보통/장기",\n'
         '      "scenarios": [\n'
         "        {\n"
         '          "label": "A",\n'
-        '          "title": "시나리오 제목 (예: 협상 타결)",\n'
+        '          "title": "시나리오 제목",\n'
         '          "probability": "높음/보통/낮음",\n'
-        '          "probability_pct": 확률(정수 0~100),\n'
+        '          "probability_pct": 확률(정수),\n'
         '          "market_direction": "강세/약세/혼조",\n'
-        '          "trigger": "현실화 조건/신호 (1문장)",\n'
-        '          "economic_analysis": "경제적 영향 분석. PER/밸류에이션 관점 포함 (3~4문장)",\n'
+        '          "trigger": "현실화 조건 (1문장)",\n'
+        '          "economic_analysis": "경제적 영향. PER/밸류에이션 관점 포함 (2~3문장)",\n'
         '          "rising_stocks": [\n'
-        '            {"name": "종목명", "ticker": "티커", "reason": "상승 이유", "valuation_note": "PER·밸류에이션 코멘트"}\n'
+        '            {"name": "종목명", "ticker": "티커", "reason": "이유", "valuation_note": "PER 코멘트"}\n'
         "          ],\n"
         '          "falling_stocks": [\n'
-        '            {"name": "종목명", "ticker": "티커", "reason": "하락 이유", "valuation_note": "PER·밸류에이션 코멘트"}\n'
+        '            {"name": "종목명", "ticker": "티커", "reason": "이유", "valuation_note": "PER 코멘트"}\n'
         "          ],\n"
-        '          "strategy": "단타 전략 (1~2문장)"\n'
+        '          "strategy": "단타 전략 (1문장)"\n'
         "        }\n"
         "      ]\n"
         "    }\n"
@@ -223,7 +223,7 @@ def generate_market_scenarios() -> dict:
         "}"
     )
     try:
-        response = _call_gemini(prompt, use_search=True, temperature=0.6)
+        response = _call_gemini(prompt, use_search=True, temperature=0.6, timeout_sec=120)
         text = re.sub(r'```(?:json)?', '', response.text).strip()
         start = text.find('{')
         if start != -1:
