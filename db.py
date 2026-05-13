@@ -179,6 +179,27 @@ def save_trade_record(trade):
     except Exception as e:
         return False, f"기록 오류: {e}"
 
+def delete_trade_from_gsheet(ticker: str, sell_date: str):
+    """'거래내역' 탭에서 ticker + sell_date가 일치하는 행을 삭제합니다."""
+    sh, msg = _get_spreadsheet()
+    if not sh:
+        return False, msg
+    try:
+        ws = sh.worksheet("거래내역")
+        rows = ws.get_all_values()
+        # 헤더 제외, 역순으로 찾아서 삭제 (인덱스 밀림 방지)
+        for i in range(len(rows) - 1, 0, -1):
+            row = rows[i]
+            if len(row) >= 2 and str(row[0]).strip() == str(sell_date).strip() and str(row[1]).strip() == str(ticker).strip():
+                ws.delete_rows(i + 1)  # gspread는 1-indexed
+                return True, "구글 시트에서 삭제 완료"
+        return False, "해당 거래를 구글 시트에서 찾지 못했습니다."
+    except gspread.WorksheetNotFound:
+        return False, "거래내역 탭이 없습니다."
+    except Exception as e:
+        return False, f"삭제 오류: {e}"
+
+
 def load_trade_history_from_gsheet():
     """'거래내역' 탭에서 모든 거래 기록을 DataFrame으로 불러옵니다."""
     sh, msg = _get_spreadsheet()

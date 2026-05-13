@@ -6545,7 +6545,14 @@ def main():
                 if "_del_trade_idx" in st.session_state:
                     _del_i = st.session_state.pop("_del_trade_idx")
                     if 0 <= _del_i < len(st.session_state.trade_history):
+                        _del_t = st.session_state.trade_history[_del_i]
                         st.session_state.trade_history.pop(_del_i)
+                        # 구글 시트에서도 삭제
+                        try:
+                            from db import delete_trade_from_gsheet as _dtg
+                            _dtg(_del_t.get("ticker", ""), _del_t.get("sell_date", ""))
+                        except Exception:
+                            pass
                     history = st.session_state.trade_history
                     st.rerun()
 
@@ -6582,6 +6589,21 @@ def main():
 
                 st.divider()
                 if st.button("🗑️ 거래 내역 전체 초기화", type="secondary"):
+                    try:
+                        from db import _get_spreadsheet
+                        _sh, _ = _get_spreadsheet()
+                        if _sh:
+                            import gspread as _gs
+                            try:
+                                _ws = _sh.worksheet("거래내역")
+                                _hdr = _ws.row_values(1)
+                                _ws.clear()
+                                if _hdr:
+                                    _ws.append_row(_hdr)
+                            except _gs.WorksheetNotFound:
+                                pass
+                    except Exception:
+                        pass
                     st.session_state.trade_history = []
                     st.rerun()
 
