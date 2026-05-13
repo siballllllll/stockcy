@@ -963,7 +963,7 @@ def show_trade_analysis_modal():
                 from ai_engine import analyze_trade_history as _ata
                 _res = _ata([_td])
             st.session_state[_cache_key] = _res
-            st.session_state[f"_modal_trade_{_mticker}_{_mdate}"] = _td
+        st.session_state[f"_modal_trade_{_mticker}_{_mdate}"] = _td
 
     _tab_ana, _tab_list = st.tabs(["📊 분석", "📋 목록"])
 
