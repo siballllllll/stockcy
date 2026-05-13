@@ -1039,7 +1039,7 @@ def show_favorites_center():
                             st.error(res.get("analysis", "분석 오류"))
                         else:
                             cur_sym = "₩" if mkt == "국내" else "$"
-                            # ── 등급 배지 ──────────────────────────────────
+                            # ── 등급 배지 (항상 표시) ──────────────────────
                             _rating = res.get("rating", "-")
                             _lt_rating = res.get("long_term_rating", "-")
                             _badge_c = {"매우 강력 추천":"#00c853","추천":"#69f0ae","중간추천":"#f5c518","비추천":"#ff7043","매우 비추천":"#b71c1c"}.get(_rating, "#888")
@@ -1050,64 +1050,65 @@ def show_favorites_center():
                                 f"</div>",
                                 unsafe_allow_html=True
                             )
-                            st.markdown("---")
-                            # ── 4 단계 기간별 탭 ─────────────────────────
-                            _t1, _t2, _t3, _t4 = st.tabs(["📊 단기 전망", "📅 매수 전략", "📆 중기 전망", "🗓 장기 분석"])
+                            # ── 상세 분석 (접기/펼치기) ───────────────────
+                            _exp_key = f"fav_exp_{ticker}"
+                            with st.expander("📋 상세 분석 펼치기", expanded=st.session_state.get(_exp_key, True)):
+                                _t1, _t2, _t3, _t4 = st.tabs(["📊 단기 전망", "📅 매수 전략", "📆 중기 전망", "🗓 장기 분석"])
 
-                            with _t1:
-                                st.caption("근 시일(1~4주) 주가 전망 및 주요 이슈")
-                                _ki = res.get("key_issues", "")
-                                if _ki and _ki != "-":
-                                    st.markdown(_ki)
-                                _c1, _c2 = st.columns(2)
-                                _dn_pct = res.get("short_term_view_pct", "-")
-                                _dn_price = res.get("short_term_view_price", "-")
-                                _c1.metric("📊 단기 전망", _dn_pct)
-                                _c2.metric("🎯 예상 가격대", _dn_price)
-                                _dn_reason = res.get("short_term_view_reason", "")
-                                if _dn_reason and _dn_reason != "-":
-                                    st.info(_dn_reason)
+                                with _t1:
+                                    st.caption("근 시일(1~4주) 주가 전망 및 주요 이슈")
+                                    _ki = res.get("key_issues", "")
+                                    if _ki and _ki != "-":
+                                        st.markdown(_ki)
+                                    _c1, _c2 = st.columns(2)
+                                    _dn_pct = res.get("short_term_view_pct", "-")
+                                    _dn_price = res.get("short_term_view_price", "-")
+                                    _c1.metric("📊 단기 전망", _dn_pct)
+                                    _c2.metric("🎯 예상 가격대", _dn_price)
+                                    _dn_reason = res.get("short_term_view_reason", "")
+                                    if _dn_reason and _dn_reason != "-":
+                                        st.info(_dn_reason)
 
-                            with _t2:
-                                st.caption("매수 시 추천 타점 및 단기 전략")
-                                _bt = res.get("buy_target", "-")
-                                _st = res.get("sell_target", "-")
-                                _sl = res.get("stop_loss", "-")
-                                _c1, _c2, _c3 = st.columns(3)
-                                _c1.metric("🟢 매수 구간", _bt)
-                                _c2.metric("🎯 목표가", f"{cur_sym}{_st}" if _st != "-" and not str(_st).startswith(cur_sym) else _st)
-                                _c3.metric("🛑 손절가", f"{cur_sym}{_sl}" if _sl != "-" and not str(_sl).startswith(cur_sym) else _sl)
-                                if res.get("세력분석"):
-                                    st.info(res["세력분석"])
-                                if res.get("analysis"):
-                                    with st.expander("📊 상세 전략 보기"):
-                                        st.markdown(res["analysis"])
+                                with _t2:
+                                    st.caption("매수 시 추천 타점 및 단기 전략")
+                                    _bt = res.get("buy_target", "-")
+                                    _st = res.get("sell_target", "-")
+                                    _sl = res.get("stop_loss", "-")
+                                    _c1, _c2, _c3 = st.columns(3)
+                                    _c1.metric("🟢 매수 구간", _bt)
+                                    _c2.metric("🎯 목표가", f"{cur_sym}{_st}" if _st != "-" and not str(_st).startswith(cur_sym) else _st)
+                                    _c3.metric("🛑 손절가", f"{cur_sym}{_sl}" if _sl != "-" and not str(_sl).startswith(cur_sym) else _sl)
+                                    if res.get("세력분석"):
+                                        st.info(res["세력분석"])
+                                    if res.get("analysis"):
+                                        with st.expander("📊 상세 전략 보기"):
+                                            st.markdown(res["analysis"])
 
-                            with _t3:
-                                st.caption("중기(1~3개월) 주가 전망")
-                                _up_pct = res.get("mid_term_view_pct", "-")
-                                _up_price = res.get("mid_term_view_price", "-")
-                                _c1, _c2 = st.columns(2)
-                                _c1.metric("📆 중기 전망", _up_pct)
-                                _c2.metric("🎯 중기 목표가", _up_price)
-                                _up_cond = res.get("mid_term_view_condition", "")
-                                if _up_cond and _up_cond != "-":
-                                    st.caption("상승 전제 조건")
-                                    st.warning(_up_cond)
-                                if res.get("long_term_analysis"):
-                                    with st.expander("📊 중장기 분석 보기"):
-                                        st.markdown(res["long_term_analysis"])
+                                with _t3:
+                                    st.caption("중기(1~3개월) 주가 전망")
+                                    _up_pct = res.get("mid_term_view_pct", "-")
+                                    _up_price = res.get("mid_term_view_price", "-")
+                                    _c1, _c2 = st.columns(2)
+                                    _c1.metric("📆 중기 전망", _up_pct)
+                                    _c2.metric("🎯 중기 목표가", _up_price)
+                                    _up_cond = res.get("mid_term_view_condition", "")
+                                    if _up_cond and _up_cond != "-":
+                                        st.caption("전망 핵심 변수")
+                                        st.warning(_up_cond)
+                                    if res.get("long_term_analysis"):
+                                        with st.expander("📊 중장기 분석 보기"):
+                                            st.markdown(res["long_term_analysis"])
 
-                            with _t4:
-                                st.caption(f"중장기 등급: {res.get('long_term_rating', '-')}  |  {res.get('long_term_period', '3~6개월')}")
-                                _lt_target = res.get("long_term_target", "-")
-                                _lt_pct = res.get("long_term_target_pct", "-")
-                                _c1, _c2 = st.columns(2)
-                                _c1.metric("🎯 장기 목표가", f"{cur_sym}{_lt_target}" if _lt_target != "-" and not str(_lt_target).startswith(cur_sym) else _lt_target)
-                                _c2.metric("기대 수익/손실률", _lt_pct)
-                                if res.get("historical_pattern_analysis"):
-                                    with st.expander("📜 역사적 패턴 분석"):
-                                        st.markdown(res["historical_pattern_analysis"])
+                                with _t4:
+                                    st.caption(f"중장기 등급: {res.get('long_term_rating', '-')}  |  {res.get('long_term_period', '3~6개월')}")
+                                    _lt_target = res.get("long_term_target", "-")
+                                    _lt_pct = res.get("long_term_target_pct", "-")
+                                    _c1, _c2 = st.columns(2)
+                                    _c1.metric("🎯 장기 목표가", f"{cur_sym}{_lt_target}" if _lt_target != "-" and not str(_lt_target).startswith(cur_sym) else _lt_target)
+                                    _c2.metric("기대 수익/손실률", _lt_pct)
+                                    if res.get("historical_pattern_analysis"):
+                                        with st.expander("📜 역사적 패턴 분석"):
+                                            st.markdown(res["historical_pattern_analysis"])
 
                     if st.button('🗑️ 삭제', key=f'fav_del_{ticker}', use_container_width=True):
                         ok, dmsg = remove_favorite(str(ticker))
