@@ -136,15 +136,18 @@ def _us_echarts_chart(ticker: str, interval: str = "5", height: int = 600, perio
         for i, row in df.iterrows():
             volumes.append([i, _clean_val(row["volume"]), 1 if row["close"] >= row["open"] else -1])
 
-        # 분봉: 30분 단위로 X축 라벨 표시
+        # 분봉: 최근 200~300개 봉을 기본으로 보여줌
         _min_iv = int(interval) if str(interval).isdigit() else 1
         if _is_minute:
-            _label_interval = max(1, 30 // _min_iv) - 1
+            # 15분 단위로 라벨 (1분봉=14개 간격, 5분봉=2개 간격)
+            _label_interval = max(1, 15 // _min_iv) - 1
             _total = len(category_data)
-            _zoom_start = max(0, int((1 - 120 / max(_total, 1)) * 100)) if _total > 120 // _min_iv else 0
+            # 최근 250개 봉 또는 최소 30% 보장
+            _zoom_start = max(0, int((1 - 250 / max(_total, 1)) * 100))
+            if _zoom_start > 70: _zoom_start = 70 
         else:
             _label_interval = "auto"
-            _zoom_start = 80
+            _zoom_start = 70
 
         options = {
             "backgroundColor": "rgba(0,0,0,0)",
@@ -170,7 +173,7 @@ def _us_echarts_chart(ticker: str, interval: str = "5", height: int = 600, perio
                     "axisLine": {"onZero": False, "lineStyle": {"color": "#444"}},
                     "splitLine": {"show": False}, "min": "dataMin", "max": "dataMax",
                     "axisPointer": {"z": 100},
-                    "axisLabel": {"color": "#888", "fontSize": 13, "interval": _label_interval}
+                    "axisLabel": {"color": "#888", "fontSize": 14, "interval": _label_interval}
                 },
                 {
                     "type": "category", "gridIndex": 1, "data": category_data, "boundaryGap": False,
@@ -244,12 +247,9 @@ def _kr_echarts_chart(stock_code: str, interval: str = "1", height: int = 600, p
             st.warning("차트 데이터를 불러올 수 없습니다.")
             return
 
-        if interval != "D":
-            if str(interval) in ["1", "5"]:
-                last_date = df["datetime"].dt.date.max()
-                df = df[df["datetime"].dt.date == last_date].reset_index(drop=True)
-            else:
-                df = df.tail(300).reset_index(drop=True)
+        # 분봉 데이터 필터링 제거 (과거 데이터 포함하여 흐름 파악)
+        if interval not in ["D", "W", "M"]:
+            df = df.tail(1000).reset_index(drop=True)
 
         # 렌더링용 데이터 클렌징 (NaN -> None 변환으로 JSON 에러 방지)
         def _clean_val(x): return None if pd.isna(x) else x
@@ -267,15 +267,17 @@ def _kr_echarts_chart(stock_code: str, interval: str = "1", height: int = 600, p
         for i, row in df.iterrows():
             volumes.append([i, _clean_val(row["volume"]), 1 if row["close"] >= row["open"] else -1])
 
-        # 분봉: 30분 단위로 X축 라벨 표시 (1분봉=29개 간격, 5분봉=5개 간격)
+        # 분봉: 최근 200~300개 봉을 기본으로 보여줌
         _min_iv = int(interval) if str(interval).isdigit() else 1
         if _is_minute:
-            _label_interval = max(1, 30 // _min_iv) - 1
+            # 15분 단위 라벨
+            _label_interval = max(1, 15 // _min_iv) - 1
             _total = len(category_data)
-            _zoom_start = max(0, int((1 - 120 / max(_total, 1)) * 100)) if _total > 120 // _min_iv else 0
+            _zoom_start = max(0, int((1 - 250 / max(_total, 1)) * 100))
+            if _zoom_start > 70: _zoom_start = 70
         else:
             _label_interval = "auto"
-            _zoom_start = 50
+            _zoom_start = 70
 
         options = {
             "backgroundColor": "rgba(0,0,0,0)",
@@ -301,7 +303,7 @@ def _kr_echarts_chart(stock_code: str, interval: str = "1", height: int = 600, p
                     "axisLine": {"onZero": False, "lineStyle": {"color": "#444"}},
                     "splitLine": {"show": False}, "min": "dataMin", "max": "dataMax",
                     "axisPointer": {"z": 100},
-                    "axisLabel": {"color": "#888", "fontSize": 13, "interval": _label_interval}
+                    "axisLabel": {"color": "#888", "fontSize": 14, "interval": _label_interval}
                 },
                 {
                     "type": "category", "gridIndex": 1, "data": category_data, "boundaryGap": False,
