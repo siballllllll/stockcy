@@ -120,18 +120,15 @@ def _us_echarts_chart(ticker: str, interval: str = "5", height: int = 600, perio
             st.warning("차트 데이터를 불러올 수 없습니다. (데이터 소스: yfinance)")
             return
 
-        # 분봉: 당일 데이터만 필터링 (HH:MM 라벨 중복 방지)
+        # 분봉: 다일(多日) 데이터 전부 유지 — 줌아웃으로 이전 거래일 조회 가능
         _is_minute = interval not in ["D", "1wk", "1mo", "W", "M"]
-        if _is_minute:
-            last_date = df["datetime"].dt.date.max()
-            df = df[df["datetime"].dt.date == last_date].reset_index(drop=True)
-        else:
-            df = df.tail(3000).reset_index(drop=True)  # 10년치 일봉 최대 ~2500개 커버
+        if not _is_minute:
+            df = df.tail(3000).reset_index(drop=True)
 
         # 렌더링용 데이터 클렌징 (NaN -> None 변환으로 JSON 에러 방지)
         def _clean_val(x): return None if pd.isna(x) else x
 
-        category_data = df["datetime"].dt.strftime("%H:%M" if _is_minute else "%Y-%m-%d").tolist()
+        category_data = df["datetime"].dt.strftime("%m/%d %H:%M" if _is_minute else "%Y-%m-%d").tolist()
         values = [[_clean_val(v) for v in row] for row in df[["open", "close", "low", "high"]].values.tolist()]
 
         ma5 = [_clean_val(x) for x in df["close"].rolling(window=5).mean()]
@@ -143,15 +140,16 @@ def _us_echarts_chart(ticker: str, interval: str = "5", height: int = 600, perio
         for i, row in df.iterrows():
             volumes.append([i, _clean_val(row["volume"]), 1 if row["close"] >= row["open"] else -1])
 
-        # 분봉: 09:00~장마감 전체 표시 (줌 슬라이더로 구간 확대)
-        # 일/주/월봉: 10년 데이터 로드, 기본 1년치 표시, 줌아웃으로 상장이후 전체 조회
+        # 분봉: 기본=당일(1거래일), 줌아웃으로 이전 거래일까지 조회
+        # 일/주/월봉: 기본=1년치, 줌아웃으로 상장이후 전체 조회
         _min_iv = int(interval) if str(interval).isdigit() else 1
         _total = len(category_data)
         if _is_minute:
-            _label_interval = max(0, (30 // _min_iv) - 1)
-            _zoom_start = 0  # 장 시작부터 전체 표시
+            _view = max(7, 390 // _min_iv)   # 1거래일 분봉 수
+            _label_interval = max(0, (120 // _min_iv) - 1)  # 2시간 간격 레이블
+            _zoom_start = max(0, int((1 - _view / max(_total, 1)) * 100)) if _total > _view else 0
         else:
-            _view = {"D": 250, "W": 52, "M": 12}.get(_unit, 250)  # D=1년(250일), W=1년(52주), M=1년(12개월)
+            _view = {"D": 250, "W": 52, "M": 12}.get(_unit, 250)
             _label_interval = "auto"
             _zoom_start = max(0, int((1 - _view / max(_total, 1)) * 100)) if _total > _view else 0
 
@@ -253,18 +251,16 @@ def _kr_echarts_chart(stock_code: str, interval: str = "1", height: int = 600, p
             st.warning("차트 데이터를 불러올 수 없습니다.")
             return
 
-        # 분봉: 당일 데이터만 필터링 (HH:MM 라벨 중복 방지)
+        # 분봉: 다일(多日) 데이터 전부 유지 — 줌아웃으로 이전 거래일 조회 가능
         _is_minute = interval not in ["D", "W", "M"]
-        if _is_minute:
-            last_date = df["datetime"].dt.date.max()
-            df = df[df["datetime"].dt.date == last_date].reset_index(drop=True)
-        else:
+        if not _is_minute:
             df = df.tail(3000).reset_index(drop=True)  # 10년치 일봉 최대 ~2500개 커버
 
         # 렌더링용 데이터 클렌징 (NaN -> None 변환으로 JSON 에러 방지)
         def _clean_val(x): return None if pd.isna(x) else x
 
-        category_data = df["datetime"].dt.strftime("%H:%M" if _is_minute else "%Y-%m-%d").tolist()
+        # 분봉: 날짜+시간 레이블(다일 데이터에서 중복 방지), 일봉: 날짜만
+        category_data = df["datetime"].dt.strftime("%m/%d %H:%M" if _is_minute else "%Y-%m-%d").tolist()
         values = [[_clean_val(v) for v in row] for row in df[["open", "close", "low", "high"]].values.tolist()]
 
         ma5 = [_clean_val(x) for x in df["close"].rolling(window=5).mean()]
@@ -276,15 +272,16 @@ def _kr_echarts_chart(stock_code: str, interval: str = "1", height: int = 600, p
         for i, row in df.iterrows():
             volumes.append([i, _clean_val(row["volume"]), 1 if row["close"] >= row["open"] else -1])
 
-        # 분봉: 09:00~15:30 전체 표시 (줌 슬라이더로 구간 확대)
-        # 일/주/월봉: 10년 데이터 로드, 기본 1년치 표시, 줌아웃으로 상장이후 전체 조회
+        # 분봉: 기본=당일(1거래일), 줌아웃으로 이전 거래일까지 조회
+        # 일/주/월봉: 기본=1년치, 줌아웃으로 상장이후 전체 조회
         _min_iv = int(interval) if str(interval).isdigit() else 1
         _total = len(category_data)
         if _is_minute:
-            _label_interval = max(0, (30 // _min_iv) - 1)
-            _zoom_start = 0  # 장 시작(09:00)부터 전체 표시
+            _view = max(7, 390 // _min_iv)   # 1거래일 분봉 수 (1분=390, 5분=78, 60분=7)
+            _label_interval = max(0, (120 // _min_iv) - 1)  # 2시간 간격 레이블
+            _zoom_start = max(0, int((1 - _view / max(_total, 1)) * 100)) if _total > _view else 0
         else:
-            _view = {"D": 250, "W": 52, "M": 12}.get(interval, 250)  # D=1년(250일), W=1년(52주), M=1년(12개월)
+            _view = {"D": 250, "W": 52, "M": 12}.get(interval, 250)
             _label_interval = "auto"
             _zoom_start = max(0, int((1 - _view / max(_total, 1)) * 100)) if _total > _view else 0
 

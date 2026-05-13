@@ -486,26 +486,16 @@ def _kis_daily_chart_raw(stock_code: str, start_yyyymmdd: str, end_yyyymmdd: str
 
 @st.cache_data(ttl=60)
 def get_kr_minute_chart(stock_code: str, interval: int = 5):
-    """국내 주식 분봉 OHLCV (KIS API → yfinance 폴백)"""
+    """국내 주식 분봉 OHLCV — KIS(오늘) + yfinance(이전 날짜) 합산, 줌아웃 지원"""
     import datetime as _dtm
-
-    # ── 1차: KIS API (당일 원시 데이터 → interval분봉으로 리샘플) ────────────
-    try:
-        df_kis = _kis_minute_chart_raw(stock_code)
-        if not df_kis.empty:
-            # interval에 관계없이 항상 리샘플 — 동일 HH:MM 중복 방지
-            df_kis = df_kis.set_index("datetime").resample(f"{interval}min").agg(
-                {"open": "first", "high": "max", "low": "min", "close": "last", "volume": "sum"}
-            ).dropna().reset_index()
-            return df_kis
-    except Exception:
-        pass
-
-    # ── 2차: yfinance 폴백 ──────────────────────────────────────────────────
     import yfinance as yf
     from datetime import datetime as _dt
     import pytz as _pytz
 
+    _now_kr = _dt.now(_pytz.timezone("Asia/Seoul")).replace(tzinfo=None)
+    _today = _now_kr.date()
+
+    # ── yfinance 기간 설정 ────────────────────────────────────────────────────
     if interval <= 1:
         yf_interval, period = "1m",  "5d"
     elif interval <= 5:
@@ -515,7 +505,8 @@ def get_kr_minute_chart(stock_code: str, interval: int = 5):
     else:
         yf_interval, period = "30m", "60d"
 
-    df = pd.DataFrame()
+    # ── 1차: yfinance 과거 데이터 (오늘 이전 날짜) ──────────────────────────
+    df_hist = pd.DataFrame()
     for suffix in [".KS", ".KQ"]:
         try:
             raw = yf.Ticker(f"{stock_code}{suffix}").history(
@@ -536,27 +527,47 @@ def get_kr_minute_chart(stock_code: str, interval: int = 5):
             needed = ["datetime", "open", "high", "low", "close", "volume"]
             if not all(c in tmp.columns for c in needed):
                 continue
-            df = tmp[needed].copy()
+            df_hist = tmp[needed].copy()
             break
         except Exception:
             continue
 
-    if df.empty:
+    if not df_hist.empty:
+        if yf_interval != f"{interval}m":
+            df_hist = df_hist.set_index("datetime").resample(f"{interval}min").agg(
+                {"open": "first", "high": "max", "low": "min", "close": "last", "volume": "sum"}
+            ).dropna().reset_index()
+        df_hist = df_hist[
+            (df_hist["datetime"].dt.time >= _dtm.time(9, 0)) &
+            (df_hist["datetime"].dt.time <= _dtm.time(15, 30)) &
+            (df_hist["datetime"].dt.date < _today)   # 오늘 이전 날짜만
+        ].reset_index(drop=True)
+
+    # ── 2차: KIS API 오늘 데이터 ─────────────────────────────────────────────
+    df_today = pd.DataFrame()
+    try:
+        df_kis = _kis_minute_chart_raw(stock_code)
+        if not df_kis.empty:
+            df_today = df_kis.set_index("datetime").resample(f"{interval}min").agg(
+                {"open": "first", "high": "max", "low": "min", "close": "last", "volume": "sum"}
+            ).dropna().reset_index()
+    except Exception:
+        pass
+
+    # KIS 실패 시 yfinance 오늘 데이터 사용
+    if df_today.empty and not df_hist.empty:
+        df_today_yf = df_hist[df_hist["datetime"].dt.date == _today].copy()
+        if not df_today_yf.empty:
+            df_today = df_today_yf
+            df_hist = df_hist[df_hist["datetime"].dt.date < _today].reset_index(drop=True)
+
+    # ── 합산 ─────────────────────────────────────────────────────────────────
+    frames = [f for f in [df_hist, df_today] if not f.empty]
+    if not frames:
         return pd.DataFrame()
 
-    if yf_interval != f"{interval}m":
-        df = df.set_index("datetime")
-        df = df.resample(f"{interval}min").agg(
-            {"open": "first", "high": "max", "low": "min", "close": "last", "volume": "sum"}
-        ).dropna().reset_index()
-
-    _now_kr = _dt.now(_pytz.timezone("Asia/Seoul")).replace(tzinfo=None)
-    df = df[
-        (df["datetime"].dt.time >= _dtm.time(9, 0)) &
-        (df["datetime"].dt.time <= _dtm.time(15, 30)) &
-        (df["datetime"] <= _now_kr)
-    ].reset_index(drop=True)
-    return df
+    df = pd.concat(frames).drop_duplicates("datetime").sort_values("datetime").reset_index(drop=True)
+    return df[df["datetime"] <= _now_kr].reset_index(drop=True)
 
 
 @st.cache_data(ttl=90, show_spinner=False)
