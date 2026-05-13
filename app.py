@@ -983,6 +983,7 @@ def show_favorites_center():
                                     "ticker": ticker, "name": name,
                                     "buy_price": float(price), "quantity": 10,
                                     "buy_date": (datetime.now() + timedelta(hours=9)).strftime("%Y-%m-%d %H:%M"),
+                                    "rating": "-",
                                 })
                                 from db import save_portfolio_to_gsheet
                                 save_portfolio_to_gsheet(st.session_state.portfolio)
@@ -2321,6 +2322,7 @@ def main():
                                                     "ticker": selected_code_kr, "name": _real_name,
                                                     "buy_price": price_kr["price"], "quantity": 10,
                                                     "buy_date": (datetime.now() + timedelta(hours=9)).strftime("%Y-%m-%d %H:%M"),
+                                                    "rating": "-",
                                                 })
                                                 from db import save_portfolio_to_gsheet
                                                 save_portfolio_to_gsheet(st.session_state.portfolio)
@@ -2584,6 +2586,7 @@ def main():
                                                         "buy_price": price_kr["price"],
                                                         "quantity": 10,
                                                         "buy_date": (datetime.now() + timedelta(hours=9)).strftime("%Y-%m-%d %H:%M"),
+                                                        "rating": _kr_rating,
                                                     })
                                                     try:
                                                         from db import save_ai_portfolio_to_gsheet
@@ -2683,6 +2686,7 @@ def main():
                                                 "ticker": selected_code_kr, "name": price_kr["name"],
                                                 "buy_price": price_kr["price"], "quantity": 10,
                                                 "buy_date": (datetime.now() + timedelta(hours=9)).strftime("%Y-%m-%d %H:%M"),
+                                                "rating": rep_kr.get("rating", "-"),
                                             })
                                             from db import save_portfolio_to_gsheet
                                             save_portfolio_to_gsheet(st.session_state.portfolio)
@@ -2933,6 +2937,7 @@ def main():
                                                     "buy_price": price_kr.get("price", 0) if price_kr else 0,
                                                     "quantity": 10,
                                                     "buy_date": (datetime.now() + timedelta(hours=9)).strftime("%Y-%m-%d %H:%M"),
+                                                    "rating": _sec_rating,
                                                 })
                                                 try:
                                                     from db import save_ai_portfolio_to_gsheet
@@ -2973,11 +2978,12 @@ def main():
                                                         "ticker": detail_code, "name": detail_name,
                                                         "buy_price": price_kr.get("price", 0) if price_kr else 0, "quantity": 10,
                                                         "buy_date": (datetime.now() + timedelta(hours=9)).strftime("%Y-%m-%d %H:%M"),
+                                                        "rating": _r.get("rating", "-"),
                                                     })
                                                     st.success(f"{detail_name} 포트폴리오에 추가!")
                                                 else:
                                                     st.warning("이미 포트폴리오에 있습니다.")
-                                                    
+
                                             if _r.get("세력분석"):
                                                 st.info(f"**세력 분석:** {_r['세력분석']}")
                                             if _r.get("historical_pattern_analysis"):
@@ -3005,11 +3011,12 @@ def main():
                                                         "ticker": detail_code, "name": detail_name,
                                                         "buy_price": price_kr.get("price", 0) if price_kr else 0, "quantity": 10,
                                                         "buy_date": (datetime.now() + timedelta(hours=9)).strftime("%Y-%m-%d %H:%M"),
+                                                        "rating": _r.get("long_term_rating", "-"),
                                                     })
                                                     st.success(f"{detail_name} 포트폴리오에 추가!")
                                                 else:
                                                     st.warning("이미 포트폴리오에 있습니다.")
-                                                    
+
                                             if _r.get("long_term_analysis"):
                                                 with st.container(border=True):
                                                     st.markdown(_r["long_term_analysis"])
@@ -3030,6 +3037,7 @@ def main():
                                                     "ticker": detail_code, "name": detail_name,
                                                     "buy_price": price_kr.get("price", 0) if price_kr else 0, "quantity": 10,
                                                     "buy_date": (datetime.now() + timedelta(hours=9)).strftime("%Y-%m-%d %H:%M"),
+                                                    "rating": _r.get("rating", "-"),
                                                 })
                                                 st.success(f"{detail_name} 포트폴리오에 추가!")
                                             else:
@@ -4636,6 +4644,7 @@ def main():
                                                     "ticker": st.session_state.us_selected_ticker, "name": detail_us["name"],
                                                     "buy_price": detail_us["price"], "quantity": 10,
                                                     "buy_date": (datetime.now() + timedelta(hours=9)).strftime("%Y-%m-%d %H:%M"),
+                                                    "rating": "-",
                                                 })
                                                 from db import save_portfolio_to_gsheet
                                                 save_portfolio_to_gsheet(st.session_state.portfolio)
@@ -4966,6 +4975,7 @@ def main():
                                                         "buy_price": detail_us.get("price", 0),
                                                         "quantity": 10,
                                                         "buy_date": (datetime.now() + timedelta(hours=9)).strftime("%Y-%m-%d %H:%M"),
+                                                        "rating": _us_rating,
                                                     })
                                                     try:
                                                         from db import save_ai_portfolio_to_gsheet
@@ -5066,6 +5076,7 @@ def main():
                                                 "ticker": _us_ticker_cur, "name": detail_us.get("name", _us_ticker_cur),
                                                 "buy_price": detail_us.get("price", 0), "quantity": 10,
                                                 "buy_date": (datetime.now() + timedelta(hours=9)).strftime("%Y-%m-%d %H:%M"),
+                                                "rating": _rep.get("rating", "-"),
                                             })
                                             from db import save_portfolio_to_gsheet
                                             save_portfolio_to_gsheet(st.session_state.portfolio)
@@ -5232,6 +5243,7 @@ def main():
                                                         "buy_price": us_detail.get("price", 0),
                                                         "quantity": 10,
                                                         "buy_date": (datetime.now() + timedelta(hours=9)).strftime("%Y-%m-%d %H:%M"),
+                                                        "rating": _us_sec_rating,
                                                     })
                                                     try:
                                                         from db import save_ai_portfolio_to_gsheet
@@ -5285,6 +5297,7 @@ def main():
                                                             "ticker": _us_dticker, "name": _us_dname,
                                                             "buy_price": us_detail["price"], "quantity": 10,
                                                             "buy_date": (datetime.now() + timedelta(hours=9)).strftime("%Y-%m-%d %H:%M"),
+                                                            "rating": _ur.get("rating", "-"),
                                                         })
                                                         st.success(f"{_us_dname} 포트폴리오에 추가!")
                                                     else:
@@ -5307,6 +5320,7 @@ def main():
                                                             "ticker": _us_dticker, "name": _us_dname,
                                                             "buy_price": us_detail["price"], "quantity": 10,
                                                             "buy_date": (datetime.now() + timedelta(hours=9)).strftime("%Y-%m-%d %H:%M"),
+                                                            "rating": _ur.get("long_term_rating", "-"),
                                                         })
                                                         st.success(f"{_us_dname} 포트폴리오에 추가!")
                                                     else:
@@ -5336,6 +5350,7 @@ def main():
                                                         "ticker": _us_dticker, "name": _us_dname,
                                                         "buy_price": us_detail["price"], "quantity": 10,
                                                         "buy_date": (datetime.now() + timedelta(hours=9)).strftime("%Y-%m-%d %H:%M"),
+                                                        "rating": _ur.get("rating", "-"),
                                                     })
                                                     st.success(f"{_us_dname} 포트폴리오에 추가!")
                                                 else:
@@ -5970,7 +5985,8 @@ def main():
                                 "name": nn or nt,
                                 "buy_price": float(np_val),
                                 "quantity": int(nq_val),
-                                "buy_date": (datetime.now() + timedelta(hours=9)).strftime("%Y-%m-%d %H:%M")
+                                "buy_date": (datetime.now() + timedelta(hours=9)).strftime("%Y-%m-%d %H:%M"),
+                                "rating": "-",
                             })
                             if portfolio_key == "portfolio":
                                 try:
@@ -6118,13 +6134,31 @@ def main():
                             guide_text = "⚠️ 손절 검토 필요"
                             guide_color = "#2b7cff"
 
-                        st.markdown(
+                        # AI 등급 배지 색상 매핑
+                        _rating_val = item.get("rating", "-")
+                        _rating_color = {
+                            "매우 강력 추천": "#00c853",
+                            "추천":           "#69f0ae",
+                            "중간추천":       "#f5c518",
+                            "비추천":         "#ff7043",
+                            "매우 비추천":    "#b71c1c",
+                        }.get(_rating_val, "#555")
+
+                        _badges = (
+                            f"<div style='display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px'>"
                             f"<div style='display:inline-block;padding:2px 8px;border-radius:4px;"
                             f"background:{guide_color}22;border:1px solid {guide_color};"
-                            f"color:{guide_color};font-size:0.88rem;font-weight:700;margin-bottom:6px'>"
-                            f"{guide_text}</div>",
-                            unsafe_allow_html=True
+                            f"color:{guide_color};font-size:0.88rem;font-weight:700'>{guide_text}</div>"
                         )
+                        if _rating_val and _rating_val != "-":
+                            _badges += (
+                                f"<div style='display:inline-block;padding:2px 8px;border-radius:4px;"
+                                f"background:{_rating_color}22;border:1px solid {_rating_color};"
+                                f"color:{_rating_color};font-size:0.88rem;font-weight:700'>"
+                                f"🤖 {_rating_val}</div>"
+                            )
+                        _badges += "</div>"
+                        st.markdown(_badges, unsafe_allow_html=True)
 
                         st.markdown(f"**{emoji} {name} ({ticker})** <small style='color:#888'>{item.get('buy_date', '')}</small>",
                                     unsafe_allow_html=True)
