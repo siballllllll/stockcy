@@ -495,6 +495,67 @@ def init_sector_sheet():
         return False, f"업로드 오류: {e}"
 
 
+def save_trade_analysis_record(trade_data: dict, analysis_result: dict):
+    """AI 거래 분석 결과를 '거래분석DB' 탭에 개별 저장합니다 (중복 방지)."""
+    sh, msg = _get_spreadsheet()
+    if not sh:
+        return False, msg
+    try:
+        headers = [
+            "분석시간", "티커", "종목명", "매도일", "수익률(%)", "결과",
+            "섹터", "섹터특성", "사회적요인", "수급요인", "기술적요인",
+            "성공이유", "실패이유", "교훈"
+        ]
+        ws = _get_or_create_worksheet(sh, "거래분석DB", headers)
+
+        ticker = str(trade_data.get("ticker", ""))
+        sell_date = str(trade_data.get("sell_date", ""))[:10]
+
+        # 중복 체크
+        existing = ws.get_all_records()
+        for r in existing:
+            if str(r.get("티커", "")) == ticker and str(r.get("매도일", ""))[:10] == sell_date:
+                return True, "이미 저장된 분석입니다."
+
+        trades_list = analysis_result.get("trades", [])
+        tr = trades_list[0] if trades_list else {}
+
+        ws.append_row([
+            datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            ticker,
+            str(trade_data.get("name", "")),
+            sell_date,
+            round(float(trade_data.get("profit_pct", 0)), 2),
+            str(trade_data.get("result", "")),
+            str(tr.get("sector", "")),
+            str(tr.get("sector_characteristic", "")),
+            str(tr.get("social_factor", "")),
+            str(tr.get("institutional_factor", "")),
+            str(tr.get("technical_factor", "")),
+            str(tr.get("success_reason", "")),
+            str(tr.get("failure_reason", "")),
+            str(tr.get("lesson", "")),
+        ])
+        return True, "거래 분석이 '거래분석DB'에 저장되었습니다."
+    except Exception as e:
+        return False, f"저장 오류: {e}"
+
+
+def load_trade_analysis_records():
+    """'거래분석DB' 탭에서 모든 분석 기록을 로드합니다."""
+    sh, msg = _get_spreadsheet()
+    if not sh:
+        return [], msg
+    try:
+        ws = sh.worksheet("거래분석DB")
+        records = ws.get_all_records()
+        return records, "성공"
+    except gspread.WorksheetNotFound:
+        return [], "아직 저장된 분석 기록이 없습니다."
+    except Exception as e:
+        return [], f"로드 오류: {e}"
+
+
 def save_trade_analysis(analysis: dict):
     """AI 거래 분석 결과를 '매매분석일지' 탭에 저장합니다."""
     import json as _json

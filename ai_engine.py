@@ -1621,7 +1621,7 @@ def analyze_sector_rotation(market_type, raw_market_data):
         return f"분석 중 오류 발생: {e}"
 
 
-def analyze_trade_history(trades: list) -> dict:
+def analyze_trade_history(trades: list, past_lessons: list = None) -> dict:
     """매도 완료된 거래 내역을 AI로 분석하여 성공/실패 패턴과 교훈을 추출합니다."""
     if not trades:
         return {"error": "분석할 거래 내역이 없습니다."}
@@ -1636,11 +1636,17 @@ def analyze_trade_history(trades: list) -> dict:
         )
     trades_text = "\n".join(trade_lines)
 
+    past_context = ""
+    if past_lessons:
+        lessons_text = "\n".join(f"- {l}" for l in past_lessons[-8:] if l)
+        past_context = f"\n\n## 이 트레이더의 과거 누적 교훈 (참고하여 반복 패턴 지적)\n{lessons_text}"
+
     prompt = f"""당신은 20년 경력의 국내외 단타 트레이딩 전문가이자 퀀트 애널리스트입니다.
 아래는 실제 매매 완료된 거래 내역입니다. 각 종목에 대해 심층 분석하여 성공/실패 이유와 패턴을 도출하세요.
+과거 교훈이 있다면 반복 실수 여부를 반드시 교훈(lesson)에 포함하세요.
 
 ## 거래 내역
-{trades_text}
+{trades_text}{past_context}
 
 구글 검색을 활용하여 각 종목의 매도 시점 전후 뉴스, 섹터 흐름, 세력 수급 동향을 파악하고,
 반드시 아래 JSON 형식으로만 응답하세요 (마크다운 백틱, 주석 절대 금지):
@@ -1675,6 +1681,68 @@ def analyze_trade_history(trades: list) -> dict:
 
     try:
         response = _call_gemini(prompt, use_search=True, temperature=0.4)
+        text = re.sub(r'```(?:json)?', '', response.text).strip()
+        start = text.find('{')
+        if start != -1:
+            result, _ = json.JSONDecoder().raw_decode(text, start)
+            return result
+        return json.loads(text)
+    except Exception as e:
+        return {"error": str(e)}
+
+
+def analyze_trading_patterns(records: list) -> dict:
+    """누적된 거래분석DB 기록을 바탕으로 트레이딩 패턴을 종합 분석합니다."""
+    if not records:
+        return {"error": "분석할 누적 거래 데이터가 없습니다."}
+
+    wins = [r for r in records if str(r.get("결과", "")) == "승"]
+    losses = [r for r in records if str(r.get("결과", "")) == "패"]
+    total = len(records)
+    win_rate = round(len(wins) / total * 100, 1) if total > 0 else 0
+
+    record_lines = []
+    for r in records:
+        pct = r.get("수익률(%)", 0)
+        try:
+            pct = float(pct)
+        except (ValueError, TypeError):
+            pct = 0.0
+        record_lines.append(
+            f"- {r.get('매도일','')} | {r.get('종목명','')}({r.get('티커','')}) | "
+            f"수익률 {pct:+.2f}% | {r.get('결과','')} | "
+            f"섹터: {r.get('섹터','')} | 교훈: {r.get('교훈','')}"
+        )
+    records_text = "\n".join(record_lines)
+
+    json_template = (
+        "{\n"
+        f'  "total": {total},\n'
+        f'  "win_count": {len(wins)},\n'
+        f'  "loss_count": {len(losses)},\n'
+        f'  "win_rate": {win_rate},\n'
+        '  "strong_sectors": ["강한 섹터/테마 1", "섹터2"],\n'
+        '  "weak_sectors": ["약한 섹터/테마 1", "섹터2"],\n'
+        '  "repeated_mistakes": ["반복 실수 패턴 1", "패턴 2", "패턴 3"],\n'
+        '  "success_habits": ["성공 시 공통 습관 1", "습관 2"],\n'
+        '  "personality_analysis": "이 트레이더의 매매 심리·성향 분석 (3~4문장)",\n'
+        '  "improvement_points": ["개선할 점 1", "개선할 점 2", "개선할 점 3"],\n'
+        '  "recommended_strategy": "이 데이터 기반으로 이 트레이더에게 최적화된 단타 전략 (3~5문장)"\n'
+        "}"
+    )
+
+    prompt = (
+        f"당신은 20년 경력의 퀀트 트레이더이자 트레이딩 심리 전문가입니다.\n"
+        f"아래는 한 트레이더의 누적 매매 분석 데이터입니다 (총 {total}건, 승 {len(wins)}건, "
+        f"패 {len(losses)}건, 승률 {win_rate}%).\n\n"
+        f"## 누적 거래 분석 기록\n{records_text}\n\n"
+        "이 트레이더의 매매 패턴, 반복 실수, 강점을 종합 분석하여 "
+        "반드시 아래 JSON 형식으로만 응답하세요 (마크다운 백틱, 주석 절대 금지):\n\n"
+        + json_template
+    )
+
+    try:
+        response = _call_gemini(prompt, use_search=False, temperature=0.4)
         text = re.sub(r'```(?:json)?', '', response.text).strip()
         start = text.find('{')
         if start != -1:

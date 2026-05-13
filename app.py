@@ -959,13 +959,20 @@ def show_trade_analysis_modal():
         _mdate = _td.get("sell_date", "")
         _cache_key = f"_modal_res_{_mticker}_{_mdate}"
         if _cache_key not in st.session_state:
+            from db import load_trade_analysis_records as _ltar
+            _past_recs, _ = _ltar()
+            _past_lessons = [r.get("교훈", "") for r in _past_recs if r.get("교훈")]
             with st.spinner(f"🤖 {_td.get('name','?')} 분석 중... (최대 50초)"):
                 from ai_engine import analyze_trade_history as _ata
-                _res = _ata([_td])
+                _res = _ata([_td], past_lessons=_past_lessons)
             st.session_state[_cache_key] = _res
+            # 자동 저장 (오류 없는 경우만)
+            if "error" not in _res:
+                from db import save_trade_analysis_record as _star
+                _star(_td, _res)
         st.session_state[f"_modal_trade_{_mticker}_{_mdate}"] = _td
 
-    _tab_ana, _tab_list = st.tabs(["📊 분석", "📋 목록"])
+    _tab_ana, _tab_list, _tab_pattern = st.tabs(["📊 분석", "📋 목록", "🧬 패턴"])
 
     # ── 분석 탭 ──────────────────────────────────────────
     with _tab_ana:
@@ -1014,34 +1021,78 @@ def show_trade_analysis_modal():
             else:
                 st.warning("분석 결과를 가져올 수 없습니다.")
 
-    # ── 목록 탭 (날짜별 누적 기록) ───────────────────────
+    # ── 목록 탭 (날짜별 누적 기록 — Google Sheets 영구 저장) ────
     with _tab_list:
+        from db import load_trade_analysis_records as _ltar2
+        _gs_recs, _ = _ltar2()
+
+        # Google Sheets 기록을 (trade_data, analysis_result) 형태로 변환
         _by_date = {}
-        _seen_sfx = set()
+        _seen_keys = set()
+
+        for _r in _gs_recs:
+            _rk = f"{_r.get('티커','')}_{str(_r.get('매도일',''))[:10]}"
+            if _rk in _seen_keys:
+                continue
+            _seen_keys.add(_rk)
+            _d = str(_r.get("매도일", "날짜없음"))[:10]
+            _tde = {
+                "ticker": _r.get("티커", ""),
+                "name": _r.get("종목명", ""),
+                "sell_date": _r.get("매도일", ""),
+                "profit_pct": _r.get("수익률(%)", 0),
+                "profit": 0,
+                "result": _r.get("결과", ""),
+            }
+            _res_gs = {"trades": [{
+                "result": _r.get("결과", ""),
+                "sector": _r.get("섹터", ""),
+                "sector_characteristic": _r.get("섹터특성", ""),
+                "social_factor": _r.get("사회적요인", ""),
+                "institutional_factor": _r.get("수급요인", ""),
+                "technical_factor": _r.get("기술적요인", ""),
+                "success_reason": _r.get("성공이유", ""),
+                "failure_reason": _r.get("실패이유", ""),
+                "lesson": _r.get("교훈", ""),
+            }]}
+            _by_date.setdefault(_d, []).append((_tde, _res_gs))
+
+        # 현재 세션에서 새로 분석된 것도 병합 (GS 저장 실패 대비)
         for _k in list(st.session_state.keys()):
             if not _k.startswith("_modal_res_"):
                 continue
             _suffix = _k[len("_modal_res_"):]
-            if _suffix in _seen_sfx:
+            _tde_ss = st.session_state.get(f"_modal_trade_{_suffix}")
+            if not _tde_ss:
                 continue
-            _seen_sfx.add(_suffix)
-            _tde = st.session_state.get(f"_modal_trade_{_suffix}")
-            if not _tde:
+            _rk = f"{_tde_ss.get('ticker','')}_{str(_tde_ss.get('sell_date',''))[:10]}"
+            if _rk in _seen_keys:
                 continue
-            _d_raw = str(_tde.get("sell_date", "날짜없음"))
-            _d = _d_raw[:10] if len(_d_raw) >= 10 else _d_raw  # YYYY-MM-DD 로 정규화
-            _by_date.setdefault(_d, []).append((_tde, st.session_state[_k]))
+            _seen_keys.add(_rk)
+            _d_raw = str(_tde_ss.get("sell_date", "날짜없음"))
+            _d = _d_raw[:10] if len(_d_raw) >= 10 else _d_raw
+            _by_date.setdefault(_d, []).append((_tde_ss, st.session_state[_k]))
 
         if not _by_date:
             st.info("아직 분석된 거래가 없습니다. 📊 분석 탭에서 먼저 분석을 실행하세요.")
         else:
             _latest_raw = str(_td.get("sell_date", "")) if _td else ""
             _latest_date = _latest_raw[:10] if len(_latest_raw) >= 10 else _latest_raw
+            _total_cnt = sum(len(v) for v in _by_date.values())
+            _win_cnt = sum(
+                1 for v in _by_date.values()
+                for tde, _ in v if str(tde.get("result","")) == "승"
+            )
+            st.caption(f"총 {_total_cnt}건 | 승 {_win_cnt}건 | 패 {_total_cnt - _win_cnt}건")
             for _date in sorted(_by_date.keys(), reverse=True):
                 _entries = _by_date[_date]
                 _lparts = []
                 for _tde, _ in _entries:
-                    _pv = float(_tde.get("profit_pct", 0))
+                    _pv = 0.0
+                    try:
+                        _pv = float(_tde.get("profit_pct", 0))
+                    except (ValueError, TypeError):
+                        pass
                     _lparts.append(f"{'🟢' if _pv >= 0 else '🔴'} {_tde.get('ticker','')} {_pv:+.2f}%")
                 _dlabel = f"📅 {_date}    {'   '.join(_lparts)}"
 
@@ -1049,16 +1100,20 @@ def show_trade_analysis_modal():
                     for _idx, (_tde, _res) in enumerate(_entries):
                         _t_tk = _tde.get("ticker", "")
                         _t_nm = _tde.get("name", "")
+                        _t_pc = 0.0
+                        try:
+                            _t_pc = float(_tde.get("profit_pct", 0))
+                        except (ValueError, TypeError):
+                            pass
                         _t_pr = float(_tde.get("profit", 0))
-                        _t_pc = float(_tde.get("profit_pct", 0))
                         _t_rs = _tde.get("result", "")
                         _t_sy = "₩" if (len(_t_tk) == 6 and _t_tk.isdigit()) else "$"
-                        _t_pc_clr = "#00c853" if _t_pr >= 0 else "#ff4b4b"
+                        _t_pc_clr = "#00c853" if _t_pc >= 0 else "#ff4b4b"
                         _t_rs_clr = "#00c853" if _t_rs == "승" else ("#ff4b4b" if _t_rs == "패" else "#aaa")
                         st.markdown(
                             f"**{_t_nm}** <span style='color:#888;font-size:0.88rem'>({_t_tk})</span>"
                             f"&nbsp;&nbsp;<span style='color:{_t_pc_clr};font-weight:600'>"
-                            f"{_t_sy}{_t_pr:+,.2f} ({_t_pc:+.2f}%)</span>"
+                            f"({_t_pc:+.2f}%)</span>"
                             f"&nbsp;&nbsp;<span style='color:{_t_rs_clr};font-weight:700'>{_t_rs}</span>",
                             unsafe_allow_html=True
                         )
@@ -1086,6 +1141,63 @@ def show_trade_analysis_modal():
                                 "<hr style='border:none;border-top:1px solid rgba(255,255,255,0.1);margin:12px 0'>",
                                 unsafe_allow_html=True
                             )
+
+    # ── 패턴 분석 탭 ─────────────────────────────────────
+    with _tab_pattern:
+        from db import load_trade_analysis_records as _ltar3
+        _all_recs, _ = _ltar3()
+        _pat_total = len(_all_recs)
+        _pat_wins = sum(1 for r in _all_recs if str(r.get("결과","")) == "승")
+
+        if _pat_total == 0:
+            st.info("아직 분석 데이터가 없습니다. 거래를 분석하면 자동으로 누적됩니다.")
+        else:
+            st.markdown(
+                f"<div style='padding:8px 0 14px;border-bottom:1px solid rgba(255,255,255,0.15);margin-bottom:14px'>"
+                f"<span style='font-size:1.05rem;font-weight:700'>누적 데이터</span>"
+                f"&nbsp;&nbsp;총 <b>{_pat_total}건</b>"
+                f"&nbsp;&nbsp;🟢 승 <b style='color:#00c853'>{_pat_wins}</b>"
+                f"&nbsp;&nbsp;🔴 패 <b style='color:#ff4b4b'>{_pat_total - _pat_wins}</b>"
+                f"&nbsp;&nbsp;승률 <b style='color:#ffd740'>{round(_pat_wins/_pat_total*100,1)}%</b>"
+                f"</div>",
+                unsafe_allow_html=True,
+            )
+            if _pat_total < 3:
+                st.warning(f"패턴 분석은 최소 3건 이상 필요합니다. (현재 {_pat_total}건)")
+            else:
+                _pat_btn = st.button("🧬 나의 거래 패턴 종합 분석", use_container_width=True)
+                _pat_cache_key = f"_pattern_analysis_{_pat_total}"
+                if _pat_btn and _pat_cache_key not in st.session_state:
+                    with st.spinner("📊 누적 거래 데이터 패턴 분석 중... (최대 40초)"):
+                        from ai_engine import analyze_trading_patterns as _atpat
+                        _pat_res = _atpat(_all_recs)
+                    st.session_state[_pat_cache_key] = _pat_res
+
+                _pat_res = st.session_state.get(_pat_cache_key)
+                if _pat_res:
+                    if "error" in _pat_res:
+                        st.error(f"분석 오류: {_pat_res['error']}")
+                    else:
+                        _pc1, _pc2 = st.columns(2)
+                        with _pc1:
+                            st.markdown("**강한 섹터/테마**")
+                            for _s in _pat_res.get("strong_sectors", []):
+                                st.markdown(f"- 🟢 {_s}")
+                            st.markdown("**성공 습관**")
+                            for _h in _pat_res.get("success_habits", []):
+                                st.markdown(f"- ✅ {_h}")
+                        with _pc2:
+                            st.markdown("**약한 섹터/테마**")
+                            for _s in _pat_res.get("weak_sectors", []):
+                                st.markdown(f"- 🔴 {_s}")
+                            st.markdown("**반복 실수**")
+                            for _m in _pat_res.get("repeated_mistakes", []):
+                                st.markdown(f"- ⚠️ {_m}")
+                        st.info(f"**심리·성향:** {_pat_res.get('personality_analysis','')}")
+                        st.markdown("**개선 포인트**")
+                        for _ip in _pat_res.get("improvement_points", []):
+                            st.markdown(f"- 🎯 {_ip}")
+                        st.success(f"**추천 전략:** {_pat_res.get('recommended_strategy','')}")
 
     if st.button("닫기"):
         st.rerun()
