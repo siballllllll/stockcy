@@ -6318,6 +6318,18 @@ def main():
                             if st.button("💾 저장", key=f"edit_save_{portfolio_key}_{idx}", use_container_width=True, type="primary"):
                                 st.session_state[portfolio_key][idx]["buy_price"] = new_bp
                                 st.session_state[portfolio_key][idx]["quantity"] = new_qty
+                                if portfolio_key == "portfolio":
+                                    try:
+                                        from db import save_portfolio_to_gsheet
+                                        save_portfolio_to_gsheet(st.session_state[portfolio_key])
+                                    except Exception:
+                                        pass
+                                elif portfolio_key == "ai_portfolio":
+                                    try:
+                                        from db import save_ai_portfolio_to_gsheet
+                                        save_ai_portfolio_to_gsheet(st.session_state[portfolio_key])
+                                    except Exception:
+                                        pass
                                 st.success("수정되었습니다!")
                                 st.rerun()
 
