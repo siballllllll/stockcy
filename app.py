@@ -907,17 +907,7 @@ def _normalize_ticker(raw: str) -> tuple[str, str]:
 
 
 def _render_stock_section(group: list, mkt: str, icon: str, dir_: str, clr: str, key_prefix: str):
-    """국내 또는 미국 종목 섹션 렌더링 (공통)."""
-    _flag = "🇰🇷" if mkt == "KR" else "🇺🇸"
-    _region = "국내" if mkt == "KR" else "미국"
-    st.markdown(
-        f"<div style='background:{'#1a2a1a' if mkt=='KR' else '#1a1a2a'};"
-        f"border-left:3px solid {'#00c853' if mkt=='KR' else '#4fc3f7'};"
-        f"padding:4px 8px;margin:4px 0 2px 0;border-radius:0 4px 4px 0;"
-        f"font-size:0.78rem;font-weight:700;color:#ccc;'>"
-        f"{_flag} {_region}</div>",
-        unsafe_allow_html=True,
-    )
+    """종목 목록 렌더링 — 섹션 헤더 없이 버튼만 (헤더는 호출부에서 행 단위로 처리)."""
     if not group:
         st.markdown(
             "<div style='padding:4px 8px;font-size:0.78rem;color:#666;"
@@ -1074,17 +1064,37 @@ def show_market_scenarios():
                             unsafe_allow_html=True,
                         )
 
-                        # 상승/하락 종목 — popover 클릭으로 상세 보기 + 분석 이동
+                        # 상승/하락 종목 — KR/US를 별도 행으로 분리해 항상 같은 높이 정렬
                         _pk = f"{_issue.get('issue_no',0)}_{_sc.get('label','')}"
-                        _sc1, _sc2 = st.columns(2)
-                        with _sc1:
-                            _render_stock_popover(
-                                _sc.get("rising_stocks", []), "up", "🟢 상승 예상 종목", f"r_{_pk}"
-                            )
-                        with _sc2:
-                            _render_stock_popover(
-                                _sc.get("falling_stocks", []), "dn", "🔴 하락 예상 종목", f"d_{_pk}"
-                            )
+                        _rising  = _sc.get("rising_stocks", [])
+                        _falling = _sc.get("falling_stocks", [])
+                        _r_kr = [s for s in _rising  if _normalize_ticker(str(s.get("ticker","")))[1]=="KR"]
+                        _r_us = [s for s in _rising  if _normalize_ticker(str(s.get("ticker","")))[1]=="US"]
+                        _f_kr = [s for s in _falling if _normalize_ticker(str(s.get("ticker","")))[1]=="KR"]
+                        _f_us = [s for s in _falling if _normalize_ticker(str(s.get("ticker","")))[1]=="US"]
+
+                        # 컬럼 헤더
+                        _ch1, _ch2 = st.columns(2)
+                        with _ch1:
+                            st.markdown("<div style='font-size:0.9rem;font-weight:700;color:#00c853;margin-bottom:4px'>🟢 상승 예상 종목</div>", unsafe_allow_html=True)
+                        with _ch2:
+                            st.markdown("<div style='font-size:0.9rem;font-weight:700;color:#ff4b4b;margin-bottom:4px'>🔴 하락 예상 종목</div>", unsafe_allow_html=True)
+
+                        # 국내 행 (항상 같은 높이에서 시작)
+                        st.markdown("<div style='font-size:0.75rem;font-weight:700;color:#aaa;background:rgba(255,255,255,0.04);padding:3px 8px;border-radius:4px;margin:2px 0'>🇰🇷 국내</div>", unsafe_allow_html=True)
+                        _kr1, _kr2 = st.columns(2)
+                        with _kr1:
+                            _render_stock_section(_r_kr, "KR", "🟢", "상승", "#00c853", f"r_{_pk}_kr")
+                        with _kr2:
+                            _render_stock_section(_f_kr, "KR", "🔴", "하락", "#ff4b4b", f"d_{_pk}_kr")
+
+                        # 미국 행 (항상 같은 높이에서 시작)
+                        st.markdown("<div style='font-size:0.75rem;font-weight:700;color:#aaa;background:rgba(255,255,255,0.04);padding:3px 8px;border-radius:4px;margin:6px 0 2px'>🇺🇸 미국</div>", unsafe_allow_html=True)
+                        _us1, _us2 = st.columns(2)
+                        with _us1:
+                            _render_stock_section(_r_us, "US", "🟢", "상승", "#00c853", f"r_{_pk}_us")
+                        with _us2:
+                            _render_stock_section(_f_us, "US", "🔴", "하락", "#ff4b4b", f"d_{_pk}_us")
 
                         # 단타/장타 전략
                         _str_short = _sc.get("short_strategy", _sc.get("strategy", ""))
