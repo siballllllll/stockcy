@@ -105,6 +105,52 @@ def load_portfolio_from_gsheet():
     except Exception:
         return []
 
+def save_ai_portfolio_to_gsheet(portfolio_list):
+    """AI 자동 추천 종목 목록을 'AI추천포트폴리오' 탭에 저장합니다."""
+    sh, msg = _get_spreadsheet()
+    if not sh:
+        return False, msg
+    try:
+        headers = ["저장시간", "티커", "종목명", "수량", "매수가($)"]
+        ws = _get_or_create_worksheet(sh, "AI추천포트폴리오", headers)
+        ws.clear()
+        ws.append_row(headers)
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        for item in portfolio_list:
+            ws.append_row([
+                now,
+                item["ticker"],
+                item.get("name", item["ticker"]),
+                item.get("quantity", 0),
+                round(float(item.get("buy_price", 0)), 2),
+            ])
+        return True, f"AI 추천 포트폴리오 {len(portfolio_list)}개 저장 완료!"
+    except Exception as e:
+        return False, f"저장 오류: {e}"
+
+
+def load_ai_portfolio_from_gsheet():
+    """'AI추천포트폴리오' 탭에서 목록을 불러옵니다."""
+    sh, msg = _get_spreadsheet()
+    if not sh:
+        return []
+    try:
+        ws = sh.worksheet("AI추천포트폴리오")
+        records = ws.get_all_records()
+        return [
+            {
+                "ticker":    str(r.get("티커", "")),
+                "name":      str(r.get("종목명", "")),
+                "buy_price": float(r.get("매수가($)", 0) or 0),
+                "quantity":  int(r.get("수량", 0) or 0),
+                "buy_date":  str(r.get("저장시간", "")),
+            }
+            for r in records if r.get("티커")
+        ]
+    except Exception:
+        return []
+
+
 def save_trade_record(trade):
     """완료된 거래 1건을 '거래내역' 탭에 기록합니다."""
     sh, msg = _get_spreadsheet()

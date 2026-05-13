@@ -2585,6 +2585,11 @@ def main():
                                                         "quantity": 10,
                                                         "buy_date": (datetime.now() + timedelta(hours=9)).strftime("%Y-%m-%d %H:%M"),
                                                     })
+                                                    try:
+                                                        from db import save_ai_portfolio_to_gsheet
+                                                        save_ai_portfolio_to_gsheet(st.session_state.ai_portfolio)
+                                                    except Exception:
+                                                        pass
 
                                             try:
                                                 from db import log_ai_recommendation
@@ -2929,6 +2934,11 @@ def main():
                                                     "quantity": 10,
                                                     "buy_date": (datetime.now() + timedelta(hours=9)).strftime("%Y-%m-%d %H:%M"),
                                                 })
+                                                try:
+                                                    from db import save_ai_portfolio_to_gsheet
+                                                    save_ai_portfolio_to_gsheet(st.session_state.ai_portfolio)
+                                                except Exception:
+                                                    pass
 
                                         from db import log_ai_recommendation
                                         log_ai_recommendation(
@@ -4957,6 +4967,11 @@ def main():
                                                         "quantity": 10,
                                                         "buy_date": (datetime.now() + timedelta(hours=9)).strftime("%Y-%m-%d %H:%M"),
                                                     })
+                                                    try:
+                                                        from db import save_ai_portfolio_to_gsheet
+                                                        save_ai_portfolio_to_gsheet(st.session_state.ai_portfolio)
+                                                    except Exception:
+                                                        pass
 
                                             try:
                                                 from db import log_ai_recommendation
@@ -5218,6 +5233,11 @@ def main():
                                                         "quantity": 10,
                                                         "buy_date": (datetime.now() + timedelta(hours=9)).strftime("%Y-%m-%d %H:%M"),
                                                     })
+                                                    try:
+                                                        from db import save_ai_portfolio_to_gsheet
+                                                        save_ai_portfolio_to_gsheet(st.session_state.ai_portfolio)
+                                                    except Exception:
+                                                        pass
 
                                             from db import log_ai_recommendation
                                             log_ai_recommendation(
@@ -5866,6 +5886,13 @@ def main():
                                     "sell_date":  str(_row.get("매도시간", "")),
                                     "result":     str(_row.get("결과", "")),
                                 })
+                except Exception:
+                    pass
+                try:
+                    from db import load_ai_portfolio_from_gsheet
+                    _auto_ai = load_ai_portfolio_from_gsheet()
+                    if _auto_ai:
+                        st.session_state.ai_portfolio = _auto_ai
                 except Exception:
                     pass
 
