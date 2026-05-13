@@ -1052,19 +1052,19 @@ def show_favorites_center():
                             )
                             st.markdown("---")
                             # ── 4 단계 기간별 탭 ─────────────────────────
-                            _t1, _t2, _t3, _t4 = st.tabs(["⚠️ 근시일 리스크", "📅 매수 전략", "📈 중기 시나리오", "🗓 장기 분석"])
+                            _t1, _t2, _t3, _t4 = st.tabs(["📊 단기 전망", "📅 매수 전략", "📆 중기 전망", "🗓 장기 분석"])
 
                             with _t1:
-                                st.caption("현재 이슈 및 근 시일(1~4주) 하락 가능성")
+                                st.caption("근 시일(1~4주) 주가 전망 및 주요 이슈")
                                 _ki = res.get("key_issues", "")
                                 if _ki and _ki != "-":
                                     st.markdown(_ki)
                                 _c1, _c2 = st.columns(2)
-                                _dn_pct = res.get("short_term_downside_pct", "-")
-                                _dn_price = res.get("short_term_downside_price", "-")
-                                _c1.metric("📉 단기 변동 예상", _dn_pct)
+                                _dn_pct = res.get("short_term_view_pct", "-")
+                                _dn_price = res.get("short_term_view_price", "-")
+                                _c1.metric("📊 단기 전망", _dn_pct)
                                 _c2.metric("🎯 예상 가격대", _dn_price)
-                                _dn_reason = res.get("short_term_downside_reason", "")
+                                _dn_reason = res.get("short_term_view_reason", "")
                                 if _dn_reason and _dn_reason != "-":
                                     st.info(_dn_reason)
 
@@ -1084,13 +1084,13 @@ def show_favorites_center():
                                         st.markdown(res["analysis"])
 
                             with _t3:
-                                st.caption("중기(1~3개월) 반등·상승 시나리오")
-                                _up_pct = res.get("mid_term_upside_pct", "-")
-                                _up_price = res.get("mid_term_upside_price", "-")
+                                st.caption("중기(1~3개월) 주가 전망")
+                                _up_pct = res.get("mid_term_view_pct", "-")
+                                _up_price = res.get("mid_term_view_price", "-")
                                 _c1, _c2 = st.columns(2)
-                                _c1.metric("📈 중기 변동 예상", _up_pct)
+                                _c1.metric("📆 중기 전망", _up_pct)
                                 _c2.metric("🎯 중기 목표가", _up_price)
-                                _up_cond = res.get("mid_term_upside_condition", "")
+                                _up_cond = res.get("mid_term_view_condition", "")
                                 if _up_cond and _up_cond != "-":
                                     st.caption("상승 전제 조건")
                                     st.warning(_up_cond)
@@ -2690,19 +2690,19 @@ def main():
                                         unsafe_allow_html=True
                                     )
 
-                                    t1, t2, t3, t4 = st.tabs(["⚠️ 근시일 리스크", "📅 매수 전략", "📈 중기 시나리오", "🗓 장기 분석"])
+                                    t1, t2, t3, t4 = st.tabs(["📊 단기 전망", "📅 매수 전략", "📆 중기 전망", "🗓 장기 분석"])
 
                                     with t1:
-                                        st.caption("현재 이슈 및 근 시일(1~4주) 하락 가능성")
+                                        st.caption("근 시일(1~4주) 주가 전망 및 주요 이슈")
                                         _ki = rep_kr.get("key_issues", "")
                                         if _ki and _ki != "-":
                                             st.markdown(_ki)
                                         c1, c2 = st.columns(2)
-                                        _dn_pct = rep_kr.get("short_term_downside_pct", "-")
-                                        _dn_price = rep_kr.get("short_term_downside_price", "-")
-                                        c1.metric("📉 단기 변동 예상", _dn_pct)
+                                        _dn_pct = rep_kr.get("short_term_view_pct", "-")
+                                        _dn_price = rep_kr.get("short_term_view_price", "-")
+                                        c1.metric("📊 단기 전망", _dn_pct)
                                         c2.metric("🎯 예상 가격대", _dn_price)
-                                        _dn_reason = rep_kr.get("short_term_downside_reason", "")
+                                        _dn_reason = rep_kr.get("short_term_view_reason", "")
                                         if _dn_reason and _dn_reason != "-":
                                             st.info(_dn_reason)
 
@@ -2723,13 +2723,13 @@ def main():
                                                 st.markdown(rep_kr["analysis"])
 
                                     with t3:
-                                        st.caption("중기(1~3개월) 반등·상승 시나리오")
-                                        _up_pct = rep_kr.get("mid_term_upside_pct", "-")
-                                        _up_price = rep_kr.get("mid_term_upside_price", "-")
+                                        st.caption("중기(1~3개월) 주가 전망")
+                                        _up_pct = rep_kr.get("mid_term_view_pct", "-")
+                                        _up_price = rep_kr.get("mid_term_view_price", "-")
                                         c1, c2 = st.columns(2)
-                                        c1.metric("📈 중기 변동 예상", _up_pct)
+                                        c1.metric("📆 중기 전망", _up_pct)
                                         c2.metric("🎯 중기 목표가", _up_price)
-                                        _up_cond = rep_kr.get("mid_term_upside_condition", "")
+                                        _up_cond = rep_kr.get("mid_term_view_condition", "")
                                         if _up_cond and _up_cond != "-":
                                             st.caption("상승 전제 조건")
                                             st.warning(_up_cond)
@@ -3027,16 +3027,16 @@ def main():
                                 if f"sec_rep_{detail_code}" in st.session_state:
                                     _r = st.session_state[f"sec_rep_{detail_code}"]
                                     if "long_term_rating" in _r:
-                                        t1, t2, t3 = st.tabs(["⚠️ 근시일 리스크", "📅 매수 전략", "📈 중장기 시나리오"])
+                                        t1, t2, t3 = st.tabs(["📊 단기 전망", "📅 매수 전략", "📆 중기 전망"])
                                         with t1:
-                                            st.caption("현재 이슈 및 근 시일(1~4주) 하락 가능성")
+                                            st.caption("근 시일(1~4주) 주가 전망 및 주요 이슈")
                                             _ki = _r.get("key_issues", "")
                                             if _ki and _ki != "-":
                                                 st.markdown(_ki)
                                             _rk1, _rk2 = st.columns(2)
-                                            _rk1.metric("📉 단기 변동 예상", _r.get("short_term_downside_pct", "-"))
-                                            _rk2.metric("🎯 예상 가격대", _r.get("short_term_downside_price", "-"))
-                                            _dn_reason = _r.get("short_term_downside_reason", "")
+                                            _rk1.metric("📊 단기 전망", _r.get("short_term_view_pct", "-"))
+                                            _rk2.metric("🎯 예상 가격대", _r.get("short_term_view_price", "-"))
+                                            _dn_reason = _r.get("short_term_view_reason", "")
                                             if _dn_reason and _dn_reason != "-":
                                                 st.info(_dn_reason)
 
@@ -3073,9 +3073,9 @@ def main():
                                         with t3:
                                             st.caption(f"중기 시나리오  |  중장기 등급: {_r.get('long_term_rating', '-')}")
                                             _lk1, _lk2 = st.columns(2)
-                                            _lk1.metric("📈 중기 변동 예상", _r.get("mid_term_upside_pct", "-"))
-                                            _lk2.metric("🎯 중기 목표가", _r.get("mid_term_upside_price", "-"))
-                                            _up_cond = _r.get("mid_term_upside_condition", "")
+                                            _lk1.metric("📆 중기 전망", _r.get("mid_term_view_pct", "-"))
+                                            _lk2.metric("🎯 중기 목표가", _r.get("mid_term_view_price", "-"))
+                                            _up_cond = _r.get("mid_term_view_condition", "")
                                             if _up_cond and _up_cond != "-":
                                                 st.warning(_up_cond)
 
