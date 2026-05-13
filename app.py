@@ -906,8 +906,51 @@ def _normalize_ticker(raw: str) -> tuple[str, str]:
     return t, "US"
 
 
+def _render_stock_section(group: list, mkt: str, icon: str, dir_: str, clr: str, key_prefix: str):
+    """국내 또는 미국 종목 섹션 렌더링 (공통)."""
+    _flag = "🇰🇷" if mkt == "KR" else "🇺🇸"
+    _region = "국내" if mkt == "KR" else "미국"
+    st.markdown(
+        f"<div style='background:{'#1a2a1a' if mkt=='KR' else '#1a1a2a'};"
+        f"border-left:3px solid {'#00c853' if mkt=='KR' else '#4fc3f7'};"
+        f"padding:4px 8px;margin:4px 0 2px 0;border-radius:0 4px 4px 0;"
+        f"font-size:0.78rem;font-weight:700;color:#ccc;'>"
+        f"{_flag} {_region}</div>",
+        unsafe_allow_html=True,
+    )
+    if not group:
+        st.markdown(
+            "<div style='padding:4px 8px;font-size:0.78rem;color:#666;"
+            "font-style:italic;'>해당 종목 없음</div>",
+            unsafe_allow_html=True,
+        )
+        return
+    for _i, _s in enumerate(group[:5]):
+        _tk_raw = str(_s.get("ticker", ""))
+        _tk, _ = _normalize_ticker(_tk_raw)
+        _nm  = str(_s.get("name", ""))
+        _rsn = str(_s.get("reason", ""))
+        _vn  = str(_s.get("valuation_note", ""))
+        with st.popover(f"{icon} {_nm} ({_tk})", use_container_width=True):
+            st.markdown(
+                f"<span style='font-size:1rem;font-weight:700;color:{clr}'>{_nm}</span>"
+                f"&nbsp;<code>{_tk}</code>",
+                unsafe_allow_html=True,
+            )
+            st.markdown(f"**{dir_} 이유:** {_rsn}")
+            if _vn:
+                st.info(f"📐 {_vn}")
+            st.markdown(
+                f"<a href='/?market={mkt}&code={_tk}' target='_blank' "
+                f"style='display:block;text-align:center;padding:8px;border-radius:6px;"
+                f"background:#262730;color:#fafafa;text-decoration:none;font-size:0.9rem;"
+                f"border:1px solid #555;margin-top:6px;'>📊 종목 분석 보러가기</a>",
+                unsafe_allow_html=True,
+            )
+
+
 def _render_stock_popover(stocks: list, color: str, label: str, key_prefix: str):
-    """종목 목록을 KR/US로 분리해 popover 버튼으로 렌더링 (각 최대 5개)."""
+    """종목 목록을 KR/US 섹션으로 나눠 렌더링 (각 최대 5개)."""
     _icon = "🟢" if color == "up" else "🔴"
     _dir  = "상승" if color == "up" else "하락"
     _clr  = "#00c853" if color == "up" else "#ff4b4b"
@@ -917,38 +960,14 @@ def _render_stock_popover(stocks: list, color: str, label: str, key_prefix: str)
         _, _mkt = _normalize_ticker(str(_s.get("ticker", "")))
         (_kr_stocks if _mkt == "KR" else _us_stocks).append(_s)
 
-    st.markdown(f"**{label}**")
-
-    for _region, _group, _mkt in [("🇰🇷 국내", _kr_stocks, "KR"), ("🇺🇸 미국", _us_stocks, "US")]:
-        st.caption(_region)
-        if not _group:
-            st.markdown(
-                "<span style='font-size:0.8rem;color:#888;'>해당 시나리오와 이슈에 해당하는 종목 없음</span>",
-                unsafe_allow_html=True,
-            )
-            continue
-        for _i, _s in enumerate(_group[:5]):
-            _tk_raw = str(_s.get("ticker", ""))
-            _tk, _mkt = _normalize_ticker(_tk_raw)
-            _nm  = str(_s.get("name", ""))
-            _rsn = str(_s.get("reason", ""))
-            _vn  = str(_s.get("valuation_note", ""))
-            with st.popover(f"{_icon} {_nm} ({_tk})", use_container_width=True):
-                st.markdown(
-                    f"<span style='font-size:1rem;font-weight:700;color:{_clr}'>{_nm}</span>"
-                    f"&nbsp;<code>{_tk}</code>",
-                    unsafe_allow_html=True,
-                )
-                st.markdown(f"**{_dir} 이유:** {_rsn}")
-                if _vn:
-                    st.info(f"📐 {_vn}")
-                st.markdown(
-                    f"<a href='/?market={_mkt}&code={_tk}' target='_blank' "
-                    f"style='display:block;text-align:center;padding:8px;border-radius:6px;"
-                    f"background:#262730;color:#fafafa;text-decoration:none;font-size:0.9rem;"
-                    f"border:1px solid #555;margin-top:6px;'>📊 종목 분석 보러가기</a>",
-                    unsafe_allow_html=True,
-                )
+    st.markdown(
+        f"<div style='font-size:0.9rem;font-weight:700;margin-bottom:4px;"
+        f"color:{'#00c853' if color=='up' else '#ff4b4b'}'>{label}</div>",
+        unsafe_allow_html=True,
+    )
+    _render_stock_section(_kr_stocks, "KR", _icon, _dir, _clr, f"{key_prefix}_kr")
+    st.markdown("<div style='margin:6px 0;border-top:1px solid #333;'></div>", unsafe_allow_html=True)
+    _render_stock_section(_us_stocks, "US", _icon, _dir, _clr, f"{key_prefix}_us")
 
 
 @st.dialog("📈 이슈별 시장 시나리오", width="large")
@@ -1545,217 +1564,227 @@ def show_favorites_center():
     from data_kr import get_kr_stock_price
     from data import get_us_prices_bulk
     
-    # 3열 레이아웃
-    rows = [favs[i:i + 3] for i in range(0, len(favs), 3)]
-    
-    for row in rows:
-        cols = st.columns(3)
-        for i, fav in enumerate(row):
-            with cols[i]:
-                with st.container(border=True):
-                    mkt = fav.get('시장', '국내')
-                    ticker = fav.get('티커', '')
-                    name = fav.get('종목명', '')
-                    
-                    # 시세 조회
-                    price, pct = 0, 0
-                    if mkt == '국내':
-                        p_data = get_kr_stock_price(ticker)
-                        price = p_data.get('price', 0)
-                        pct = p_data.get('change_pct', 0)
-                        price_str = f'₩{price:,}'
-                    else:
-                        p_map = get_us_prices_bulk((ticker,))
-                        p_data = p_map.get(ticker, {"price": 0, "change_pct": 0})
-                        price = p_data.get('price', 0)
-                        pct = p_data.get('change_pct', 0)
-                        price_str = f'${price:,.2f}'
+    # ── 시장별 그룹화 렌더링 ──
+    for mkt_key, mkt_label, mkt_icon in [("국내", "국내 주식", "🇰🇷"), ("미국", "미국 주식", "🇺🇸")]:
+        mkt_items = [f for f in favs if f.get("시장", "국내") == mkt_key]
+        if not mkt_items:
+            continue
+            
+        st.markdown(f"#### {mkt_icon} {mkt_label}")
+        
+        # 3열 레이아웃
+        mkt_rows = [mkt_items[j:j + 3] for j in range(0, len(mkt_items), 3)]
+        
+        for row in mkt_rows:
+            cols = st.columns(3)
+            for i, fav in enumerate(row):
+                with cols[i]:
+                    with st.container(border=True):
+                        mkt = fav.get('시장', '국내')
+                        ticker = fav.get('티커', '')
+                        name = fav.get('종목명', '')
+                        
+                        # 시세 조회
+                        price, pct = 0, 0
+                        if mkt == '국내':
+                            p_data = get_kr_stock_price(ticker)
+                            price = p_data.get('price', 0)
+                            pct = p_data.get('change_pct', 0)
+                            price_str = f'₩{price:,}'
+                        else:
+                            p_map = get_us_prices_bulk((ticker,))
+                            p_data = p_map.get(ticker, {"price": 0, "change_pct": 0})
+                            price = p_data.get('price', 0)
+                            pct = p_data.get('change_pct', 0)
+                            price_str = f'${price:,.2f}'
 
-                    # [수정포인트] 반드시 p_data가 생성된 직후에 이름을 확인해야 에러가 안남
-                    if mkt == '국내' and name == ticker:
-                        name = p_data.get('name', ticker)
-                    
-                    color = "#ff4b4b" if pct > 0 else "#00c853" if pct < 0 else "#888"
-                    st.markdown(f"**{name}** ({ticker})")
-                    st.markdown(f"<h3 style='margin:0;color:{color}'>{price_str} <small>({pct:+.2f}%)</small></h3>", unsafe_allow_html=True)
-                    
-                    # ── 즐겨찾기용 자동 AI 가이드 로직 ──────────────────────
-                    _fav_guide = "⚪ 관망"
-                    _fav_g_color = "#888"
-                    
-                    # 52주 위치 정보 (데이터가 있을 경우)
-                    _w_low = p_data.get('w52_low', 0) or 0
-                    _w_high = p_data.get('w52_high', 0) or 0
-                    _pos_pct = 50
-                    if _w_high > _w_low > 0:
-                        _pos_pct = (price - _w_low) / (_w_high - _w_low) * 100
+                        # [수정포인트] 반드시 p_data가 생성된 직후에 이름을 확인해야 에러가 안남
+                        if mkt == '국내' and name == ticker:
+                            name = p_data.get('name', ticker)
+                        
+                        color = "#ff4b4b" if pct > 0 else "#00c853" if pct < 0 else "#888"
+                        st.markdown(f"**{name}** ({ticker})")
+                        st.markdown(f"<h3 style='margin:0;color:{color}'>{price_str} <small>({pct:+.2f}%)</small></h3>", unsafe_allow_html=True)
+                        
+                        # ── 즐겨찾기용 자동 AI 가이드 로직 ──────────────────────
+                        _fav_guide = "⚪ 관망"
+                        _fav_g_color = "#888"
+                        
+                        # 52주 위치 정보 (데이터가 있을 경우)
+                        _w_low = p_data.get('w52_low', 0) or 0
+                        _w_high = p_data.get('w52_high', 0) or 0
+                        _pos_pct = 50
+                        if _w_high > _w_low > 0:
+                            _pos_pct = (price - _w_low) / (_w_high - _w_low) * 100
 
-                    if pct >= 5.0:
-                        _fav_guide = "🔥 급등 중 (추격 신중)"
-                        _fav_g_color = "#ff4b4b"
-                    elif pct <= -5.0:
-                        _fav_guide = "🔵 과매도 (반등 확인)"
-                        _fav_g_color = "#2b7cff"
-                    elif _pos_pct <= 15:
-                        _fav_guide = "💎 바닥권 (매수 매력)"
-                        _fav_g_color = "#00c853"
-                    elif _pos_pct >= 85:
-                        _fav_guide = "⚠️ 고점권 (돌파 체크)"
-                        _fav_g_color = "#ff9800"
-                    elif pct >= 2.0:
-                        _fav_guide = "🟢 상승세 유지"
-                        _fav_g_color = "#ff4b4b"
-                    elif pct <= -2.0:
-                        _fav_guide = "🔴 약세 흐름"
-                        _fav_g_color = "#2b7cff"
-                    
-                    st.html(
-                        f"<div style='display:inline-block;padding:2px 8px;border-radius:4px;"
-                        f"background:{_fav_g_color}15;border:1px solid {_fav_g_color}66;"
-                        f"color:{_fav_g_color};font-size:0.88rem;font-weight:700;margin:6px 0'>"
-                        f"{_fav_guide}</div>"
-                    )
-                    
-                    # ── 버튼 레이아웃: AI 분석 | 포트폴리오 추가 ─────────────────
-                    _fav_res_key = f"fav_ai_result_{ticker}"
-                    _fav_err_key = f"fav_ai_error_{ticker}"
-                    
-                    _btn_col1, _btn_col2 = st.columns([3, 1])
-                    with _btn_col1:
-                        if st.button('🤖 AI 분석', key=f'fav_ai_{ticker}', use_container_width=True, type="primary"):
-                            st.session_state.pop(_fav_err_key, None)
-                            with st.spinner('AI 분석 중...'):
-                                try:
-                                    if mkt == '국내':
-                                        from ai_engine import generate_kr_stock_report
-                                        from data_kr import get_kr_investor_trend
-                                        try:
-                                            investor_data = get_kr_investor_trend(ticker)
-                                        except Exception:
-                                            investor_data = []
-                                        res = generate_kr_stock_report(ticker, name, p_data, investor_data)
-                                    else:
-                                        from ai_engine import generate_stock_report
-                                        res = generate_stock_report(ticker, price, pct)
-                                    st.session_state[_fav_res_key] = res
-                                    st.session_state.pop(_fav_err_key, None)
-                                except Exception as _ai_err:
-                                    st.session_state[_fav_err_key] = str(_ai_err)
-                    
-                    with _btn_col2:
-                        if st.button('🎒', key=f'fav_port_{ticker}', use_container_width=True, help="포트폴리오에 즉시 추가"):
-                            if "portfolio" not in st.session_state:
-                                from db import load_portfolio_from_gsheet
-                                st.session_state.portfolio = load_portfolio_from_gsheet()
-                            
-                            if not any(i["ticker"] == ticker for i in st.session_state.portfolio):
-                                st.session_state.portfolio.append({
-                                    "ticker": ticker, "name": name,
-                                    "buy_price": float(price), "quantity": 10,
-                                    "buy_date": (datetime.now() + timedelta(hours=9)).strftime("%Y-%m-%d %H:%M"),
-                                    "rating": "-",
-                                })
-                                from db import save_portfolio_to_gsheet
-                                save_portfolio_to_gsheet(st.session_state.portfolio)
-                                st.toast(f"✅ {name} 포트폴리오 추가 완료!")
-                                st.rerun()
+                        if pct >= 5.0:
+                            _fav_guide = "🔥 급등 중 (추격 신중)"
+                            _fav_g_color = "#ff4b4b"
+                        elif pct <= -5.0:
+                            _fav_guide = "🔵 과매도 (반등 확인)"
+                            _fav_g_color = "#2b7cff"
+                        elif _pos_pct <= 15:
+                            _fav_guide = "💎 바닥권 (매수 매력)"
+                            _fav_g_color = "#00c853"
+                        elif _pos_pct >= 85:
+                            _fav_guide = "⚠️ 고점권 (돌파 체크)"
+                            _fav_g_color = "#ff9800"
+                        elif pct >= 2.0:
+                            _fav_guide = "🟢 상승세 유지"
+                            _fav_g_color = "#ff4b4b"
+                        elif pct <= -2.0:
+                            _fav_guide = "🔴 약세 흐름"
+                            _fav_g_color = "#2b7cff"
+                        
+                        st.html(
+                            f"<div style='display:inline-block;padding:2px 8px;border-radius:4px;"
+                            f"background:{_fav_g_color}15;border:1px solid {_fav_g_color}66;"
+                            f"color:{_fav_g_color};font-size:0.88rem;font-weight:700;margin:6px 0'>"
+                            f"{_fav_guide}</div>"
+                        )
+                        
+                        # ── 버튼 레이아웃: AI 분석 | 포트폴리오 추가 ─────────────────
+                        _fav_res_key = f"fav_ai_result_{ticker}"
+                        _fav_err_key = f"fav_ai_error_{ticker}"
+                        
+                        _btn_col1, _btn_col2 = st.columns([3, 1])
+                        with _btn_col1:
+                            if st.button('🤖 AI 분석', key=f'fav_ai_{ticker}', use_container_width=True, type="primary"):
+                                st.session_state.pop(_fav_err_key, None)
+                                with st.spinner('AI 분석 중...'):
+                                    try:
+                                        if mkt == '국내':
+                                            from ai_engine import generate_kr_stock_report
+                                            from data_kr import get_kr_investor_trend
+                                            try:
+                                                investor_data = get_kr_investor_trend(ticker)
+                                            except Exception:
+                                                investor_data = []
+                                            res = generate_kr_stock_report(ticker, name, p_data, investor_data)
+                                        else:
+                                            from ai_engine import generate_stock_report
+                                            res = generate_stock_report(ticker, price, pct)
+                                        st.session_state[_fav_res_key] = res
+                                        st.session_state.pop(_fav_err_key, None)
+                                    except Exception as _ai_err:
+                                        st.session_state[_fav_err_key] = str(_ai_err)
+                        
+                        with _btn_col2:
+                            if st.button('🎒', key=f'fav_port_{ticker}', use_container_width=True, help="포트폴리오에 즉시 추가"):
+                                if "portfolio" not in st.session_state:
+                                    from db import load_portfolio_from_gsheet
+                                    st.session_state.portfolio = load_portfolio_from_gsheet()
+                                
+                                if not any(i["ticker"] == ticker for i in st.session_state.portfolio):
+                                    st.session_state.portfolio.append({
+                                        "ticker": ticker, "name": name,
+                                        "buy_price": float(price), "quantity": 10,
+                                        "buy_date": (datetime.now() + timedelta(hours=9)).strftime("%Y-%m-%d %H:%M"),
+                                        "rating": "-",
+                                    })
+                                    from db import save_portfolio_to_gsheet
+                                    save_portfolio_to_gsheet(st.session_state.portfolio)
+                                    st.toast(f"✅ {name} 포트폴리오 추가 완료!")
+                                    st.rerun()
+                                else:
+                                    st.warning("이미 등록됨")
+
+                        # 에러 상태 표시 + 재시도 안내
+                        if _fav_err_key in st.session_state:
+                            _err_msg = st.session_state[_fav_err_key]
+                            if "TIMEOUT" in _err_msg:
+                                st.warning("⏱ AI 응답 시간이 초과되었습니다. 버튼을 다시 눌러 재시도하세요.")
+                            elif "QUOTA" in _err_msg:
+                                st.error("📵 오늘 AI 사용량이 초과되었습니다. 내일 다시 시도해주세요.")
                             else:
-                                st.warning("이미 등록됨")
+                                st.error(f"❌ 분석 실패: {_err_msg[:120]}...")
+                                st.caption("버튼을 다시 눌러 재시도할 수 있습니다.")
 
-                    # 에러 상태 표시 + 재시도 안내
-                    if _fav_err_key in st.session_state:
-                        _err_msg = st.session_state[_fav_err_key]
-                        if "TIMEOUT" in _err_msg:
-                            st.warning("⏱ AI 응답 시간이 초과되었습니다. 버튼을 다시 눌러 재시도하세요.")
-                        elif "QUOTA" in _err_msg:
-                            st.error("📵 오늘 AI 사용량이 초과되었습니다. 내일 다시 시도해주세요.")
-                        else:
-                            st.error(f"❌ 분석 실패: {_err_msg[:120]}...")
-                            st.caption("버튼을 다시 눌러 재시도할 수 있습니다.")
+                        if _fav_res_key in st.session_state:
+                            res = st.session_state[_fav_res_key]
+                            if "error" in str(res.get("rating", "")):
+                                st.error(res.get("analysis", "분석 오류"))
+                            else:
+                                cur_sym = "₩" if mkt == "국내" else "$"
+                                # ── 등급 배지 (항상 표시) ──────────────────────
+                                _rating = res.get("rating", "-")
+                                _lt_rating = res.get("long_term_rating", "-")
+                                _badge_c = {"매우 강력 추천":"#00c853","추천":"#69f0ae","중간추천":"#f5c518","비추천":"#ff7043","매우 비추천":"#b71c1c"}.get(_rating, "#888")
+                                st.markdown(
+                                    f"<div style='display:flex;gap:6px;flex-wrap:wrap;margin:4px 0'>"
+                                    f"<span style='background:{_badge_c}22;border:1px solid {_badge_c};border-radius:6px;padding:2px 8px;font-size:0.98rem;font-weight:700;color:{_badge_c}'>단기: {_rating}</span>"
+                                    f"<span style='background:#2b7cff22;border:1px solid #2b7cff;border-radius:6px;padding:2px 8px;font-size:0.98rem;font-weight:700;color:#2b7cff'>중장기: {_lt_rating}</span>"
+                                    f"</div>",
+                                    unsafe_allow_html=True
+                                )
+                                # ── 상세 분석 (접기/펼치기) ───────────────────
+                                _exp_key = f"fav_exp_{ticker}"
+                                with st.expander("📋 상세 분석 펼치기", expanded=st.session_state.get(_exp_key, True)):
+                                    _t1, _t2, _t3, _t4 = st.tabs(["📊 단기 전망", "📅 매수 전략", "📆 중기 전망", "🗓 장기 분석"])
 
-                    if _fav_res_key in st.session_state:
-                        res = st.session_state[_fav_res_key]
-                        if "error" in str(res.get("rating", "")):
-                            st.error(res.get("analysis", "분석 오류"))
-                        else:
-                            cur_sym = "₩" if mkt == "국내" else "$"
-                            # ── 등급 배지 (항상 표시) ──────────────────────
-                            _rating = res.get("rating", "-")
-                            _lt_rating = res.get("long_term_rating", "-")
-                            _badge_c = {"매우 강력 추천":"#00c853","추천":"#69f0ae","중간추천":"#f5c518","비추천":"#ff7043","매우 비추천":"#b71c1c"}.get(_rating, "#888")
-                            st.markdown(
-                                f"<div style='display:flex;gap:6px;flex-wrap:wrap;margin:4px 0'>"
-                                f"<span style='background:{_badge_c}22;border:1px solid {_badge_c};border-radius:6px;padding:2px 8px;font-size:0.98rem;font-weight:700;color:{_badge_c}'>단기: {_rating}</span>"
-                                f"<span style='background:#2b7cff22;border:1px solid #2b7cff;border-radius:6px;padding:2px 8px;font-size:0.98rem;font-weight:700;color:#2b7cff'>중장기: {_lt_rating}</span>"
-                                f"</div>",
-                                unsafe_allow_html=True
-                            )
-                            # ── 상세 분석 (접기/펼치기) ───────────────────
-                            _exp_key = f"fav_exp_{ticker}"
-                            with st.expander("📋 상세 분석 펼치기", expanded=st.session_state.get(_exp_key, True)):
-                                _t1, _t2, _t3, _t4 = st.tabs(["📊 단기 전망", "📅 매수 전략", "📆 중기 전망", "🗓 장기 분석"])
+                                    with _t1:
+                                        st.caption("근 시일(1~4주) 주가 전망 및 주요 이슈")
+                                        _ki = res.get("key_issues", "")
+                                        if _ki and _ki != "-":
+                                            st.markdown(_ki)
+                                        _c1, _c2 = st.columns(2)
+                                        _dn_pct = res.get("short_term_view_pct", "-")
+                                        _dn_price = res.get("short_term_view_price", "-")
+                                        _c1.metric("📊 단기 전망", _dn_pct)
+                                        _c2.metric("🎯 예상 가격대", _dn_price)
+                                        _dn_reason = res.get("short_term_view_reason", "")
+                                        if _dn_reason and _dn_reason != "-":
+                                            st.info(_dn_reason)
 
-                                with _t1:
-                                    st.caption("근 시일(1~4주) 주가 전망 및 주요 이슈")
-                                    _ki = res.get("key_issues", "")
-                                    if _ki and _ki != "-":
-                                        st.markdown(_ki)
-                                    _c1, _c2 = st.columns(2)
-                                    _dn_pct = res.get("short_term_view_pct", "-")
-                                    _dn_price = res.get("short_term_view_price", "-")
-                                    _c1.metric("📊 단기 전망", _dn_pct)
-                                    _c2.metric("🎯 예상 가격대", _dn_price)
-                                    _dn_reason = res.get("short_term_view_reason", "")
-                                    if _dn_reason and _dn_reason != "-":
-                                        st.info(_dn_reason)
+                                    with _t2:
+                                        st.caption("매수 시 추천 타점 및 단기 전략")
+                                        _bt = res.get("buy_target", "-")
+                                        _st = res.get("sell_target", "-")
+                                        _sl = res.get("stop_loss", "-")
+                                        st.metric("🟢 매수 구간", _bt)
+                                        _c1, _c2 = st.columns(2)
+                                        _c1.metric("🎯 목표가", f"{cur_sym}{_st}" if _st != "-" and not str(_st).startswith(cur_sym) else _st)
+                                        _c2.metric("🛑 손절가", f"{cur_sym}{_sl}" if _sl != "-" and not str(_sl).startswith(cur_sym) else _sl)
+                                        if res.get("세력분석"):
+                                            st.info(res["세력분석"])
+                                        if res.get("analysis"):
+                                            with st.expander("📊 상세 전략 보기"):
+                                                st.markdown(res["analysis"])
 
-                                with _t2:
-                                    st.caption("매수 시 추천 타점 및 단기 전략")
-                                    _bt = res.get("buy_target", "-")
-                                    _st = res.get("sell_target", "-")
-                                    _sl = res.get("stop_loss", "-")
-                                    st.metric("🟢 매수 구간", _bt)
-                                    _c1, _c2 = st.columns(2)
-                                    _c1.metric("🎯 목표가", f"{cur_sym}{_st}" if _st != "-" and not str(_st).startswith(cur_sym) else _st)
-                                    _c2.metric("🛑 손절가", f"{cur_sym}{_sl}" if _sl != "-" and not str(_sl).startswith(cur_sym) else _sl)
-                                    if res.get("세력분석"):
-                                        st.info(res["세력분석"])
-                                    if res.get("analysis"):
-                                        with st.expander("📊 상세 전략 보기"):
-                                            st.markdown(res["analysis"])
+                                    with _t3:
+                                        st.caption("중기(1~3개월) 주가 전망")
+                                        _up_pct = res.get("mid_term_view_pct", "-")
+                                        _up_price = res.get("mid_term_view_price", "-")
+                                        _c1, _c2 = st.columns(2)
+                                        _c1.metric("📆 중기 전망", _up_pct)
+                                        _c2.metric("🎯 중기 목표가", _up_price)
+                                        _up_cond = res.get("mid_term_view_condition", "")
+                                        if _up_cond and _up_cond != "-":
+                                            st.caption("전망 핵심 변수")
+                                            st.warning(_up_cond)
+                                        if res.get("long_term_analysis"):
+                                            with st.expander("📊 중장기 분석 보기"):
+                                                st.markdown(res["long_term_analysis"])
 
-                                with _t3:
-                                    st.caption("중기(1~3개월) 주가 전망")
-                                    _up_pct = res.get("mid_term_view_pct", "-")
-                                    _up_price = res.get("mid_term_view_price", "-")
-                                    _c1, _c2 = st.columns(2)
-                                    _c1.metric("📆 중기 전망", _up_pct)
-                                    _c2.metric("🎯 중기 목표가", _up_price)
-                                    _up_cond = res.get("mid_term_view_condition", "")
-                                    if _up_cond and _up_cond != "-":
-                                        st.caption("전망 핵심 변수")
-                                        st.warning(_up_cond)
-                                    if res.get("long_term_analysis"):
-                                        with st.expander("📊 중장기 분석 보기"):
-                                            st.markdown(res["long_term_analysis"])
+                                    with _t4:
+                                        st.caption(f"중장기 등급: {res.get('long_term_rating', '-')}  |  {res.get('long_term_period', '3~6개월')}")
+                                        _lt_target = res.get("long_term_target", "-")
+                                        _lt_pct = res.get("long_term_target_pct", "-")
+                                        _c1, _c2 = st.columns(2)
+                                        _c1.metric("🎯 장기 목표가", f"{cur_sym}{_lt_target}" if _lt_target != "-" and not str(_lt_target).startswith(cur_sym) else _lt_target)
+                                        _c2.metric("기대 수익/손실률", _lt_pct)
+                                        if res.get("historical_pattern_analysis"):
+                                            with st.expander("📜 역사적 패턴 분석"):
+                                                st.markdown(res["historical_pattern_analysis"])
 
-                                with _t4:
-                                    st.caption(f"중장기 등급: {res.get('long_term_rating', '-')}  |  {res.get('long_term_period', '3~6개월')}")
-                                    _lt_target = res.get("long_term_target", "-")
-                                    _lt_pct = res.get("long_term_target_pct", "-")
-                                    _c1, _c2 = st.columns(2)
-                                    _c1.metric("🎯 장기 목표가", f"{cur_sym}{_lt_target}" if _lt_target != "-" and not str(_lt_target).startswith(cur_sym) else _lt_target)
-                                    _c2.metric("기대 수익/손실률", _lt_pct)
-                                    if res.get("historical_pattern_analysis"):
-                                        with st.expander("📜 역사적 패턴 분석"):
-                                            st.markdown(res["historical_pattern_analysis"])
-
-                    if st.button('🗑️ 삭제', key=f'fav_del_{ticker}', use_container_width=True):
-                        ok, dmsg = remove_favorite(str(ticker))
-                        if ok:
-                            st.success(dmsg)
-                            st.rerun()
-                        else: st.error(dmsg)
+                        if st.button('🗑️ 삭제', key=f'fav_del_{ticker}', use_container_width=True):
+                            ok, dmsg = remove_favorite(str(ticker))
+                            if ok:
+                                st.success(dmsg)
+                                st.rerun()
+                            else: st.error(dmsg)
+        
+        st.markdown("<div style='margin-bottom:30px'></div>", unsafe_allow_html=True)
 
 def main():
     # ── URL 파라미터 처리 (종목 즉시 이동) ──────────────────────────────
