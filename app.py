@@ -442,9 +442,10 @@ def inject_custom_css():
             font-weight: 700 !important;
         }
         
-        /* ── 거래 내역 버튼 정렬 보정 (Nudge) ── */
+        /* ── 거래 내역 버튼 정렬 보정 (Relative Position) ── */
         .trade-btn-container [data-testid="stButton"] button {
-            margin-top: 10px !important;
+            position: relative !important;
+            top: 10px !important;
         }
 
         /* ── 접기/펼치기(Expander) 레이아웃 보정 ── */
