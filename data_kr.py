@@ -489,15 +489,14 @@ def get_kr_minute_chart(stock_code: str, interval: int = 5):
     """국내 주식 분봉 OHLCV (KIS API → yfinance 폴백)"""
     import datetime as _dtm
 
-    # ── 1차: KIS API (당일 1분봉 → 리샘플) ──────────────────────────────────
+    # ── 1차: KIS API (당일 원시 데이터 → interval분봉으로 리샘플) ────────────
     try:
         df_kis = _kis_minute_chart_raw(stock_code)
         if not df_kis.empty:
-            if interval > 1:
-                df_kis = df_kis.set_index("datetime")
-                df_kis = df_kis.resample(f"{interval}min").agg(
-                    {"open": "first", "high": "max", "low": "min", "close": "last", "volume": "sum"}
-                ).dropna().reset_index()
+            # interval에 관계없이 항상 리샘플 — 동일 HH:MM 중복 방지
+            df_kis = df_kis.set_index("datetime").resample(f"{interval}min").agg(
+                {"open": "first", "high": "max", "low": "min", "close": "last", "volume": "sum"}
+            ).dropna().reset_index()
             return df_kis
     except Exception:
         pass

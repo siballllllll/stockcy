@@ -120,10 +120,17 @@ def _us_echarts_chart(ticker: str, interval: str = "5", height: int = 600, perio
             st.warning("차트 데이터를 불러올 수 없습니다. (데이터 소스: yfinance)")
             return
 
+        # 분봉: 당일 데이터만 필터링 (HH:MM 라벨 중복 방지)
+        _is_minute = interval not in ["D", "1wk", "1mo", "W", "M"]
+        if _is_minute:
+            last_date = df["datetime"].dt.date.max()
+            df = df[df["datetime"].dt.date == last_date].reset_index(drop=True)
+        else:
+            df = df.tail(500).reset_index(drop=True)
+
         # 렌더링용 데이터 클렌징 (NaN -> None 변환으로 JSON 에러 방지)
         def _clean_val(x): return None if pd.isna(x) else x
 
-        _is_minute = interval not in ["D", "1wk", "1mo", "W", "M"]
         category_data = df["datetime"].dt.strftime("%H:%M" if _is_minute else "%Y-%m-%d").tolist()
         values = [[_clean_val(v) for v in row] for row in df[["open", "close", "low", "high"]].values.tolist()]
 
@@ -136,18 +143,14 @@ def _us_echarts_chart(ticker: str, interval: str = "5", height: int = 600, perio
         for i, row in df.iterrows():
             volumes.append([i, _clean_val(row["volume"]), 1 if row["close"] >= row["open"] else -1])
 
-        # 분봉: 최근 200~300개 봉을 기본으로 보여줌
+        # 분봉: X축 라벨 30분 간격, 전체 세션 표시
         _min_iv = int(interval) if str(interval).isdigit() else 1
         if _is_minute:
-            # 15분 단위로 라벨 (1분봉=14개 간격, 5분봉=2개 간격)
-            _label_interval = max(1, 15 // _min_iv) - 1
-            _total = len(category_data)
-            # 최근 250개 봉 또는 최소 30% 보장
-            _zoom_start = max(0, int((1 - 250 / max(_total, 1)) * 100))
-            if _zoom_start > 70: _zoom_start = 70 
+            _label_interval = max(0, (30 // _min_iv) - 1)
+            _zoom_start = 0  # 장 시작부터 전체 표시
         else:
             _label_interval = "auto"
-            _zoom_start = 70
+            _zoom_start = 80
 
         options = {
             "backgroundColor": "rgba(0,0,0,0)",
@@ -247,14 +250,17 @@ def _kr_echarts_chart(stock_code: str, interval: str = "1", height: int = 600, p
             st.warning("차트 데이터를 불러올 수 없습니다.")
             return
 
-        # 분봉 데이터 필터링 제거 (과거 데이터 포함하여 흐름 파악)
-        if interval not in ["D", "W", "M"]:
-            df = df.tail(1000).reset_index(drop=True)
+        # 분봉: 당일 데이터만 필터링 (HH:MM 라벨 중복 방지)
+        _is_minute = interval not in ["D", "W", "M"]
+        if _is_minute:
+            last_date = df["datetime"].dt.date.max()
+            df = df[df["datetime"].dt.date == last_date].reset_index(drop=True)
+        else:
+            df = df.tail(500).reset_index(drop=True)
 
         # 렌더링용 데이터 클렌징 (NaN -> None 변환으로 JSON 에러 방지)
         def _clean_val(x): return None if pd.isna(x) else x
 
-        _is_minute = interval not in ["D", "W", "M"]
         category_data = df["datetime"].dt.strftime("%H:%M" if _is_minute else "%Y-%m-%d").tolist()
         values = [[_clean_val(v) for v in row] for row in df[["open", "close", "low", "high"]].values.tolist()]
 
@@ -267,17 +273,14 @@ def _kr_echarts_chart(stock_code: str, interval: str = "1", height: int = 600, p
         for i, row in df.iterrows():
             volumes.append([i, _clean_val(row["volume"]), 1 if row["close"] >= row["open"] else -1])
 
-        # 분봉: 최근 200~300개 봉을 기본으로 보여줌
+        # 분봉: X축 라벨 30분 간격, 전체 세션(09:00~15:30) 표시
         _min_iv = int(interval) if str(interval).isdigit() else 1
         if _is_minute:
-            # 15분 단위 라벨
-            _label_interval = max(1, 15 // _min_iv) - 1
-            _total = len(category_data)
-            _zoom_start = max(0, int((1 - 250 / max(_total, 1)) * 100))
-            if _zoom_start > 70: _zoom_start = 70
+            _label_interval = max(0, (30 // _min_iv) - 1)  # 1분봉→29칸마다, 5분봉→5칸마다
+            _zoom_start = 0  # 장 시작부터 전체 표시
         else:
             _label_interval = "auto"
-            _zoom_start = 70
+            _zoom_start = 50
 
         options = {
             "backgroundColor": "rgba(0,0,0,0)",
