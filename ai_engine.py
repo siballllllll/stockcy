@@ -56,6 +56,7 @@ def get_market_news(category="general"):
 
 # 모델 폴백 순서 (분석 품질을 위해 Pro 모델을 최상단에 배치)
 _MODEL_FALLBACK = [
+    "gemini-2.5-flash-preview-05-20",
     "gemini-2.5-flash",
     "gemini-2.0-flash",
     "gemini-1.5-flash",
