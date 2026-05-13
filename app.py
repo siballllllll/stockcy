@@ -361,18 +361,18 @@ def inject_custom_css():
         }
 
         [data-baseweb="popover"] {
-            zoom: 0.77 !important; 
-            transform-origin: top left !important;
+            /* 줌 제거: 표준 좌표계 사용 */
             max-width: none !important;
             min-width: auto !important;
         }
         [data-baseweb="menu"] {
+            /* 드롭다운 메뉴 너비를 검색창에 맞춤 */
             max-width: 100% !important;
             border-radius: 12px !important;
         }
         [data-baseweb="list-item"] {
-            font-size: 1.15rem !important;
-            padding: 12px 18px !important;
+            font-size: 0.95rem !important;
+            padding: 8px 14px !important;
             white-space: nowrap !important;
             overflow: hidden !important;
             text-overflow: ellipsis !important;
@@ -380,14 +380,13 @@ def inject_custom_css():
     </style>""", unsafe_allow_html=True)
     st.markdown("""
         <style>
-        /* ── 77% 축소 — 컨테이너 단위로 적용하여 팝업 좌표 오류 방지 ── */
-        html { font-size: 24px; }
-        .stApp { zoom: 0.77; }
+        /* ── 표준 스케일링 — Zoom 대신 Font-size 조절로 좌표 오류 근본 해결 ── */
+        html { font-size: 18.5px; }
         .stApp,
         [data-testid="stAppViewContainer"],
         [data-testid="stMain"] {
-            height: calc(100vh / 0.77) !important;
-            min-height: calc(100vh / 0.77) !important;
+            height: 100vh !important;
+            min-height: 100vh !important;
             overflow-y: auto !important;
         }
         [data-testid="stMainBlockContainer"] {
