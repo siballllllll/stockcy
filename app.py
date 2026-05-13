@@ -5836,12 +5836,39 @@ def main():
 
             if show_add:
                 with st.expander("➕ 종목 직접 추가"):
-                    c1, c2, c3, c4 = st.columns(4)
-                    nt = c1.text_input("티커 (예: TSLA 또는 005930)", key=f"nt_{portfolio_key}").upper().strip()
-                    nn = c2.text_input("종목명 (예: 테슬라)", key=f"nn_{portfolio_key}")
-                    np_val = c3.number_input("매수가($, ₩)", min_value=0.01, value=100.0, key=f"np_{portfolio_key}")
-                    nq_val = c4.number_input("수량", min_value=1, value=10, step=1, key=f"nq_{portfolio_key}")
-                    if st.button("➕ 추가", key=f"add_{portfolio_key}"):
+                    # 국내 + 미국 통합 검색 옵션 빌드 (캐시 활용)
+                    _add_kr_map = st.session_state.get("kr_code_to_name", {})
+                    _add_us_map = st.session_state.get("us_ticker_map", {})
+                    _opts_kr = [f"{name} ({code}) 🇰🇷" for code, name in _add_kr_map.items()]
+                    _opts_us = [
+                        f"{(info.get('name', tk) if isinstance(info, dict) else str(info))} ({tk}) 🇺🇸"
+                        for tk, info in _add_us_map.items()
+                    ]
+                    _all_opts = sorted(_opts_kr) + sorted(_opts_us)
+
+                    _sel = st.selectbox(
+                        "종목 검색 (종목명 또는 티커 입력)",
+                        options=_all_opts,
+                        index=None,
+                        placeholder="예: 삼성전자 / 005930 / TSLA / Apple",
+                        key=f"search_{portfolio_key}",
+                    )
+
+                    # 선택된 종목에서 티커·이름 추출
+                    # 형식: "종목명 (티커) 🇰🇷" 또는 "종목명 (티커) 🇺🇸"
+                    import re as _re
+                    if _sel:
+                        _ticker_m = _re.search(r'\(([^)]+)\)', _sel)
+                        nt = _ticker_m.group(1).strip() if _ticker_m else ""
+                        nn = _sel.rsplit("(", 1)[0].strip()
+                    else:
+                        nt, nn = "", ""
+
+                    ca, cb, cc = st.columns([2, 2, 1])
+                    np_val = ca.number_input("매수가 ($, ₩)", min_value=0.01, value=100.0, key=f"np_{portfolio_key}")
+                    nq_val = cb.number_input("수량", min_value=1, value=10, step=1, key=f"nq_{portfolio_key}")
+                    cc.markdown("<div style='margin-top:28px'></div>", unsafe_allow_html=True)
+                    if cc.button("➕ 추가", key=f"add_{portfolio_key}", use_container_width=True):
                         if nt and not any(x["ticker"] == nt for x in port_list):
                             st.session_state[portfolio_key].append({
                                 "ticker": nt,
@@ -5850,10 +5877,10 @@ def main():
                                 "quantity": int(nq_val),
                                 "buy_date": (datetime.now() + timedelta(hours=9)).strftime("%Y-%m-%d %H:%M")
                             })
-                            st.success(f"{nt} 추가 완료!")
+                            st.success(f"{nn or nt} ({nt}) 추가 완료!")
                             st.rerun()
                         elif not nt:
-                            st.warning("티커를 입력해주세요.")
+                            st.warning("종목을 검색해서 선택해주세요.")
                         else:
                             st.warning("이미 포트폴리오에 있는 종목입니다.")
 
