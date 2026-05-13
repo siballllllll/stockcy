@@ -1096,23 +1096,28 @@ def show_trade_analysis_modal():
                 for _tde, _ in _entries:
                     _pv = 0.0
                     try:
-                        _pv = float(_tde.get("profit_pct", 0))
+                        _pv = float(_tde.get("profit_pct", 0) or 0)
                     except (ValueError, TypeError):
                         pass
-                    _lparts.append(f"{'🟢' if _pv >= 0 else '🔴'} {_tde.get('ticker','')} {_pv:+.2f}%")
+                    _ptk = str(_tde.get("ticker", "") or "")
+                    _lparts.append(f"{'🟢' if _pv >= 0 else '🔴'} {_ptk} {_pv:+.2f}%")
                 _dlabel = f"📅 {_date}    {'   '.join(_lparts)}"
 
                 with st.expander(_dlabel, expanded=(_date == _latest_date)):
                     for _idx, (_tde, _res) in enumerate(_entries):
-                        _t_tk = _tde.get("ticker", "")
-                        _t_nm = _tde.get("name", "")
+                        _t_tk = str(_tde.get("ticker", "") or "")
+                        _t_nm = str(_tde.get("name", "") or "")
                         _t_pc = 0.0
                         try:
-                            _t_pc = float(_tde.get("profit_pct", 0))
+                            _t_pc = float(_tde.get("profit_pct", 0) or 0)
                         except (ValueError, TypeError):
                             pass
-                        _t_pr = float(_tde.get("profit", 0))
-                        _t_rs = _tde.get("result", "")
+                        _t_pr = 0.0
+                        try:
+                            _t_pr = float(_tde.get("profit", 0) or 0)
+                        except (ValueError, TypeError):
+                            pass
+                        _t_rs = str(_tde.get("result", "") or "")
                         _t_sy = "₩" if (len(_t_tk) == 6 and _t_tk.isdigit()) else "$"
                         _t_pc_clr = "#00c853" if _t_pc >= 0 else "#ff4b4b"
                         _t_rs_clr = "#00c853" if _t_rs == "승" else ("#ff4b4b" if _t_rs == "패" else "#aaa")
