@@ -892,14 +892,30 @@ def _sc_goto_stock(ticker: str):
     st.rerun()
 
 
+def _normalize_ticker(raw: str) -> tuple[str, str]:
+    """티커를 정규화하고 (정규화된_티커, 'KR'|'US') 반환."""
+    t = raw.strip().upper()
+    # .KS / .KQ / .KP 등 거래소 접미사 제거
+    for _sfx in (".KS", ".KQ", ".KP", ".KR"):
+        if t.endswith(_sfx):
+            t = t[: -len(_sfx)]
+            break
+    # 순수 숫자 4~6자리 → KOSPI/KOSDAQ 코드로 간주, 6자리로 제로패딩
+    if t.isdigit() and 4 <= len(t) <= 6:
+        return t.zfill(6), "KR"
+    return t, "US"
+
+
 def _render_stock_popover(stocks: list, color: str, label: str, key_prefix: str):
     """종목 목록을 KR/US로 분리해 popover 버튼으로 렌더링 (각 최대 5개)."""
     _icon = "🟢" if color == "up" else "🔴"
     _dir  = "상승" if color == "up" else "하락"
     _clr  = "#00c853" if color == "up" else "#ff4b4b"
 
-    _kr_stocks = [s for s in stocks if (lambda t: len(t)==6 and t.isdigit())(str(s.get("ticker","")))]
-    _us_stocks = [s for s in stocks if not (lambda t: len(t)==6 and t.isdigit())(str(s.get("ticker","")))]
+    _kr_stocks, _us_stocks = [], []
+    for _s in stocks:
+        _, _mkt = _normalize_ticker(str(_s.get("ticker", "")))
+        (_kr_stocks if _mkt == "KR" else _us_stocks).append(_s)
 
     st.markdown(f"**{label}**")
 
@@ -912,7 +928,8 @@ def _render_stock_popover(stocks: list, color: str, label: str, key_prefix: str)
             )
             continue
         for _i, _s in enumerate(_group[:5]):
-            _tk  = str(_s.get("ticker", ""))
+            _tk_raw = str(_s.get("ticker", ""))
+            _tk, _mkt = _normalize_ticker(_tk_raw)
             _nm  = str(_s.get("name", ""))
             _rsn = str(_s.get("reason", ""))
             _vn  = str(_s.get("valuation_note", ""))
