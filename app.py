@@ -361,19 +361,18 @@ def inject_custom_css():
         }
 
         [data-baseweb="popover"] {
-            /* 줌 제거: 좌표 어긋남 방지 */
-            zoom: 1.0 !important; 
+            zoom: 0.77 !important; 
+            transform-origin: top left !important;
             max-width: none !important;
             min-width: auto !important;
         }
         [data-baseweb="menu"] {
-            /* 드롭다운 메뉴 너비를 검색창에 맞춤 */
             max-width: 100% !important;
             border-radius: 12px !important;
         }
         [data-baseweb="list-item"] {
-            font-size: 1.1rem !important;
-            padding: 10px 16px !important;
+            font-size: 1.15rem !important;
+            padding: 12px 18px !important;
             white-space: nowrap !important;
             overflow: hidden !important;
             text-overflow: ellipsis !important;
@@ -381,8 +380,9 @@ def inject_custom_css():
     </style>""", unsafe_allow_html=True)
     st.markdown("""
         <style>
-        /* ── 77% 축소 — zoom + 높이 보정으로 클리핑 방지 ── */
-        html { zoom: 0.77; font-size: 24px; }
+        /* ── 77% 축소 — 컨테이너 단위로 적용하여 팝업 좌표 오류 방지 ── */
+        html { font-size: 24px; }
+        .stApp { zoom: 0.77; }
         .stApp,
         [data-testid="stAppViewContainer"],
         [data-testid="stMain"] {
