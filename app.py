@@ -444,7 +444,7 @@ def inject_custom_css():
         
         /* ── 거래 내역 버튼 정렬 보정 (Nudge) ── */
         button[key*="ai_trade_"], button[key*="del_trade_"] {
-            margin-top: 8px !important;
+            margin-top: 10px !important;
         }
 
         /* ── 접기/펼치기(Expander) 레이아웃 보정 ── */
