@@ -193,6 +193,10 @@ def generate_market_scenarios() -> dict:
         "(예: 미·중 무역협상, 반도체, 전쟁·지정학, 연준 금리, 유가, 비트코인 법안/ETF, SpaceX 등)\n\n"
         "각 이슈별로 2가지 시나리오(A: 낙관, B: 비관)를 작성하세요.\n"
         "PER/밸류에이션 관점을 반드시 포함하고, 단타전략과 장타전략을 구분해서 작성하세요.\n\n"
+        "【중요】종목 선정 규칙:\n"
+        "- rising_stocks/falling_stocks 각각에 국내(KOSPI/KOSDAQ) 테마 수혜주 최소 3종목 + 미국(NYSE/NASDAQ) 종목 최소 3종목을 반드시 포함하세요.\n"
+        "- 국내 종목 ticker는 반드시 KOSPI/KOSDAQ 6자리 숫자 코드(예: 삼성전자=005930, SK하이닉스=000660, 카카오=035720)를 사용하세요.\n"
+        "- 미국 종목 ticker는 NYSE/NASDAQ 심볼(예: NVDA, TSLA, AAPL)을 사용하세요.\n\n"
         "반드시 아래 JSON 형식으로만 응답하세요 (마크다운 백틱, 주석 절대 금지):\n\n"
         "{\n"
         '  "issues": [\n'
@@ -212,10 +216,10 @@ def generate_market_scenarios() -> dict:
         '          "trigger": "현실화 조건 (1문장)",\n'
         '          "economic_analysis": "경제적 영향. PER/밸류에이션 관점 포함 (2~3문장)",\n'
         '          "rising_stocks": [\n'
-        '            {"name": "종목명", "ticker": "티커", "reason": "이유", "valuation_note": "PER 코멘트"}\n'
+        '            {"name": "종목명", "ticker": "국내주식=KOSPI/KOSDAQ 6자리숫자코드(예:005930), 미국주식=심볼(예:NVDA)", "reason": "이유", "valuation_note": "PER 코멘트"}\n'
         "          ],\n"
         '          "falling_stocks": [\n'
-        '            {"name": "종목명", "ticker": "티커", "reason": "이유", "valuation_note": "PER 코멘트"}\n'
+        '            {"name": "종목명", "ticker": "국내주식=KOSPI/KOSDAQ 6자리숫자코드(예:005930), 미국주식=심볼(예:NVDA)", "reason": "이유", "valuation_note": "PER 코멘트"}\n'
         "          ],\n"
         '          "short_strategy": "단타 전략: 진입 타이밍·청산 조건 (1~2문장)",\n'
         '          "long_strategy": "장타 전략: 포지션 방향·보유 기간 (1~2문장)"\n'
