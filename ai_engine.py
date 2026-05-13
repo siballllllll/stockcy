@@ -57,14 +57,15 @@ def get_market_news(category="general"):
 # 모델 폴백 순서 (분석 품질을 위해 Pro 모델을 최상단에 배치)
 _MODEL_FALLBACK = [
     "gemini-2.5-flash",
-    "gemini-3.1-flash-lite",
+    "gemini-2.0-flash",
+    "gemini-2.0-flash-lite",
 ]
 
 # 할당량 소진 여부 (세션 중 반복 호출 방지)
 _QUOTA_EXHAUSTED = False
 
-# API 호출 타임아웃 (초) — Streamlit Cloud WebSocket 끊김 방지
-_API_TIMEOUT_SEC = 50
+# API 호출 타임아웃 (초)
+_API_TIMEOUT_SEC = 90
 
 
 def _call_gemini(prompt, use_search=False, temperature=0.7, response_mime_type=None):

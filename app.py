@@ -1003,6 +1003,7 @@ def show_market_scenarios():
             st.rerun()
     with _close_col:
         if st.button("닫기", use_container_width=True):
+            st.session_state.pop("_dialog_open", None)
             st.rerun()
 
 
@@ -1079,6 +1080,7 @@ def show_daily_briefing():
                                     st.markdown(f"- **{ticker_to_name.get(t, t)}** (`{t}`)")
                     
     if st.button("닫기"):
+        st.session_state.pop("_dialog_open", None)
         st.rerun()
 
 @st.dialog("🧠 AI 거래 분석", width="large")
@@ -1342,6 +1344,7 @@ def show_trade_analysis_modal():
                         st.success(f"**추천 전략:** {_pat_res.get('recommended_strategy','')}")
 
     if st.button("닫기"):
+        st.session_state.pop("_dialog_open", None)
         st.rerun()
 
 def show_favorites_center():
@@ -1597,8 +1600,12 @@ def main():
             st.session_state.us_selected_ticker = _q_code
         st.rerun()
 
-    if _HAVE_AUTOREFRESH:
-        _st_autorefresh(interval=60000, limit=None, key="stockcy_refresh")
+    _suppress_refresh = (
+        st.session_state.get("_ai_running", False) or
+        st.session_state.get("_dialog_open", False)
+    )
+    if _HAVE_AUTOREFRESH and not _suppress_refresh:
+        _st_autorefresh(interval=600000, limit=None, key="stockcy_refresh")
     init_session_state()
     inject_custom_css()
     
@@ -1658,9 +1665,11 @@ def main():
             st.rerun()
     with _hn4:
         if st.button("📰 브리핑", key="top_nav_briefing", use_container_width=True):
+            st.session_state._dialog_open = True
             show_daily_briefing()
     with _hn6:
         if st.button("📈 시나리오", key="top_nav_scenario", use_container_width=True):
+            st.session_state._dialog_open = True
             show_market_scenarios()
     with _hm1:
         if st.button("🇰🇷 국내", key="top_mkt_kr",
@@ -4541,8 +4550,8 @@ def main():
             us_mode = st.session_state.us_mode
 
             # ── US 신호 스캔 (모드 무관, 항상 실행 → 네비 배지용) ───────────
-            if _HAVE_AUTOREFRESH:
-                _st_autorefresh(interval=180_000, key="us_signal_autorefresh")
+            if _HAVE_AUTOREFRESH and not _suppress_refresh:
+                _st_autorefresh(interval=600_000, key="us_signal_autorefresh")
 
             def _us_quick_signal_scan() -> int:
                 try:
@@ -6956,6 +6965,7 @@ def main():
                     st.plotly_chart(fig, use_container_width=True)
 
                 if st.session_state.pop("_modal_open", False):
+                    st.session_state._dialog_open = True
                     show_trade_analysis_modal()
 
                 st.markdown("### 📋 거래 내역")
