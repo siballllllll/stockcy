@@ -185,13 +185,14 @@ def generate_daily_briefing():
 
 
 def generate_market_scenarios() -> dict:
-    """오늘의 주요 이슈별 시나리오 분석 — 이슈 3개 × 시나리오 2개, 밸류에이션 포함."""
+    """오늘의 주요 이슈별 시나리오 — 비트코인 포함 전 영역, 단타/장타 전략 분리."""
     prompt = (
         "당신은 월스트리트 20년 경력의 매크로 전략가이자 퀀트 트레이더입니다.\n"
-        "구글 검색으로 오늘 증시에 가장 큰 영향을 줄 수 있는 주요 이슈 3개를 파악하세요.\n"
-        "(예: 미·중 무역협상, 반도체, 전쟁, 연준 금리, 유가, SpaceX 등)\n\n"
+        "구글 검색으로 오늘 글로벌 금융시장(주식·암호화폐 포함)에 가장 큰 영향을 줄 수 있는\n"
+        "주요 이슈 4개를 파악하세요. 반드시 비트코인·암호화폐 관련 이슈 1개를 포함하세요.\n"
+        "(예: 미·중 무역협상, 반도체, 전쟁·지정학, 연준 금리, 유가, 비트코인 법안/ETF, SpaceX 등)\n\n"
         "각 이슈별로 2가지 시나리오(A: 낙관, B: 비관)를 작성하세요.\n"
-        "PER/밸류에이션 관점을 반드시 포함하세요.\n\n"
+        "PER/밸류에이션 관점을 반드시 포함하고, 단타전략과 장타전략을 구분해서 작성하세요.\n\n"
         "반드시 아래 JSON 형식으로만 응답하세요 (마크다운 백틱, 주석 절대 금지):\n\n"
         "{\n"
         '  "issues": [\n'
@@ -200,6 +201,7 @@ def generate_market_scenarios() -> dict:
         '      "title": "이슈 제목",\n'
         '      "summary": "현황 요약 (1~2문장)",\n'
         '      "urgency": "긴급/보통/장기",\n'
+        '      "category": "주식/암호화폐/매크로/지정학",\n'
         '      "scenarios": [\n'
         "        {\n"
         '          "label": "A",\n'
@@ -215,7 +217,8 @@ def generate_market_scenarios() -> dict:
         '          "falling_stocks": [\n'
         '            {"name": "종목명", "ticker": "티커", "reason": "이유", "valuation_note": "PER 코멘트"}\n'
         "          ],\n"
-        '          "strategy": "단타 전략 (1문장)"\n'
+        '          "short_strategy": "단타 전략: 진입 타이밍·청산 조건 (1~2문장)",\n'
+        '          "long_strategy": "장타 전략: 포지션 방향·보유 기간 (1~2문장)"\n'
         "        }\n"
         "      ]\n"
         "    }\n"
@@ -224,6 +227,54 @@ def generate_market_scenarios() -> dict:
     )
     try:
         response = _call_gemini(prompt, use_search=True, temperature=0.6, timeout_sec=120)
+        text = re.sub(r'```(?:json)?', '', response.text).strip()
+        start = text.find('{')
+        if start != -1:
+            result, _ = json.JSONDecoder().raw_decode(text, start)
+            return result
+        return json.loads(text)
+    except Exception as e:
+        return {"error": str(e)}
+
+
+def generate_scenario_detail(issue_title: str, scenario_title: str, economic_analysis: str,
+                              rising: list, falling: list) -> dict:
+    """특정 시나리오의 상세 심층 분석을 생성합니다."""
+    rising_txt = ", ".join(f"{s.get('name','?')}({s.get('ticker','?')})" for s in rising)
+    falling_txt = ", ".join(f"{s.get('name','?')}({s.get('ticker','?')})" for s in falling)
+    prompt = (
+        f"당신은 월스트리트 20년 경력의 매크로 전략가이자 퀀트 트레이더입니다.\n"
+        f"아래 시나리오에 대한 심층 상세 분석을 제공하세요.\n\n"
+        f"## 이슈: {issue_title}\n"
+        f"## 시나리오: {scenario_title}\n"
+        f"## 기본 분석: {economic_analysis}\n"
+        f"## 상승 후보: {rising_txt}\n"
+        f"## 하락 후보: {falling_txt}\n\n"
+        "구글 검색을 통해 최신 정보를 보강하고 아래 JSON 형식으로만 응답하세요 (백틱, 주석 금지):\n\n"
+        "{\n"
+        '  "deep_analysis": "심층 경제·시장 분석 (4~5문장, PER·금리·수급·섹터 로테이션 포함)",\n'
+        '  "historical_precedent": "유사한 역사적 사례와 당시 시장 반응 (2~3문장)",\n'
+        '  "key_risks": ["주요 리스크 1", "주요 리스크 2", "주요 리스크 3"],\n'
+        '  "short_detail": {\n'
+        '    "entry": "단타 진입 조건·가격대",\n'
+        '    "exit": "청산 조건·목표가·손절선",\n'
+        '    "timing": "최적 진입 타이밍 (장 초반/중반/후반)",\n'
+        '    "stocks": [\n'
+        '      {"name": "종목명", "ticker": "티커", "entry_point": "진입가 기준", "target": "목표가", "stop": "손절가", "note": "추가 코멘트"}\n'
+        "    ]\n"
+        "  },\n"
+        '  "long_detail": {\n'
+        '    "thesis": "장타 투자 근거 (2~3문장)",\n'
+        '    "hold_period": "예상 보유 기간",\n'
+        '    "position_sizing": "포지션 비중 권고 (예: 포트폴리오의 X%)  ",\n'
+        '    "stocks": [\n'
+        '      {"name": "종목명", "ticker": "티커", "reason": "장기 보유 이유", "catalyst": "주요 촉매 이벤트"}\n'
+        "    ]\n"
+        "  }\n"
+        "}"
+    )
+    try:
+        response = _call_gemini(prompt, use_search=True, temperature=0.5, timeout_sec=120)
         text = re.sub(r'```(?:json)?', '', response.text).strip()
         start = text.find('{')
         if start != -1:
