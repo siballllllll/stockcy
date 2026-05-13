@@ -443,6 +443,7 @@ def inject_custom_css():
             font-weight: 700 !important;
             font-family: inherit !important;
         }
+    </style>""", unsafe_allow_html=True)
     st.markdown("""
         <style>
         /* ── 표준 스케일링 — Zoom 대신 Font-size 조절로 좌표 오류 근본 해결 ── */
