@@ -149,10 +149,10 @@ def _us_echarts_chart(ticker: str, interval: str = "5", height: int = 600, perio
         if _is_minute:
             _label_interval = max(0, (30 // _min_iv) - 1)
             _view = 90
-            _zoom_start = max(0, int((1 - _view / max(_total, 1)) * 100)) if _total > _view else 0
         else:
+            _view = {"D": 80, "W": 52, "M": 24}.get(_unit, 80)
             _label_interval = "auto"
-            _zoom_start = 80
+        _zoom_start = max(0, int((1 - _view / max(_total, 1)) * 100)) if _total > _view else 0
 
         options = {
             "backgroundColor": "rgba(0,0,0,0)",
@@ -214,7 +214,7 @@ def _us_echarts_chart(ticker: str, interval: str = "5", height: int = 600, perio
             "series": [
                 {
                     "name": "Price", "type": "candlestick", "data": values,
-                    "barMaxWidth": 30,
+                    "barMaxWidth": 30, "barMinWidth": 2,
                     "itemStyle": {
                         "color": "#ff4b4b", "color0": "#2b7cff",
                         "borderColor": "#ff4b4b", "borderColor0": "#2b7cff"
@@ -226,7 +226,7 @@ def _us_echarts_chart(ticker: str, interval: str = "5", height: int = 600, perio
                 {"name": "MA120", "type": "line", "data": ma120, "smooth": True, "showSymbol": False, "lineStyle": {"width": 1, "color": "#81d4fa"}},
                 {
                     "name": "Volume", "type": "bar", "xAxisIndex": 1, "yAxisIndex": 1, "data": volumes,
-                    "barMaxWidth": 30,
+                    "barMaxWidth": 30, "barMinWidth": 2,
                     "itemStyle": {
                         "color": "#ff4b4b", "color0": "#2b7cff"
                     }
@@ -275,16 +275,16 @@ def _kr_echarts_chart(stock_code: str, interval: str = "1", height: int = 600, p
         for i, row in df.iterrows():
             volumes.append([i, _clean_val(row["volume"]), 1 if row["close"] >= row["open"] else -1])
 
-        # 분봉: X축 라벨 30분 간격, 기본 90개 캔들 표시 (스크롤로 전체 세션 확인)
+        # 기본 표시 캔들 수 계산 (일봉=80, 주봉=52, 월봉=24, 1분봉=90, 5분봉=전체)
         _min_iv = int(interval) if str(interval).isdigit() else 1
         _total = len(category_data)
         if _is_minute:
             _label_interval = max(0, (30 // _min_iv) - 1)
-            _view = 90  # 기본 표시 캔들 수 (1분봉=90분, 5분봉=7.5시간→전체)
-            _zoom_start = max(0, int((1 - _view / max(_total, 1)) * 100)) if _total > _view else 0
+            _view = 90
         else:
+            _view = {"D": 80, "W": 52, "M": 24}.get(interval, 80)
             _label_interval = "auto"
-            _zoom_start = 50
+        _zoom_start = max(0, int((1 - _view / max(_total, 1)) * 100)) if _total > _view else 0
 
         options = {
             "backgroundColor": "rgba(0,0,0,0)",
@@ -346,7 +346,7 @@ def _kr_echarts_chart(stock_code: str, interval: str = "1", height: int = 600, p
             "series": [
                 {
                     "name": "Price", "type": "candlestick", "data": values,
-                    "barMaxWidth": 30,
+                    "barMaxWidth": 30, "barMinWidth": 2,
                     "itemStyle": {
                         "color": "#ff4b4b", "color0": "#2b7cff",
                         "borderColor": "#ff4b4b", "borderColor0": "#2b7cff"
@@ -358,7 +358,7 @@ def _kr_echarts_chart(stock_code: str, interval: str = "1", height: int = 600, p
                 {"name": "MA120", "type": "line", "data": ma120, "smooth": True, "showSymbol": False, "lineStyle": {"width": 1, "color": "#81d4fa"}},
                 {
                     "name": "Volume", "type": "bar", "xAxisIndex": 1, "yAxisIndex": 1, "data": volumes,
-                    "barMaxWidth": 30,
+                    "barMaxWidth": 30, "barMinWidth": 2,
                     "itemStyle": {
                         "color": "#ff4b4b", "color0": "#2b7cff"
                     }
