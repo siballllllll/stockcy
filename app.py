@@ -353,6 +353,13 @@ st.set_page_config(
 def inject_custom_css():
     # selectbox 드롭다운 위치 보정 (zoom 오프셋)
     st.markdown("""<style>
+        /* ── 렉(Overlap) 방지: 리렌더링 중 이전 화면 희미하게 처리 ── */
+        [data-stale="true"] {
+            opacity: 0.25 !important;
+            filter: grayscale(1) blur(1px) !important;
+            transition: opacity 0.1s ease-in-out !important;
+        }
+
         [data-baseweb="popover"]{zoom:1.3!important;transform-origin:top left!important}
     </style>""", unsafe_allow_html=True)
     st.markdown("""
@@ -546,7 +553,7 @@ def inject_custom_css():
         /* ── 버튼 ── */
         div[data-testid="stButton"] > button {
             border-radius: 20px !important;
-            font-size: 1.07remrem !important;
+            font-size: 1.07rem !important;
             padding: 4px 14px !important;
             border: 1px solid var(--sc-btn-border) !important;
             transition: all 0.15s ease !important;
@@ -600,9 +607,9 @@ def inject_custom_css():
             padding: 8px 4px 4px 2px;
         }
         .index-item { display: flex; flex-direction: column; }
-        .index-name { font-size: 0.91remrem; color: var(--sc-text-muted); letter-spacing: 0.04em; }
-        .index-val  { font-size: 1.21remrem; font-weight: 700; line-height: 1.2; }
-        .index-chg  { font-size: 0.94remrem; margin-top: 1px; }
+        .index-name { font-size: 0.91rem; color: var(--sc-text-muted); letter-spacing: 0.04em; }
+        .index-val  { font-size: 1.21rem; font-weight: 700; line-height: 1.2; }
+        .index-chg  { font-size: 0.94rem; margin-top: 1px; }
 
         /* ── 종목 행 hover ── */
         .stock-row:hover { background: var(--sc-row-hover); border-radius: 8px; }
@@ -613,7 +620,7 @@ def inject_custom_css():
             background: var(--sc-pill-bg);
             border-radius: 20px;
             padding: 2px 10px;
-            font-size: 0.94remrem;
+            font-size: 0.94rem;
             color: var(--sc-pill-color);
             margin: 1px;
         }
@@ -636,7 +643,7 @@ def inject_custom_css():
         ══════════════════════════════════════════════════════════ */
         .sc-section-label {
             display: inline-block;
-            font-size: 0.94remrem;
+            font-size: 0.94rem;
             font-weight: 700;
             letter-spacing: 0.08em;
             text-transform: uppercase;
@@ -652,7 +659,7 @@ def inject_custom_css():
             border: none !important;
             border-bottom: 2px solid transparent !important;
             border-radius: 4px 4px 0 0 !important;
-            font-size: 0.94remrem !important;
+            font-size: 0.94rem !important;
             font-weight: 500 !important;
             color: var(--sc-nav-inactive) !important;
             padding: 3px 6px !important;
@@ -677,7 +684,7 @@ def inject_custom_css():
             background: transparent !important;
             border: 1px solid var(--sc-mkt-border) !important;
             border-radius: 20px !important;
-            font-size: 0.88remrem !important;
+            font-size: 0.88rem !important;
             color: var(--sc-mkt-inactive) !important;
             padding: 2px 7px !important;
             transition: all 0.15s !important;
@@ -696,7 +703,7 @@ def inject_custom_css():
         }
 
         .disclaimer {
-            font-size: 1.01remrem;
+            font-size: 1.01rem;
             color: var(--sc-text-subtle);
             text-align: center;
             margin-top: 50px;
@@ -838,7 +845,7 @@ def show_favorites_center():
 🔵 과매도: 당일 -5% 이상 급락. 섣부른 매수보다 바닥 확인이 필요합니다.
 🟢 상승세 유지 / 🔴 약세 흐름: 당일의 완만한 추세 변화를 나타냅니다.
     """)
-    st.markdown('<p style="font-size:1.10remrem;color:#888">관심 종목의 실시간 시세와 AI 매수 타이밍을 한눈에 관리합니다.</p>', unsafe_allow_html=True)
+    st.markdown('<p style="font-size:1.10rem;color:#888">관심 종목의 실시간 시세와 AI 매수 타이밍을 한눈에 관리합니다.</p>', unsafe_allow_html=True)
     
     from db import load_favorites, remove_favorite
     favs, msg = load_favorites()
@@ -918,7 +925,7 @@ def show_favorites_center():
                     st.markdown(
                         f"<div style='display:inline-block;padding:2px 8px;border-radius:4px;"
                         f"background:{_fav_g_color}15;border:1px solid {_fav_g_color}66;"
-                        f"color:{_fav_g_color};font-size:0.88remrem;font-weight:700;margin:6px 0'>"
+                        f"color:{_fav_g_color};font-size:0.88rem;font-weight:700;margin:6px 0'>"
                         f"{_fav_guide}</div>",
                         unsafe_allow_html=True
                     )
@@ -991,8 +998,8 @@ def show_favorites_center():
                             _badge_c = {"매우 강력 추천":"#00c853","추천":"#69f0ae","중간추천":"#f5c518","비추천":"#ff7043","매우 비추천":"#b71c1c"}.get(_rating, "#888")
                             st.markdown(
                                 f"<div style='display:flex;gap:6px;flex-wrap:wrap;margin:4px 0'>"
-                                f"<span style='background:{_badge_c}22;border:1px solid {_badge_c};border-radius:6px;padding:2px 8px;font-size:0.98remrem;font-weight:700;color:{_badge_c}'>단기: {_rating}</span>"
-                                f"<span style='background:#2b7cff22;border:1px solid #2b7cff;border-radius:6px;padding:2px 8px;font-size:0.98remrem;font-weight:700;color:#2b7cff'>중장기: {_lt_rating}</span>"
+                                f"<span style='background:{_badge_c}22;border:1px solid {_badge_c};border-radius:6px;padding:2px 8px;font-size:0.98rem;font-weight:700;color:{_badge_c}'>단기: {_rating}</span>"
+                                f"<span style='background:#2b7cff22;border:1px solid #2b7cff;border-radius:6px;padding:2px 8px;font-size:0.98rem;font-weight:700;color:#2b7cff'>중장기: {_lt_rating}</span>"
                                 f"</div>",
                                 unsafe_allow_html=True
                             )
@@ -1102,7 +1109,7 @@ def main():
     )
     with _hdr_l:
         st.markdown(
-            "<p style='margin:6px 0 0 0;font-size:1.21remrem;font-weight:800;"
+            "<p style='margin:6px 0 0 0;font-size:1.21rem;font-weight:800;"
             "letter-spacing:-0.5px;white-space:nowrap'>📈 Stockcy</p>",
             unsafe_allow_html=True,
         )
@@ -1273,7 +1280,7 @@ def main():
             f'<span class="{cls}">'
             f'<span class="pl">{label}</span>'
             f'<span class="pp">{price_str}</span>'
-            f'<span style="font-size:1.14remrem;color:{c};font-weight:700;'
+            f'<span style="font-size:1.14rem;color:{c};font-weight:700;'
             f'background:{bg};border-radius:10px;padding:2px 8px">'
             f'{arrow} {sign}{pct:.2f}%</span>'
             f'</span>'
@@ -1311,8 +1318,8 @@ def main():
             border-radius:20px; padding:5px 15px; margin:0 8px;
           }}
           .pill-idx {{ background:var(--tk-pill-idx); }}
-          .pl {{ font-size:1.25remrem; color:var(--tk-label); font-weight:600; }}
-          .pp {{ font-size:1.21remrem; color:var(--tk-price); font-weight:700; }}
+          .pl {{ font-size:1.25rem; color:var(--tk-label); font-weight:600; }}
+          .pp {{ font-size:1.21rem; color:var(--tk-price); font-weight:700; }}
           @keyframes krtick {{
             from {{ transform: translateX(0); }}
             to   {{ transform: translateX(-50%); }}
@@ -1596,8 +1603,8 @@ def main():
                                 f"""<div style='background:linear-gradient(90deg,rgba(255,75,75,0.18),rgba(255,152,0,0.12));
                                     border:1.5px solid #ff4b4b;border-radius:10px;padding:8px 14px;margin-bottom:8px;
                                     display:flex;align-items:center;gap:8px;animation:pulse 1.5s ease-in-out infinite;'>
-                                  <span style='font-size:1.15remrem'>🔥</span>
-                                  <span style='flex:1;font-size:0.98remrem;font-weight:700;color:#ff6b6b'>
+                                  <span style='font-size:1.15rem'>🔥</span>
+                                  <span style='flex:1;font-size:0.98rem;font-weight:700;color:#ff6b6b'>
                                     {_new_count}개 신호 감지 ({_sig_ts})</span>
                                 </div>
                                 <style>@keyframes pulse{{0%,100%{{opacity:1}}50%{{opacity:0.6}}}}</style>""",
@@ -1627,10 +1634,10 @@ def main():
                             _cond_color = "#ff4b4b" if "상승" in _cond else "#2b7cff" if "하락" in _cond else "#f5c518"
                             _cond_icon  = "🟢" if "상승" in _cond else "🔴" if "하락" in _cond else "🟡"
                             st.markdown(
-                                f"<div style='font-size:0.91remrem;padding:4px 8px;margin:6px 0;"
+                                f"<div style='font-size:0.91rem;padding:4px 8px;margin:6px 0;"
                                 f"border-left:3px solid {_cond_color};border-radius:0 6px 6px 0'>"
                                 f"{_cond_icon} <b style='color:{_cond_color}'>{_cond}</b>"
-                                f"&nbsp;<span style='color:#666;font-size:0.81remrem'>{_res.get('_ts','')}</span></div>",
+                                f"&nbsp;<span style='color:#666;font-size:0.81rem'>{_res.get('_ts','')}</span></div>",
                                 unsafe_allow_html=True,
                             )
                             if _res.get("error") and not _res.get("picks"):
@@ -1640,7 +1647,7 @@ def main():
                             else:
                                 _sel = st.session_state.get("kr_selected_pick_idx", 0)
                                 st.markdown(
-                                    f"<div style='font-size:1.1remrem;color:#666;margin-bottom:4px'>"
+                                    f"<div style='font-size:1.1rem;color:#666;margin-bottom:4px'>"
                                     f"총 {len(_res['picks'])}개 종목 — 클릭하여 상세 확인</div>",
                                     unsafe_allow_html=True,
                                 )
@@ -1664,14 +1671,14 @@ def main():
                                             f"<div style='background:{_row_bg};border:{_row_bdr};"
                                             f"border-radius:8px;padding:8px 10px;margin-bottom:2px'>"
                                             f"<div style='display:flex;justify-content:space-between;align-items:center'>"
-                                            f"<span style='font-size:1.04remrem;font-weight:700'>{_pick.get('name','')}</span>"
-                                            f"<span style='font-size:0.88remrem;color:{_urg_color2};font-weight:600'>"
+                                            f"<span style='font-size:1.04rem;font-weight:700'>{_pick.get('name','')}</span>"
+                                            f"<span style='font-size:0.88rem;color:{_urg_color2};font-weight:600'>"
                                             f"{_urg_icon2} {_urg2}</span>"
                                             f"</div>"
                                             f"<div style='display:flex;justify-content:space-between;margin-top:3px'>"
-                                            f"<span style='font-size:1.1remrem;color:#777'>"
+                                            f"<span style='font-size:1.1rem;color:#777'>"
                                             f"매수 ₩{int(_entry2):,} → +{_upside2}%</span>"
-                                            f"<span style='font-size:0.88remrem;color:{_cpct_c2};font-weight:600'>"
+                                            f"<span style='font-size:0.88rem;color:{_cpct_c2};font-weight:600'>"
                                             f"{'▲' if _cpct2>=0 else '▼'}{abs(_cpct2):.1f}%</span>"
                                             f"</div></div>",
                                             unsafe_allow_html=True,
@@ -1687,8 +1694,8 @@ def main():
                         else:
                             st.markdown(
                                 "<div style='text-align:center;padding:50px 0;color:#555'>"
-                                "<div style='font-size:2.30remrem'>🎯</div>"
-                                "<div style='margin-top:8px;font-size:1.10remrem'>AI 분석을 실행하면<br>"
+                                "<div style='font-size:2.30rem'>🎯</div>"
+                                "<div style='margin-top:8px;font-size:1.10rem'>AI 분석을 실행하면<br>"
                                 "종목 목록이 여기에 표시됩니다</div>"
                                 "</div>",
                                 unsafe_allow_html=True,
@@ -1701,8 +1708,8 @@ def main():
                             st.markdown(
                                 "<div style='display:flex;flex-direction:column;align-items:center;"
                                 "justify-content:center;height:200px;color:#444'>"
-                                "<div style='font-size:3.45remrem'>📊</div>"
-                                "<div style='margin-top:12px;font-size:1.14remrem;text-align:center;line-height:1.6'>"
+                                "<div style='font-size:3.45rem'>📊</div>"
+                                "<div style='margin-top:12px;font-size:1.14rem;text-align:center;line-height:1.6'>"
                                 "좌측에서 AI 분석을 실행하면<br>선택 종목 상세가 여기에 표시됩니다</div>"
                                 "</div>",
                                 unsafe_allow_html=True,
@@ -1743,14 +1750,14 @@ def main():
                             _cpct_sign  = "▲" if _cpct >= 0 else "▼"
 
                             _cur_html = (
-                                f"<div style='font-size:1.04remrem;color:#aaa;margin-bottom:8px'>"
+                                f"<div style='font-size:1.04rem;color:#aaa;margin-bottom:8px'>"
                                 f"현재 <b style='color:#eee'>₩{int(_cur):,}</b>&nbsp;"
                                 f"<span style='color:{_cpct_color};font-weight:700'>"
                                 f"{_cpct_sign} {abs(_cpct):.2f}%</span></div>"
                             ) if _cur > 0 else ""
 
                             _pattern_html = (
-                                f"<div style='font-size:0.81remrem;color:#7dd3fc;"
+                                f"<div style='font-size:0.81rem;color:#7dd3fc;"
                                 f"background:rgba(125,211,252,0.08);border-radius:6px;"
                                 f"padding:3px 8px;margin-bottom:6px;display:inline-block'>"
                                 f"📊 {_pattern}</div>"
@@ -1761,12 +1768,12 @@ def main():
                                 _theme_pos_html = (
                                     f"<div style='display:flex;gap:5px;flex-wrap:wrap;margin-bottom:6px'>"
                                     + (f"<span style='background:rgba(255,255,255,0.07);border:1px solid {_pos_color};"
-                                       f"border-radius:8px;padding:2px 7px;font-size:0.81remrem;color:{_pos_color};font-weight:700'>"
+                                       f"border-radius:8px;padding:2px 7px;font-size:0.81rem;color:{_pos_color};font-weight:700'>"
                                        f"{_pos}</span>" if _pos else "")
                                     + (f"<span style='background:rgba(255,255,255,0.07);border:1px solid {_t_stage_c};"
-                                       f"border-radius:8px;padding:2px 7px;font-size:0.81remrem;color:{_t_stage_c}'>"
+                                       f"border-radius:8px;padding:2px 7px;font-size:0.81rem;color:{_t_stage_c}'>"
                                        f"{_t_stage}</span>" if _t_stage else "")
-                                    + (f"<span style='font-size:0.81remrem;color:{_sup_c};padding:2px 4px'>"
+                                    + (f"<span style='font-size:0.81rem;color:{_sup_c};padding:2px 4px'>"
                                        f"📡 {_sup_sig}</span>" if _sup_sig else "")
                                     + "</div>"
                                 )
@@ -1775,7 +1782,7 @@ def main():
                             if _leader or _linkage:
                                 _linkage_html = (
                                     f"<div style='background:rgba(255,255,255,0.04);border-left:2px solid {_pos_color};"
-                                    f"border-radius:0 6px 6px 0;padding:5px 8px;margin-bottom:8px;font-size:0.91remrem'>"
+                                    f"border-radius:0 6px 6px 0;padding:5px 8px;margin-bottom:8px;font-size:0.91rem'>"
                                     + (f"<span style='color:#888'>대장주: </span><span style='color:#eee'>{_leader}</span><br>" if _leader else "")
                                     + (f"<span style='color:#aaa'>{_linkage}</span>" if _linkage else "")
                                     + "</div>"
@@ -1783,14 +1790,14 @@ def main():
 
                             _theme_html = "".join(
                                 f"<span style='background:rgba(255,255,255,0.08);"
-                                f"border-radius:10px;padding:2px 7px;font-size:1.1remrem;"
+                                f"border-radius:10px;padding:2px 7px;font-size:1.1rem;"
                                 f"color:#aaa;margin-right:4px'>{th}</span>"
                                 for th in _themes
                             )
 
                             _warn_html = (
                                 "<div style='background:rgba(255,75,75,0.15);border:1px solid #ff4b4b;"
-                                "border-radius:8px;padding:4px 8px;font-size:1.1remrem;color:#ff4b4b;"
+                                "border-radius:8px;padding:4px 8px;font-size:1.1rem;color:#ff4b4b;"
                                 "margin-bottom:8px'>⚠️ 이미 많이 오른 종목 — 진입 신중</div>"
                             ) if _already_surged else ""
 
@@ -1802,15 +1809,15 @@ def main():
                                 f"<div style='display:flex;justify-content:space-between;"
                                 f"align-items:flex-start;margin-bottom:6px'>"
                                 f"<div>"
-                                f"<span style='font-size:0.91remrem;color:#888'>#{_pick.get('rank',_sel_idx+1)}</span>&nbsp;"
-                                f"<span style='font-size:1.15remrem;font-weight:700'>{_pick.get('name','')}</span><br>"
-                                f"<span style='font-size:0.88remrem;color:#666'>{_pick.get('code','')}</span>"
+                                f"<span style='font-size:0.91rem;color:#888'>#{_pick.get('rank',_sel_idx+1)}</span>&nbsp;"
+                                f"<span style='font-size:1.15rem;font-weight:700'>{_pick.get('name','')}</span><br>"
+                                f"<span style='font-size:0.88rem;color:#666'>{_pick.get('code','')}</span>"
                                 f"</div>"
                                 f"<div style='text-align:right'>"
                                 f"<span style='background:{_urg_bg};color:{_urg_color};"
-                                f"border-radius:10px;padding:2px 7px;font-size:1.1remrem;font-weight:700;"
+                                f"border-radius:10px;padding:2px 7px;font-size:1.1rem;font-weight:700;"
                                 f"display:block;margin-bottom:3px'>{_urg_icon} {_urg}</span>"
-                                f"<span style='color:{_hz_color};font-size:1.0remrem;font-weight:600'>{_hz_label}</span>"
+                                f"<span style='color:{_hz_color};font-size:1.0rem;font-weight:600'>{_hz_label}</span>"
                                 f"</div></div>"
                                 + _warn_html
                                 + _theme_pos_html
@@ -1822,25 +1829,25 @@ def main():
                                 f"<div class='sc-card-sm' style='background:rgba(255,255,255,0.07);"
                                 f"border:1px solid rgba(255,255,255,0.12);border-radius:8px;"
                                 f"padding:6px;text-align:center'>"
-                                f"<div style='font-size:1.0remrem;color:var(--sc-text-muted,#888)'>매수 타점</div>"
-                                f"<div style='font-size:1.10remrem;font-weight:700'>₩{int(_entry):,}</div>"
-                                + (f"<div style='font-size:0.95remrem;color:#ff4b4b;margin-top:3px;word-break:keep-all;line-height:1.2'>마지노선:<br>{_pick.get('entry_limit','')}</div>" if _pick.get('entry_limit') else "")
+                                f"<div style='font-size:1.0rem;color:var(--sc-text-muted,#888)'>매수 타점</div>"
+                                f"<div style='font-size:1.10rem;font-weight:700'>₩{int(_entry):,}</div>"
+                                + (f"<div style='font-size:0.95rem;color:#ff4b4b;margin-top:3px;word-break:keep-all;line-height:1.2'>마지노선:<br>{_pick.get('entry_limit','')}</div>" if _pick.get('entry_limit') else "")
                                 + f"</div>"
                                 f"<div class='sc-card-sm' style='background:rgba(0,200,83,0.12);"
                                 f"border:1px solid rgba(0,200,83,0.25);border-radius:8px;"
                                 f"padding:6px;text-align:center'>"
-                                f"<div style='font-size:1.0remrem;color:var(--sc-text-muted,#888)'>목표가</div>"
-                                f"<div style='font-size:1.10remrem;font-weight:700;color:#00c853'>"
+                                f"<div style='font-size:1.0rem;color:var(--sc-text-muted,#888)'>목표가</div>"
+                                f"<div style='font-size:1.10rem;font-weight:700;color:#00c853'>"
                                 f"₩{int(_target):,}</div>"
-                                f"<div style='font-size:1.0remrem;color:#00c853'>+{_upside}%</div></div>"
+                                f"<div style='font-size:1.0rem;color:#00c853'>+{_upside}%</div></div>"
                                 f"<div class='sc-card-sm' style='background:rgba(43,124,255,0.12);"
                                 f"border:1px solid rgba(43,124,255,0.25);border-radius:8px;"
                                 f"padding:6px;text-align:center'>"
-                                f"<div style='font-size:1.0remrem;color:var(--sc-text-muted,#888)'>손절가</div>"
-                                f"<div style='font-size:1.10remrem;font-weight:700;color:#2b7cff'>"
+                                f"<div style='font-size:1.0rem;color:var(--sc-text-muted,#888)'>손절가</div>"
+                                f"<div style='font-size:1.10rem;font-weight:700;color:#2b7cff'>"
                                 f"₩{int(_stop):,}</div></div>"
                                 f"</div>"
-                                f"<div style='font-size:0.94remrem;color:var(--sc-text-muted,#bbb);line-height:1.6;"
+                                f"<div style='font-size:0.94rem;color:var(--sc-text-muted,#bbb);line-height:1.6;"
                                 f"margin-bottom:8px'>{_pick.get('reason','')}</div>"
                                 + _theme_html
                                 + "</div>"
@@ -1905,7 +1912,7 @@ def main():
                                     _etim_c = "#00c853" if "즉시" in _etim else "#f5c518" if "대기" in _etim or "확인" in _etim else "#ff4b4b"
                                     st.markdown(
                                         f"<div class='sc-card-sm' style='background:rgba(255,255,255,0.04);border-radius:8px;"
-                                        f"padding:8px 10px;margin-top:4px;font-size:0.94remrem'>"
+                                        f"padding:8px 10px;margin-top:4px;font-size:0.94rem'>"
                                         f"<b style='color:{_pos_c2}'>{_pos2}</b>"
                                         f"<span style='color:#aaa;margin-left:6px'>{_mstg}</span><br>"
                                         f"<span style='color:{_etim_c}'>⏱ {_etim}</span>"
@@ -1961,10 +1968,10 @@ def main():
                             if price_kr:
                                 st.markdown(
                                     f"<div style='display:flex;align-items:center;gap:8px;margin-bottom:8px'>"
-                                    f"<span style='font-size:1.44remrem;font-weight:700'>**{_real_dtv_name}**</span> "
-                                    f"<span style='font-size:1.17remrem;color:#888'>({_dtv_code})</span> &nbsp; "
-                                    f"<span style='font-size:1.26remrem;font-weight:600'>₩{price_kr['price']:,}</span> &nbsp; "
-                                    f'<span class="{pct_color}" style="font-size:1.15remrem;font-weight:600">{arrow} {price_kr["change_pct"]:+.2f}%</span>'
+                                    f"<span style='font-size:1.44rem;font-weight:700'>**{_real_dtv_name}**</span> "
+                                    f"<span style='font-size:1.17rem;color:#888'>({_dtv_code})</span> &nbsp; "
+                                    f"<span style='font-size:1.26rem;font-weight:600'>₩{price_kr['price']:,}</span> &nbsp; "
+                                    f'<span class="{pct_color}" style="font-size:1.15rem;font-weight:600">{arrow} {price_kr["change_pct"]:+.2f}%</span>'
                                     f"</div>",
                                     unsafe_allow_html=True,
                                 )
@@ -2003,9 +2010,9 @@ def main():
                             # 현재 지수값 + 등락 표시 (토스 스타일: 크고 굵게)
                             st.markdown(
                                 f"<div style='margin:8px 0 4px 0'>"
-                                f"<span style='font-size:1.78remrem;font-weight:700'>"
+                                f"<span style='font-size:1.78rem;font-weight:700'>"
                                 f"{_idx_val:,.2f}</span>&nbsp;"
-                                f"<span style='font-size:1.14remrem;color:{_lc};font-weight:600'>"
+                                f"<span style='font-size:1.14rem;color:{_lc};font-weight:600'>"
                                 f"{_sign}{_idx_chg:.2f}p&nbsp;({_sign}{_idx_pct:.2f}%)</span>"
                                 f"</div>",
                                 unsafe_allow_html=True,
@@ -2090,10 +2097,10 @@ def main():
                             pct_color = "up-kr" if is_up else "down-kr" if is_dn else ""
                             st.markdown(
                                 f"<div style='display:flex;align-items:center;gap:8px;margin-bottom:8px'>"
-                                f"<span style='font-size:1.44remrem;font-weight:700'>**{_real_name}**</span> "
-                                f"<span style='font-size:1.17remrem;color:#888'>({selected_code_kr})</span> &nbsp; "
-                                f"<span style='font-size:1.26remrem;font-weight:600'>₩{price_kr['price']:,}</span> &nbsp; "
-                                f'<span class="{pct_color}" style="font-size:1.15remrem;font-weight:600">{arrow} {price_kr["change_pct"]:+.2f}%</span>'
+                                f"<span style='font-size:1.44rem;font-weight:700'>**{_real_name}**</span> "
+                                f"<span style='font-size:1.17rem;color:#888'>({selected_code_kr})</span> &nbsp; "
+                                f"<span style='font-size:1.26rem;font-weight:600'>₩{price_kr['price']:,}</span> &nbsp; "
+                                f'<span class="{pct_color}" style="font-size:1.15rem;font-weight:600">{arrow} {price_kr["change_pct"]:+.2f}%</span>'
                                 f"</div>",
                                 unsafe_allow_html=True,
                             )
@@ -2159,7 +2166,7 @@ def main():
                         with _tab_box:
                             _kr_box_key = f"kr_box_result_{selected_code_kr}"
                             st.markdown(
-                                f"<div style='font-size:1.07remrem;color:#888;margin-bottom:8px'>'"
+                                f"<div style='font-size:1.07rem;color:#888;margin-bottom:8px'>'"
                                 f"AI가 구글 검색을 통해 최근 3~6개월 차트 흐름, 거래량 분석, 세력·기관 수급을 파악해 지지선·저항선 및 돌파 확률을 산출합니다.</div>",
                                 unsafe_allow_html=True
                             )
@@ -2309,8 +2316,8 @@ def main():
                                     _pc = "#ff4b4b" if is_up else "#2b7cff" if is_dn else "#aaa"
                                     st.markdown(
                                         f"<div style='margin:4px 0'>"
-                                        f"<span style='font-size:1.72remrem;font-weight:700'>₩{price_kr['price']:,}</span>"
-                                        f"&nbsp;<span style='font-size:1.17remrem;color:{_pc};font-weight:600'>"
+                                        f"<span style='font-size:1.72rem;font-weight:700'>₩{price_kr['price']:,}</span>"
+                                        f"&nbsp;<span style='font-size:1.17rem;color:{_pc};font-weight:600'>"
                                         f"{arrow} {abs(price_kr['change']):,}원 ({price_kr['change_pct']:+.2f}%)</span>"
                                         f"</div>",
                                         unsafe_allow_html=True,
@@ -2336,7 +2343,7 @@ def main():
                                         _band_pct = max(0, min(100, (_cp - _wl) / (_wh - _wl) * 100))
                                         st.markdown(
                                             f"<div style='margin:8px 0 2px 0'>"
-                                            f"<span style='font-size:0.91remrem;color:#888'>52주 가격 위치</span>"
+                                            f"<span style='font-size:0.91rem;color:#888'>52주 가격 위치</span>"
                                             f"</div>"
                                             f"<div style='position:relative;background:rgba(255,255,255,0.08);"
                                             f"border-radius:4px;height:6px;margin:0 0 4px 0'>"
@@ -2344,7 +2351,7 @@ def main():
                                             f"width:{_band_pct:.1f}%'></div>"
                                             f"</div>"
                                             f"<div style='display:flex;justify-content:space-between;"
-                                            f"font-size:1.1remrem;color:#888'>"
+                                            f"font-size:1.1rem;color:#888'>"
                                             f"<span>최저 ₩{_wl:,}</span>"
                                             f"<span style='color:{_pc};font-weight:700'>{_band_pct:.0f}%</span>"
                                             f"<span>최고 ₩{_wh:,}</span>"
@@ -2483,9 +2490,9 @@ def main():
                                         st.markdown(
                                             f"<div style='background:rgba(255,255,255,0.05);border-left:3px solid {_rc_color};"
                                             f"border-radius:6px;padding:8px 10px;margin:4px 0'>"
-                                            f"<div style='font-size:1.1remrem;color:#888;margin-bottom:2px'>{_rtitle}</div>"
-                                            f"<div style='font-size:1.04remrem;font-weight:700;color:{_rc_color}'>{_rl}</div>"
-                                            f"<div style='font-size:0.88remrem;color:#ccc;margin-top:3px'>{_rdesc}</div>"
+                                            f"<div style='font-size:1.1rem;color:#888;margin-bottom:2px'>{_rtitle}</div>"
+                                            f"<div style='font-size:1.04rem;font-weight:700;color:{_rc_color}'>{_rl}</div>"
+                                            f"<div style='font-size:0.88rem;color:#ccc;margin-top:3px'>{_rdesc}</div>"
                                             f"</div>",
                                             unsafe_allow_html=True,
                                         )
@@ -2578,8 +2585,8 @@ def main():
                                     _bc = {"매우 강력 추천":"#00c853","추천":"#69f0ae","중간추천":"#f5c518","비추천":"#ff7043","매우 비추천":"#b71c1c"}.get(_r, "#888")
                                     st.markdown(
                                         f"<div style='display:flex;gap:6px;flex-wrap:wrap;margin:10px 0'>"
-                                        f"<span style='background:{_bc}22;border:1px solid {_bc};border-radius:6px;padding:3px 10px;font-size:1.10remrem;font-weight:700;color:{_bc}'>단기: {_r}</span>"
-                                        f"<span style='background:#2b7cff22;border:1px solid #2b7cff;border-radius:6px;padding:3px 10px;font-size:1.10remrem;font-weight:700;color:#2b7cff'>중장기: {_lr}</span>"
+                                        f"<span style='background:{_bc}22;border:1px solid {_bc};border-radius:6px;padding:3px 10px;font-size:1.10rem;font-weight:700;color:{_bc}'>단기: {_r}</span>"
+                                        f"<span style='background:#2b7cff22;border:1px solid #2b7cff;border-radius:6px;padding:3px 10px;font-size:1.10rem;font-weight:700;color:#2b7cff'>중장기: {_lr}</span>"
                                         f"</div>",
                                         unsafe_allow_html=True
                                     )
@@ -2694,30 +2701,30 @@ def main():
                                         st.markdown(
                                             f"<div style='display:inline-block;background:{_kpc}22;"
                                             f"border:1px solid {_kpc};border-radius:8px;"
-                                            f"padding:4px 12px;font-size:1.07remrem;font-weight:700;"
+                                            f"padding:4px 12px;font-size:1.07rem;font-weight:700;"
                                             f"color:{_kpc};margin-bottom:6px'>📍 {_kpos}</div>"
-                                            + (f" <span style='font-size:0.94remrem;color:#aaa'>{_tp_sec}</span>" if "_tp_sec" in dir() else ""),
+                                            + (f" <span style='font-size:0.94rem;color:#aaa'>{_tp_sec}</span>" if "_tp_sec" in dir() else ""),
                                             unsafe_allow_html=True,
                                         )
                                         if _ktr.get("position_reason"):
                                             st.caption(_ktr["position_reason"])
                                         _ktc1, _ktc2 = st.columns(2)
                                         _ktc1.markdown(
-                                            f"<div style='font-size:0.88remrem;color:#888'>섹터 대장주</div>"
+                                            f"<div style='font-size:0.88rem;color:#888'>섹터 대장주</div>"
                                             f"<div style='font-weight:700'>{_ktr.get('leader_name','?')}</div>",
                                             unsafe_allow_html=True,
                                         )
                                         _kfd = _ktr.get("force_direction","")
                                         _kfdc = "#00c853" if "유입" in _kfd or "매집" in _kfd else "#ff4b4b" if "이탈" in _kfd else "#888"
                                         _ktc2.markdown(
-                                            f"<div style='font-size:0.88remrem;color:#888'>세력 방향</div>"
+                                            f"<div style='font-size:0.88rem;color:#888'>세력 방향</div>"
                                             f"<div style='font-weight:700;color:{_kfdc}'>{_kfd}</div>",
                                             unsafe_allow_html=True,
                                         )
                                         if _ktr.get("momentum_stage") or _ktr.get("chart_pattern"):
                                             st.markdown(
                                                 f"<div class='sc-card-sm' style='background:rgba(255,255,255,0.04);border-radius:8px;"
-                                                f"padding:8px 12px;margin:6px 0;font-size:1.04remrem'>"
+                                                f"padding:8px 12px;margin:6px 0;font-size:1.04rem'>"
                                                 f"<b>📈 {_ktr.get('momentum_stage','')}</b>"
                                                 + (f" · {_ktr.get('chart_pattern','')}" if _ktr.get('chart_pattern') else "")
                                                 + "</div>",
@@ -2778,8 +2785,8 @@ def main():
                                 st.session_state.kr_sector_detail_name = _real_detail_name
 
                             st.markdown(
-                                f"<h4 style='margin:4px 0 2px 0'>{_real_detail_name} <span style='font-size:1.17remrem;color:#888;font-weight:400'>({detail_code})</span></h4>"
-                                f"<p style='margin:0;font-size:1.01remrem;color:#888'>"
+                                f"<h4 style='margin:4px 0 2px 0'>{_real_detail_name} <span style='font-size:1.17rem;color:#888;font-weight:400'>({detail_code})</span></h4>"
+                                f"<p style='margin:0;font-size:1.01rem;color:#888'>"
                                 f"{st.session_state.kr_selected_sector}</p>",
                                 unsafe_allow_html=True,
                             )
@@ -3021,7 +3028,7 @@ def main():
                                         st.markdown(
                                             f"<div style='display:inline-block;background:{_pos_c}22;"
                                             f"border:1px solid {_pos_c};border-radius:8px;"
-                                            f"padding:4px 12px;font-size:1.07remrem;font-weight:700;"
+                                            f"padding:4px 12px;font-size:1.07rem;font-weight:700;"
                                             f"color:{_pos_c};margin-bottom:6px'>📍 {_pos}</div>",
                                             unsafe_allow_html=True,
                                         )
@@ -3029,14 +3036,14 @@ def main():
                                             st.caption(_tr["position_reason"])
                                         _tc1, _tc2 = st.columns(2)
                                         _tc1.markdown(
-                                            f"<div style='font-size:0.88remrem;color:#888'>오늘의 대장주</div>"
+                                            f"<div style='font-size:0.88rem;color:#888'>오늘의 대장주</div>"
                                             f"<div style='font-weight:700'>{_tr.get('leader_name','?')}</div>",
                                             unsafe_allow_html=True,
                                         )
                                         _fd = _tr.get("force_direction", "")
                                         _fd_c = "#00c853" if "유입" in _fd or "매집" in _fd else "#ff4b4b" if "이탈" in _fd else "#888"
                                         _tc2.markdown(
-                                            f"<div style='font-size:0.88remrem;color:#888'>세력 방향</div>"
+                                            f"<div style='font-size:0.88rem;color:#888'>세력 방향</div>"
                                             f"<div style='font-weight:700;color:{_fd_c}'>{_fd}</div>",
                                             unsafe_allow_html=True,
                                         )
@@ -3045,7 +3052,7 @@ def main():
                                         if _ms or _cp:
                                             st.markdown(
                                                 f"<div class='sc-card-sm' style='background:rgba(255,255,255,0.04);border-radius:8px;"
-                                                f"padding:8px 12px;margin:6px 0;font-size:1.04remrem'>"
+                                                f"padding:8px 12px;margin:6px 0;font-size:1.04rem'>"
                                                 f"<b>📈 {_ms}</b>"
                                                 + (f" · {_cp}" if _cp else "") + "</div>",
                                                 unsafe_allow_html=True,
@@ -3129,7 +3136,7 @@ def main():
 
                                 _am_hdr, _am_ref = st.columns([8, 1])
                                 _am_hdr.markdown(
-                                    "<p style='font-size:0.98remrem;color:#888;margin:4px 0'>거래량 TOP10 · 급등 종목 이유 · AI 핫 섹터 통합</p>",
+                                    "<p style='font-size:0.98rem;color:#888;margin:4px 0'>거래량 TOP10 · 급등 종목 이유 · AI 핫 섹터 통합</p>",
                                     unsafe_allow_html=True,
                                 )
                                 if st.session_state.kr_ai_market_run:
@@ -3144,7 +3151,7 @@ def main():
                                 if not st.session_state.kr_ai_market_run:
                                     st.markdown(
                                         "<div style='text-align:center;padding:40px 20px'>"
-                                        "<p style='color:#888;font-size:1.10remrem;margin-bottom:16px'>"
+                                        "<p style='color:#888;font-size:1.10rem;margin-bottom:16px'>"
                                         "거래량 TOP10, 급등 종목 이유 분석, AI 핫 섹터를 한번에 확인합니다</p>"
                                         "</div>",
                                         unsafe_allow_html=True,
@@ -3191,8 +3198,8 @@ def main():
                                         st.markdown(
                                             f"<div style='background:rgba(255,255,255,0.04);border-left:3px solid #ff9800;"
                                             f"padding:8px 12px;border-radius:4px;margin-bottom:8px'>"
-                                            f"<span style='font-size:0.94remrem;color:#ff9800;font-weight:700'>📌 오늘 시장 요약</span><br>"
-                                            f"<span style='font-size:0.95remrem;color:#ccc'>{_tm['market_summary']}</span>"
+                                            f"<span style='font-size:0.94rem;color:#ff9800;font-weight:700'>📌 오늘 시장 요약</span><br>"
+                                            f"<span style='font-size:0.95rem;color:#ccc'>{_tm['market_summary']}</span>"
                                             f"</div>",
                                             unsafe_allow_html=True,
                                         )
@@ -3206,11 +3213,11 @@ def main():
                                     if _themes:
                                         _theme_html = " ".join(
                                             f"<span style='background:rgba(255,75,75,0.2);border:1px solid #ff4b4b;"
-                                            f"border-radius:12px;padding:2px 8px;font-size:0.88remrem;color:#ff4b4b;"
+                                            f"border-radius:12px;padding:2px 8px;font-size:0.88rem;color:#ff4b4b;"
                                             f"font-weight:700'>{t}</span>"
                                             if t == _top_th else
                                             f"<span style='background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.15);"
-                                            f"border-radius:12px;padding:2px 8px;font-size:0.88remrem;color:#aaa'>{t}</span>"
+                                            f"border-radius:12px;padding:2px 8px;font-size:0.88rem;color:#aaa'>{t}</span>"
                                             for t in _themes
                                         )
                                         st.markdown(
@@ -3220,7 +3227,7 @@ def main():
 
                                     # ── 거래량 TOP 10 ─────────────────────────────
                                     st.markdown(
-                                        "<p style='font-size:1.01remrem;font-weight:700;color:#aaa;margin:6px 0 4px 0'>📊 거래량 TOP 10</p>",
+                                        "<p style='font-size:1.01rem;font-weight:700;color:#aaa;margin:6px 0 4px 0'>📊 거래량 TOP 10</p>",
                                         unsafe_allow_html=True,
                                     )
                                     if _vol_rank:
@@ -3243,7 +3250,7 @@ def main():
 
                                     # ── 오늘의 급등 종목 ──────────────────────────
                                     st.markdown(
-                                        "<p style='font-size:1.01remrem;font-weight:700;color:#aaa;margin:4px 0'>📈 오늘의 급등 종목</p>",
+                                        "<p style='font-size:1.01rem;font-weight:700;color:#aaa;margin:4px 0'>📈 오늘의 급등 종목</p>",
                                         unsafe_allow_html=True,
                                     )
                                     if isinstance(_tm, dict) and not _tm.get("error") and _tm.get("stocks"):
@@ -3262,27 +3269,27 @@ def main():
                                                     with _r1c0:
                                                         render_star_toggle("국내", _cd, _nm, key_suffix=f"rise_{_cd}_{_si}")
                                                     _r1c1.markdown(
-                                                        f"<span style='font-size:1.14remrem;font-weight:700'>{_nm}</span>"
-                                                        f"<span style='font-size:0.88remrem;color:#888;margin-left:6px'>{_mkt}</span>",
+                                                        f"<span style='font-size:1.14rem;font-weight:700'>{_nm}</span>"
+                                                        f"<span style='font-size:0.88rem;color:#888;margin-left:6px'>{_mkt}</span>",
                                                         unsafe_allow_html=True,
                                                     )
                                                     _r1c2.markdown(
-                                                        f"<span style='font-size:1.07remrem;color:#888'>{_cd}</span>",
+                                                        f"<span style='font-size:1.07rem;color:#888'>{_cd}</span>",
                                                         unsafe_allow_html=True,
                                                     )
                                                     _r1c3.markdown(
-                                                        f"<span style='font-size:1.14remrem;font-weight:700;color:{_col}'>{_cpct:+.1f}%</span>",
+                                                        f"<span style='font-size:1.14rem;font-weight:700;color:{_col}'>{_cpct:+.1f}%</span>",
                                                         unsafe_allow_html=True,
                                                     )
                                                     if _thm:
                                                         st.markdown(
-                                                            f"<span style='font-size:0.87remrem;background:rgba(255,152,0,0.15);"
+                                                            f"<span style='font-size:0.87rem;background:rgba(255,152,0,0.15);"
                                                             f"border-radius:10px;padding:1px 7px;color:#ff9800'>#{_thm}</span>",
                                                             unsafe_allow_html=True,
                                                         )
                                                     if _rsn:
                                                         st.markdown(
-                                                            f"<p style='font-size:0.95remrem;color:#bbb;margin:3px 0 0 0'>{_rsn}</p>",
+                                                            f"<p style='font-size:0.95rem;color:#bbb;margin:3px 0 0 0'>{_rsn}</p>",
                                                             unsafe_allow_html=True,
                                                         )
                                                     if _cd and st.button("▶ 차트", key=f"tm_cd_{_cd}_{_si}"):
@@ -3300,7 +3307,7 @@ def main():
 
                                     # ── AI 핫 섹터 ───────────────────────────────
                                     st.markdown(
-                                        "<p style='font-size:1.01remrem;font-weight:700;color:#aaa;margin:4px 0'>🔥 AI 핫 섹터</p>",
+                                        "<p style='font-size:1.01rem;font-weight:700;color:#aaa;margin:4px 0'>🔥 AI 핫 섹터</p>",
                                         unsafe_allow_html=True,
                                     )
                                     if isinstance(_ai_res, dict) and not _ai_res.get("error") and _ai_res.get("sectors"):
@@ -3340,7 +3347,7 @@ def main():
                                         ]
                                         if _new_sec_list or _all_dyn_subs:
                                             st.markdown(
-                                                "<p style='font-size:1.01remrem;font-weight:700;color:#4caf50;margin:8px 0 4px 0'>"
+                                                "<p style='font-size:1.01rem;font-weight:700;color:#4caf50;margin:8px 0 4px 0'>"
                                                 "⚡ 오늘의 신규 이슈 감지</p>",
                                                 unsafe_allow_html=True,
                                             )
@@ -3351,8 +3358,8 @@ def main():
                                                     _iss_cols[_iss_idx].markdown(
                                                         f"<div style='background:rgba(76,175,80,0.1);border:1px solid #4caf50;"
                                                         f"border-radius:8px;padding:6px 10px;margin:2px 0'>"
-                                                        f"<span style='font-size:0.94remrem;font-weight:700;color:#4caf50'>🆕 {_nsl['keyword']}</span><br>"
-                                                        f"<span style='font-size:0.88remrem;color:#aaa'>{_nsl.get('reason','')[:50]}...</span>"
+                                                        f"<span style='font-size:0.94rem;font-weight:700;color:#4caf50'>🆕 {_nsl['keyword']}</span><br>"
+                                                        f"<span style='font-size:0.88rem;color:#aaa'>{_nsl.get('reason','')[:50]}...</span>"
                                                         f"</div>",
                                                         unsafe_allow_html=True,
                                                     )
@@ -3362,8 +3369,8 @@ def main():
                                                     _iss_cols[_iss_idx].markdown(
                                                         f"<div style='background:rgba(255,152,0,0.1);border:1px solid #ff9800;"
                                                         f"border-radius:8px;padding:6px 10px;margin:2px 0'>"
-                                                        f"<span style='font-size:0.94remrem;font-weight:700;color:#ff9800'>📡 {_ds['name']}</span><br>"
-                                                        f"<span style='font-size:0.88remrem;color:#aaa'>{_par} › {_ds.get('reason','')[:40]}...</span>"
+                                                        f"<span style='font-size:0.94rem;font-weight:700;color:#ff9800'>📡 {_ds['name']}</span><br>"
+                                                        f"<span style='font-size:0.88rem;color:#aaa'>{_par} › {_ds.get('reason','')[:40]}...</span>"
                                                         f"</div>",
                                                         unsafe_allow_html=True,
                                                     )
@@ -3379,7 +3386,7 @@ def main():
                                             with st.container(border=True):
                                                 _pcol1, _pcol2 = st.columns([9, 1])
                                                 _pcol1.markdown(
-                                                    f"<p style='font-size:1.07remrem;font-weight:700;color:#64b5f6;margin:0'>📊 {_pat_kw} — 역사적 패턴 분석</p>",
+                                                    f"<p style='font-size:1.07rem;font-weight:700;color:#64b5f6;margin:0'>📊 {_pat_kw} — 역사적 패턴 분석</p>",
                                                     unsafe_allow_html=True,
                                                 )
                                                 if _pcol2.button("✕", key="pat_close"):
@@ -3399,8 +3406,8 @@ def main():
                                                         st.markdown(
                                                             f"<div style='background:rgba(100,181,246,0.08);border-left:3px solid #64b5f6;"
                                                             f"padding:6px 10px;border-radius:4px;margin:4px 0'>"
-                                                            f"<span style='font-size:1.01remrem;color:#64b5f6;font-weight:700'>🎯 예측</span><br>"
-                                                            f"<span style='font-size:0.98remrem;color:#ccc'>{_pat_data['prediction']}</span>"
+                                                            f"<span style='font-size:1.01rem;color:#64b5f6;font-weight:700'>🎯 예측</span><br>"
+                                                            f"<span style='font-size:0.98rem;color:#ccc'>{_pat_data['prediction']}</span>"
                                                             f"</div>",
                                                             unsafe_allow_html=True,
                                                         )
@@ -3428,22 +3435,22 @@ def main():
 
                                                 with st.container(border=True):
                                                     _fire = "🔥" * max(1, min(int(_score / 2.5), 4))
-                                                    _new_badge = " <span style='font-size:1.1remrem;color:#4caf50;border:1px solid #4caf50;border-radius:3px;padding:1px 4px'>NEW</span>" if _is_new_sector else ""
+                                                    _new_badge = " <span style='font-size:1.1rem;color:#4caf50;border:1px solid #4caf50;border-radius:3px;padding:1px 4px'>NEW</span>" if _is_new_sector else ""
                                                     st.markdown(
                                                         f"<div style='display:flex;justify-content:space-between;align-items:center;margin-bottom:2px'>"
-                                                        f"<span style='font-size:1.17remrem;font-weight:700'>{_kw}{_new_badge}</span>"
-                                                        f"<span style='font-size:1.01remrem;color:#ff9800'>{_fire} {_score}/10</span>"
+                                                        f"<span style='font-size:1.17rem;font-weight:700'>{_kw}{_new_badge}</span>"
+                                                        f"<span style='font-size:1.01rem;color:#ff9800'>{_fire} {_score}/10</span>"
                                                         f"</div>",
                                                         unsafe_allow_html=True,
                                                     )
                                                     if _reason:
                                                         st.markdown(
-                                                            f"<p style='font-size:0.95remrem;color:#aaa;margin:0 0 2px 0'>{_reason}</p>",
+                                                            f"<p style='font-size:0.95rem;color:#aaa;margin:0 0 2px 0'>{_reason}</p>",
                                                             unsafe_allow_html=True,
                                                         )
                                                     if _news:
                                                         st.markdown(
-                                                            f"<p style='font-size:0.91remrem;color:#777;margin:0 0 5px 0'>📰 {_news}</p>",
+                                                            f"<p style='font-size:0.91rem;color:#777;margin:0 0 5px 0'>📰 {_news}</p>",
                                                             unsafe_allow_html=True,
                                                         )
 
@@ -3462,9 +3469,9 @@ def main():
                                                         with _bc_star:
                                                             render_star_toggle("국내", _stk["code"], _stk["name"], key_suffix=f"ai_hot_{_stk['code']}_{_si}")
                                                         _bc0.markdown("✅" if _pct >= 3.0 else "&nbsp;", unsafe_allow_html=True)
-                                                        _bc1.markdown(f"<span style='font-size:1.07remrem'>{_badge}{_stk['name']}</span>", unsafe_allow_html=True)
-                                                        _bc2.markdown(f"<span style='font-size:1.07remrem'>{'₩'+format(_pv,',') if _pv>0 else '---'}</span>", unsafe_allow_html=True)
-                                                        _bc3.markdown(f"<span style='font-size:1.07remrem;font-weight:bold;color:{_pc}'>{_pct:+.2f}%</span>", unsafe_allow_html=True)
+                                                        _bc1.markdown(f"<span style='font-size:1.07rem'>{_badge}{_stk['name']}</span>", unsafe_allow_html=True)
+                                                        _bc2.markdown(f"<span style='font-size:1.07rem'>{'₩'+format(_pv,',') if _pv>0 else '---'}</span>", unsafe_allow_html=True)
+                                                        _bc3.markdown(f"<span style='font-size:1.07rem;font-weight:bold;color:{_pc}'>{_pct:+.2f}%</span>", unsafe_allow_html=True)
                                                         if _bc4.button("▶", key=f"ai_s_{_stk['code']}_{_kw[:6]}_{_si}"):
                                                             st.session_state.kr_selected_code       = _stk["code"]
                                                             st.session_state.kr_selected_name       = _stk["name"]
@@ -3489,14 +3496,14 @@ def main():
                                                         st.markdown(
                                                             f"<div style='padding:4px 8px;background:rgba(255,152,0,0.07);"
                                                             f"border-left:2px solid #ff9800;border-radius:0 4px 4px 0;margin:2px 0'>"
-                                                            f"<span style='font-size:0.94remrem;color:#ff9800;font-weight:700'>📡 {_dys['name']}</span>"
-                                                            f"<span style='font-size:0.88remrem;color:#aaa;margin-left:8px'>{_dys.get('reason','')}</span>"
+                                                            f"<span style='font-size:0.94rem;color:#ff9800;font-weight:700'>📡 {_dys['name']}</span>"
+                                                            f"<span style='font-size:0.88rem;color:#aaa;margin-left:8px'>{_dys.get('reason','')}</span>"
                                                             f"</div>",
                                                             unsafe_allow_html=True,
                                                         )
                                                         for _dns in _dys.get("new_stocks", [])[:2]:
                                                             st.markdown(
-                                                                f"<span class='sector-pill' style='font-size:0.87remrem'>↳ {_dns.get('name','')} — {_dns.get('reason','')}</span>",
+                                                                f"<span class='sector-pill' style='font-size:0.87rem'>↳ {_dns.get('name','')} — {_dns.get('reason','')}</span>",
                                                                 unsafe_allow_html=True,
                                                             )
 
@@ -3537,14 +3544,14 @@ def main():
                                                                 _tl_c1, _tl_c2 = st.columns(2)
                                                                 _tl_c1.markdown(
                                                                     f"**대장주:** {_tl.get('leader_name','?')}  \n"
-                                                                    f"<span style='font-size:0.98remrem;color:#aaa'>{_tl.get('leader_reason','')}</span>",
+                                                                    f"<span style='font-size:0.98rem;color:#aaa'>{_tl.get('leader_reason','')}</span>",
                                                                     unsafe_allow_html=True,
                                                                 )
                                                                 _stage = _tl.get("sector_stage", "")
                                                                 _stage_color = {"초기 형성": "#4caf50", "확산": "#ff9800", "과열": "#ff4b4b", "냉각": "#2b7cff"}.get(_stage, "#888")
                                                                 _tl_c2.markdown(
                                                                     f"**섹터 단계:** <span style='color:{_stage_color};font-weight:700'>{_stage}</span>  \n"
-                                                                    f"<span style='font-size:0.98remrem;color:#aaa'>{_tl.get('stage_reason','')}</span>",
+                                                                    f"<span style='font-size:0.98rem;color:#aaa'>{_tl.get('stage_reason','')}</span>",
                                                                     unsafe_allow_html=True,
                                                                 )
                                                                 _sup_sig = _tl.get("supply_signal", "")
@@ -3552,8 +3559,8 @@ def main():
                                                                 st.markdown(
                                                                     f"<div style='background:rgba(255,255,255,0.04);border-left:3px solid {_sup_color};"
                                                                     f"border-radius:0 6px 6px 0;padding:6px 10px;margin:6px 0'>"
-                                                                    f"<span style='font-size:0.94remrem;font-weight:700;color:{_sup_color}'>📡 {_sup_sig}</span>"
-                                                                    f"<span style='font-size:0.94remrem;color:#aaa;margin-left:8px'>{_tl.get('supply_detail','')}</span>"
+                                                                    f"<span style='font-size:0.94rem;font-weight:700;color:{_sup_color}'>📡 {_sup_sig}</span>"
+                                                                    f"<span style='font-size:0.94rem;color:#aaa;margin-left:8px'>{_tl.get('supply_detail','')}</span>"
                                                                     f"</div>",
                                                                     unsafe_allow_html=True,
                                                                 )
@@ -3601,7 +3608,7 @@ def main():
 
                                 # ── 섹터 배지 목록 ─────────────────────────────────
                                 st.markdown(
-                                    "<p style='font-size:0.94remrem;color:#888;margin:2px 0 6px 0'>"
+                                    "<p style='font-size:0.94rem;color:#888;margin:2px 0 6px 0'>"
                                     "섹터를 클릭해 종목을 탐색하세요 · 🔥 = 오늘의 이슈 섹터</p>",
                                     unsafe_allow_html=True,
                                 )
@@ -3617,19 +3624,19 @@ def main():
                                         if _tier != _prev_tier:
                                             if _tier == 0:
                                                 st.markdown(
-                                                    "<p style='font-size:0.88remrem;font-weight:700;color:#ff4b4b;"
+                                                    "<p style='font-size:0.88rem;font-weight:700;color:#ff4b4b;"
                                                     "margin:4px 0 2px 0;letter-spacing:0.05em'>🔥 HOT 섹터</p>",
                                                     unsafe_allow_html=True,
                                                 )
                                             elif _tier == 1:
                                                 st.markdown(
-                                                    "<p style='font-size:0.88remrem;font-weight:700;color:#f5c518;"
+                                                    "<p style='font-size:0.88rem;font-weight:700;color:#f5c518;"
                                                     "margin:6px 0 2px 0;letter-spacing:0.05em'>⭐ 관심 섹터</p>",
                                                     unsafe_allow_html=True,
                                                 )
                                             else:
                                                 st.markdown(
-                                                    "<p style='font-size:0.88remrem;color:#555;"
+                                                    "<p style='font-size:0.88rem;color:#555;"
                                                     "margin:6px 0 2px 0;letter-spacing:0.05em'>일반 섹터</p>",
                                                     unsafe_allow_html=True,
                                                 )
@@ -3638,29 +3645,29 @@ def main():
                                         _is_sel = st.session_state.kr_selected_sector == _sn
                                         if _tier == 0:
                                             _badge_html = (
-                                                f"🔥 {_sn} <span style='font-size:1.1remrem;color:#ff9800'>"
+                                                f"🔥 {_sn} <span style='font-size:1.1rem;color:#ff9800'>"
                                                 f"[{_sc}점]</span>"
                                             )
                                             if _reason_short:
                                                 _badge_html += (
-                                                    f"<br><span style='font-size:1.1remrem;color:#aaa'>"
+                                                    f"<br><span style='font-size:1.1rem;color:#aaa'>"
                                                     f"{_reason_short}{'…' if len(_hs_info.get('reason',''))>40 else ''}</span>"
                                                 )
                                             if _news_short:
                                                 _badge_html += (
-                                                    f"<span style='font-size:0.81remrem;color:#666'>"
+                                                    f"<span style='font-size:0.81rem;color:#666'>"
                                                     f" · {_news_short}</span>"
                                                 )
                                             _bg = "rgba(255,75,75,0.12)" if _is_sel else "rgba(255,75,75,0.06)"
                                             _border = "#ff4b4b" if _is_sel else "rgba(255,75,75,0.35)"
                                         elif _tier == 1:
                                             _badge_html = (
-                                                f"⭐ {_sn} <span style='font-size:1.1remrem;color:#888'>"
+                                                f"⭐ {_sn} <span style='font-size:1.1rem;color:#888'>"
                                                 f"[{_sc}점]</span>"
                                             )
                                             if _reason_short:
                                                 _badge_html += (
-                                                    f"<br><span style='font-size:1.1remrem;color:#888'>"
+                                                    f"<br><span style='font-size:1.1rem;color:#888'>"
                                                     f"{_reason_short}{'…' if len(_hs_info.get('reason',''))>40 else ''}</span>"
                                                 )
                                             _bg = "rgba(245,197,24,0.10)" if _is_sel else "rgba(245,197,24,0.04)"
@@ -3720,10 +3727,10 @@ def main():
                                 _load_ph.markdown(
                                     f"""<div style='display:flex;flex-direction:column;align-items:center;
                                         justify-content:center;padding:48px 0;gap:14px;'>
-                                      <div style='font-size:2.30remrem;animation:spin 1s linear infinite'>⏳</div>
-                                      <div style='font-size:1.15remrem;font-weight:600;color:#ccc'>
+                                      <div style='font-size:2.30rem;animation:spin 1s linear infinite'>⏳</div>
+                                      <div style='font-size:1.15rem;font-weight:600;color:#ccc'>
                                         시세 조회 중 ({_n_stocks}개 종목)</div>
-                                      <div style='font-size:1.07remrem;color:#888'>
+                                      <div style='font-size:1.07rem;color:#888'>
                                         약 {_est_sec}초 소요</div>
                                     </div>
                                     <style>@keyframes spin{{
@@ -3736,7 +3743,7 @@ def main():
 
                                 _hcols = st.columns([0.35, 2.8, 1.8, 1.4, 0.45])
                                 for _hc, _ht in zip(_hcols[:4], ["단타", "종목명", "현재가", "등락률"]):
-                                    _hc.markdown(f"<p style='margin:0;font-size:0.94remrem;color:#888'>{_ht}</p>", unsafe_allow_html=True)
+                                    _hc.markdown(f"<p style='margin:0;font-size:0.94rem;color:#888'>{_ht}</p>", unsafe_allow_html=True)
 
                                 def _render_sector_stocks(sub_name, stocks, prices, code_locations, selected_sector):
                                     for i, s in enumerate(stocks):
@@ -3753,12 +3760,12 @@ def main():
                                             render_star_toggle("국내", s["code"], s["name"], key_suffix=f"sec_stk_{s['code']}_{i}")
                                         c0.markdown("✅" if pct >= 3.0 else "&nbsp;", unsafe_allow_html=True)
                                         name_html = (
-                                            f"<span style='font-size:1.10remrem'>{s['name']}</span>"
-                                            + (f"<span style='font-size:0.91remrem;color:#666'> 🔗</span>" if other_locs else "")
+                                            f"<span style='font-size:1.10rem'>{s['name']}</span>"
+                                            + (f"<span style='font-size:0.91rem;color:#666'> 🔗</span>" if other_locs else "")
                                         )
                                         c1.markdown(name_html, unsafe_allow_html=True)
-                                        c2.markdown(f"<span style='font-size:1.10remrem'>{'₩'+format(pval,',') if pval>0 else '---'}</span>", unsafe_allow_html=True)
-                                        c3.markdown(f"<span style='font-size:1.10remrem;font-weight:bold;color:{pct_color}'>{pct:+.2f}%</span>", unsafe_allow_html=True)
+                                        c2.markdown(f"<span style='font-size:1.10rem'>{'₩'+format(pval,',') if pval>0 else '---'}</span>", unsafe_allow_html=True)
+                                        c3.markdown(f"<span style='font-size:1.10rem;font-weight:bold;color:{pct_color}'>{pct:+.2f}%</span>", unsafe_allow_html=True)
                                         if c4.button("▶", key=f"stock_{s['code']}_{sub_name}_{i}",
                                                      use_container_width=True):
                                             st.session_state.kr_selected_code      = s["code"]
@@ -3818,13 +3825,13 @@ def main():
                                                 st.session_state[tok] = not is_open
                                                 st.rerun()
                                             h1.markdown(
-                                                f"<span style='font-size:1.10remrem;font-weight:600'>📌 {sub_name}</span>"
-                                                f"<span style='font-size:0.98remrem;color:#888'>　{len(stocks)}개</span>",
+                                                f"<span style='font-size:1.10rem;font-weight:600'>📌 {sub_name}</span>"
+                                                f"<span style='font-size:0.98rem;color:#888'>　{len(stocks)}개</span>",
                                                 unsafe_allow_html=True,
                                             )
                                             # 현재가 컬럼(h2)은 비워둠
                                             h3.markdown(
-                                                f"<span style='font-size:1.20remrem;font-weight:700;color:{pct_color}'>{avg_pct:+.2f}%</span>",
+                                                f"<span style='font-size:1.20rem;font-weight:700;color:{pct_color}'>{avg_pct:+.2f}%</span>",
                                                 unsafe_allow_html=True,
                                             )
                                             ai_key = f"_sub_ai_{selected_sector}__{sub_name}"
@@ -3837,7 +3844,7 @@ def main():
                                                     st.markdown(
                                                         f"<div style='background:rgba(255,255,255,0.05);border-left:3px solid {pct_color};"
                                                         f"border-radius:6px;padding:8px 12px;margin:4px 0 8px 0;"
-                                                        f"font-size:1.07remrem;line-height:1.55;color:#ddd'>"
+                                                        f"font-size:1.07rem;line-height:1.55;color:#ddd'>"
                                                         f"{st.session_state[ai_key]}</div>",
                                                         unsafe_allow_html=True,
                                                     )
@@ -3883,13 +3890,13 @@ def main():
                 f"<div style='display:flex;flex-direction:column;align-items:center;"
                 f"background:rgba(255,255,255,0.04);border:1px solid {_sess_col}40;"
                 f"border-radius:8px;padding:4px 12px;margin-left:auto'>"
-                f"<span style='font-size:1.07remrem;font-weight:700;color:{_sess_col}'>{_sess_label}</span>"
-                f"<span style='font-size:1.1remrem;color:#888'>{_sess_time}</span>"
+                f"<span style='font-size:1.07rem;font-weight:700;color:{_sess_col}'>{_sess_label}</span>"
+                f"<span style='font-size:1.1rem;color:#888'>{_sess_time}</span>"
                 f"</div>"
             )
             if _sess_id in ("pre", "after"):
                 _sess_html += (
-                    f"<div style='font-size:0.88remrem;color:#888;margin-left:8px;align-self:flex-end;"
+                    f"<div style='font-size:0.88rem;color:#888;margin-left:8px;align-self:flex-end;"
                     f"padding-bottom:4px'>연장 시간 — 유동성 낮음, 가격 급변 주의</div>"
                 )
 
@@ -4001,8 +4008,8 @@ def main():
                                 f"""<div style='background:linear-gradient(90deg,rgba(0,200,83,0.15),rgba(0,150,60,0.08));
                                     border:1.5px solid #00c853;border-radius:10px;padding:8px 14px;margin-bottom:8px;
                                     display:flex;align-items:center;gap:8px;animation:pulse 1.5s ease-in-out infinite;'>
-                                  <span style='font-size:1.15remrem'>🚀</span>
-                                  <span style='flex:1;font-size:0.98remrem;font-weight:700;color:#00c853'>
+                                  <span style='font-size:1.15rem'>🚀</span>
+                                  <span style='flex:1;font-size:0.98rem;font-weight:700;color:#00c853'>
                                     {_us_new_count}개 US 신호 감지 ({_us_sig_ts})</span>
                                 </div>
                                 <style>@keyframes pulse{{0%,100%{{opacity:1}}50%{{opacity:0.6}}}}</style>""",
@@ -4032,10 +4039,10 @@ def main():
                             _us_cond_color = "#00c853" if "상승" in _us_cond else "#ff4b4b" if "하락" in _us_cond else "#f5c518"
                             _us_cond_icon  = "🟢" if "상승" in _us_cond else "🔴" if "하락" in _us_cond else "🟡"
                             st.markdown(
-                                f"<div style='font-size:0.91remrem;padding:4px 8px;margin:6px 0;"
+                                f"<div style='font-size:0.91rem;padding:4px 8px;margin:6px 0;"
                                 f"border-left:3px solid {_us_cond_color};border-radius:0 6px 6px 0'>"
                                 f"{_us_cond_icon} <b style='color:{_us_cond_color}'>{_us_cond}</b>"
-                                f"&nbsp;<span style='color:#666;font-size:0.81remrem'>{_us_res.get('_ts','')}</span></div>",
+                                f"&nbsp;<span style='color:#666;font-size:0.81rem'>{_us_res.get('_ts','')}</span></div>",
                                 unsafe_allow_html=True,
                             )
                             if _us_res.get("error") and not _us_res.get("picks"):
@@ -4045,7 +4052,7 @@ def main():
                             else:
                                 _us_sel = st.session_state.get("us_selected_pick_idx", 0)
                                 st.markdown(
-                                    f"<div style='font-size:1.1remrem;color:#666;margin-bottom:4px'>"
+                                    f"<div style='font-size:1.1rem;color:#666;margin-bottom:4px'>"
                                     f"총 {len(_us_res['picks'])}개 종목 — 클릭하여 상세 확인</div>",
                                     unsafe_allow_html=True,
                                 )
@@ -4071,14 +4078,14 @@ def main():
                                             f"<div style='background:{_up_row_bg};border:{_up_row_bdr};"
                                             f"border-radius:8px;padding:8px 10px;margin-bottom:2px'>"
                                             f"<div style='display:flex;justify-content:space-between;align-items:center'>"
-                                            f"<span style='font-size:1.04remrem;font-weight:700'>{_up_name} <span style='font-size:1.1remrem;color:#666'>({_up_ticker})</span></span>"
-                                            f"<span style='font-size:0.88remrem;color:{_up_urg_color};font-weight:600'>"
+                                            f"<span style='font-size:1.04rem;font-weight:700'>{_up_name} <span style='font-size:1.1rem;color:#666'>({_up_ticker})</span></span>"
+                                            f"<span style='font-size:0.88rem;color:{_up_urg_color};font-weight:600'>"
                                             f"{_up_urg_icon} {_up_urg}</span>"
                                             f"</div>"
                                             f"<div style='display:flex;justify-content:space-between;margin-top:3px'>"
-                                            f"<span style='font-size:1.1remrem;color:#777'>"
+                                            f"<span style='font-size:1.1rem;color:#777'>"
                                             f"진입 ${_up_entry:,.2f} → +{_up_upside}%</span>"
-                                            f"<span style='font-size:0.88remrem;color:{_up_chg_c};font-weight:600'>"
+                                            f"<span style='font-size:0.88rem;color:{_up_chg_c};font-weight:600'>"
                                             f"{'▲' if _up_chg>=0 else '▼'}{abs(_up_chg):.1f}%</span>"
                                             f"</div></div>",
                                             unsafe_allow_html=True,
@@ -4094,8 +4101,8 @@ def main():
                         else:
                             st.markdown(
                                 "<div style='text-align:center;padding:50px 0;color:#555'>"
-                                "<div style='font-size:2.30remrem'>🎯</div>"
-                                "<div style='margin-top:8px;font-size:1.10remrem'>AI 분석을 실행하면<br>"
+                                "<div style='font-size:2.30rem'>🎯</div>"
+                                "<div style='margin-top:8px;font-size:1.10rem'>AI 분석을 실행하면<br>"
                                 "종목 목록이 여기에 표시됩니다</div>"
                                 "</div>",
                                 unsafe_allow_html=True,
@@ -4108,8 +4115,8 @@ def main():
                             st.markdown(
                                 "<div style='display:flex;flex-direction:column;align-items:center;"
                                 "justify-content:center;height:200px;color:#444'>"
-                                "<div style='font-size:3.45remrem'>📊</div>"
-                                "<div style='margin-top:12px;font-size:1.14remrem;text-align:center;line-height:1.6'>"
+                                "<div style='font-size:3.45rem'>📊</div>"
+                                "<div style='margin-top:12px;font-size:1.14rem;text-align:center;line-height:1.6'>"
                                 "좌측에서 AI 분석을 실행하면<br>선택 종목 상세가 여기에 표시됩니다</div>"
                                 "</div>",
                                 unsafe_allow_html=True,
@@ -4146,14 +4153,14 @@ def main():
                             _up_already_surged = _up_chg >= 12
 
                             _up_cur_html = (
-                                f"<div style='font-size:1.04remrem;color:#aaa;margin-bottom:8px'>"
+                                f"<div style='font-size:1.04rem;color:#aaa;margin-bottom:8px'>"
                                 f"현재 <b style='color:#eee'>${_up_cur:,.2f}</b>&nbsp;"
                                 f"<span style='color:{_up_chg_col};font-weight:700'>"
                                 f"{_up_chg_sign} {abs(_up_chg):.2f}%</span></div>"
                             ) if _up_cur > 0 else ""
 
                             _up_pattern_html = (
-                                f"<div style='font-size:0.81remrem;color:#7dd3fc;"
+                                f"<div style='font-size:0.81rem;color:#7dd3fc;"
                                 f"background:rgba(125,211,252,0.08);border-radius:6px;"
                                 f"padding:3px 8px;margin-bottom:6px;display:inline-block'>"
                                 f"📊 {_up_pat}</div>"
@@ -4161,14 +4168,14 @@ def main():
 
                             _up_theme_html = "".join(
                                 f"<span style='background:rgba(255,255,255,0.08);"
-                                f"border-radius:10px;padding:2px 7px;font-size:1.1remrem;"
+                                f"border-radius:10px;padding:2px 7px;font-size:1.1rem;"
                                 f"color:#aaa;margin-right:4px'>{th}</span>"
                                 for th in _up_themes
                             )
 
                             _up_warn_html = (
                                 "<div style='background:rgba(255,75,75,0.15);border:1px solid #ff4b4b;"
-                                "border-radius:8px;padding:4px 8px;font-size:1.1remrem;color:#ff4b4b;"
+                                "border-radius:8px;padding:4px 8px;font-size:1.1rem;color:#ff4b4b;"
                                 "margin-bottom:8px'>⚠️ 이미 많이 오른 종목 — 진입 신중</div>"
                             ) if _up_already_surged else ""
 
@@ -4180,15 +4187,15 @@ def main():
                                 f"<div style='display:flex;justify-content:space-between;"
                                 f"align-items:flex-start;margin-bottom:6px'>"
                                 f"<div>"
-                                f"<span style='font-size:0.91remrem;color:#888'>#{_up_rank}</span>&nbsp;"
-                                f"<span style='font-size:1.15remrem;font-weight:700'>{_up_name}</span><br>"
-                                f"<span style='font-size:0.88remrem;color:#666'>{_up_ticker}</span>"
+                                f"<span style='font-size:0.91rem;color:#888'>#{_up_rank}</span>&nbsp;"
+                                f"<span style='font-size:1.15rem;font-weight:700'>{_up_name}</span><br>"
+                                f"<span style='font-size:0.88rem;color:#666'>{_up_ticker}</span>"
                                 f"</div>"
                                 f"<div style='text-align:right'>"
                                 f"<span style='background:{_up_urg_bg};color:{_up_urg_color};"
-                                f"border-radius:10px;padding:2px 7px;font-size:1.1remrem;font-weight:700;"
+                                f"border-radius:10px;padding:2px 7px;font-size:1.1rem;font-weight:700;"
                                 f"display:block;margin-bottom:3px'>{_up_urg_icon} {_up_urg}</span>"
-                                f"<span style='color:{_up_hz_color};font-size:1.0remrem;font-weight:600'>{_up_hrz}</span>"
+                                f"<span style='color:{_up_hz_color};font-size:1.0rem;font-weight:600'>{_up_hrz}</span>"
                                 f"</div></div>"
                                 + _up_warn_html
                                 + _up_pattern_html
@@ -4198,25 +4205,25 @@ def main():
                                 f"<div style='background:rgba(255,255,255,0.07);"
                                 f"border:1px solid rgba(255,255,255,0.12);border-radius:8px;"
                                 f"padding:6px;text-align:center'>"
-                                f"<div style='font-size:1.0remrem;color:#888'>매수 타점</div>"
-                                f"<div style='font-size:1.10remrem;font-weight:700'>${_up_entry:,.2f}</div>"
-                                + (f"<div style='font-size:0.95remrem;color:#ff4b4b;margin-top:3px;word-break:keep-all;line-height:1.2'>마지노선:<br>{_up.get('entry_limit','')}</div>" if _up.get('entry_limit') else "")
+                                f"<div style='font-size:1.0rem;color:#888'>매수 타점</div>"
+                                f"<div style='font-size:1.10rem;font-weight:700'>${_up_entry:,.2f}</div>"
+                                + (f"<div style='font-size:0.95rem;color:#ff4b4b;margin-top:3px;word-break:keep-all;line-height:1.2'>마지노선:<br>{_up.get('entry_limit','')}</div>" if _up.get('entry_limit') else "")
                                 + f"</div>"
                                 f"<div style='background:rgba(0,200,83,0.12);"
                                 f"border:1px solid rgba(0,200,83,0.25);border-radius:8px;"
                                 f"padding:6px;text-align:center'>"
-                                f"<div style='font-size:1.0remrem;color:#888'>목표가</div>"
-                                f"<div style='font-size:1.10remrem;font-weight:700;color:#00c853'>"
+                                f"<div style='font-size:1.0rem;color:#888'>목표가</div>"
+                                f"<div style='font-size:1.10rem;font-weight:700;color:#00c853'>"
                                 f"${_up_target:,.2f}</div>"
-                                f"<div style='font-size:1.0remrem;color:#00c853'>+{_up_upside}%</div></div>"
+                                f"<div style='font-size:1.0rem;color:#00c853'>+{_up_upside}%</div></div>"
                                 f"<div style='background:rgba(43,124,255,0.12);"
                                 f"border:1px solid rgba(43,124,255,0.25);border-radius:8px;"
                                 f"padding:6px;text-align:center'>"
-                                f"<div style='font-size:1.0remrem;color:#888'>손절가</div>"
-                                f"<div style='font-size:1.10remrem;font-weight:700;color:#2b7cff'>"
+                                f"<div style='font-size:1.0rem;color:#888'>손절가</div>"
+                                f"<div style='font-size:1.10rem;font-weight:700;color:#2b7cff'>"
                                 f"${_up_stop:,.2f}</div></div>"
                                 f"</div>"
-                                f"<div style='font-size:0.94remrem;color:#bbb;line-height:1.6;"
+                                f"<div style='font-size:0.94rem;color:#bbb;line-height:1.6;"
                                 f"margin-bottom:8px'>{_up.get('reason','')}</div>"
                                 + _up_theme_html
                                 + "</div>"
@@ -4297,10 +4304,10 @@ def main():
                                 _ar_cur  = "▲" if _chg_cur >= 0 else "▼"
                                 st.markdown(
                                     f"<div style='display:flex;align-items:center;gap:8px;margin-bottom:8px'>"
-                                    f"<span style='font-size:1.44remrem;font-weight:700'>**{_real_us_dname}**</span> "
-                                    f"<span style='font-size:1.17remrem;color:#888'>({_us_dticker})</span> &nbsp; "
-                                    f"<span style='font-size:1.26remrem;font-weight:600'>${detail_us['price']:,.2f}</span> &nbsp; "
-                                    f"<span style='color:{_col_cur};font-size:1.15remrem;font-weight:600'>{_ar_cur} {_chg_cur:+.2f}%</span>"
+                                    f"<span style='font-size:1.44rem;font-weight:700'>**{_real_us_dname}**</span> "
+                                    f"<span style='font-size:1.17rem;color:#888'>({_us_dticker})</span> &nbsp; "
+                                    f"<span style='font-size:1.26rem;font-weight:600'>${detail_us['price']:,.2f}</span> &nbsp; "
+                                    f"<span style='color:{_col_cur};font-size:1.15rem;font-weight:600'>{_ar_cur} {_chg_cur:+.2f}%</span>"
                                     f"</div>",
                                     unsafe_allow_html=True,
                                 )
@@ -4341,8 +4348,8 @@ def main():
                             if _cur_us_val > 0:
                                 st.markdown(
                                     f"<div style='margin:8px 0 4px 0'>"
-                                    f"<span style='font-size:1.78remrem;font-weight:700'>{_cur_us_val:,.2f}</span>&nbsp;"
-                                    f"<span style='font-size:1.14remrem;color:{_lc_us};font-weight:600'>"
+                                    f"<span style='font-size:1.78rem;font-weight:700'>{_cur_us_val:,.2f}</span>&nbsp;"
+                                    f"<span style='font-size:1.14rem;color:{_lc_us};font-weight:600'>"
                                     f"{_sg_us}{_cur_us_chg:.2f}&nbsp;({_sg_us}{_cur_us_pct:.2f}%)</span>"
                                     f"</div>",
                                     unsafe_allow_html=True,
@@ -4387,10 +4394,10 @@ def main():
                             _ar  = "▲" if _chg >= 0 else "▼"
                             st.markdown(
                                 f"<div style='display:flex;align-items:center;gap:8px;margin-bottom:8px'>"
-                                f"<span style='font-size:1.44remrem;font-weight:700'>**{_real_us_name}**</span> "
-                                f"<span style='font-size:1.17remrem;color:#888'>({_us_ticker_cur})</span> &nbsp; "
-                                f"<span style='font-size:1.26remrem;font-weight:600'>${detail_us.get('price', 0):,.2f}</span> &nbsp; "
-                                f"<span style='color:{_col};font-size:1.15remrem;font-weight:600'>{_ar} {_chg:+.2f}%</span>"
+                                f"<span style='font-size:1.44rem;font-weight:700'>**{_real_us_name}**</span> "
+                                f"<span style='font-size:1.17rem;color:#888'>({_us_ticker_cur})</span> &nbsp; "
+                                f"<span style='font-size:1.26rem;font-weight:600'>${detail_us.get('price', 0):,.2f}</span> &nbsp; "
+                                f"<span style='color:{_col};font-size:1.15rem;font-weight:600'>{_ar} {_chg:+.2f}%</span>"
                                 f"</div>",
                                 unsafe_allow_html=True,
                             )
@@ -4458,7 +4465,7 @@ def main():
                         with _utab_box:
                             _us_box_key = f"us_box_result_{_us_ticker_cur}"
                             st.markdown(
-                                f"<div style='font-size:1.07remrem;color:#888;margin-bottom:8px'>"
+                                f"<div style='font-size:1.07rem;color:#888;margin-bottom:8px'>"
                                 f"AI가 구글 검색을 통해 최근 3~6개월 차트 흐름, 거래량 분석, 세력·기관 수급을 파악해 지지선·저항선 및 돌파 확률을 산출합니다.</div>",
                                 unsafe_allow_html=True
                             )
@@ -4584,8 +4591,8 @@ def main():
                                     _us_ar = "▲" if _us_chg >= 0 else "▼"
                                     st.markdown(
                                         f"<div style='margin:4px 0'>"
-                                        f"<span style='font-size:1.72remrem;font-weight:700'>${detail_us['price']:,.2f}</span>"
-                                        f"&nbsp;<span style='font-size:1.17remrem;color:{_us_col};font-weight:600'>"
+                                        f"<span style='font-size:1.72rem;font-weight:700'>${detail_us['price']:,.2f}</span>"
+                                        f"&nbsp;<span style='font-size:1.17rem;color:{_us_col};font-weight:600'>"
                                         f"{_us_ar} {detail_us['change']:+.2f} ({_us_chg:+.2f}%)</span>"
                                         f"</div>",
                                         unsafe_allow_html=True,
@@ -4609,13 +4616,13 @@ def main():
                                         _ubp = max(0, min(100, (_ucp - _uwl) / (_uwh - _uwl) * 100))
                                         st.markdown(
                                             f"<div style='margin:8px 0 2px 0'>"
-                                            f"<span style='font-size:0.91remrem;color:#888'>52주 가격 위치</span></div>"
+                                            f"<span style='font-size:0.91rem;color:#888'>52주 가격 위치</span></div>"
                                             f"<div style='position:relative;background:rgba(255,255,255,0.08);"
                                             f"border-radius:4px;height:6px;margin:0 0 4px 0'>"
                                             f"<div style='background:{_us_col};border-radius:4px;height:6px;"
                                             f"width:{_ubp:.1f}%'></div></div>"
                                             f"<div style='display:flex;justify-content:space-between;"
-                                            f"font-size:1.1remrem;color:#888'>"
+                                            f"font-size:1.1rem;color:#888'>"
                                             f"<span>최저 ${_uwl:,.2f}</span>"
                                             f"<span style='color:{_us_col};font-weight:700'>{_ubp:.0f}%</span>"
                                             f"<span>최고 ${_uwh:,.2f}</span></div>",
@@ -4628,7 +4635,7 @@ def main():
                                 _post_c = detail_us.get("post_pct", 0) or 0
                                 if _pre_p > 0 or _post_p > 0:
                                     st.markdown(
-                                        "<div style='font-size:0.94remrem;color:#888;margin:10px 0 4px 0;"
+                                        "<div style='font-size:0.94rem;color:#888;margin:10px 0 4px 0;"
                                         "font-weight:600;letter-spacing:0.04em'>⏱ 연장 거래 시간</div>",
                                         unsafe_allow_html=True,
                                     )
@@ -4639,9 +4646,9 @@ def main():
                                         _ext_cols[0].markdown(
                                             f"<div style='background:rgba(245,197,24,0.08);border:1px solid"
                                             f" rgba(245,197,24,0.3);border-radius:8px;padding:8px 10px'>"
-                                            f"<div style='font-size:1.1remrem;color:#888;margin-bottom:2px'>🌅 프리마켓</div>"
-                                            f"<div style='font-size:1.15remrem;font-weight:700'>${_pre_p:,.2f}</div>"
-                                            f"<div style='font-size:0.94remrem;color:{_pc};font-weight:600'>"
+                                            f"<div style='font-size:1.1rem;color:#888;margin-bottom:2px'>🌅 프리마켓</div>"
+                                            f"<div style='font-size:1.15rem;font-weight:700'>${_pre_p:,.2f}</div>"
+                                            f"<div style='font-size:0.94rem;color:{_pc};font-weight:600'>"
                                             f"{_par} {_pre_c:+.2f}%</div></div>",
                                             unsafe_allow_html=True,
                                         )
@@ -4651,9 +4658,9 @@ def main():
                                         _ext_cols[1].markdown(
                                             f"<div style='background:rgba(123,97,255,0.08);border:1px solid"
                                             f" rgba(123,97,255,0.3);border-radius:8px;padding:8px 10px'>"
-                                            f"<div style='font-size:1.1remrem;color:#888;margin-bottom:2px'>🌙 애프터마켓</div>"
-                                            f"<div style='font-size:1.15remrem;font-weight:700'>${_post_p:,.2f}</div>"
-                                            f"<div style='font-size:0.94remrem;color:{_poc};font-weight:600'>"
+                                            f"<div style='font-size:1.1rem;color:#888;margin-bottom:2px'>🌙 애프터마켓</div>"
+                                            f"<div style='font-size:1.15rem;font-weight:700'>${_post_p:,.2f}</div>"
+                                            f"<div style='font-size:0.94rem;color:{_poc};font-weight:600'>"
                                             f"{_poar} {_post_c:+.2f}%</div></div>",
                                             unsafe_allow_html=True,
                                         )
@@ -4777,9 +4784,9 @@ def main():
                                         st.markdown(
                                             f"<div style='background:rgba(255,255,255,0.05);border-left:3px solid {_urc_c};"
                                             f"border-radius:6px;padding:8px 10px;margin:4px 0'>"
-                                            f"<div style='font-size:1.1remrem;color:#888;margin-bottom:2px'>{_urt}</div>"
-                                            f"<div style='font-size:1.04remrem;font-weight:700;color:{_urc_c}'>{_url}</div>"
-                                            f"<div style='font-size:0.88remrem;color:#ccc;margin-top:3px'>{_urd}</div>"
+                                            f"<div style='font-size:1.1rem;color:#888;margin-bottom:2px'>{_urt}</div>"
+                                            f"<div style='font-size:1.04rem;font-weight:700;color:{_urc_c}'>{_url}</div>"
+                                            f"<div style='font-size:0.88rem;color:#ccc;margin-top:3px'>{_urd}</div>"
                                             f"</div>",
                                             unsafe_allow_html=True,
                                         )
@@ -4832,7 +4839,7 @@ def main():
 
                             elif st.session_state.us_right_tab == _rp_tabs[2]:
                                 st.markdown(
-                                    "<p style='font-size:1.01remrem;font-weight:700;color:#aaa;margin:4px 0'>"
+                                    "<p style='font-size:1.01rem;font-weight:700;color:#aaa;margin:4px 0'>"
                                     "🎯 오늘의 단타 핫종목 발굴</p>",
                                     unsafe_allow_html=True,
                                 )
@@ -4872,7 +4879,7 @@ def main():
                                     unsafe_allow_html=True,
                                 )
                                 st.markdown(
-                                    "<p style='font-size:1.01remrem;font-weight:700;color:#aaa;margin:4px 0'>"
+                                    "<p style='font-size:1.01rem;font-weight:700;color:#aaa;margin:4px 0'>"
                                     "🧠 세력 수급 & 타점 분석</p>",
                                     unsafe_allow_html=True,
                                 )
@@ -4921,8 +4928,8 @@ def main():
                                     _bc = {"매우 강력 추천":"#00c853","추천":"#69f0ae","중간추천":"#f5c518","비추천":"#ff7043","매우 비추천":"#b71c1c"}.get(_r, "#888")
                                     st.markdown(
                                         f"<div style='display:flex;gap:6px;flex-wrap:wrap;margin:10px 0'>"
-                                        f"<span style='background:{_bc}22;border:1px solid {_bc};border-radius:6px;padding:3px 10px;font-size:1.10remrem;font-weight:700;color:{_bc}'>단기: {_r}</span>"
-                                        f"<span style='background:#2b7cff22;border:1px solid #2b7cff;border-radius:6px;padding:3px 10px;font-size:1.10remrem;font-weight:700;color:#2b7cff'>중장기: {_lr}</span>"
+                                        f"<span style='background:{_bc}22;border:1px solid {_bc};border-radius:6px;padding:3px 10px;font-size:1.10rem;font-weight:700;color:{_bc}'>단기: {_r}</span>"
+                                        f"<span style='background:#2b7cff22;border:1px solid #2b7cff;border-radius:6px;padding:3px 10px;font-size:1.10rem;font-weight:700;color:#2b7cff'>중장기: {_lr}</span>"
                                         f"</div>",
                                         unsafe_allow_html=True
                                     )
@@ -5040,7 +5047,7 @@ def main():
 
                             st.markdown(
                                 f"<h4 style='margin:4px 0 2px 0'>{_us_dname}</h4>"
-                                f"<p style='margin:0;font-size:1.01remrem;color:#888'>"
+                                f"<p style='margin:0;font-size:1.01rem;color:#888'>"
                                 f"티커 {_us_dticker} · {st.session_state.us_selected_sector_us}</p>",
                                 unsafe_allow_html=True,
                             )
@@ -5075,7 +5082,7 @@ def main():
                                     _d_post_c = us_detail.get("post_pct", 0) or 0
                                     if _d_pre_p > 0 or _d_post_p > 0:
                                         st.markdown(
-                                            "<div style='font-size:0.94remrem;color:#888;margin:8px 0 4px 0;"
+                                            "<div style='font-size:0.94rem;color:#888;margin:8px 0 4px 0;"
                                             "font-weight:600'>⏱ 연장 거래 시간</div>",
                                             unsafe_allow_html=True,
                                         )
@@ -5085,9 +5092,9 @@ def main():
                                             _dc1.markdown(
                                                 f"<div style='background:rgba(245,197,24,0.08);border:1px solid"
                                                 f" rgba(245,197,24,0.3);border-radius:8px;padding:8px 10px'>"
-                                                f"<div style='font-size:1.1remrem;color:#888'>🌅 프리마켓</div>"
-                                                f"<div style='font-size:1.23remrem;font-weight:700'>${_d_pre_p:,.2f}</div>"
-                                                f"<div style='font-size:0.94remrem;color:#f5c518'>"
+                                                f"<div style='font-size:1.1rem;color:#888'>🌅 프리마켓</div>"
+                                                f"<div style='font-size:1.23rem;font-weight:700'>${_d_pre_p:,.2f}</div>"
+                                                f"<div style='font-size:0.94rem;color:#f5c518'>"
                                                 f"{_dpar} {_d_pre_c:+.2f}%</div></div>",
                                                 unsafe_allow_html=True,
                                             )
@@ -5096,9 +5103,9 @@ def main():
                                             _dc2.markdown(
                                                 f"<div style='background:rgba(123,97,255,0.08);border:1px solid"
                                                 f" rgba(123,97,255,0.3);border-radius:8px;padding:8px 10px'>"
-                                                f"<div style='font-size:1.1remrem;color:#888'>🌙 애프터마켓</div>"
-                                                f"<div style='font-size:1.23remrem;font-weight:700'>${_d_post_p:,.2f}</div>"
-                                                f"<div style='font-size:0.94remrem;color:#7b61ff'>"
+                                                f"<div style='font-size:1.1rem;color:#888'>🌙 애프터마켓</div>"
+                                                f"<div style='font-size:1.23rem;font-weight:700'>${_d_post_p:,.2f}</div>"
+                                                f"<div style='font-size:0.94rem;color:#7b61ff'>"
                                                 f"{_dpoar} {_d_post_c:+.2f}%</div></div>",
                                                 unsafe_allow_html=True,
                                             )
@@ -5294,7 +5301,7 @@ def main():
                                 from ai_engine import analyze_us_today_market, analyze_us_hot_sectors
                                 _us_am_hdr, _us_am_ref = st.columns([8, 1])
                                 _us_am_hdr.markdown(
-                                    "<p style='font-size:0.98remrem;color:#888;margin:4px 0'>"
+                                    "<p style='font-size:0.98rem;color:#888;margin:4px 0'>"
                                     "급등 종목 분석 · AI 핫 섹터 통합</p>",
                                     unsafe_allow_html=True,
                                 )
@@ -5309,7 +5316,7 @@ def main():
                                 if not st.session_state.us_ai_market_run:
                                     st.markdown(
                                         "<div style='text-align:center;padding:40px 20px'>"
-                                        "<p style='color:#888;font-size:1.10remrem;margin-bottom:16px'>"
+                                        "<p style='color:#888;font-size:1.10rem;margin-bottom:16px'>"
                                         "US 급등 종목 이유 분석, AI 핫 섹터를 한번에 확인합니다</p>"
                                         "</div>",
                                         unsafe_allow_html=True,
@@ -5346,7 +5353,7 @@ def main():
                                             st.markdown(
                                                 f"<div style='background:rgba(0,200,83,0.06);border-left:3px solid #00c853;"
                                                 f"padding:6px 12px;border-radius:4px;margin:4px 0'>"
-                                                f"<span style='font-size:0.98remrem;color:#aaa'>{_us_mkt_res['market_summary']}</span>"
+                                                f"<span style='font-size:0.98rem;color:#aaa'>{_us_mkt_res['market_summary']}</span>"
                                                 f"</div>",
                                                 unsafe_allow_html=True,
                                             )
@@ -5355,7 +5362,7 @@ def main():
                                         if _us_themes_lead:
                                             _us_tag_html = " ".join(
                                                 f"<span style='background:rgba(0,200,83,0.12);border:1px solid rgba(0,200,83,0.3);"
-                                                f"border-radius:12px;padding:2px 8px;font-size:0.88remrem;color:#00c853;margin:2px'>"
+                                                f"border-radius:12px;padding:2px 8px;font-size:0.88rem;color:#00c853;margin:2px'>"
                                                 f"{_t}</span>"
                                                 for _t in _us_themes_lead
                                             )
@@ -5377,21 +5384,21 @@ def main():
                                                         render_star_toggle("미국", _us_stk.get('ticker',''), _us_stk.get('name',''), key_suffix=f"us_rise_{_us_stk.get('ticker','')}")
                                                     with _usc1:
                                                         st.markdown(
-                                                            f"<span style='font-size:1.07remrem;font-weight:700'>"
+                                                            f"<span style='font-size:1.07rem;font-weight:700'>"
                                                             f"{_us_stk.get('ticker','')} · {_us_stk.get('name','')}</span>"
-                                                            f"<span style='font-size:0.98remrem;color:{_us_sc_col};margin-left:8px'>"
+                                                            f"<span style='font-size:0.98rem;color:{_us_sc_col};margin-left:8px'>"
                                                             f"{_us_sc:+.1f}%</span>",
                                                             unsafe_allow_html=True,
                                                         )
                                                         if _us_stk.get("theme"):
                                                             st.markdown(
-                                                                f"<span style='font-size:1.1remrem;color:#888'>"
+                                                                f"<span style='font-size:1.1rem;color:#888'>"
                                                                 f"🏷 {_us_stk['theme']}</span>",
                                                                 unsafe_allow_html=True,
                                                             )
                                                         if _us_stk.get("reason"):
                                                             st.markdown(
-                                                                f"<p style='font-size:0.88remrem;color:#bbb;margin:2px 0'>"
+                                                                f"<p style='font-size:0.88rem;color:#bbb;margin:2px 0'>"
                                                                 f"{_us_stk['reason']}</p>",
                                                                 unsafe_allow_html=True,
                                                             )
@@ -5414,7 +5421,7 @@ def main():
 
                                         # AI 핫 섹터
                                         st.markdown(
-                                            "<p style='font-size:1.01remrem;font-weight:700;color:#aaa;margin:4px 0'>"
+                                            "<p style='font-size:1.01rem;font-weight:700;color:#aaa;margin:4px 0'>"
                                             "🔥 AI 핫 섹터</p>",
                                             unsafe_allow_html=True,
                                         )
@@ -5437,28 +5444,28 @@ def main():
                                                     with st.container(border=True):
                                                         _uah1, _uah2 = st.columns([8, 2])
                                                         _uah1.markdown(
-                                                            f"<span style='font-size:1.14remrem;font-weight:700'>"
+                                                            f"<span style='font-size:1.14rem;font-weight:700'>"
                                                             f"{_ufire} {_ukw}</span>"
-                                                            f"<span style='font-size:0.94remrem;color:{_usc_col};"
+                                                            f"<span style='font-size:0.94rem;color:{_usc_col};"
                                                             f"margin-left:8px'>HOT {_usc}/10</span>",
                                                             unsafe_allow_html=True,
                                                         )
                                                         if _ursn:
                                                             st.markdown(
-                                                                f"<p style='font-size:0.94remrem;color:#bbb;margin:3px 0'>"
+                                                                f"<p style='font-size:0.94rem;color:#bbb;margin:3px 0'>"
                                                                 f"{_ursn}</p>",
                                                                 unsafe_allow_html=True,
                                                             )
                                                         if _unews:
                                                             st.markdown(
-                                                                f"<p style='font-size:0.88remrem;color:#666;margin:2px 0'>"
+                                                                f"<p style='font-size:0.88rem;color:#666;margin:2px 0'>"
                                                                 f"📰 {_unews}</p>",
                                                                 unsafe_allow_html=True,
                                                             )
                                                         if _uhot_t:
                                                             st.markdown(
                                                                 " ".join(
-                                                                    f"<span style='font-size:1.1remrem;border:1px solid rgba(0,200,83,0.3);"
+                                                                    f"<span style='font-size:1.1rem;border:1px solid rgba(0,200,83,0.3);"
                                                                     f"border-radius:4px;padding:1px 5px;color:#00c853'>{_t}</span>"
                                                                     for _t in _uhot_t[:6]
                                                                 ),
@@ -5467,7 +5474,7 @@ def main():
                                                         # 동적 서브섹터
                                                         for _uds in _uas.get("dynamic_subsectors", [])[:2]:
                                                             st.markdown(
-                                                                f"<span style='font-size:0.88remrem;color:#ff9800'>"
+                                                                f"<span style='font-size:0.88rem;color:#ff9800'>"
                                                                 f"📡 {_uds.get('name','')} — {_uds.get('reason','')[:50]}</span>",
                                                                 unsafe_allow_html=True,
                                                             )
@@ -5520,7 +5527,7 @@ def main():
                                 )
 
                                 st.markdown(
-                                    "<p style='font-size:0.94remrem;color:#888;margin:2px 0 6px 0'>"
+                                    "<p style='font-size:0.94rem;color:#888;margin:2px 0 6px 0'>"
                                     "섹터를 클릭해 종목을 탐색하세요 · 🔥 = 오늘의 이슈 섹터</p>",
                                     unsafe_allow_html=True,
                                 )
@@ -5533,21 +5540,21 @@ def main():
                                         _us_rsn = _us_hs_info.get("reason", "")[:40]
                                         if _us_tier != _us_prev_tier:
                                             if _us_tier == 0:
-                                                st.markdown("<p style='font-size:0.88remrem;font-weight:700;color:#00c853;margin:4px 0 2px 0'>🔥 HOT 섹터</p>", unsafe_allow_html=True)
+                                                st.markdown("<p style='font-size:0.88rem;font-weight:700;color:#00c853;margin:4px 0 2px 0'>🔥 HOT 섹터</p>", unsafe_allow_html=True)
                                             elif _us_tier == 1:
-                                                st.markdown("<p style='font-size:0.88remrem;font-weight:700;color:#f5c518;margin:6px 0 2px 0'>⭐ 관심 섹터</p>", unsafe_allow_html=True)
+                                                st.markdown("<p style='font-size:0.88rem;font-weight:700;color:#f5c518;margin:6px 0 2px 0'>⭐ 관심 섹터</p>", unsafe_allow_html=True)
                                             else:
-                                                st.markdown("<p style='font-size:0.88remrem;color:#555;margin:6px 0 2px 0'>일반 섹터</p>", unsafe_allow_html=True)
+                                                st.markdown("<p style='font-size:0.88rem;color:#555;margin:6px 0 2px 0'>일반 섹터</p>", unsafe_allow_html=True)
                                             _us_prev_tier = _us_tier
                                         _us_is_sel = st.session_state.us_selected_sector_us == _usn
                                         if _us_tier == 0:
-                                            _us_bh = f"🔥 {_usn} <span style='font-size:1.1remrem;color:#ff9800'>[{_us_sc}점]</span>"
+                                            _us_bh = f"🔥 {_usn} <span style='font-size:1.1rem;color:#ff9800'>[{_us_sc}점]</span>"
                                             if _us_rsn:
-                                                _us_bh += f"<br><span style='font-size:1.1remrem;color:#aaa'>{_us_rsn}{'…' if len(_us_hs_info.get('reason',''))>40 else ''}</span>"
+                                                _us_bh += f"<br><span style='font-size:1.1rem;color:#aaa'>{_us_rsn}{'…' if len(_us_hs_info.get('reason',''))>40 else ''}</span>"
                                             _us_bg = "rgba(0,200,83,0.12)" if _us_is_sel else "rgba(0,200,83,0.06)"
                                             _us_bd = "#00c853" if _us_is_sel else "rgba(0,200,83,0.35)"
                                         elif _us_tier == 1:
-                                            _us_bh = f"⭐ {_usn} <span style='font-size:1.1remrem;color:#888'>[{_us_sc}점]</span>"
+                                            _us_bh = f"⭐ {_usn} <span style='font-size:1.1rem;color:#888'>[{_us_sc}점]</span>"
                                             _us_bg = "rgba(245,197,24,0.10)" if _us_is_sel else "rgba(245,197,24,0.04)"
                                             _us_bd = "#f5c518" if _us_is_sel else "rgba(245,197,24,0.25)"
                                         else:
@@ -5601,10 +5608,10 @@ def main():
                                     f"""<div style='display:flex;align-items:center;gap:14px;
                                         background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);
                                         border-radius:12px;padding:14px 18px;margin:8px 0'>
-                                      <div style='font-size:1.49remrem;animation:spin 1.2s linear infinite;display:inline-block'>⏳</div>
+                                      <div style='font-size:1.49rem;animation:spin 1.2s linear infinite;display:inline-block'>⏳</div>
                                       <div>
-                                        <div style='font-size:1.10remrem;font-weight:600'>실시간 시세 조회 중 ({_us_n}개 종목)</div>
-                                        <div style='font-size:1.07remrem;color:#888'>약 {_us_est}초 소요</div>
+                                        <div style='font-size:1.10rem;font-weight:600'>실시간 시세 조회 중 ({_us_n}개 종목)</div>
+                                        <div style='font-size:1.07rem;color:#888'>약 {_us_est}초 소요</div>
                                       </div>
                                     </div>
                                     <style>@keyframes spin{{0%{{transform:rotate(0deg)}} 100%{{transform:rotate(360deg)}}}}</style>""",
@@ -5616,7 +5623,7 @@ def main():
                                 _us_hcols = st.columns([0.35, 2.8, 1.8, 1.4, 0.45])
                                 for _uhc, _uht in zip(_us_hcols[:4], ["단타", "종목명", "현재가($)", "등락률"]):
                                     _uhc.markdown(
-                                        f"<p style='margin:0;font-size:0.94remrem;color:#888'>{_uht}</p>",
+                                        f"<p style='margin:0;font-size:0.94rem;color:#888'>{_uht}</p>",
                                         unsafe_allow_html=True,
                                     )
 
@@ -5670,12 +5677,12 @@ def main():
                                                 st.session_state[us_tok] = not us_is_open
                                                 st.rerun()
                                             uh1.markdown(
-                                                f"<span style='font-size:1.10remrem;font-weight:600'>📌 {us_sub_name}</span>"
-                                                f"<span style='font-size:0.98remrem;color:#888'>　{len(us_stocks)}개</span>",
+                                                f"<span style='font-size:1.10rem;font-weight:600'>📌 {us_sub_name}</span>"
+                                                f"<span style='font-size:0.98rem;color:#888'>　{len(us_stocks)}개</span>",
                                                 unsafe_allow_html=True,
                                             )
                                             uh3.markdown(
-                                                f"<span style='font-size:1.20remrem;font-weight:700;color:{us_pct_color}'>"
+                                                f"<span style='font-size:1.20rem;font-weight:700;color:{us_pct_color}'>"
                                                 f"{us_avg_pct:+.2f}%</span>",
                                                 unsafe_allow_html=True,
                                             )
@@ -5690,7 +5697,7 @@ def main():
                                                         f"<div style='background:rgba(255,255,255,0.05);"
                                                         f"border-left:3px solid {us_pct_color};"
                                                         f"border-radius:6px;padding:8px 12px;margin:4px 0 8px 0;"
-                                                        f"font-size:1.07remrem;line-height:1.55;color:#ddd'>"
+                                                        f"font-size:1.07rem;line-height:1.55;color:#ddd'>"
                                                         f"{st.session_state[us_ai_key]}</div>",
                                                         unsafe_allow_html=True,
                                                     )
@@ -5717,17 +5724,17 @@ def main():
                                                         render_star_toggle("미국", _us["ticker"], _us["name"], key_suffix=f"us_sec_stk_{_us['ticker']}_{_ui}")
                                                     _uc0.markdown("✅" if _upct >= 3.0 else "&nbsp;", unsafe_allow_html=True)
                                                     _uc1.markdown(
-                                                        f"<span style='font-size:1.10remrem'>{_us['name']}"
+                                                        f"<span style='font-size:1.10rem'>{_us['name']}"
                                                         f"{'&nbsp;🔗' if _other_locs else ''}</span>",
                                                         unsafe_allow_html=True,
                                                     )
                                                     _uc2.markdown(
-                                                        f"<span style='font-size:1.10remrem'>"
+                                                        f"<span style='font-size:1.10rem'>"
                                                         f"{'$'+f'{_upval:,.2f}' if _upval > 0 else '---'}</span>",
                                                         unsafe_allow_html=True,
                                                     )
                                                     _uc3.markdown(
-                                                        f"<span style='font-size:1.10remrem;font-weight:bold;"
+                                                        f"<span style='font-size:1.10rem;font-weight:bold;"
                                                         f"color:{_upct_c}'>{_upct:+.2f}%</span>",
                                                         unsafe_allow_html=True,
                                                     )
@@ -5921,7 +5928,7 @@ def main():
                         st.markdown(
                             f"<div style='display:inline-block;padding:2px 8px;border-radius:4px;"
                             f"background:{guide_color}22;border:1px solid {guide_color};"
-                            f"color:{guide_color};font-size:0.88remrem;font-weight:700;margin-bottom:6px'>"
+                            f"color:{guide_color};font-size:0.88rem;font-weight:700;margin-bottom:6px'>"
                             f"{guide_text}</div>",
                             unsafe_allow_html=True
                         )
