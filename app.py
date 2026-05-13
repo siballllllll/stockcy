@@ -1017,20 +1017,26 @@ def show_trade_analysis_modal():
     # ── 목록 탭 (날짜별 누적 기록) ───────────────────────
     with _tab_list:
         _by_date = {}
+        _seen_sfx = set()
         for _k in list(st.session_state.keys()):
             if not _k.startswith("_modal_res_"):
                 continue
             _suffix = _k[len("_modal_res_"):]
+            if _suffix in _seen_sfx:
+                continue
+            _seen_sfx.add(_suffix)
             _tde = st.session_state.get(f"_modal_trade_{_suffix}")
             if not _tde:
                 continue
-            _d = _tde.get("sell_date", "날짜없음")
+            _d_raw = str(_tde.get("sell_date", "날짜없음"))
+            _d = _d_raw[:10] if len(_d_raw) >= 10 else _d_raw  # YYYY-MM-DD 로 정규화
             _by_date.setdefault(_d, []).append((_tde, st.session_state[_k]))
 
         if not _by_date:
             st.info("아직 분석된 거래가 없습니다. 📊 분석 탭에서 먼저 분석을 실행하세요.")
         else:
-            _latest_date = _td.get("sell_date", "") if _td else ""
+            _latest_raw = str(_td.get("sell_date", "")) if _td else ""
+            _latest_date = _latest_raw[:10] if len(_latest_raw) >= 10 else _latest_raw
             for _date in sorted(_by_date.keys(), reverse=True):
                 _entries = _by_date[_date]
                 _lparts = []
