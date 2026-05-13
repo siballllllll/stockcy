@@ -442,10 +442,10 @@ def inject_custom_css():
             font-weight: 700 !important;
         }
         
-        /* ── 거래 내역 버튼 정렬 보정 (Offset Compensation) ── */
-        .trade-btn-container [data-testid="stButton"] button {
-            margin-top: 7px !important;
-            margin-bottom: -7px !important;
+        /* ── 거래 내역 버튼 정렬 보정 (Direct Aria-Label Targeting) ── */
+        button[aria-label="🤖"], button[aria-label="🗑️"] {
+            margin-top: 10px !important;
+            margin-bottom: -10px !important;
         }
 
         /* ── 접기/펼치기(Expander) 레이아웃 보정 ── */
@@ -6627,19 +6627,15 @@ def main():
                         unsafe_allow_html=True,
                     )
                     with _ai_c:
-                        st.markdown("<div class='trade-btn-container'>", unsafe_allow_html=True)
                         if st.button("🤖", key=f"ai_trade_{_orig_idx}_{_t.get('sell_date','')}", help="AI 분석", use_container_width=True):
                             st.session_state["_analyze_trade_key"] = _tsa_key
                             st.session_state["_analyze_trade_data"] = _t
                             st.rerun()
-                        st.markdown("</div>", unsafe_allow_html=True)
 
                     with _del_c:
-                        st.markdown("<div class='trade-btn-container'>", unsafe_allow_html=True)
                         if st.button("🗑️", key=f"del_trade_{_orig_idx}_{_t.get('sell_date','')}", help="삭제", use_container_width=True):
                             st.session_state["_del_trade_idx"] = _orig_idx
                             st.rerun()
-                        st.markdown("</div>", unsafe_allow_html=True)
 
                     # 분석 결과 표시
                     _tsa = st.session_state.get(_tsa_key)
