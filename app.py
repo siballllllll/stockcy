@@ -416,10 +416,41 @@ def inject_custom_css():
             font-size: 0.95rem !important;
         }
     </style>""", unsafe_allow_html=True)
+    # 글로벌 폰트 및 텍스트 통일
+    st.markdown("""
+        <style>
+        @import url("https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.8/dist/web/variable/pretendardvariable.css");
+        
+        html, body, [data-testid="stAppViewContainer"] * {
+            font-family: "Pretendard Variable", Pretendard, -apple-system, BlinkMacSystemFont, system-ui, Roboto, "Helvetica Neue", "Segoe UI", "Apple SD Gothic Neo", "Noto Sans KR", "Malgun Gothic", "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", sans-serif !important;
+        }
+
+        /* ── 텍스트 크기 일관성 확보 ── */
+        [data-testid="stMarkdownContainer"] p, 
+        [data-testid="stMarkdownContainer"] li,
+        [data-testid="stAlert"] div,
+        .sc-card div {
+            font-size: 1.0rem !important;
+            line-height: 1.6 !important;
+        }
+        
+        /* ── 이탤릭/강조 시 폰트 변형 방지 ── */
+        em, i {
+            font-style: italic !important;
+            font-family: inherit !important;
+        }
+        strong, b {
+            font-weight: 700 !important;
+            font-family: inherit !important;
+        }
     st.markdown("""
         <style>
         /* ── 표준 스케일링 — Zoom 대신 Font-size 조절로 좌표 오류 근본 해결 ── */
-        html { font-size: 18.5px; }
+        html { 
+            font-size: 18.5px; 
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+        }
         .stApp,
         [data-testid="stAppViewContainer"],
         [data-testid="stMain"] {
