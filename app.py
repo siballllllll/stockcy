@@ -6499,46 +6499,48 @@ def main():
                     st.plotly_chart(fig, use_container_width=True)
 
                 st.markdown("### 📋 거래 내역")
+
+                # 행 삭제 pending 처리 (렌더링 전에 먼저 처리)
+                if "_del_trade_idx" in st.session_state:
+                    _del_i = st.session_state.pop("_del_trade_idx")
+                    if 0 <= _del_i < len(st.session_state.trade_history):
+                        st.session_state.trade_history.pop(_del_i)
+                    history = st.session_state.trade_history
+                    st.rerun()
+
                 def _hist_sym(t):
                     tk = t.get("ticker", "")
                     return "₩" if (len(tk) == 6 and tk.isdigit()) else "$"
 
-                df_hist = pd.DataFrame([{
-                    "매도일": t.get("sell_date", ""),
-                    "티커": t.get("ticker", ""),
-                    "종목명": t.get("name", ""),
-                    "수량": t.get("quantity", 0),
-                    "매수가": f"{_hist_sym(t)}{float(t.get('buy_price', 0)):,.2f}",
-                    "매도가": f"{_hist_sym(t)}{float(t.get('sell_price', 0)):,.2f}",
-                    "수수료": f"{_hist_sym(t)}{float(t.get('commission', 0)):,.2f}" if t.get('commission') is not None else "-",
-                    "순수익": f"{_hist_sym(t)}{float(t.get('profit', 0)):+,.2f}",
-                    "수익률": f"{float(t.get('profit_pct', 0)):+.2f}%",
-                    "결과": t.get("result", "")
-                } for t in reversed(history)])
+                # 헤더
+                _th = st.columns([2.2, 1.1, 1.6, 0.6, 1.2, 1.2, 1.4, 1.1, 0.7, 0.5])
+                for _lbl, _tc in zip(["매도일", "티커", "종목명", "수량", "매수가", "매도가", "순수익", "수익률", "결과", ""], _th):
+                    _tc.markdown(f"<span style='font-size:0.78rem;color:#888'>{_lbl}</span>", unsafe_allow_html=True)
 
-                def color_result(val):
-                    if val == "승":
-                        return "color: #00c853; font-weight: bold"
-                    if val == "패":
-                        return "color: #ff4b4b; font-weight: bold"
-                    return ""
+                for _di, _t in enumerate(reversed(history)):
+                    _orig_idx = len(history) - 1 - _di
+                    _sym = _hist_sym(_t)
+                    _profit = float(_t.get("profit", 0))
+                    _pct = float(_t.get("profit_pct", 0))
+                    _res = _t.get("result", "")
+                    _clr = "#00c853" if _profit >= 0 else "#ff4b4b"
+                    _rclr = "#00c853" if _res == "승" else ("#ff4b4b" if _res == "패" else "#aaa")
+                    _rc = st.columns([2.2, 1.1, 1.6, 0.6, 1.2, 1.2, 1.4, 1.1, 0.7, 0.5])
+                    _rc[0].caption(_t.get("sell_date", ""))
+                    _rc[1].markdown(_t.get("ticker", ""))
+                    _rc[2].markdown(_t.get("name", ""))
+                    _rc[3].markdown(str(_t.get("quantity", 0)))
+                    _rc[4].markdown(f"{_sym}{float(_t.get('buy_price',0)):,.2f}")
+                    _rc[5].markdown(f"{_sym}{float(_t.get('sell_price',0)):,.2f}")
+                    _rc[6].markdown(f"<span style='color:{_clr}'>{_sym}{_profit:+,.2f}</span>", unsafe_allow_html=True)
+                    _rc[7].markdown(f"<span style='color:{_clr}'>{_pct:+.2f}%</span>", unsafe_allow_html=True)
+                    _rc[8].markdown(f"<span style='color:{_rclr};font-weight:bold'>{_res}</span>", unsafe_allow_html=True)
+                    if _rc[9].button("🗑️", key=f"del_trade_{_orig_idx}_{_t.get('sell_date','')}", help="이 항목 삭제"):
+                        st.session_state["_del_trade_idx"] = _orig_idx
+                        st.rerun()
 
-                def color_pnl(val):
-                    try:
-                        num = float(str(val).replace("+", "").replace("%", "").replace(",", "").replace("$", "").replace("₩", ""))
-                        if num > 0: return "color: #00c853"
-                        if num < 0: return "color: #ff4b4b"
-                    except: pass
-                    return ""
-
-                st.dataframe(
-                    df_hist.style
-                        .map(color_result, subset=["결과"])
-                        .map(color_pnl, subset=["순수익", "수익률"]),
-                    use_container_width=True, hide_index=True
-                )
-
-                if st.button("🗑️ 거래 내역 초기화", type="secondary"):
+                st.divider()
+                if st.button("🗑️ 거래 내역 전체 초기화", type="secondary"):
                     st.session_state.trade_history = []
                     st.rerun()
 
