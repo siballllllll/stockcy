@@ -6177,26 +6177,39 @@ def main():
                             guide_text = "⚠️ 손절 검토 필요"
                             guide_color = "#2b7cff"
 
-                        # AI 등급 배지 색상 매핑
-                        _rating_val = item.get("rating", "-")
-                        _rating_color = {
+                        # AI 등급 배지
+                        _rating_val = item.get("rating", "") or ""
+                        # ai_portfolio 항목은 등급이 없어도 "AI 추천" 기본 배지 표시
+                        if not _rating_val or _rating_val == "-":
+                            if portfolio_key == "ai_portfolio":
+                                _rating_val = "AI 추천"
+                            else:
+                                _rating_val = ""
+                        _RATING_COLORS = {
                             "매우 강력 추천": "#00c853",
                             "추천":           "#69f0ae",
                             "중간추천":       "#f5c518",
                             "비추천":         "#ff7043",
                             "매우 비추천":    "#b71c1c",
-                        }.get(_rating_val, "#555")
+                            "AI 추천":        "#69f0ae",
+                        }
+                        _rating_color = _RATING_COLORS.get(_rating_val, "#a78bfa")
+                        # guide_color를 6자리 hex로 정규화 (3자리면 확장)
+                        _gc = guide_color.lstrip("#")
+                        if len(_gc) == 3:
+                            _gc = "".join(c*2 for c in _gc)
+                        _guide_bg = f"#{_gc}33"
 
                         _badges = (
                             f"<div style='display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px'>"
                             f"<div style='display:inline-block;padding:2px 8px;border-radius:4px;"
-                            f"background:{guide_color}22;border:1px solid {guide_color};"
+                            f"background:{_guide_bg};border:1px solid {guide_color};"
                             f"color:{guide_color};font-size:0.88rem;font-weight:700'>{guide_text}</div>"
                         )
-                        if _rating_val and _rating_val != "-":
+                        if _rating_val:
                             _badges += (
                                 f"<div style='display:inline-block;padding:2px 8px;border-radius:4px;"
-                                f"background:{_rating_color}22;border:1px solid {_rating_color};"
+                                f"background:{_rating_color}33;border:1px solid {_rating_color};"
                                 f"color:{_rating_color};font-size:0.88rem;font-weight:700'>"
                                 f"🤖 {_rating_val}</div>"
                             )
