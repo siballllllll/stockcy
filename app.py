@@ -123,9 +123,10 @@ def _us_echarts_chart(ticker: str, interval: str = "5", height: int = 600, perio
         # 렌더링용 데이터 클렌징 (NaN -> None 변환으로 JSON 에러 방지)
         def _clean_val(x): return None if pd.isna(x) else x
 
-        category_data = df["datetime"].dt.strftime("%Y-%m-%d %H:%M" if interval != "D" else "%Y-%m-%d").tolist()
+        _is_minute = interval not in ["D", "1wk", "1mo", "W", "M"]
+        category_data = df["datetime"].dt.strftime("%H:%M" if _is_minute else "%Y-%m-%d").tolist()
         values = [[_clean_val(v) for v in row] for row in df[["open", "close", "low", "high"]].values.tolist()]
-        
+
         ma5 = [_clean_val(x) for x in df["close"].rolling(window=5).mean()]
         ma20 = [_clean_val(x) for x in df["close"].rolling(window=20).mean()]
         ma60 = [_clean_val(x) for x in df["close"].rolling(window=60).mean()]
@@ -134,6 +135,16 @@ def _us_echarts_chart(ticker: str, interval: str = "5", height: int = 600, perio
         volumes = []
         for i, row in df.iterrows():
             volumes.append([i, _clean_val(row["volume"]), 1 if row["close"] >= row["open"] else -1])
+
+        # 분봉: 30분 단위로 X축 라벨 표시
+        _min_iv = int(interval) if str(interval).isdigit() else 1
+        if _is_minute:
+            _label_interval = max(1, 30 // _min_iv) - 1
+            _total = len(category_data)
+            _zoom_start = max(0, int((1 - 120 / max(_total, 1)) * 100)) if _total > 120 // _min_iv else 0
+        else:
+            _label_interval = "auto"
+            _zoom_start = 80
 
         options = {
             "backgroundColor": "rgba(0,0,0,0)",
@@ -159,7 +170,7 @@ def _us_echarts_chart(ticker: str, interval: str = "5", height: int = 600, perio
                     "axisLine": {"onZero": False, "lineStyle": {"color": "#444"}},
                     "splitLine": {"show": False}, "min": "dataMin", "max": "dataMax",
                     "axisPointer": {"z": 100},
-                    "axisLabel": {"color": "#888", "fontSize": 16}
+                    "axisLabel": {"color": "#888", "fontSize": 13, "interval": _label_interval}
                 },
                 {
                     "type": "category", "gridIndex": 1, "data": category_data, "boundaryGap": False,
@@ -182,10 +193,10 @@ def _us_echarts_chart(ticker: str, interval: str = "5", height: int = 600, perio
                 }
             ],
             "dataZoom": [
-                {"type": "inside", "xAxisIndex": [0, 1], "start": 80, "end": 100},
+                {"type": "inside", "xAxisIndex": [0, 1], "start": _zoom_start, "end": 100},
                 {
                     "show": True, "xAxisIndex": [0, 1], "type": "slider",
-                    "top": "88%", "start": 80, "end": 100,
+                    "top": "88%", "start": _zoom_start, "end": 100,
                     "backgroundColor": "rgba(0,0,0,0)",
                     "fillerColor": "rgba(255,255,255,0.05)",
                     "borderColor": "rgba(255,255,255,0.1)",
@@ -243,9 +254,10 @@ def _kr_echarts_chart(stock_code: str, interval: str = "1", height: int = 600, p
         # 렌더링용 데이터 클렌징 (NaN -> None 변환으로 JSON 에러 방지)
         def _clean_val(x): return None if pd.isna(x) else x
 
-        category_data = df["datetime"].dt.strftime("%Y-%m-%d %H:%M" if interval != "D" else "%Y-%m-%d").tolist()
+        _is_minute = interval not in ["D", "W", "M"]
+        category_data = df["datetime"].dt.strftime("%H:%M" if _is_minute else "%Y-%m-%d").tolist()
         values = [[_clean_val(v) for v in row] for row in df[["open", "close", "low", "high"]].values.tolist()]
-        
+
         ma5 = [_clean_val(x) for x in df["close"].rolling(window=5).mean()]
         ma20 = [_clean_val(x) for x in df["close"].rolling(window=20).mean()]
         ma60 = [_clean_val(x) for x in df["close"].rolling(window=60).mean()]
@@ -254,6 +266,16 @@ def _kr_echarts_chart(stock_code: str, interval: str = "1", height: int = 600, p
         volumes = []
         for i, row in df.iterrows():
             volumes.append([i, _clean_val(row["volume"]), 1 if row["close"] >= row["open"] else -1])
+
+        # 분봉: 30분 단위로 X축 라벨 표시 (1분봉=29개 간격, 5분봉=5개 간격)
+        _min_iv = int(interval) if str(interval).isdigit() else 1
+        if _is_minute:
+            _label_interval = max(1, 30 // _min_iv) - 1
+            _total = len(category_data)
+            _zoom_start = max(0, int((1 - 120 / max(_total, 1)) * 100)) if _total > 120 // _min_iv else 0
+        else:
+            _label_interval = "auto"
+            _zoom_start = 50
 
         options = {
             "backgroundColor": "rgba(0,0,0,0)",
@@ -279,7 +301,7 @@ def _kr_echarts_chart(stock_code: str, interval: str = "1", height: int = 600, p
                     "axisLine": {"onZero": False, "lineStyle": {"color": "#444"}},
                     "splitLine": {"show": False}, "min": "dataMin", "max": "dataMax",
                     "axisPointer": {"z": 100},
-                    "axisLabel": {"color": "#888", "fontSize": 16}
+                    "axisLabel": {"color": "#888", "fontSize": 13, "interval": _label_interval}
                 },
                 {
                     "type": "category", "gridIndex": 1, "data": category_data, "boundaryGap": False,
@@ -302,10 +324,10 @@ def _kr_echarts_chart(stock_code: str, interval: str = "1", height: int = 600, p
                 }
             ],
             "dataZoom": [
-                {"type": "inside", "xAxisIndex": [0, 1], "start": 50, "end": 100},
+                {"type": "inside", "xAxisIndex": [0, 1], "start": _zoom_start, "end": 100},
                 {
                     "show": True, "xAxisIndex": [0, 1], "type": "slider",
-                    "top": "88%", "start": 50, "end": 100,
+                    "top": "88%", "start": _zoom_start, "end": 100,
                     "backgroundColor": "rgba(0,0,0,0)",
                     "fillerColor": "rgba(255,255,255,0.05)",
                     "borderColor": "rgba(255,255,255,0.1)",
