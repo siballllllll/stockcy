@@ -442,11 +442,8 @@ def inject_custom_css():
             font-weight: 700 !important;
         }
         
-        /* ── 거래 내역 버튼 정렬 보정 (Direct Aria-Label Targeting) ── */
-        button[aria-label="🤖"], button[aria-label="🗑️"] {
-            margin-top: 10px !important;
-            margin-bottom: -10px !important;
-        }
+        /* ── 거래 내역 버튼 정렬 보정 (Reset) ── */
+        /* 추가적인 마진 없이 행 높이 조절로 해결 */
 
         /* ── 접기/펼치기(Expander) 레이아웃 보정 ── */
         .stExpander summary {
@@ -6609,7 +6606,7 @@ def main():
 
                     _dc, _ai_c, _del_c = st.columns([10, 0.65, 0.65], vertical_alignment="center")
                     _dc.markdown(
-                        f"<div style='display:flex;align-items:center;padding:10px 12px;min-height:48px;"
+                        f"<div style='display:flex;align-items:center;padding:0px 12px;min-height:40px;line-height:40px;"
                         f"background:{_row_bg};"
                         f"border-left:1px solid rgba(255,255,255,0.10);"
                         f"border-right:1px solid rgba(255,255,255,0.10);"
