@@ -143,11 +143,13 @@ def _us_echarts_chart(ticker: str, interval: str = "5", height: int = 600, perio
         for i, row in df.iterrows():
             volumes.append([i, _clean_val(row["volume"]), 1 if row["close"] >= row["open"] else -1])
 
-        # 분봉: X축 라벨 30분 간격, 전체 세션 표시
+        # 분봉: X축 라벨 30분 간격, 기본 90개 캔들 표시 (스크롤로 전체 세션 확인)
         _min_iv = int(interval) if str(interval).isdigit() else 1
+        _total = len(category_data)
         if _is_minute:
             _label_interval = max(0, (30 // _min_iv) - 1)
-            _zoom_start = 0  # 장 시작부터 전체 표시
+            _view = 90
+            _zoom_start = max(0, int((1 - _view / max(_total, 1)) * 100)) if _total > _view else 0
         else:
             _label_interval = "auto"
             _zoom_start = 80
@@ -273,11 +275,13 @@ def _kr_echarts_chart(stock_code: str, interval: str = "1", height: int = 600, p
         for i, row in df.iterrows():
             volumes.append([i, _clean_val(row["volume"]), 1 if row["close"] >= row["open"] else -1])
 
-        # 분봉: X축 라벨 30분 간격, 전체 세션(09:00~15:30) 표시
+        # 분봉: X축 라벨 30분 간격, 기본 90개 캔들 표시 (스크롤로 전체 세션 확인)
         _min_iv = int(interval) if str(interval).isdigit() else 1
+        _total = len(category_data)
         if _is_minute:
-            _label_interval = max(0, (30 // _min_iv) - 1)  # 1분봉→29칸마다, 5분봉→5칸마다
-            _zoom_start = 0  # 장 시작부터 전체 표시
+            _label_interval = max(0, (30 // _min_iv) - 1)
+            _view = 90  # 기본 표시 캔들 수 (1분봉=90분, 5분봉=7.5시간→전체)
+            _zoom_start = max(0, int((1 - _view / max(_total, 1)) * 100)) if _total > _view else 0
         else:
             _label_interval = "auto"
             _zoom_start = 50
