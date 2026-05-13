@@ -6573,10 +6573,10 @@ def main():
                 # ── 헤더 ──────────────────────────────────────────────
                 _hdr_col, _, _ = st.columns([10, 0.65, 0.65])
                 _hdr_col.markdown(
-                    "<div style='display:flex;align-items:center;padding:6px 8px;"
+                    "<div style='display:flex;align-items:center;padding:10px 12px;min-height:44px;"
                     "background:rgba(255,255,255,0.05);border-radius:6px 6px 0 0;"
                     "border:1px solid rgba(255,255,255,0.13);border-bottom:2px solid rgba(255,255,255,0.22);"
-                    "font-size:0.78rem;color:#aaa;font-weight:600;gap:0'>"
+                    "font-size:0.85rem;color:#aaa;font-weight:600;gap:0'>"
                     "<span style='flex:2.0'>매도일</span>"
                     "<span style='flex:1.0'>티커</span>"
                     "<span style='flex:1.6'>종목명</span>"
@@ -6601,13 +6601,13 @@ def main():
                     _tsa_key = f"_tsa_{_t.get('ticker','')}_{_t.get('sell_date','')}"
                     _row_bg = "rgba(255,255,255,0.02)" if _di % 2 == 0 else "transparent"
 
-                    _dc, _ai_c, _del_c = st.columns([10, 0.65, 0.65])
+                    _dc, _ai_c, _del_c = st.columns([10, 0.65, 0.65], vertical_alignment="center")
                     _dc.markdown(
-                        f"<div style='display:flex;align-items:center;padding:5px 8px;min-height:38px;"
+                        f"<div style='display:flex;align-items:center;padding:10px 12px;min-height:44px;"
                         f"background:{_row_bg};"
                         f"border-left:1px solid rgba(255,255,255,0.10);"
                         f"border-right:1px solid rgba(255,255,255,0.10);"
-                        f"border-bottom:1px solid rgba(255,255,255,0.08);font-size:0.875rem;gap:0'>"
+                        f"border-bottom:1px solid rgba(255,255,255,0.08);font-size:0.9rem;gap:0'>"
                         f"<span style='flex:2.0;color:#999;font-size:0.77rem'>{_t.get('sell_date','')}</span>"
                         f"<span style='flex:1.0'>{_t.get('ticker','')}</span>"
                         f"<span style='flex:1.6'>{_t.get('name','')}</span>"
