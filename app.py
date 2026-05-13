@@ -6073,9 +6073,10 @@ def main():
                     st.info("보유 종목이 없습니다. 🎒 포트폴리오에 담기 버튼을 누르거나 아래 폼으로 추가하세요.")
                 return
 
-            # 티커 구분 (국내: 6자리 숫자, 미국: 그 외)
+            # 티커 구분 (국내: 숫자만으로 구성된 코드, 미국: 그 외)
+            # 5자리 코드(앞 0 생략)도 국내로 처리 (ex. 48770 → 048770)
             all_tickers = [x["ticker"] for x in port_list]
-            kr_tickers = [t for t in all_tickers if len(t) == 6 and t.isdigit()]
+            kr_tickers = [t for t in all_tickers if t.isdigit()]
             us_tickers = [t for t in all_tickers if t not in kr_tickers]
 
             prices = {}

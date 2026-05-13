@@ -228,6 +228,8 @@ def _format_market_cap(amt_in_eok):
 @st.cache_data(ttl=60)
 def get_kr_stock_price(stock_code: str):
     """국내 주식 현재가 및 기본 정보 조회 (KIS API → yfinance 폴백, 1분 캐싱)"""
+    if stock_code.isdigit():
+        stock_code = stock_code.zfill(6)  # 5자리 코드 앞에 0 채움 (e.g. 48770 → 048770)
     data = _get(
         "/uapi/domestic-stock/v1/quotations/inquire-price",
         "FHKST01010100",
