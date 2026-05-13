@@ -408,6 +408,14 @@ def inject_custom_css():
             overflow: hidden !important;
             text-overflow: ellipsis !important;
         }
+        /* ── Metric 폰트 최적화 ── */
+        [data-testid="stMetricValue"] {
+            font-size: 1.8rem !important;
+            word-break: break-word !important;
+        }
+        [data-testid="stMetricLabel"] {
+            font-size: 0.95rem !important;
+        }
     </style>""", unsafe_allow_html=True)
     st.markdown("""
         <style>
@@ -1074,10 +1082,10 @@ def show_favorites_center():
                                     _bt = res.get("buy_target", "-")
                                     _st = res.get("sell_target", "-")
                                     _sl = res.get("stop_loss", "-")
-                                    _c1, _c2, _c3 = st.columns(3)
-                                    _c1.metric("🟢 매수 구간", _bt)
-                                    _c2.metric("🎯 목표가", f"{cur_sym}{_st}" if _st != "-" and not str(_st).startswith(cur_sym) else _st)
-                                    _c3.metric("🛑 손절가", f"{cur_sym}{_sl}" if _sl != "-" and not str(_sl).startswith(cur_sym) else _sl)
+                                    st.metric("🟢 매수 구간", _bt)
+                                    _c1, _c2 = st.columns(2)
+                                    _c1.metric("🎯 목표가", f"{cur_sym}{_st}" if _st != "-" and not str(_st).startswith(cur_sym) else _st)
+                                    _c2.metric("🛑 손절가", f"{cur_sym}{_sl}" if _sl != "-" and not str(_sl).startswith(cur_sym) else _sl)
                                     if res.get("세력분석"):
                                         st.info(res["세력분석"])
                                     if res.get("analysis"):
@@ -2713,10 +2721,10 @@ def main():
                                         _bt = rep_kr.get("buy_target", "-")
                                         _st = rep_kr.get("sell_target", "-")
                                         _sl = rep_kr.get("stop_loss", "-")
-                                        c1, c2, c3 = st.columns(3)
-                                        c1.metric("🟢 매수 구간", _bt)
-                                        c2.metric("🎯 목표가", f"{cur_sym}{_st}" if _st != "-" and not str(_st).startswith(cur_sym) else _st)
-                                        c3.metric("🛑 손절가", f"{cur_sym}{_sl}" if _sl != "-" and not str(_sl).startswith(cur_sym) else _sl)
+                                        st.metric("🟢 매수 구간", _bt)
+                                        c1, c2 = st.columns(2)
+                                        c1.metric("🎯 목표가", f"{cur_sym}{_st}" if _st != "-" and not str(_st).startswith(cur_sym) else _st)
+                                        c2.metric("🛑 손절가", f"{cur_sym}{_sl}" if _sl != "-" and not str(_sl).startswith(cur_sym) else _sl)
                                         if rep_kr.get("세력분석"):
                                             st.caption("수급 분석")
                                             st.info(rep_kr["세력분석"])
@@ -3044,10 +3052,10 @@ def main():
 
                                         with t2:
                                             st.caption("매수 시 추천 타점 및 단기 전략")
-                                            _rk1, _rk2, _rk3 = st.columns(3)
-                                            _rk1.metric("🟢 매수 구간", _r.get("buy_target","-"))
-                                            _rk2.metric("🎯 단기 목표가", _r.get("sell_target","-"))
-                                            _rk3.metric("🛑 손절가", _r.get("stop_loss","-"))
+                                            st.metric("🟢 매수 구간", _r.get("buy_target","-"))
+                                            _rk1, _rk2 = st.columns(2)
+                                            _rk1.metric("🎯 단기 목표가", _r.get("sell_target","-"))
+                                            _rk2.metric("🛑 손절가", _r.get("stop_loss","-"))
 
                                             if st.button("🎒 포트폴리오에 담기", use_container_width=True, type="primary", key=f"kr_sec_port_btn_short_{detail_code}"):
                                                 if "portfolio" not in st.session_state:
