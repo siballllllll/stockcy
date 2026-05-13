@@ -360,7 +360,17 @@ def inject_custom_css():
             transition: opacity 0.1s ease-in-out !important;
         }
 
-        [data-baseweb="popover"]{zoom:1.3!important;transform-origin:top left!important}
+        [data-baseweb="popover"]{
+            zoom: 1.1 !important;
+            transform-origin: top left !important;
+            max-width: 650px !important;
+        }
+        [data-baseweb="list-item"] {
+            font-size: 0.92rem !important;
+            white-space: nowrap !important;
+            overflow: hidden !important;
+            text-overflow: ellipsis !important;
+        }
     </style>""", unsafe_allow_html=True)
     st.markdown("""
         <style>
