@@ -7317,15 +7317,24 @@ def main():
                         dc3.metric("수익률", f"{pnl_pct:.2f}%", f"{cur_sym}{format(pnl, fmt)}",
                                    delta_color="normal" if pnl >= 0 else "inverse")
                     with cr:
-                        st.markdown(f"**매도가({cur_sym}) 입력 후 기록**")
-                        sell_p = st.number_input(
-                            "매도가", min_value=0.01 if not is_kr else 1.0, value=float(cp),
-                            key=f"sellp_{portfolio_key}_{idx}",
-                            label_visibility="collapsed"
-                        )
+                        st.markdown(f"**매도가({cur_sym}) / 수량 입력 후 기록**")
+                        _sp_col, _sq_col = st.columns([3, 2])
+                        with _sp_col:
+                            sell_p = st.number_input(
+                                "매도가", min_value=0.01 if not is_kr else 1.0, value=float(cp),
+                                key=f"sellp_{portfolio_key}_{idx}",
+                                label_visibility="collapsed"
+                            )
+                        with _sq_col:
+                            sell_qty = st.number_input(
+                                "매도 수량", min_value=1, max_value=int(qty), value=int(qty), step=1,
+                                key=f"sellq_{portfolio_key}_{idx}",
+                                label_visibility="collapsed",
+                                help=f"보유 {int(qty)}주 중 매도할 수량"
+                            )
                         # 예상 수수료 미리보기
-                        _inv_prev = bp * qty
-                        _sv_prev  = sell_p * qty
+                        _inv_prev = bp * sell_qty
+                        _sv_prev  = sell_p * sell_qty
                         if is_kr:
                             _bc_pct = st.session_state.get("comm_kr_buy", 0.015) / 100
                             _sc_pct = (st.session_state.get("comm_kr_sell", 0.015) + 0.18) / 100
@@ -7337,18 +7346,20 @@ def main():
                         _net_pct_prev = (_net_prev / _inv_prev * 100) if _inv_prev > 0 else 0
                         _fee_fmt = f"{cur_sym}{_fee_prev:,.0f}" if is_kr else f"{cur_sym}{_fee_prev:,.2f}"
                         _net_color = "#00c853" if _net_prev >= 0 else "#ff4b4b"
+                        _partial_note = f" · {int(qty) - sell_qty}주 잔여" if sell_qty < qty else " · 전량 매도"
                         st.caption(
                             f"수수료 <b>{_fee_fmt}</b> 차감 → 순수익 "
                             f"<span style='color:{_net_color};font-weight:700'>"
-                            f"{'+' if _net_prev>=0 else ''}{_net_pct_prev:.2f}%</span>",
+                            f"{'+' if _net_prev>=0 else ''}{_net_pct_prev:.2f}%</span>"
+                            f"<span style='color:#888'>{_partial_note}</span>",
                             unsafe_allow_html=True
                         )
                         bc1, bc2 = st.columns(2)
                         with bc1:
                             if st.button("✅ 매도", key=f"sell_{portfolio_key}_{idx}",
                                          type="primary", use_container_width=True):
-                                invested = bp * qty
-                                sell_val = sell_p * qty
+                                invested = bp * sell_qty
+                                sell_val = sell_p * sell_qty
 
                                 # 수수료 계산
                                 if is_kr:
@@ -7365,7 +7376,7 @@ def main():
                                 p = sell_val - invested - total_fee
                                 p_pct = (p / invested * 100) if invested > 0 else 0
                                 trade = {
-                                    "ticker": ticker, "name": name, "quantity": qty,
+                                    "ticker": ticker, "name": name, "quantity": sell_qty,
                                     "buy_price": bp, "sell_price": sell_p,
                                     "profit": p, "profit_pct": p_pct,
                                     "commission": round(total_fee, 2),
@@ -7376,8 +7387,25 @@ def main():
                                 st.session_state.trade_history.append(trade)
                                 from db import save_trade_record
                                 save_trade_record(trade)
-                                st.session_state[pending_key] = ticker
-                                st.toast(f"✅ {ticker} 매도 기록 완료! (수수료 {cur_sym}{total_fee:,.2f} 차감)")
+                                # 부분 매도: 잔여 수량 업데이트, 전량 매도: 포트폴리오에서 제거
+                                remaining = int(qty) - sell_qty
+                                if remaining > 0:
+                                    st.session_state[portfolio_key][idx]["quantity"] = remaining
+                                    if portfolio_key == "portfolio":
+                                        try:
+                                            from db import save_portfolio_to_gsheet
+                                            save_portfolio_to_gsheet(st.session_state[portfolio_key])
+                                        except Exception:
+                                            pass
+                                    elif portfolio_key == "ai_portfolio":
+                                        try:
+                                            from db import save_ai_portfolio_to_gsheet
+                                            save_ai_portfolio_to_gsheet(st.session_state[portfolio_key])
+                                        except Exception:
+                                            pass
+                                else:
+                                    st.session_state[pending_key] = ticker
+                                st.toast(f"✅ {name} {sell_qty}주 매도 완료! (수수료 {cur_sym}{total_fee:,.2f} 차감)")
                                 st.rerun()
                         with bc2:
                             if st.button("🗑️", key=f"del_{portfolio_key}_{idx}",
