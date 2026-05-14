@@ -1393,6 +1393,14 @@ def show_market_scenarios():
                             unsafe_allow_html=True,
                         )
 
+                        st.markdown(
+                            "<div style='font-size:0.72rem;color:#888;background:rgba(255,215,64,0.05);"
+                            "border:1px solid rgba(255,215,64,0.2);border-radius:4px;padding:4px 10px;"
+                            "margin:6px 0'>⚠️ AI가 구글 검색으로 자동 생성한 종목 목록입니다. "
+                            "매수 전 종목코드·심볼을 직접 확인하세요.</div>",
+                            unsafe_allow_html=True
+                        )
+
                         # 상승/하락 종목 — KR/US를 별도 행으로 분리해 항상 같은 높이 정렬
                         _pk = f"{_issue.get('issue_no',0)}_{_sc.get('label','')}"
                         _rising  = _sc.get("rising_stocks", [])
@@ -1553,6 +1561,13 @@ def show_market_scenarios():
                             else:
                                 with st.expander("📋 심층 분석 결과", expanded=True):
                                     st.markdown(
+                                        "<div style='font-size:0.72rem;color:#888;background:rgba(255,215,64,0.05);"
+                                        "border:1px solid rgba(255,215,64,0.2);border-radius:4px;padding:4px 10px;"
+                                        "margin-bottom:8px'>⚠️ 진입가·목표가·손절가는 AI가 구글 검색으로 조회한 실제가 기반입니다. "
+                                        "매수 전 반드시 현재가를 직접 확인하세요.</div>",
+                                        unsafe_allow_html=True
+                                    )
+                                    st.markdown(
                                         f"<div style='padding:8px 12px;background:rgba(255,255,255,0.04);"
                                         f"border-radius:6px;font-size:0.86rem;color:#ddd;margin-bottom:8px'>"
                                         f"🔬 <b>심층 분석</b><br>{_det.get('deep_analysis','')}</div>",
@@ -1619,6 +1634,12 @@ def show_daily_briefing():
         else:
             st.markdown("### 🔥 오늘의 주요 섹터")
             st.caption("관심 있는 키워드(섹터)를 클릭하면 상승/하락 이유와 실제 뉴스를 확인할 수 있습니다.")
+            st.markdown(
+                "<div style='font-size:0.72rem;color:#888;background:rgba(255,215,64,0.05);"
+                "border:1px solid rgba(255,215,64,0.2);border-radius:4px;padding:4px 10px;margin-bottom:8px'>"
+                "⚠️ AI가 구글 검색으로 자동 생성한 종목 목록입니다. 실시간 시세 로드 실패 시 티커 심볼을 직접 확인하세요.</div>",
+                unsafe_allow_html=True
+            )
             
             for sector in data.get("sectors", []):
                 # 중점이 되는 핵심 섹터는 진한 글씨체와 아이콘으로 강조
@@ -4947,6 +4968,14 @@ def main():
                                                             st.error(_tl.get("error", "분석 오류"))
                                                         else:
                                                             with st.expander("🔗 테마 연동 분석 결과", expanded=True):
+                                                                st.markdown(
+                                                                    "<div style='font-size:0.72rem;color:#888;"
+                                                                    "background:rgba(255,215,64,0.05);"
+                                                                    "border:1px solid rgba(255,215,64,0.2);"
+                                                                    "border-radius:4px;padding:4px 10px;margin-bottom:8px'>"
+                                                                    "⚠️ 대장주·추종주 코드는 위 섹터 종목 목록 기반으로 생성됩니다. 매수 전 직접 확인하세요.</div>",
+                                                                    unsafe_allow_html=True
+                                                                )
                                                                 _tl_c1, _tl_c2 = st.columns(2)
                                                                 _tl_c1.markdown(
                                                                     f"**대장주:** {_tl.get('leader_name','?')}  \n"

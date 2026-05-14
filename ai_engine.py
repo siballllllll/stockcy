@@ -170,6 +170,8 @@ def generate_daily_briefing():
     당신은 월스트리트 최고의 단타 트레이딩 전문가입니다.
     지금 즉시 구글 검색을 통해 오늘 미국 주식 시장에서 가장 자금이 많이 쏠리고 강력하게 급등하고 있는 '주도 섹터(테마)' 3가지를 정확하게 분석해주세요.
 
+    ⚠️ [종목 신뢰성 원칙] related_stocks에 포함하는 모든 종목은 NYSE/NASDAQ에 실제 상장된 심볼인지 구글 검색으로 반드시 확인하세요. 확인되지 않는 심볼은 절대 포함하지 마세요.
+
     반드시 아래 JSON 형식으로만 응답해야 하며, 어떠한 주석(//)이나 부가 설명도 하지 마세요.
     {
       "sectors": [
@@ -208,11 +210,16 @@ def generate_market_scenarios() -> dict:
         "(예: 미·중 무역협상, 반도체, 전쟁·지정학, 연준 금리, 유가, 비트코인 법안/ETF, SpaceX 등)\n\n"
         "각 이슈별로 2가지 시나리오(A: 낙관, B: 비관)를 작성하세요.\n"
         "PER/밸류에이션 관점을 반드시 포함하고, 단타전략과 장타전략을 구분해서 작성하세요.\n\n"
+        "⚠️ [종목 신뢰성 원칙 — 최우선 적용]\n"
+        "rising_stocks, falling_stocks, theme_stocks에 포함하는 모든 종목은 구글 검색으로 반드시 검증하세요:\n"
+        "① 국내 종목: 해당 6자리 코드가 실제 KRX(KOSPI/KOSDAQ) 상장 종목코드인지 확인\n"
+        "② 미국 종목: 해당 심볼이 NYSE/NASDAQ에 실제 상장된 심볼인지 확인\n"
+        "확인되지 않는 종목은 절대 포함하지 마세요. 거래정지·상장폐지 절차 중인 종목도 제외하세요.\n\n"
         "【종목 선정 규칙】\n"
         "- rising_stocks/falling_stocks: 해당 이슈에 실제로 영향받는 국내(KOSPI/KOSDAQ) 및 미국 종목. 억지로 넣을 필요는 없습니다.\n"
         "- 국내 종목 ticker는 KOSPI/KOSDAQ 6자리 숫자 코드(예: 삼성전자=005930, SK하이닉스=000660, 카카오=035720)를 사용하세요.\n"
         "- 미국 종목 ticker는 NYSE/NASDAQ 심볼(예: NVDA, TSLA, AAPL)을 사용하세요.\n"
-        "- 거래정지·상장폐지 절차 중인 종목은 가급적 피하세요. 불가피하게 포함할 경우 reason 필드에 '⚠️ 거래정지 또는 상장폐지 위험 — 실제 거래 전 반드시 확인' 문구를 포함하세요.\n\n"
+        "- 불가피하게 불확실한 종목을 포함할 경우 reason 필드에 '⚠️ 코드 직접 확인 필요' 문구를 포함하세요.\n\n"
         "【테마 연동주 선정 규칙 — theme_stocks】\n"
         "theme_stocks는 rising_stocks가 오를 때 '테마 심리'로 함께 급등하는 주변 관련주 섹션입니다.\n"
         "핵심 목적: 대형주(삼성전자·SK하이닉스·현대차 등 시총 10조↑)는 이미 rising_stocks에 있으므로 theme_stocks에는 절대 포함하지 마세요.\n"
@@ -283,6 +290,8 @@ def generate_scenario_detail(issue_title: str, scenario_title: str, economic_ana
         f"## 기본 분석: {economic_analysis}\n"
         f"## 상승 후보: {rising_txt}\n"
         f"## 하락 후보: {falling_txt}\n\n"
+        "⚠️ [가격 신뢰성 원칙] short_detail.stocks의 entry_point, target, stop은 구글 검색으로 각 종목의 실제 현재가를 확인한 뒤, "
+        "그 가격에 기반한 합리적인 수준으로 설정하세요. 현재가와 동떨어진(±50% 이상 차이나는) 가격은 절대 제시하지 마세요.\n\n"
         "구글 검색을 통해 최신 정보를 보강하고 아래 JSON 형식으로만 응답하세요 (백틱, 주석 금지):\n\n"
         "{\n"
         '  "deep_analysis": "심층 경제·시장 분석 (4~5문장, PER·금리·수급·섹터 로테이션 포함)",\n'
@@ -293,7 +302,7 @@ def generate_scenario_detail(issue_title: str, scenario_title: str, economic_ana
         '    "exit": "청산 조건·목표가·손절선",\n'
         '    "timing": "최적 진입 타이밍 (장 초반/중반/후반)",\n'
         '    "stocks": [\n'
-        '      {"name": "종목명", "ticker": "티커", "entry_point": "진입가 기준", "target": "목표가", "stop": "손절가", "note": "추가 코멘트"}\n'
+        '      {"name": "종목명", "ticker": "티커", "entry_point": "진입가 기준 (구글 검색 실제가 기반)", "target": "목표가", "stop": "손절가", "note": "추가 코멘트"}\n'
         "    ]\n"
         "  },\n"
         '  "long_detail": {\n'
@@ -926,6 +935,9 @@ def generate_dynamic_themes():
     4. 분석 시 종목 언급은 반드시 '종목명(티커)' 형식을 사용하세요.
     5. 답변은 반드시 한국어로 작성하세요.
 
+    ⚠️ [종목 신뢰성 원칙] leader_stock과 related_stocks의 모든 티커가 NYSE/NASDAQ에 실제 상장된 심볼인지 구글 검색으로 반드시 확인하세요.
+    존재하지 않거나 확인되지 않는 심볼은 절대 사용하지 마세요.
+
     반드시 아래 JSON 배열 형식으로만 응답하세요. (마크다운 백틱 제외)
     {
       "themes": [
@@ -1518,6 +1530,9 @@ def analyze_sector_theme_linkage(sector_name: str, stocks_with_data: list) -> di
 {stock_lines}
 
 구글 검색으로 오늘 이 섹터와 관련된 뉴스·공시·수급·외국인/기관 동향을 반드시 확인하고 아래를 분석하세요.
+
+⚠️ [코드 신뢰성 원칙] leader_code와 followers의 code는 위에 제공된 [오늘 섹터 종목 현황] 목록에 있는 코드만 사용하세요.
+목록에 없는 코드를 임의로 생성하거나 추측하지 마세요.
 
 1. 대장주: 오늘 이 테마를 이끄는 종목 1개, 이유 (시가총액·모멘텀·뉴스 종합)
 2. 밸류체인: 대장주와 추종주들이 왜 같이 오르는지 산업 연결고리 설명
