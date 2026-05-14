@@ -465,6 +465,20 @@ def inject_custom_css():
             filter: grayscale(1) blur(1px) !important;
             transition: opacity 0.1s ease-in-out !important;
         }
+        /* ── 시나리오 완료 깜빡이는 초록 불빛 ── */
+        @keyframes scenario-pulse {
+            0%, 100% { opacity: 1; box-shadow: 0 0 4px 1px #00e676; }
+            50%       { opacity: 0.3; box-shadow: 0 0 2px 0px #00e676; }
+        }
+        .scenario-ready-dot {
+            display: inline-block;
+            width: 7px; height: 7px;
+            background: #00e676;
+            border-radius: 50%;
+            animation: scenario-pulse 1s ease-in-out infinite;
+            vertical-align: middle;
+            margin-left: 3px;
+        }
 
         [data-baseweb="popover"] {
             /* 줌 제거: 표준 좌표계 사용 */
@@ -1117,10 +1131,8 @@ def show_market_scenarios():
             st.info(
                 "🔄 **백그라운드에서 시나리오를 분석 중입니다.**\n\n"
                 "창을 닫고 다른 기능을 자유롭게 사용하세요.  \n"
-                "분석이 완료되면 시나리오 버튼을 다시 눌러 확인할 수 있습니다."
+                "완료되면 상단 **시나리오** 버튼 옆에 초록 불빛이 깜빡입니다."
             )
-            if st.button("🔁 완료됐나요? 확인", use_container_width=True):
-                st.rerun()
             return
 
     data = st.session_state.market_scenarios_data
@@ -2092,12 +2104,11 @@ def main():
     with _hn6:
         _today_ck = __import__("datetime").date.today().strftime("%Y-%m-%d")
         _nav_task_id = f"scenario_market_scenarios_{_today_ck}"
-        _is_bg_running = _SCENARIO_TASKS.get(_nav_task_id, {}).get("status") == "running"
-        _nav_sc_label = "📈 시나리오 🔄" if _is_bg_running else "📈 시나리오"
-        if st.button(_nav_sc_label, key="top_nav_scenario", use_container_width=True):
+        _nav_task_status = _SCENARIO_TASKS.get(_nav_task_id, {}).get("status")
+        _scenario_ready = (_nav_task_status == "done" and "market_scenarios_data" not in st.session_state)
+        if st.button("📈 시나리오", key="top_nav_scenario", use_container_width=True):
             st.session_state._dialog_open = True
             st.session_state._scenario_dialog_open = True
-            # 버튼 클릭 시점에 백그라운드 스레드 선제 시작
             with _SCENARIO_LOCK:
                 _already_started = _nav_task_id in _SCENARIO_TASKS
             if not _already_started and "market_scenarios_data" not in st.session_state:
@@ -2106,6 +2117,11 @@ def main():
                 _cache_key_nav = f"market_scenarios_{_today_ck}"
                 _t = threading.Thread(target=_run_scenario_bg, args=(_nav_task_id, _cache_key_nav), daemon=True)
                 _t.start()
+        # 완료 시 깜빡이는 초록 점 / 분석 중 회색 점
+        if _scenario_ready:
+            st.markdown("<div style='text-align:center;margin-top:-6px'><span class='scenario-ready-dot'></span></div>", unsafe_allow_html=True)
+        elif _nav_task_status == "running":
+            st.markdown("<div style='text-align:center;margin-top:-6px;font-size:0.65rem;color:#888'>분석 중…</div>", unsafe_allow_html=True)
         if st.session_state.pop("_scenario_dialog_open", False):
             show_market_scenarios()
     with _hm1:
