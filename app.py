@@ -4681,9 +4681,11 @@ def main():
                                                     f"background:{_kr_sig_col}22;border:1px solid {_kr_sig_col}66;"
                                                     f"color:{_kr_sig_col};font-size:0.85rem;font-weight:700;margin-top:3px'>"
                                                     f"{_kr_sig_lbl}</div>")
+                                        _sec_badges = _kr_stock_badges_html(pdata)
                                         name_html = (
                                             f"<span style='font-size:1.10rem'>{s['name']}</span>"
                                             + (f"<span style='font-size:0.91rem;color:#666'> 🔗</span>" if other_locs else "")
+                                            + _sec_badges
                                         )
                                         c1.markdown(name_html, unsafe_allow_html=True)
                                         c2.markdown(f"<span style='font-size:1.10rem'>{'₩'+format(pval,',') if pval>0 else '---'}</span>", unsafe_allow_html=True)

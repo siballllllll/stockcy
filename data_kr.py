@@ -678,10 +678,27 @@ def get_kr_prebreakout_signal(stock_code: str) -> dict:
 
 @st.cache_data(ttl=60, show_spinner=False)
 def get_kr_prices_bulk(tickers_tuple: tuple) -> dict:
-    """섹터 패널용 종목 일괄 시세 조회 (code → {price, change_pct})"""
+    """섹터 패널용 종목 일괄 시세 조회 (code → {price, change_pct, + 거래상태 필드}).
+    KIS API inquire-price 우선, 실패 시 yfinance 폴백."""
     import yfinance as yf
     results = {}
     for code, yf_ticker in tickers_tuple:
+        # 1차: KIS API (캐시 활용 — get_kr_stock_price 내부에 @st.cache_data 있음)
+        kis = get_kr_stock_price(code)
+        if kis and kis.get("price", 0) > 0:
+            results[code] = {
+                "price":      kis["price"],
+                "change_pct": kis["change_pct"],
+                "status_code": kis.get("status_code", "55"),
+                "mrkt_warn":   kis.get("mrkt_warn", "00"),
+                "short_over":  kis.get("short_over", "N"),
+                "managed":     kis.get("managed", "N"),
+                "halt":        kis.get("halt", "N"),
+                "vi_type":     kis.get("vi_type", "N"),
+                "vi_ovtm":     kis.get("vi_ovtm", "N"),
+            }
+            continue
+        # 2차: yfinance 폴백 (상태 필드 없음)
         try:
             fi = yf.Ticker(yf_ticker).fast_info
             price = round(fi.get("lastPrice", 0) or 0)
