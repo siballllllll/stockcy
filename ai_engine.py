@@ -208,9 +208,16 @@ def generate_market_scenarios() -> dict:
         "각 이슈별로 2가지 시나리오(A: 낙관, B: 비관)를 작성하세요.\n"
         "PER/밸류에이션 관점을 반드시 포함하고, 단타전략과 장타전략을 구분해서 작성하세요.\n\n"
         "【종목 선정 규칙】\n"
-        "- 해당 이슈에 실제로 영향받는 국내(KOSPI/KOSDAQ) 종목이 있다면 포함하세요. 억지로 넣을 필요는 없습니다.\n"
+        "- rising_stocks/falling_stocks: 해당 이슈에 실제로 영향받는 국내(KOSPI/KOSDAQ) 및 미국 종목. 억지로 넣을 필요는 없습니다.\n"
         "- 국내 종목 ticker는 KOSPI/KOSDAQ 6자리 숫자 코드(예: 삼성전자=005930, SK하이닉스=000660, 카카오=035720)를 사용하세요.\n"
         "- 미국 종목 ticker는 NYSE/NASDAQ 심볼(예: NVDA, TSLA, AAPL)을 사용하세요.\n\n"
+        "【테마 연동주 선정 규칙 — theme_stocks】\n"
+        "한국 증시에서는 이슈 발생 시 직접 관련 종목뿐 아니라 '테마'로 묶인 주변 관련주들이 함께 급등하는 패턴이 반복됩니다.\n"
+        "- 대장주: 해당 테마에서 가장 직접 수혜받는 핵심 종목\n"
+        "- 직접관련주: 사업 구조상 직접 관련이 있는 국내 종목\n"
+        "- 간접테마주: 약하게 관련되지만 과거 유사 이슈 때 시장 심리로 함께 급등한 국내 종목 (역사적 패턴 근거 필수)\n"
+        "- theme_stocks는 국내(KOSPI/KOSDAQ) 종목만 포함하세요.\n"
+        "- 과거 사례 없이 억지로 연결하지 마세요. 실제 반복된 패턴이 있는 종목만 포함하세요.\n\n"
         "반드시 아래 JSON 형식으로만 응답하세요 (마크다운 백틱, 주석 절대 금지):\n\n"
         "{\n"
         '  "issues": [\n'
@@ -230,10 +237,13 @@ def generate_market_scenarios() -> dict:
         '          "trigger": "현실화 조건 (1문장)",\n'
         '          "economic_analysis": "경제적 영향. PER/밸류에이션 관점 포함 (2~3문장)",\n'
         '          "rising_stocks": [\n'
-        '            {"name": "종목명", "ticker": "국내주식=KOSPI/KOSDAQ 6자리숫자코드(예:005930), 미국주식=심볼(예:NVDA)", "reason": "이유", "valuation_note": "PER 코멘트"}\n'
+        '            {"name": "종목명", "ticker": "국내=6자리숫자코드/미국=심볼", "reason": "이유", "valuation_note": "PER 코멘트"}\n'
         "          ],\n"
         '          "falling_stocks": [\n'
-        '            {"name": "종목명", "ticker": "국내주식=KOSPI/KOSDAQ 6자리숫자코드(예:005930), 미국주식=심볼(예:NVDA)", "reason": "이유", "valuation_note": "PER 코멘트"}\n'
+        '            {"name": "종목명", "ticker": "국내=6자리숫자코드/미국=심볼", "reason": "이유", "valuation_note": "PER 코멘트"}\n'
+        "          ],\n"
+        '          "theme_stocks": [\n'
+        '            {"name": "종목명", "ticker": "KOSPI/KOSDAQ 6자리숫자코드", "type": "대장주 또는 직접관련주 또는 간접테마주", "historical_pattern": "과거 유사 이슈 때 이 종목이 어떻게 움직였는지 (1문장)", "reason": "이번에 연동 상승이 예상되는 이유"}\n'
         "          ],\n"
         '          "short_strategy": "단타 전략: 진입 타이밍·청산 조건 (1~2문장)",\n'
         '          "long_strategy": "장타 전략: 포지션 방향·보유 기간 (1~2문장)"\n'
@@ -293,70 +303,6 @@ def generate_scenario_detail(issue_title: str, scenario_title: str, economic_ana
     )
     try:
         response = _call_gemini(prompt, use_search=True, temperature=0.5, timeout_sec=120)
-        text = _clean_ai_json(response.text)
-        start = text.find('{')
-        if start != -1:
-            result, _ = json.JSONDecoder().raw_decode(text, start)
-            return result
-        return json.loads(text)
-    except Exception as e:
-        return {"error": str(e)}
-
-
-def generate_kr_theme_analysis() -> dict:
-    """
-    국내 주식 테마주 분석 — 현재 이슈 기반으로 과거 테마 패턴을 조회해
-    대장주·직접관련주·간접테마주의 예상 상승/하락 종목을 제시합니다.
-    """
-    prompt = (
-        "당신은 국내 주식시장(KOSPI/KOSDAQ) 20년 경력의 테마주 전문 애널리스트입니다.\n"
-        "구글 검색으로 오늘 한국 증시에 가장 큰 영향을 줄 수 있는 이슈·뉴스 3~4개를 파악하세요.\n\n"
-        "【핵심 분석 방법】\n"
-        "한국 증시에서는 특정 이슈가 발생하면, 직접 관련 종목만 오르지 않습니다.\n"
-        "과거 유사 사례에서 '테마'로 묶인 주변 관련주들이 함께 급등하는 패턴이 반복됩니다.\n"
-        "예시: 'AI 붐' 이슈 → 대장주(삼성전자) + AI서버관련(한미반도체) + 전력인프라(LS일렉트릭) + 냉각(에스티아이) 등\n"
-        "예시: '방산' 이슈 → 대장주(한화에어로스페이스) + K2전차(현대로템) + 함정(한화오션) + 탄약(풍산) + 방산소재(에코프로비엠) 등\n\n"
-        "각 이슈에 대해:\n"
-        "1. 과거 유사 사례에서 어떤 테마로 묶여 움직였는지 분석\n"
-        "2. 이번에도 같은 패턴으로 움직일 가능성이 있는 종목들을 대장주·직접관련주·간접테마주로 구분\n"
-        "3. 상승 예상 종목과 하락 예상 종목 제시\n\n"
-        "【종목 구분 기준】\n"
-        "- 대장주: 해당 테마에서 가장 직접적인 수혜를 받는 핵심 종목 (시장 대표성)\n"
-        "- 직접관련주: 사업 구조상 직접 관련이 있는 종목\n"
-        "- 간접테마주: 약간만 관련 있지만 시장 심리상 같은 테마로 묶이는 종목 (과거 패턴 근거)\n\n"
-        "반드시 아래 JSON 형식으로만 응답하세요 (백틱, 주석 절대 금지):\n\n"
-        "{\n"
-        '  "themes": [\n'
-        "    {\n"
-        '      "theme_no": 1,\n'
-        '      "theme_name": "테마명 (예: AI반도체, 방산, 원자력 등)",\n'
-        '      "trigger_news": "오늘 이 테마를 촉발한 뉴스/이슈 (1~2문장)",\n'
-        '      "historical_case": "과거 유사 사례: 언제, 어떤 이슈로, 어떤 종목들이 함께 올랐는지 (2~3문장)",\n'
-        '      "theme_momentum": "강함/보통/약함",\n'
-        '      "expected_duration": "단기(1~3일)/중기(1~2주)/장기(1개월+)",\n'
-        '      "rising_stocks": [\n'
-        '        {\n'
-        '          "name": "종목명",\n'
-        '          "ticker": "KOSPI/KOSDAQ 6자리 숫자코드 (예: 005930)",\n'
-        '          "type": "대장주 또는 직접관련주 또는 간접테마주",\n'
-        '          "historical_pattern": "과거 유사 이슈 때 이 종목이 어떻게 움직였는지 (1문장)",\n'
-        '          "reason": "이번에 상승이 예상되는 이유",\n'
-        '          "risk": "주의해야 할 리스크"\n'
-        '        }\n'
-        "      ],\n"
-        '      "falling_stocks": [\n'
-        '        {\n'
-        '          "name": "종목명",\n'
-        '          "ticker": "KOSPI/KOSDAQ 6자리 숫자코드",\n'
-        '          "reason": "하락이 예상되는 이유"\n'
-        '        }\n'
-        "      ]\n"
-        "    }\n"
-        "  ]\n"
-        "}"
-    )
-    try:
-        response = _call_gemini(prompt, use_search=True, temperature=0.6, timeout_sec=120)
         text = _clean_ai_json(response.text)
         start = text.find('{')
         if start != -1:
