@@ -7312,8 +7312,8 @@ def main():
                         st.markdown(f"**{emoji} {name} ({ticker})** <small style='color:#888'>{item.get('buy_date', '')}</small>",
                                     unsafe_allow_html=True)
                         dc1, dc2, dc3, dc4 = st.columns(4)
-                        dc1.metric("보유 수량", f"{int(qty)}주")
-                        dc2.metric("매수가", f"{cur_sym}{format(bp, fmt)}")
+                        dc1.metric("매수가", f"{cur_sym}{format(bp, fmt)}")
+                        dc2.metric("보유 수량", f"{int(qty)}주")
                         dc3.metric("현재가", f"{cur_sym}{format(cp, fmt)}")
                         dc4.metric("수익률", f"{pnl_pct:.2f}%", f"{cur_sym}{format(pnl, fmt)}",
                                    delta_color="normal" if pnl >= 0 else "inverse")
