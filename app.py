@@ -3143,6 +3143,22 @@ def main():
                                             else:
                                                 st.warning("이미 포트폴리오에 있습니다.")
 
+                                    # 종목명 + 상태 배지
+                                    _badges = _kr_stock_badges_html(price_kr)
+                                    if _badges:
+                                        st.markdown(
+                                            f"<div style='margin:6px 0 2px'>"
+                                            f"<span style='font-size:0.95rem;font-weight:700;color:#ccc'>{_real_name}</span>"
+                                            f"{_badges}"
+                                            f"</div>",
+                                            unsafe_allow_html=True,
+                                        )
+                                    # 임시 디버그 (상태 필드명 확인용)
+                                    _raw = price_kr.get("_raw_status", {})
+                                    if _raw:
+                                        with st.expander("🔧 [DEBUG] KIS 상태 필드 원본값"):
+                                            st.json(_raw)
+
                                     # 현재가 강조
                                     _pc = "#ff4b4b" if is_up else "#2b7cff" if is_dn else "#aaa"
                                     st.markdown(
