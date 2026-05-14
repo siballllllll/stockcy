@@ -70,17 +70,20 @@ def _kr_stock_badges_html(price_info: dict) -> str:
         "background:{bg};color:{fg}'>{text}</span>"
     )
 
-    halt     = price_info.get("halt", "N")
-    managed  = price_info.get("managed", "N")
-    sc       = price_info.get("status_code", "55")
-    mw       = price_info.get("mrkt_warn", "00")
-    short_ov = price_info.get("short_over", "N")
-    vi       = price_info.get("vi_type", "N")
-    vi_ovtm  = price_info.get("vi_ovtm", "N")
+    halt     = str(price_info.get("halt", "N")).strip()
+    managed  = str(price_info.get("managed", "N")).strip()
+    sc       = str(price_info.get("status_code", "55")).strip()
+    mw       = str(price_info.get("mrkt_warn", "00")).strip()
+    short_ov = str(price_info.get("short_over", "N")).strip()
+    vi       = str(price_info.get("vi_type", "N")).strip()
+    vi_ovtm  = str(price_info.get("vi_ovtm", "N")).strip()
 
-    if halt not in ("N", "", None):
+    # 거래정지: halt 필드가 'N'/빈값/'0'이 아니거나, 상태코드가 '58'(거래정지)인 경우
+    if halt not in ("N", "", "0", None) or sc == "58":
         badges.append(_BADGE.format(bg="#b71c1c", fg="#fff", text="거래정지"))
-    if managed not in ("N", "", None):
+    
+    # 관리종목: managed 필드가 'N'/빈값/'00'이 아니거나, 상태코드가 '51'(관리종목)인 경우
+    if managed not in ("N", "", "00", None) or sc == "51":
         badges.append(_BADGE.format(bg="#4a148c", fg="#fff", text="관리종목"))
 
     # 시장경고(mrkt_warn)와 종목상태(status_code) 중 더 높은 수준 적용
@@ -2813,9 +2816,10 @@ def main():
                             pct_color = "up-kr" if is_up else "down-kr" if is_dn else ""
                             if price_kr:
                                 _badges_html = _kr_stock_badges_html(price_kr)
+                                st.error(f"DEBUG: halt='{price_kr.get('halt')}', managed='{price_kr.get('managed')}', sc='{price_kr.get('status_code')}'")
                                 st.markdown(
                                     f"<div style='display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap'>"
-                                    f"<span style='font-size:1.44rem;font-weight:700'>**{_real_dtv_name}**</span> "
+                                    f"<span style='font-size:1.44rem;font-weight:700;color:#ff4b4b'>!!!DEBUG!!! **{_real_dtv_name}**</span> "
                                     f"<span style='font-size:1.17rem;color:#888'>({_dtv_code})</span>"
                                     f"{_badges_html} &nbsp; "
                                     f"<span style='font-size:1.26rem;font-weight:600'>₩{price_kr['price']:,}</span> &nbsp; "
@@ -2942,11 +2946,12 @@ def main():
                             if st.session_state.kr_selected_name != _real_name:
                                 st.session_state.kr_selected_name = _real_name
                             
-                            pct_color = "up-kr" if is_up else "down-kr" if is_dn else ""
                             _badges_html = _kr_stock_badges_html(price_kr)
+                            # 디버그: 실제 데이터가 어떻게 오는지 확인
+                            st.error(f"DEBUG: halt='{price_kr.get('halt')}', managed='{price_kr.get('managed')}', sc='{price_kr.get('status_code')}'")
                             st.markdown(
                                 f"<div style='display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap'>"
-                                f"<span style='font-size:1.44rem;font-weight:700'>**{_real_name}**</span> "
+                                f"<span style='font-size:1.44rem;font-weight:700;color:#ff4b4b'>!!!DEBUG!!! **{_real_name}**</span> "
                                 f"<span style='font-size:1.17rem;color:#888'>({selected_code_kr})</span>"
                                 f"{_badges_html} &nbsp; "
                                 f"<span style='font-size:1.26rem;font-weight:600'>₩{price_kr['price']:,}</span> &nbsp; "
