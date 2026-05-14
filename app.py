@@ -1060,11 +1060,26 @@ def _render_stock_section(group: list, mkt: str, icon: str, dir_: str, clr: str,
             unsafe_allow_html=True,
         )
         return
+
+    # 현재가 bulk 조회
+    _slice = group[:5]
+    _tks = [_normalize_ticker(str(s.get("ticker", "")))[0] for s in _slice]
+    _price_map: dict = {}
+    try:
+        if mkt == "KR":
+            from data_kr import get_kr_prices_bulk
+            _price_map = get_kr_prices_bulk(tuple(t for t in _tks if t))
+        else:
+            from data import get_us_prices_bulk
+            _price_map = get_us_prices_bulk(tuple(t for t in _tks if t))
+    except Exception:
+        pass
+
     _SIGNAL_COLOR = {
         "매우 강력 추천": "#00c853", "추천": "#69f0ae",
         "중간추천": "#ffd740", "비추천": "#ff7043", "매우 비추천": "#f44336",
     }
-    for _i, _s in enumerate(group[:5]):
+    for _i, _s in enumerate(_slice):
         _tk_raw = str(_s.get("ticker", ""))
         _tk, _ = _normalize_ticker(_tk_raw)
         _nm       = str(_s.get("name", ""))
@@ -1076,12 +1091,34 @@ def _render_stock_section(group: list, mkt: str, icon: str, dir_: str, clr: str,
         _halt_label = " ⛔거래정지" if _is_halted else ""
         _sc = _SIGNAL_COLOR.get(_signal, "")
         _signal_label = f" · {_signal}" if _signal else ""
-        with st.popover(f"{icon} {_nm} ({_tk}){_halt_label}{_signal_label}", use_container_width=True):
+
+        # 현재가 레이블
+        _pd = _price_map.get(_tk, {})
+        _cp = _pd.get("price", 0)
+        _cpct = _pd.get("change_pct", 0)
+        if _cp and _cp > 0:
+            _arrow = "▲" if _cpct >= 0 else "▼"
+            if mkt == "KR":
+                _price_label = f"  ₩{int(_cp):,} {_arrow}{abs(_cpct):.1f}%"
+            else:
+                _price_label = f"  ${_cp:,.2f} {_arrow}{abs(_cpct):.1f}%"
+        else:
+            _price_label = ""
+
+        with st.popover(f"{icon} {_nm} ({_tk}){_price_label}{_halt_label}{_signal_label}", use_container_width=True):
             if _is_halted:
                 st.error("⛔ **거래정지 종목** — 현재 매수·매도 불가. 거래 재개 시점 불명확.")
+            _pop_price_clr = "#ff4b4b" if _cpct >= 0 else "#2b7cff" if mkt == "KR" else "#ff4b4b"
             st.markdown(
                 f"<span style='font-size:1rem;font-weight:700;color:{clr}'>{_nm}</span>"
-                f"&nbsp;<code>{_tk}</code>",
+                f"&nbsp;<code>{_tk}</code>"
+                + (
+                    f"&nbsp;&nbsp;<span style='font-size:1.05rem;font-weight:700;color:{_pop_price_clr}'>"
+                    f"{'₩' if mkt == 'KR' else '$'}"
+                    f"{'%d' % int(_cp) if mkt == 'KR' else '%.2f' % _cp}"
+                    f"&nbsp;{_arrow}{abs(_cpct):.2f}%</span>"
+                    if _cp and _cp > 0 else ""
+                ),
                 unsafe_allow_html=True,
             )
             if _signal and _sc:
