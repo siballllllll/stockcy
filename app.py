@@ -3170,7 +3170,7 @@ def main():
                                 f"<span style='font-size:1.17rem;color:#888'>({selected_code_kr})</span>"
                                 f"{_badges_html} &nbsp; "
                                 f"<span style='font-size:1.26rem;font-weight:600'>₩{price_kr['price']:,}</span> &nbsp; "
-                                f'<span class="{pct_color}" style="font-size:1.15rem;font-weight:600">{arrow} {price_kr["change_pct"]:+.2f}%</span>'
+                                f'<span class="{pct_color}" style="font-size:1.15rem;font-weight:600">{arrow} {abs(price_kr.get("change", 0)):,}원 ({price_kr["change_pct"]:+.2f}%)</span>'
                                 f"</div>",
                                 unsafe_allow_html=True,
                             )
@@ -5500,7 +5500,7 @@ def main():
                                     f"<span style='font-size:1.44rem;font-weight:700'>**{_real_us_dname}**</span> "
                                     f"<span style='font-size:1.17rem;color:#888'>({_us_dticker})</span> &nbsp; "
                                     f"<span style='font-size:1.26rem;font-weight:600'>${detail_us['price']:,.2f}</span> &nbsp; "
-                                    f"<span style='color:{_col_cur};font-size:1.15rem;font-weight:600'>{_ar_cur} {_chg_cur:+.2f}%</span>"
+                                    f"<span style='color:{_col_cur};font-size:1.15rem;font-weight:600'>{_ar_cur} ${abs(detail_us.get('change', 0)):.2f} ({_chg_cur:+.2f}%)</span>"
                                     f"</div>",
                                     unsafe_allow_html=True,
                                 )
@@ -5590,7 +5590,7 @@ def main():
                                 f"<span style='font-size:1.44rem;font-weight:700'>**{_real_us_name}**</span> "
                                 f"<span style='font-size:1.17rem;color:#888'>({_us_ticker_cur})</span> &nbsp; "
                                 f"<span style='font-size:1.26rem;font-weight:600'>${detail_us.get('price', 0):,.2f}</span> &nbsp; "
-                                f"<span style='color:{_col};font-size:1.15rem;font-weight:600'>{_ar} {_chg:+.2f}%</span>"
+                                f"<span style='color:{_col};font-size:1.15rem;font-weight:600'>{_ar} ${abs(detail_us.get('change', 0)):.2f} ({_chg:+.2f}%)</span>"
                                 f"</div>",
                                 unsafe_allow_html=True,
                             )
