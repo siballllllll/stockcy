@@ -960,8 +960,10 @@ def _normalize_ticker(raw: str) -> tuple[str, str]:
     return t, "US"
 
 
-def _render_stock_section(group: list, mkt: str, icon: str, dir_: str, clr: str, key_prefix: str):
+def _render_stock_section(group: list, mkt: str, icon: str, dir_: str, clr: str, key_prefix: str, halted_set: set = None):
     """종목 목록 렌더링 — 섹션 헤더 없이 버튼만 (헤더는 호출부에서 행 단위로 처리)."""
+    if halted_set is None:
+        halted_set = set()
     if not group:
         st.markdown(
             "<div style='padding:4px 8px;font-size:0.78rem;color:#666;"
@@ -975,7 +977,11 @@ def _render_stock_section(group: list, mkt: str, icon: str, dir_: str, clr: str,
         _nm  = str(_s.get("name", ""))
         _rsn = str(_s.get("reason", ""))
         _vn  = str(_s.get("valuation_note", ""))
-        with st.popover(f"{icon} {_nm} ({_tk})", use_container_width=True):
+        _is_halted = _tk in halted_set
+        _halt_label = " ⛔거래정지" if _is_halted else ""
+        with st.popover(f"{icon} {_nm} ({_tk}){_halt_label}", use_container_width=True):
+            if _is_halted:
+                st.error("⛔ **거래정지 종목** — 현재 매수·매도 불가. 거래 재개 시점 불명확.")
             st.markdown(
                 f"<span style='font-size:1rem;font-weight:700;color:{clr}'>{_nm}</span>"
                 f"&nbsp;<code>{_tk}</code>",
@@ -1122,10 +1128,31 @@ def show_market_scenarios():
                         _pk = f"{_issue.get('issue_no',0)}_{_sc.get('label','')}"
                         _rising  = _sc.get("rising_stocks", [])
                         _falling = _sc.get("falling_stocks", [])
+                        _theme_stocks = _sc.get("theme_stocks", [])
                         _r_kr = [s for s in _rising  if _normalize_ticker(str(s.get("ticker","")))[1]=="KR"]
                         _r_us = [s for s in _rising  if _normalize_ticker(str(s.get("ticker","")))[1]=="US"]
                         _f_kr = [s for s in _falling if _normalize_ticker(str(s.get("ticker","")))[1]=="KR"]
                         _f_us = [s for s in _falling if _normalize_ticker(str(s.get("ticker","")))[1]=="US"]
+
+                        # KR 종목 거래정지 batch 체크 (캐시 활용)
+                        _halted_set: set = set()
+                        _all_kr = _r_kr + _f_kr + [s for s in _theme_stocks if _normalize_ticker(str(s.get("ticker","")))[1]=="KR"]
+                        if _all_kr:
+                            try:
+                                from data_kr import get_kr_prices_bulk
+                                _kr_tickers_bulk = tuple(
+                                    (str(s.get("ticker","")), str(s.get("ticker","")) + ".KS")
+                                    for s in _all_kr if s.get("ticker")
+                                )
+                                if _kr_tickers_bulk:
+                                    _bulk = get_kr_prices_bulk(_kr_tickers_bulk)
+                                    _halted_set = {
+                                        code for code, d in _bulk.items()
+                                        if str(d.get("halt","N")).strip() not in ("N","","0",None)
+                                        or str(d.get("status_code","55")).strip() == "58"
+                                    }
+                            except Exception:
+                                pass
 
                         # 컬럼 헤더
                         _ch1, _ch2 = st.columns(2)
@@ -1138,9 +1165,9 @@ def show_market_scenarios():
                         st.markdown("<div style='font-size:0.75rem;font-weight:700;color:#aaa;background:rgba(255,255,255,0.04);padding:3px 8px;border-radius:4px;margin:2px 0'>🇰🇷 국내</div>", unsafe_allow_html=True)
                         _kr1, _kr2 = st.columns(2)
                         with _kr1:
-                            _render_stock_section(_r_kr, "KR", "🟢", "상승", "#00c853", f"r_{_pk}_kr")
+                            _render_stock_section(_r_kr, "KR", "🟢", "상승", "#00c853", f"r_{_pk}_kr", _halted_set)
                         with _kr2:
-                            _render_stock_section(_f_kr, "KR", "🔴", "하락", "#ff4b4b", f"d_{_pk}_kr")
+                            _render_stock_section(_f_kr, "KR", "🔴", "하락", "#ff4b4b", f"d_{_pk}_kr", _halted_set)
 
                         # 미국 행 (항상 같은 높이에서 시작)
                         st.markdown("<div style='font-size:0.75rem;font-weight:700;color:#aaa;background:rgba(255,255,255,0.04);padding:3px 8px;border-radius:4px;margin:6px 0 2px'>🇺🇸 미국</div>", unsafe_allow_html=True)
@@ -1151,7 +1178,6 @@ def show_market_scenarios():
                             _render_stock_section(_f_us, "US", "🔴", "하락", "#ff4b4b", f"d_{_pk}_us")
 
                         # 테마 연동주 행
-                        _theme_stocks = _sc.get("theme_stocks", [])
                         if _theme_stocks:
                             st.markdown(
                                 "<div style='font-size:0.75rem;font-weight:700;color:#ffd740;"
@@ -1166,10 +1192,18 @@ def show_market_scenarios():
                                 _tc = _type_colors.get(_ts.get("type",""), "#aaa")
                                 _ti_icon = _type_icons.get(_ts.get("type",""), "")
                                 _t_ticker = _ts.get("ticker","")
+                                _t_halted = _t_ticker in _halted_set
+                                _halt_bar = (
+                                    "<div style='background:#b71c1c22;border:1px solid #b71c1c66;"
+                                    "border-radius:4px;padding:3px 7px;margin-bottom:5px;"
+                                    "font-size:0.73rem;color:#ef9a9a;font-weight:700'>"
+                                    "⛔ 거래정지 — 현재 매수·매도 불가. 거래 재개 시점 불명확.</div>"
+                                ) if _t_halted else ""
                                 with _theme_cols[_ti % len(_theme_cols)]:
                                     st.markdown(
                                         f"<div style='background:rgba(255,215,64,0.06);border-left:3px solid {_tc};"
                                         f"border-radius:6px;padding:7px 10px;margin-bottom:6px;font-size:0.8rem'>"
+                                        f"{_halt_bar}"
                                         f"<span style='color:{_tc};font-weight:700'>{_ti_icon} {_ts.get('name','')}</span> "
                                         f"<a href='/?market=KR&code={_t_ticker}' target='_blank' "
                                         f"style='color:#888;font-size:0.74rem;text-decoration:none'>({_t_ticker}) ↗</a><br>"

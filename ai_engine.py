@@ -211,7 +211,7 @@ def generate_market_scenarios() -> dict:
         "- rising_stocks/falling_stocks: 해당 이슈에 실제로 영향받는 국내(KOSPI/KOSDAQ) 및 미국 종목. 억지로 넣을 필요는 없습니다.\n"
         "- 국내 종목 ticker는 KOSPI/KOSDAQ 6자리 숫자 코드(예: 삼성전자=005930, SK하이닉스=000660, 카카오=035720)를 사용하세요.\n"
         "- 미국 종목 ticker는 NYSE/NASDAQ 심볼(예: NVDA, TSLA, AAPL)을 사용하세요.\n"
-        "- ⚠️ 거래정지(trading halt)·상장폐지 절차 중인 종목은 rising/falling/theme_stocks 어디에도 절대 포함하지 마세요. 실제 매수·매도가 가능한 정상 거래 종목만 추천하세요.\n\n"
+        "- 거래정지·상장폐지 절차 중인 종목은 가급적 피하세요. 불가피하게 포함할 경우 reason 필드에 '⚠️ 거래정지 또는 상장폐지 위험 — 실제 거래 전 반드시 확인' 문구를 포함하세요.\n\n"
         "【테마 연동주 선정 규칙 — theme_stocks】\n"
         "한국 증시에서는 이슈 발생 시 직접 관련 종목뿐 아니라 '테마'로 묶인 주변 관련주들이 함께 급등하는 패턴이 반복됩니다.\n"
         "- 대장주: 해당 테마에서 가장 직접 수혜받는 핵심 종목\n"
