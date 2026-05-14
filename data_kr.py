@@ -685,10 +685,9 @@ def get_kr_prices_bulk(tickers_tuple: tuple) -> dict:
     for code, yf_ticker in tickers_tuple:
         # 1차: KIS API (캐시 활용 — get_kr_stock_price 내부에 @st.cache_data 있음)
         kis = get_kr_stock_price(code)
-        if kis and kis.get("price", 0) > 0:
-            results[code] = {
-                "price":      kis["price"],
-                "change_pct": kis["change_pct"],
+        _kis_status = {}
+        if kis:
+            _kis_status = {
                 "status_code": kis.get("status_code", "55"),
                 "mrkt_warn":   kis.get("mrkt_warn", "00"),
                 "short_over":  kis.get("short_over", "N"),
@@ -697,16 +696,18 @@ def get_kr_prices_bulk(tickers_tuple: tuple) -> dict:
                 "vi_type":     kis.get("vi_type", "N"),
                 "vi_ovtm":     kis.get("vi_ovtm", "N"),
             }
-            continue
-        # 2차: yfinance 폴백 (상태 필드 없음)
+            if kis.get("price", 0) > 0:
+                results[code] = {"price": kis["price"], "change_pct": kis["change_pct"], **_kis_status}
+                continue
+        # 2차: yfinance 폴백 (거래정지 등 price=0 포함, KIS 상태 필드는 유지)
         try:
             fi = yf.Ticker(yf_ticker).fast_info
             price = round(fi.get("lastPrice", 0) or 0)
             prev = fi.get("previousClose", 0) or 0
             change_pct = round(((price - prev) / prev * 100) if prev > 0 else 0.0, 2)
-            results[code] = {"price": price, "change_pct": change_pct}
+            results[code] = {"price": price, "change_pct": change_pct, **_kis_status}
         except Exception:
-            results[code] = {"price": 0, "change_pct": 0.0}
+            results[code] = {"price": 0, "change_pct": 0.0, **_kis_status}
     return results
 
 
