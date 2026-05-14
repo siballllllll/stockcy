@@ -95,8 +95,9 @@ def get_us_stock_detail(ticker: str, exchange: str = "NASDAQ"):
             name       = kis_data["name"]
         else:
             price      = round(fi.get('lastPrice', 0) or 0, 2)
-            prev       = fi.get('previousClose', 0) or 0
-            change     = round(price - prev, 2)
+            reg_price  = round(fi.get('regularMarketPrice', 0) or price, 2)
+            prev       = fi.get('regularMarketPreviousClose', 0) or fi.get('previousClose', 0) or 0
+            change     = round(reg_price - prev, 2) if prev > 0 else 0.0
             change_pct = round((change / prev * 100) if prev > 0 else 0, 2)
             volume     = int(fi.get('lastVolume', 0) or 0)
             open_p     = round(fi.get('open', 0) or 0, 2)
@@ -174,9 +175,10 @@ def get_us_prices_bulk(tickers_tuple: tuple) -> dict:
         try:
             fi = yf.Ticker(ticker).fast_info
             price = round(fi.get("lastPrice", 0) or 0, 2)
-            prev = fi.get("previousClose", 0) or 0
-            change = round(price - prev, 2) if prev > 0 else 0.0
-            change_pct = round(((price - prev) / prev * 100) if prev > 0 else 0.0, 2)
+            reg_price = round(fi.get("regularMarketPrice", 0) or price, 2)
+            prev = fi.get("regularMarketPreviousClose", 0) or fi.get("previousClose", 0) or 0
+            change = round(reg_price - prev, 2) if prev > 0 else 0.0
+            change_pct = round(((reg_price - prev) / prev * 100) if prev > 0 else 0.0, 2)
             results[ticker] = {"price": price, "change": change, "change_pct": change_pct}
         except Exception:
             results[ticker] = {"price": 0.0, "change": 0.0, "change_pct": 0.0}
