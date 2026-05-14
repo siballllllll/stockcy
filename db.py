@@ -639,8 +639,6 @@ def load_us_sector_map() -> dict:
             _sym  = _cols.get("symbol",   _cols.get("code",     _cols.get("ticker")))
             _name = _cols.get("name",     _cols.get("longname", _cols.get("shortname")))
             _ind  = _cols.get("industry", _cols.get("industrycode"))
-            _FDR_SUB_CAP = 20  # 서브섹터당 FDR 추가 최대 종목 수
-            _fdr_sub_cnt: dict = {}
             if _sym and _ind:
                 for _, _row in _all.iterrows():
                     _ticker = str(_row.get(_sym, "")).strip().upper()
@@ -655,16 +653,12 @@ def load_us_sector_map() -> dict:
                     _kr_sec, _kr_sub = _mapping
                     if _kr_sec not in raw:
                         continue
-                    _sub_key = (_kr_sec, _kr_sub)
-                    if _fdr_sub_cnt.get(_sub_key, 0) >= _FDR_SUB_CAP:
-                        continue
                     _sname = str(_row.get(_name, _ticker) if _name else _ticker).strip()
                     _exch2 = str(_row.get("_exchange", "NASDAQ"))
                     raw[_kr_sec].setdefault(_kr_sub, []).append(
                         {"name": _sname, "ticker": _ticker, "exchange": _exch2}
                     )
                     existing.add(_ticker)
-                    _fdr_sub_cnt[_sub_key] = _fdr_sub_cnt.get(_sub_key, 0) + 1
     except Exception:
         pass
 

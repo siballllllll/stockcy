@@ -784,44 +784,93 @@ def get_us_stock_price_kis(ticker: str, exchange: str = "NASDAQ"):
 
 
 @st.cache_data(ttl=60)
+@st.cache_data(ttl=120)
 def get_us_prices_bulk_kis(tickers_exchange_tuple: tuple) -> dict:
-    """섹터 패널용 미국 종목 일괄 시세 조회 (KIS → yfinance 폴백, 병렬)"""
+    """섹터 패널용 미국 종목 일괄 시세 조회.
+
+    1차: yfinance 배치 다운로드 (청크 200개씩, 최대 5개 병렬) — 빠름
+    2차: 누락 종목만 KIS API 병렬 보완
+    """
     import yfinance as yf
+    import pandas as _pd
     from concurrent.futures import ThreadPoolExecutor, as_completed
 
-    def _fetch_one(ticker: str, exchange: str) -> tuple[str, dict]:
-        excd = _KIS_EXCD.get(exchange.upper(), "NAS")
+    if not tickers_exchange_tuple:
+        return {}
+
+    tickers      = [t for t, _ in tickers_exchange_tuple]
+    exchange_map = {t: e for t, e in tickers_exchange_tuple}
+    results: dict = {}
+
+    # ── 1차: yfinance 배치 (청크 200개 × 병렬 5) ──────────────────────
+    CHUNK = 200
+    chunks = [tickers[i : i + CHUNK] for i in range(0, len(tickers), CHUNK)]
+
+    def _fetch_chunk(chunk: list) -> dict:
+        try:
+            raw = yf.download(
+                chunk,
+                period="2d",
+                auto_adjust=True,
+                progress=False,
+                threads=False,
+            )
+            if raw is None or raw.empty:
+                return {}
+            chunk_res: dict = {}
+            cols = raw.columns
+            is_multi = isinstance(cols, _pd.MultiIndex)
+            for ticker in chunk:
+                try:
+                    if is_multi:
+                        close_s = raw["Close"][ticker].dropna() if ticker in raw["Close"].columns else _pd.Series(dtype=float)
+                    else:
+                        close_s = raw["Close"].dropna() if len(chunk) == 1 else _pd.Series(dtype=float)
+                    if close_s.empty:
+                        continue
+                    price = round(float(close_s.iloc[-1]), 2)
+                    prev  = round(float(close_s.iloc[-2]), 2) if len(close_s) >= 2 else price
+                    chp   = round(((price - prev) / prev * 100) if prev > 0 else 0.0, 2)
+                    if price > 0:
+                        chunk_res[ticker] = {"price": price, "change_pct": chp}
+                except Exception:
+                    continue
+            return chunk_res
+        except Exception:
+            return {}
+
+    workers = min(len(chunks), 5)
+    with ThreadPoolExecutor(max_workers=workers) as ex:
+        for res in ex.map(_fetch_chunk, chunks):
+            results.update(res)
+
+    # ── 2차: 누락된 종목만 KIS API 병렬 보완 ─────────────────────────
+    missing = [t for t in tickers if t not in results or results[t]["price"] == 0]
+
+    def _kis_one(ticker: str):
+        excd = _KIS_EXCD.get(exchange_map.get(ticker, "NASDAQ").upper(), "NAS")
         data = _get(
             "/uapi/overseas-price/v1/quotations/price",
             "HHDFS76200200",
             {"AUTH": "", "EXCD": excd, "SYMB": ticker},
         )
         if data:
-            o = data.get("output", {})
+            o     = data.get("output", {})
             price = float(o.get("last", 0) or 0)
             if price > 0:
-                return ticker, {
-                    "price":      price,
-                    "change_pct": float(o.get("rate", 0) or 0),
-                }
-        try:
-            fi   = yf.Ticker(ticker).fast_info
-            p    = round(fi.get("lastPrice", 0) or 0, 2)
-            prev = fi.get("previousClose", 0) or 0
-            chp  = round(((p - prev) / prev * 100) if prev > 0 else 0, 2)
-            return ticker, {"price": p, "change_pct": chp}
-        except Exception:
-            return ticker, {"price": 0.0, "change_pct": 0.0}
+                return ticker, {"price": price, "change_pct": float(o.get("rate", 0) or 0)}
+        return ticker, {"price": 0.0, "change_pct": 0.0}
 
-    results: dict = {}
-    with ThreadPoolExecutor(max_workers=10) as ex:
-        futs = {ex.submit(_fetch_one, t, e): t for t, e in tickers_exchange_tuple}
-        for fut in as_completed(futs):
-            try:
-                ticker, val = fut.result()
-                results[ticker] = val
-            except Exception:
-                results[futs[fut]] = {"price": 0.0, "change_pct": 0.0}
+    if missing:
+        with ThreadPoolExecutor(max_workers=10) as ex:
+            futs = {ex.submit(_kis_one, t): t for t in missing}
+            for fut in as_completed(futs):
+                try:
+                    ticker, val = fut.result()
+                    results[ticker] = val
+                except Exception:
+                    results[futs[fut]] = {"price": 0.0, "change_pct": 0.0}
+
     return results
 
 
