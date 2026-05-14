@@ -971,6 +971,10 @@ def _render_stock_section(group: list, mkt: str, icon: str, dir_: str, clr: str,
             unsafe_allow_html=True,
         )
         return
+    _RATING_COLOR = {
+        "매우 강력 추천": "#00c853", "추천": "#69f0ae",
+        "중간추천": "#ffd740", "비추천": "#ff7043", "매우 비추천": "#f44336",
+    }
     for _i, _s in enumerate(group[:5]):
         _tk_raw = str(_s.get("ticker", ""))
         _tk, _ = _normalize_ticker(_tk_raw)
@@ -979,7 +983,12 @@ def _render_stock_section(group: list, mkt: str, icon: str, dir_: str, clr: str,
         _vn  = str(_s.get("valuation_note", ""))
         _is_halted = _tk in halted_set
         _halt_label = " ⛔거래정지" if _is_halted else ""
-        with st.popover(f"{icon} {_nm} ({_tk}){_halt_label}", use_container_width=True):
+        _signal_key = f"_sc_signal_{_tk}"
+        _cached = st.session_state.get(_signal_key)
+        _rating = _cached.get("rating", "") if _cached else ""
+        _rc = _RATING_COLOR.get(_rating, "#aaa")
+        _rating_label = f" · {_rating}" if _rating else ""
+        with st.popover(f"{icon} {_nm} ({_tk}){_halt_label}{_rating_label}", use_container_width=True):
             if _is_halted:
                 st.error("⛔ **거래정지 종목** — 현재 매수·매도 불가. 거래 재개 시점 불명확.")
             st.markdown(
@@ -987,6 +996,32 @@ def _render_stock_section(group: list, mkt: str, icon: str, dir_: str, clr: str,
                 f"&nbsp;<code>{_tk}</code>",
                 unsafe_allow_html=True,
             )
+            # 매수 신호 배지
+            if _rating:
+                st.markdown(
+                    f"<div style='display:inline-block;background:{_rc}22;border:1px solid {_rc}88;"
+                    f"border-radius:6px;padding:4px 12px;margin:4px 0 8px;"
+                    f"font-size:0.9rem;font-weight:700;color:{_rc}'>🎯 {_rating}</div>",
+                    unsafe_allow_html=True,
+                )
+                if _cached.get("short_term_view_pct"):
+                    st.caption(f"단기 전망: {_cached['short_term_view_pct']}")
+            elif mkt == "KR" and not _is_halted:
+                if st.button("🎯 매수 신호 분석", key=f"sc_sig_{_tk}_{key_prefix}_{_i}", use_container_width=True):
+                    with st.spinner("AI 분석 중..."):
+                        try:
+                            from data_kr import get_kr_stock_price, get_kr_investor_trend
+                            from ai_engine import generate_kr_stock_report
+                            _p = get_kr_stock_price(_tk)
+                            _inv = []
+                            try: _inv = get_kr_investor_trend(_tk)
+                            except Exception: pass
+                            if _p:
+                                _rep = generate_kr_stock_report(_tk, _nm, _p, _inv)
+                                st.session_state[_signal_key] = _rep
+                                st.rerun()
+                        except Exception as _e:
+                            st.error(f"분석 실패: {_e}")
             st.markdown(f"**{dir_} 이유:** {_rsn}")
             if _vn:
                 st.info(f"📐 {_vn}")
