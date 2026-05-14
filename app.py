@@ -2946,12 +2946,11 @@ def main():
                             if st.session_state.kr_selected_name != _real_name:
                                 st.session_state.kr_selected_name = _real_name
                             
+                            pct_color = "up-kr" if is_up else "down-kr" if is_dn else ""
                             _badges_html = _kr_stock_badges_html(price_kr)
-                            # 디버그: 실제 데이터가 어떻게 오는지 확인
-                            st.error(f"DEBUG: halt='{price_kr.get('halt')}', managed='{price_kr.get('managed')}', sc='{price_kr.get('status_code')}'")
                             st.markdown(
                                 f"<div style='display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap'>"
-                                f"<span style='font-size:1.44rem;font-weight:700;color:#ff4b4b'>!!!DEBUG!!! **{_real_name}**</span> "
+                                f"<span style='font-size:1.44rem;font-weight:700'>**{_real_name}**</span> "
                                 f"<span style='font-size:1.17rem;color:#888'>({selected_code_kr})</span>"
                                 f"{_badges_html} &nbsp; "
                                 f"<span style='font-size:1.26rem;font-weight:600'>₩{price_kr['price']:,}</span> &nbsp; "
