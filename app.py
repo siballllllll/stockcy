@@ -1079,11 +1079,9 @@ def show_market_scenarios():
     _cache_key = f"market_scenarios_{_today}"
 
     # 버튼 최상단 우측 정렬 — 데이터 로딩 전에 즉시 표시
-    _spc, _ref_col, _close_col = st.columns([4, 1.4, 0.6])
+    _spc, _ref_col = st.columns([5, 2])
     with _ref_col:
         _do_refresh = st.button("🔄 새로 분석", use_container_width=True, type="secondary")
-    with _close_col:
-        _do_close = st.button("✕", use_container_width=True, type="secondary")
 
     _task_id = f"scenario_{_cache_key}"
 
@@ -1099,9 +1097,6 @@ def show_market_scenarios():
         except Exception:
             pass
         st.session_state._scenario_dialog_open = True
-        st.rerun()
-    if _do_close:
-        st.session_state.pop("_dialog_open", None)
         st.rerun()
 
     # 백그라운드 완료 결과 세션에 반영
