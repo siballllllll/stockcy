@@ -982,6 +982,59 @@ def _sc_goto_stock(ticker: str):
     st.rerun()
 
 
+@st.cache_data(ttl=300, show_spinner=False)
+def _build_kr_sector_lookup() -> dict:
+    """code → (sector, sub_sector) 역방향 조회 dict (섹터맵 캐시와 TTL 동기화)."""
+    try:
+        from db import load_sector_map
+        lookup = {}
+        for sec, subs in load_sector_map().items():
+            for sub, stocks in subs.items():
+                for s in stocks:
+                    c = s.get("code")
+                    if c and c not in lookup:
+                        lookup[c] = (sec, sub)
+        return lookup
+    except Exception:
+        return {}
+
+
+@st.cache_data(ttl=86400, show_spinner=False)
+def _build_us_sector_lookup() -> dict:
+    """ticker → (sector, sub_sector) 역방향 조회 dict."""
+    try:
+        from data_kr import get_us_fdr_sector_map
+        lookup = {}
+        for sec, subs in get_us_fdr_sector_map().items():
+            for sub, stocks in subs.items():
+                for s in stocks:
+                    t = s.get("ticker")
+                    if t and t not in lookup:
+                        lookup[t] = (sec, sub)
+        return lookup
+    except Exception:
+        return {}
+
+
+def _sector_badge_html(sector: str, sub: str, is_us: bool = False) -> str:
+    """섹터 배지 HTML 반환. sub가 sector와 같으면 sub 생략."""
+    clr  = "#4db6ac" if is_us else "#64b5f6"
+    bg   = "rgba(77,182,172,0.12)"  if is_us else "rgba(100,181,246,0.12)"
+    bdr  = "rgba(77,182,172,0.35)"  if is_us else "rgba(100,181,246,0.35)"
+    html = (
+        f"<span style='display:inline-flex;align-items:center;gap:4px;"
+        f"padding:2px 8px;border-radius:4px;font-size:0.74rem;font-weight:600;"
+        f"background:{bg};border:1px solid {bdr};color:{clr};margin-left:6px'>"
+        f"📊 {sector}"
+        f"</span>"
+    )
+    if sub and sub != sector:
+        html += (
+            f"<span style='font-size:0.72rem;color:#888;margin-left:4px'>· {sub}</span>"
+        )
+    return html
+
+
 def _normalize_ticker(raw: str) -> tuple[str, str]:
     """티커를 정규화하고 (정규화된_티커, 'KR'|'US') 반환."""
     t = raw.strip().upper()
@@ -3314,16 +3367,18 @@ def main():
                                             else:
                                                 st.warning("이미 포트폴리오에 있습니다.")
 
-                                    # 종목명 + 상태 배지
+                                    # 종목명 + 상태 배지 + 섹터 배지
                                     _badges = _kr_stock_badges_html(price_kr)
-                                    if _badges:
-                                        st.markdown(
-                                            f"<div style='margin:6px 0 2px'>"
-                                            f"<span style='font-size:0.95rem;font-weight:700;color:#ccc'>{_real_name}</span>"
-                                            f"{_badges}"
-                                            f"</div>",
-                                            unsafe_allow_html=True,
-                                        )
+                                    _kr_sec_lu = _build_kr_sector_lookup()
+                                    _sec_info  = _kr_sec_lu.get(selected_code_kr)
+                                    _sec_badge = _sector_badge_html(*_sec_info) if _sec_info else ""
+                                    st.markdown(
+                                        f"<div style='margin:6px 0 2px;display:flex;align-items:center;flex-wrap:wrap;gap:2px'>"
+                                        f"<span style='font-size:0.95rem;font-weight:700;color:#ccc'>{_real_name}</span>"
+                                        f"{_badges}{_sec_badge}"
+                                        f"</div>",
+                                        unsafe_allow_html=True,
+                                    )
 
                                     # 현재가 강조
                                     _pc = "#ff4b4b" if is_up else "#2b7cff" if is_dn else "#aaa"
@@ -5711,12 +5766,27 @@ def main():
                                             else:
                                                 st.warning("이미 포트폴리오에 있습니다.")
 
+                                    # 종목명 + 섹터 배지
+                                    _us_sec_lu  = _build_us_sector_lookup()
+                                    _us_sec_inf = _us_sec_lu.get(st.session_state.us_selected_ticker)
+                                    _us_sec_bdg = _sector_badge_html(*_us_sec_inf, is_us=True) if _us_sec_inf else ""
+                                    if _us_sec_bdg:
+                                        st.markdown(
+                                            f"<div style='margin:6px 0 2px;display:flex;align-items:center;flex-wrap:wrap;gap:2px'>"
+                                            f"<span style='font-size:0.95rem;font-weight:700;color:#ccc'>{detail_us['name']}</span>"
+                                            f"{_us_sec_bdg}"
+                                            f"</div>",
+                                            unsafe_allow_html=True,
+                                        )
+
+                                    # 현재가 강조
                                     _us_ar = "▲" if _us_chg >= 0 else "▼"
+                                    _us_chg_abs = abs(detail_us.get('change', 0))
                                     st.markdown(
                                         f"<div style='margin:4px 0'>"
                                         f"<span style='font-size:1.72rem;font-weight:700'>${detail_us['price']:,.2f}</span>"
                                         f"&nbsp;<span style='font-size:1.17rem;color:{_us_col};font-weight:600'>"
-                                        f"{_us_ar} {detail_us['change']:+.2f} ({_us_chg:+.2f}%)</span>"
+                                        f"{_us_ar} ${_us_chg_abs:.2f} ({_us_chg:+.2f}%)</span>"
                                         f"</div>",
                                         unsafe_allow_html=True,
                                     )
