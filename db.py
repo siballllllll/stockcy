@@ -427,134 +427,161 @@ def load_sector_map() -> dict:
     return _enrich_with_krx(raw)
 
 
-# FDR 영문 섹터 → 한국어 섹터 매핑
-_FDR_TO_KR_SECTOR = {
-    "Technology":             "빅테크·AI소프트",
-    "Healthcare":             "바이오·헬스케어",
-    "Financial Services":     "금융·핀테크",
-    "Financials":             "금융·핀테크",
-    "Finance":                "금융·핀테크",
-    "Consumer Cyclical":      "소비재·유통",
-    "Consumer Discretionary": "소비재·유통",
-    "Consumer Defensive":     "소비재·유통",
-    "Consumer Staples":       "소비재·유통",
-    "Communication Services": "통신·네트워크",
-    "Communications":         "통신·네트워크",
-    "Energy":                 "에너지·원자력",
-    "Industrials":            "전통 산업·소재",
-    "Industrial":             "전통 산업·소재",
-    "Basic Materials":        "광업·귀금속·원자재",
-    "Materials":              "광업·귀금속·원자재",
-    "Real Estate":            "리츠·부동산",
-    "Utilities":              "전력 인프라·그리드",
-}
-
-# FDR 영문 업종(Industry) → 한국어 세부섹터 매핑
-_FDR_TO_KR_INDUSTRY = {
-    "Semiconductors":                           "반도체",
-    "Semiconductor Equipment & Materials":      "반도체 장비·소재",
-    "Software—Application":                     "소프트웨어·앱",
-    "Software—Infrastructure":                  "소프트웨어·인프라",
-    "Information Technology Services":          "IT서비스",
-    "Computer Hardware":                        "컴퓨터 하드웨어",
-    "Electronic Components":                    "전자부품",
-    "Internet Content & Information":           "인터넷·콘텐츠",
-    "Electronics & Computer Distribution":      "전자·컴퓨터 유통",
-    "Scientific & Technical Instruments":       "계측·기술장비",
-    "Biotechnology":                            "바이오테크",
-    "Drug Manufacturers—General":               "제약 대형",
-    "Drug Manufacturers—Specialty & Generic":   "제약 중소형",
-    "Medical Devices":                          "의료기기",
-    "Medical Instruments & Supplies":           "의료기기·용품",
-    "Diagnostics & Research":                   "진단·연구",
-    "Healthcare Plans":                         "헬스케어 보험",
-    "Health Information Services":              "헬스케어 IT",
-    "Banks—Diversified":                        "종합은행",
-    "Banks—Regional":                           "지역은행",
-    "Insurance—Life":                           "생명보험",
-    "Insurance—Property & Casualty":            "손해보험",
-    "Insurance—Diversified":                    "복합보험",
-    "Asset Management":                         "자산운용",
-    "Capital Markets":                          "자본시장",
-    "Credit Services":                          "신용서비스",
-    "Mortgage Finance":                         "모기지금융",
-    "Electronic Gaming & Multimedia":           "게임·멀티미디어",
-    "Telecom Services":                         "통신서비스",
-    "Entertainment":                            "엔터테인먼트",
-    "Broadcasting":                             "방송",
-    "Publishing":                               "출판·미디어",
-    "Advertising Agencies":                     "광고대행",
-    "Auto Manufacturers":                       "자동차 제조",
-    "Auto Parts":                               "자동차 부품",
-    "Specialty Retail":                         "전문 소매",
-    "Apparel Retail":                           "의류 소매",
-    "Apparel Manufacturing":                    "의류 제조",
-    "Department Stores":                        "백화점·유통",
-    "Discount Stores":                          "할인점",
-    "Grocery Stores":                           "식료품점",
-    "Restaurants":                              "외식업",
-    "Travel Services":                          "여행서비스",
-    "Airlines":                                 "항공사",
-    "Hotels & Motels":                          "호텔·모텔",
-    "Lodging":                                  "숙박",
-    "Resorts & Casinos":                        "리조트·카지노",
-    "Leisure":                                  "레저",
-    "Oil & Gas E&P":                            "석유·가스 탐사",
-    "Oil & Gas Integrated":                     "석유·가스 통합",
-    "Oil & Gas Refining & Marketing":           "정유·마케팅",
-    "Oil & Gas Equipment & Services":           "석유·가스 장비",
-    "Oil & Gas Midstream":                      "석유·가스 미드스트림",
-    "Uranium":                                  "우라늄",
-    "Solar":                                    "태양광",
-    "Utilities—Regulated Electric":             "규제 전력",
-    "Utilities—Renewable":                      "재생에너지",
-    "Utilities—Independent Power Producers":    "독립발전사",
-    "Utilities—Diversified":                    "다각화 유틸리티",
-    "Utilities—Regulated Gas":                  "규제 가스",
-    "Utilities—Regulated Water":                "규제 수도",
-    "Gold":                                     "금광",
-    "Silver":                                   "은광",
-    "Copper":                                   "구리·광물",
-    "Steel":                                    "철강",
-    "Aluminum":                                 "알루미늄",
-    "Other Industrial Metals & Mining":         "기타 광업",
-    "Agricultural Inputs":                      "농업 소재",
-    "Chemicals":                                "화학",
-    "Specialty Chemicals":                      "특수화학",
-    "Building Materials":                       "건설 소재",
-    "Aerospace & Defense":                      "항공·방산",
-    "Industrial Machinery":                     "산업기계",
-    "Farm & Heavy Construction Machinery":      "농기계·중장비",
-    "Electrical Equipment & Parts":             "전기장비·부품",
-    "Engineering & Construction":               "엔지니어링·건설",
-    "Waste Management":                         "폐기물관리",
-    "Staffing & Employment Services":           "인력파견",
-    "Business Services":                        "비즈니스서비스",
-    "Rental & Leasing Services":                "임대·리스",
-    "Security & Protection Services":           "보안서비스",
-    "Trucking":                                 "트럭운송",
-    "Railroads":                                "철도",
-    "Marine Shipping":                          "해운",
-    "Integrated Freight & Logistics":           "물류·택배",
-    "REIT—Diversified":                         "다각화 리츠",
-    "REIT—Office":                              "오피스 리츠",
-    "REIT—Industrial":                          "산업 리츠",
-    "REIT—Retail":                              "리테일 리츠",
-    "REIT—Residential":                         "주거 리츠",
-    "REIT—Mortgage":                            "모기지 리츠",
-    "REIT—Specialty":                           "특수 리츠",
-    "REIT—Healthcare Facilities":               "헬스케어 리츠",
-    "REIT—Hotel & Motel":                       "호텔 리츠",
-    "Real Estate Services":                     "부동산 서비스",
-    "Real Estate—Diversified":                  "복합 부동산",
-    "Consumer Electronics":                     "소비자가전",
-    "Packaging & Containers":                   "포장재",
-    "Paper & Paper Products":                   "제지",
-    "Lumber & Wood Production":                 "목재",
-    "Personal Services":                        "개인서비스",
-    "Education & Training Services":            "교육·훈련",
-    "Medical Care Facilities":                  "의료시설",
-    "Pharmaceutical Retailers":                 "의약품 소매",
+# FDR Industry(한국어) → (한국어 섹터, 한국어 서브섹터) 매핑
+# FDR StockListing은 Sector 없이 Industry 한국어 텍스트만 제공
+_FDR_IND_MAP: dict = {
+    # ── AI·반도체 ─────────────────────────────────────────────
+    "반도체":                               ("AI·반도체",           "반도체"),
+    "반도체 장비 및 테스트":               ("AI·반도체",           "반도체 장비·소재"),
+    "전자 장비 및 부품":                   ("AI·반도체",           "전자부품"),
+    "전화 및 소형 장치":                   ("AI·반도체",           "전자부품"),
+    "컴퓨터 및 전자 제품 소매":            ("AI·반도체",           "전자·컴퓨터 유통"),
+    # ── 빅테크·AI소프트 ──────────────────────────────────────
+    "소프트웨어":                           ("빅테크·AI소프트",     "소프트웨어"),
+    "IT 서비스 및 컨설팅":                 ("빅테크·AI소프트",     "IT서비스"),
+    "컴퓨터 하드웨어":                     ("빅테크·AI소프트",     "컴퓨터 하드웨어"),
+    "온라인 서비스":                        ("빅테크·AI소프트",     "인터넷·콘텐츠"),
+    "전문 정보 서비스":                     ("빅테크·AI소프트",     "IT서비스"),
+    "통합 하드웨어 및 소프트웨어":         ("빅테크·AI소프트",     "IT서비스"),
+    "사무기기":                             ("빅테크·AI소프트",     "컴퓨터 하드웨어"),
+    # ── 소셜미디어·디지털광고 ────────────────────────────────
+    "광고 및 마케팅":                       ("소셜미디어·디지털광고","광고대행"),
+    # ── 바이오·헬스케어 ──────────────────────────────────────
+    "생명 공학 및 의학 연구":              ("바이오·헬스케어",     "바이오테크"),
+    "제약":                                 ("바이오·헬스케어",     "제약"),
+    "첨단 의료 장비 및 기술":              ("바이오·헬스케어",     "의료기기"),
+    "의료 장비, 물품 및 유통":             ("바이오·헬스케어",     "의료기기·용품"),
+    "의료 시설 및 서비스":                 ("바이오·헬스케어",     "의료시설"),
+    "의료 관리":                            ("바이오·헬스케어",     "헬스케어 보험"),
+    "의약품 소매":                          ("바이오·헬스케어",     "의약품 소매"),
+    # ── 방산·우주 ─────────────────────────────────────────────
+    "항공우주 및 방위":                    ("방산·우주",            "항공·방산"),
+    # ── 금융·핀테크 ──────────────────────────────────────────
+    "은행":                                 ("금융·핀테크",         "종합은행"),
+    "생명 및 건강 보험":                   ("금융·핀테크",         "생명보험"),
+    "손해보험":                             ("금융·핀테크",         "손해보험"),
+    "복합보험 및 중개인":                  ("금융·핀테크",         "복합보험"),
+    "재보험":                               ("금융·핀테크",         "재보험"),
+    "투자 관리 및 펀드 운영":              ("금융·핀테크",         "자산운용"),
+    "투자 은행 및 중개 서비스":            ("금융·핀테크",         "자본시장"),
+    "금융, 상품 시장 운영 및 서비스 제공": ("금융·핀테크",         "금융데이터·거래소"),
+    "소비자 대출":                          ("금융·핀테크",         "신용서비스"),
+    "핀테크":                               ("금융·핀테크",         "핀테크"),
+    "기타 핀테크 인프라":                  ("금융·핀테크",         "핀테크 인프라"),
+    "기업 금융 서비스":                     ("금융·핀테크",         "자본시장"),
+    "다각적 투자 서비스":                  ("금융·핀테크",         "투자서비스"),
+    "투자 지주 회사":                       ("금융·핀테크",         "자산운용"),
+    "온라인 소액 투자 중개":               ("금융·핀테크",         "핀테크"),
+    "블록 체인 및 암호화폐":               ("금융·핀테크",         "암호화폐·블록체인"),
+    # ── EV·로봇·자율주행 ─────────────────────────────────────
+    "자동차 및 트럭 제조":                 ("EV·로봇·자율주행",    "자동차 제조"),
+    "자동차, 트럭 및 오토바이 부품":       ("EV·로봇·자율주행",    "자동차 부품"),
+    "자동차 차량, 부품 및 서비스 소매":    ("EV·로봇·자율주행",    "자동차 딜러"),
+    "타이어 및 고무 제품":                  ("EV·로봇·자율주행",    "자동차 부품"),
+    # ── 소비재·유통 ──────────────────────────────────────────
+    "기타 전문 소매":                       ("소비재·유통",         "전문 소매"),
+    "의류 및 액세서리":                     ("소비재·유통",         "의류 제조"),
+    "의류 및 액세서리 소매":               ("소비재·유통",         "의류 소매"),
+    "직물 및 가죽제품":                     ("소비재·유통",         "의류 제조"),
+    "제화":                                 ("소비재·유통",         "의류 소매"),
+    "백화점":                               ("소비재·유통",         "백화점·유통"),
+    "할인점":                               ("소비재·유통",         "할인점"),
+    "식품 소매 및 유통":                   ("소비재·유통",         "식료품점"),
+    "레스토랑 및 바":                       ("소비재·유통",         "외식업"),
+    "가전제품, 도구 및 가정 용품":         ("소비재·유통",         "소비자가전"),
+    "가정용 전자 제품":                     ("소비재·유통",         "소비자가전"),
+    "가정용 제품":                           ("소비재·유통",         "생활·개인용품"),
+    "가정용 가구":                           ("소비재·유통",         "생활·개인용품"),
+    "가정용 가구 소매":                     ("소비재·유통",         "생활·개인용품"),
+    "개인 생활 필수 용품":                  ("소비재·유통",         "생활·개인용품"),
+    "소비재 대기업":                        ("소비재·유통",         "생활·개인용품"),
+    "식품 가공":                             ("소비재·유통",         "가공식품"),
+    "무알콜 음료":                           ("소비재·유통",         "비알코올음료"),
+    "양조업":                               ("소비재·유통",         "주류"),
+    "증류주 및 포도주":                     ("소비재·유통",         "주류"),
+    "담배":                                 ("소비재·유통",         "담배"),
+    "주택 개조 제품 및 서비스 소매":        ("소비재·유통",         "홈인테리어 소매"),
+    "개인 서비스":                           ("소비재·유통",         "개인서비스"),
+    "기타 교육 서비스 제공":               ("소비재·유통",         "교육·훈련"),
+    "전문 및 비즈니스 교육":               ("소비재·유통",         "교육·훈련"),
+    "초, 중, 고등 교육기관":               ("소비재·유통",         "교육·훈련"),
+    "오락용 제품":                           ("소비재·유통",         "레저"),
+    "여가 및 오락시설":                     ("소비재·유통",         "레저"),
+    "장난감 및 어린이 제품":               ("소비재·유통",         "레저"),
+    # ── 미디어·엔터·게임 ─────────────────────────────────────
+    "엔터테인먼트 제작":                    ("미디어·엔터·게임",    "엔터테인먼트"),
+    "방송":                                 ("미디어·엔터·게임",    "방송"),
+    "소비자 출판":                           ("미디어·엔터·게임",    "출판·미디어"),
+    "상업 인쇄 서비스":                     ("미디어·엔터·게임",    "출판·미디어"),
+    # ── 통신·네트워크 ────────────────────────────────────────
+    "무선 통신 서비스":                     ("통신·네트워크",       "통신서비스"),
+    "통합 통신 서비스":                     ("통신·네트워크",       "통신서비스"),
+    "통신 및 네트워킹":                     ("통신·네트워크",       "네트워크 장비"),
+    # ── 항공·여행·관광 ───────────────────────────────────────
+    "항공사":                               ("항공·여행·관광",      "항공사"),
+    "호텔, 모텔 및 크루즈 라인":           ("항공·여행·관광",      "호텔·모텔"),
+    "지상 및 해상 여객 운송":              ("항공·여행·관광",      "여행서비스"),
+    "공항 운영 및 서비스":                  ("항공·여행·관광",      "여행서비스"),
+    "카지노 및 도박":                       ("항공·여행·관광",      "리조트·카지노"),
+    # ── 에너지·원자력 ────────────────────────────────────────
+    "오일 및 가스 시추":                   ("에너지·원자력",       "석유·가스 탐사"),
+    "오일, 가스 탐사 및 생산":             ("에너지·원자력",       "석유·가스 탐사"),
+    "통합 오일 및 가스":                   ("에너지·원자력",       "석유·가스 통합"),
+    "오일, 가스 정제 및 마케팅":           ("에너지·원자력",       "정유·마케팅"),
+    "오일 관련 서비스 및 장비":            ("에너지·원자력",       "석유·가스 장비"),
+    "오일 및 가스 수송 서비스":            ("에너지·원자력",       "석유·가스 미드스트림"),
+    "우라늄":                               ("에너지·원자력",       "우라늄"),
+    "재생 가능 에너지 장비 및 서비스":     ("에너지·원자력",       "태양광"),
+    "재생 가능 연료":                       ("에너지·원자력",       "태양광"),
+    "석탄":                                 ("에너지·원자력",       "석탄"),
+    # ── 전력 인프라·그리드 ───────────────────────────────────
+    "전력 유틸리티":                        ("전력 인프라·그리드",  "규제 전력"),
+    "민자 발전 사업":                       ("전력 인프라·그리드",  "독립발전사"),
+    "복합 유틸리티":                        ("전력 인프라·그리드",  "다각화 유틸리티"),
+    "수자원 유틸리티":                      ("전력 인프라·그리드",  "규제 수도"),
+    "천연가스 유틸리티":                    ("전력 인프라·그리드",  "규제 가스"),
+    "전기 부품 및 장비":                   ("전력 인프라·그리드",  "전기장비·부품"),
+    "중전기장비":                           ("전력 인프라·그리드",  "전기장비·부품"),
+    # ── 리츠·부동산 ──────────────────────────────────────────
+    "복합부동산 REITs":                     ("리츠·부동산",         "다각화 리츠"),
+    "상업용 REITs":                         ("리츠·부동산",         "오피스 리츠"),
+    "주거용 REITs":                         ("리츠·부동산",         "주거 리츠"),
+    "특수 REITs":                           ("리츠·부동산",         "특수 리츠"),
+    "부동산 서비스":                        ("리츠·부동산",         "부동산 서비스"),
+    "부동산 임대, 개발 및 운영":           ("리츠·부동산",         "복합 부동산"),
+    # ── 전통 산업·소재 ───────────────────────────────────────
+    "산업용 기계 및 장비":                 ("전통 산업·소재",      "산업기계"),
+    "중장비 및 차량":                       ("전통 산업·소재",      "농기계·중장비"),
+    "건설 및 엔지니어링":                  ("전통 산업·소재",      "엔지니어링·건설"),
+    "건설 자재":                             ("전통 산업·소재",      "건설 소재"),
+    "건설 자재 및 비품":                   ("전통 산업·소재",      "건설 소재"),
+    "주택 건설":                             ("전통 산업·소재",      "건설 소재"),
+    "환경 서비스 및 장비":                  ("전통 산업·소재",      "폐기물관리"),
+    "고용 서비스":                           ("전통 산업·소재",      "인력파견"),
+    "경영 지원 서비스":                     ("전통 산업·소재",      "비즈니스서비스"),
+    "다각적 산업용 제품 도매":              ("전통 산업·소재",      "비즈니스서비스"),
+    "비즈니스 지원 용품":                   ("전통 산업·소재",      "비즈니스서비스"),
+    "지상 화물 및 물류":                   ("전통 산업·소재",      "물류·택배"),
+    "배달, 우편, 항공 화물 및 육상 물류": ("전통 산업·소재",      "물류·택배"),
+    "해양 화물 및 물류":                   ("전통 산업·소재",      "해운"),
+    "항만 운영 및 서비스":                  ("전통 산업·소재",      "해운"),
+    "상품 화학":                             ("전통 산업·소재",      "화학"),
+    "다각적 화학 산업":                     ("전통 산업·소재",      "화학"),
+    "특수 화학제":                           ("전통 산업·소재",      "특수화학"),
+    "철 및 강철":                           ("전통 산업·소재",      "철강"),
+    "알루미늄":                             ("전통 산업·소재",      "알루미늄"),
+    "농화학제":                             ("전통 산업·소재",      "농업 소재"),
+    "어업 및 농업":                         ("전통 산업·소재",      "농산물"),
+    "용기(종이 제외) 및 포장재":           ("전통 산업·소재",      "포장재"),
+    "종이 제품":                             ("전통 산업·소재",      "제지"),
+    "종이 포장재":                           ("전통 산업·소재",      "제지"),
+    "임업 및 목재 제품":                   ("전통 산업·소재",      "목재"),
+    # ── 광업·귀금속·원자재 ───────────────────────────────────
+    "금":                                   ("광업·귀금속·원자재",  "금광"),
+    "금 제외 귀금속 및 광물":              ("광업·귀금속·원자재",  "귀금속·광물"),
+    "다각적 채굴":                           ("광업·귀금속·원자재",  "기타 광업"),
+    "특수 채굴 및 금속":                   ("광업·귀금속·원자재",  "기타 광업"),
+    "채굴 지원 서비스 및 장비":            ("광업·귀금속·원자재",  "기타 광업"),
 }
 
 
@@ -591,24 +618,47 @@ def load_us_sector_map() -> dict:
         from sectors_us import US_SECTOR_MAP
         raw = US_SECTOR_MAP
 
-    # FDR 전종목으로 보강: 기존에 없는 종목만 해당 한국어 섹터에 추가
+    # FDR 전종목으로 보강: Industry → (한국어섹터, 서브섹터) 직접 매핑
+    # FDR StockListing은 Sector 컬럼 없이 Industry만 제공
     try:
-        from data_kr import get_us_fdr_sector_map
-        fdr_map = get_us_fdr_sector_map()
-        # 이미 등록된 티커 집합 (중복 방지)
+        import FinanceDataReader as _fdr
+        import pandas as _pd
         existing = {s["ticker"] for subs in raw.values() for stks in subs.values() for s in stks}
-        for fdr_sec, fdr_subs in fdr_map.items():
-            kr_sec = _FDR_TO_KR_SECTOR.get(fdr_sec)
-            if not kr_sec or kr_sec not in raw:
+        _frames = []
+        for _mkt, _exch in [("NASDAQ", "NASDAQ"), ("NYSE", "NYSE"), ("AMEX", "AMEX")]:
+            try:
+                _df = _fdr.StockListing(_mkt).copy()
+                _df["_exchange"] = _exch
+                _frames.append(_df)
+            except Exception:
                 continue
-            for fdr_sub, fdr_stocks in fdr_subs.items():
-                kr_sub = _FDR_TO_KR_INDUSTRY.get(fdr_sub, fdr_sub)
-                new = [s for s in fdr_stocks if s["ticker"] not in existing]
-                if not new:
-                    continue
-                raw[kr_sec].setdefault(kr_sub, []).extend(new)
-                for s in new:
-                    existing.add(s["ticker"])
+        if _frames:
+            _all = _pd.concat(_frames, ignore_index=True)
+            _all.columns = [str(c).strip() for c in _all.columns]
+            _cols = {c.lower(): c for c in _all.columns}
+            _sym  = _cols.get("symbol",   _cols.get("code",     _cols.get("ticker")))
+            _name = _cols.get("name",     _cols.get("longname", _cols.get("shortname")))
+            _ind  = _cols.get("industry", _cols.get("industrycode"))
+            if _sym and _ind:
+                for _, _row in _all.iterrows():
+                    _ticker = str(_row.get(_sym, "")).strip().upper()
+                    if not _ticker or not (1 <= len(_ticker) <= 5) or not _ticker.isalpha():
+                        continue
+                    if _ticker in existing:
+                        continue
+                    _industry = str(_row.get(_ind, "") if _ind else "").strip()
+                    _mapping  = _FDR_IND_MAP.get(_industry)
+                    if not _mapping:
+                        continue
+                    _kr_sec, _kr_sub = _mapping
+                    if _kr_sec not in raw:
+                        continue
+                    _sname = str(_row.get(_name, _ticker) if _name else _ticker).strip()
+                    _exch2 = str(_row.get("_exchange", "NASDAQ"))
+                    raw[_kr_sec].setdefault(_kr_sub, []).append(
+                        {"name": _sname, "ticker": _ticker, "exchange": _exch2}
+                    )
+                    existing.add(_ticker)
     except Exception:
         pass
 
