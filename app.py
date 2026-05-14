@@ -2,6 +2,28 @@ import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
 from datetime import datetime, timedelta
+import threading
+
+# 백그라운드 시나리오 태스크 저장소 (모듈 레벨 — 세션 간 공유)
+_SCENARIO_TASKS: dict = {}   # {task_id: {"status": "running"/"done"/"error", "result": ...}}
+_SCENARIO_LOCK = threading.Lock()
+
+def _run_scenario_bg(task_id: str, cache_key: str):
+    """백그라운드 스레드에서 시나리오를 생성하고 _SCENARIO_TASKS에 저장."""
+    try:
+        from ai_engine import generate_market_scenarios
+        result = generate_market_scenarios()
+        with _SCENARIO_LOCK:
+            _SCENARIO_TASKS[task_id] = {"status": "done", "result": result}
+        if "error" not in result:
+            try:
+                from db import save_ai_cache
+                save_ai_cache(cache_key, result, ttl_hours=12)
+            except Exception:
+                pass
+    except Exception as e:
+        with _SCENARIO_LOCK:
+            _SCENARIO_TASKS[task_id] = {"status": "error", "result": {"error": str(e)}}
 try:
     from streamlit_autorefresh import st_autorefresh as _st_autorefresh
     _HAVE_AUTOREFRESH = True
@@ -1049,10 +1071,14 @@ def show_market_scenarios():
     with _close_col:
         _do_close = st.button("✕", use_container_width=True, type="secondary")
 
+    _task_id = f"scenario_{_cache_key}"
+
     if _do_refresh:
         for _k in list(st.session_state.keys()):
             if _k.startswith("_sc_detail_") or _k == "market_scenarios_data":
                 st.session_state.pop(_k, None)
+        with _SCENARIO_LOCK:
+            _SCENARIO_TASKS.pop(_task_id, None)
         try:
             from db import delete_ai_cache
             delete_ai_cache(_cache_key)
@@ -1064,20 +1090,38 @@ def show_market_scenarios():
         st.session_state.pop("_dialog_open", None)
         st.rerun()
 
+    # 백그라운드 완료 결과 세션에 반영
+    with _SCENARIO_LOCK:
+        _bg = _SCENARIO_TASKS.get(_task_id)
+    if _bg and _bg["status"] in ("done", "error") and "market_scenarios_data" not in st.session_state:
+        st.session_state.market_scenarios_data = _bg["result"]
+
     if "market_scenarios_data" not in st.session_state:
         # Google Sheets 캐시 확인
-        from db import load_ai_cache, save_ai_cache
+        from db import load_ai_cache
         _cached = load_ai_cache(_cache_key)
         if _cached:
             st.session_state.market_scenarios_data = _cached
             st.caption("📦 오늘 생성된 캐시에서 불러왔습니다.")
         else:
-            with st.spinner("🔍 오늘의 주요 이슈를 분석해 시나리오를 작성 중입니다... (최대 120초)"):
-                from ai_engine import generate_market_scenarios
-                _new = generate_market_scenarios()
-            st.session_state.market_scenarios_data = _new
-            if "error" not in _new:
-                save_ai_cache(_cache_key, _new, ttl_hours=12)
+            # 백그라운드 스레드 시작 (아직 안 시작된 경우만)
+            with _SCENARIO_LOCK:
+                _already = _task_id in _SCENARIO_TASKS
+            if not _already:
+                with _SCENARIO_LOCK:
+                    _SCENARIO_TASKS[_task_id] = {"status": "running", "result": None}
+                _t = threading.Thread(target=_run_scenario_bg, args=(_task_id, _cache_key), daemon=True)
+                _t.start()
+
+            # 분석 중 안내 — 창 닫고 다른 기능 사용 가능
+            st.info(
+                "🔄 **백그라운드에서 시나리오를 분석 중입니다.**\n\n"
+                "창을 닫고 다른 기능을 자유롭게 사용하세요.  \n"
+                "분석이 완료되면 시나리오 버튼을 다시 눌러 확인할 수 있습니다."
+            )
+            if st.button("🔁 완료됐나요? 확인", use_container_width=True):
+                st.rerun()
+            return
 
     data = st.session_state.market_scenarios_data
 
@@ -2046,9 +2090,22 @@ def main():
             st.session_state._dialog_open = True
             show_daily_briefing()
     with _hn6:
-        if st.button("📈 시나리오", key="top_nav_scenario", use_container_width=True):
+        _today_ck = __import__("datetime").date.today().strftime("%Y-%m-%d")
+        _nav_task_id = f"scenario_market_scenarios_{_today_ck}"
+        _is_bg_running = _SCENARIO_TASKS.get(_nav_task_id, {}).get("status") == "running"
+        _nav_sc_label = "📈 시나리오 🔄" if _is_bg_running else "📈 시나리오"
+        if st.button(_nav_sc_label, key="top_nav_scenario", use_container_width=True):
             st.session_state._dialog_open = True
             st.session_state._scenario_dialog_open = True
+            # 버튼 클릭 시점에 백그라운드 스레드 선제 시작
+            with _SCENARIO_LOCK:
+                _already_started = _nav_task_id in _SCENARIO_TASKS
+            if not _already_started and "market_scenarios_data" not in st.session_state:
+                with _SCENARIO_LOCK:
+                    _SCENARIO_TASKS[_nav_task_id] = {"status": "running", "result": None}
+                _cache_key_nav = f"market_scenarios_{_today_ck}"
+                _t = threading.Thread(target=_run_scenario_bg, args=(_nav_task_id, _cache_key_nav), daemon=True)
+                _t.start()
         if st.session_state.pop("_scenario_dialog_open", False):
             show_market_scenarios()
     with _hm1:
