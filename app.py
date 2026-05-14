@@ -1090,59 +1090,69 @@ def _render_stock_section(group: list, mkt: str, icon: str, dir_: str, clr: str,
         _is_halted = _tk in halted_set
         _halt_label = " ⛔거래정지" if _is_halted else ""
         _sc = _SIGNAL_COLOR.get(_signal, "")
-        _signal_label = f" · {_signal}" if _signal else ""
 
-        # 현재가 레이블
+        # 현재가 데이터
         _pd = _price_map.get(_tk, {})
         _cp = _pd.get("price", 0)
         _cpct = _pd.get("change_pct", 0)
+        _arrow = ""
+        _pclr = clr
+        _price_str = ""
         if _cp and _cp > 0:
             _arrow = "▲" if _cpct >= 0 else "▼"
-            if mkt == "KR":
-                _price_label = f"  ₩{int(_cp):,} {_arrow}{abs(_cpct):.1f}%"
-            else:
-                _price_label = f"  ${_cp:,.2f} {_arrow}{abs(_cpct):.1f}%"
-        else:
-            _price_label = ""
-
-        with st.popover(f"{icon} {_nm} ({_tk}){_halt_label}{_signal_label}", use_container_width=True):
-            if _is_halted:
-                st.error("⛔ **거래정지 종목** — 현재 매수·매도 불가. 거래 재개 시점 불명확.")
-            st.markdown(
-                f"<span style='font-size:1rem;font-weight:700;color:{clr}'>{_nm}</span>"
-                f"&nbsp;<code>{_tk}</code>",
-                unsafe_allow_html=True,
-            )
-            if _signal and _sc:
-                st.markdown(
-                    f"<div style='display:inline-block;background:{_sc}22;border:1px solid {_sc}88;"
-                    f"border-radius:6px;padding:4px 12px;margin:4px 0 6px;"
-                    f"font-size:0.9rem;font-weight:700;color:{_sc}'>🎯 {_signal}</div>",
-                    unsafe_allow_html=True,
-                )
-                if _sig_rsn:
-                    st.caption(_sig_rsn)
-            st.markdown(f"**{dir_} 이유:** {_rsn}")
-            if _vn:
-                st.info(f"📐 {_vn}")
-            st.markdown(
-                f"<a href='/?market={mkt}&code={_tk}' target='_blank' "
-                f"style='display:block;text-align:center;padding:8px;border-radius:6px;"
-                f"background:#262730;color:#fafafa;text-decoration:none;font-size:0.9rem;"
-                f"border:1px solid #555;margin-top:6px;'>📊 종목 분석 보러가기</a>",
-                unsafe_allow_html=True,
-            )
-        # 버튼 아래 현재가 한 줄 (팝오버 바깥)
-        if _cp and _cp > 0:
             _pclr = "#ff4b4b" if _cpct >= 0 else "#2b7cff"
             _sym  = "₩" if mkt == "KR" else "$"
             _pfmt = f"{int(_cp):,}" if mkt == "KR" else f"{_cp:,.2f}"
-            st.markdown(
-                f"<div style='text-align:center;font-size:0.8rem;font-weight:600;"
-                f"color:{_pclr};margin:-4px 0 6px;letter-spacing:0.3px'>"
-                f"{_sym}{_pfmt} &nbsp;{_arrow}&thinsp;{abs(_cpct):.1f}%</div>",
-                unsafe_allow_html=True,
-            )
+            _price_str = f"{_sym}{_pfmt} {_arrow}{abs(_cpct):.1f}%"
+
+        # 3구역 레이아웃: [종목명] | [현재가] | [추천]
+        _col_l, _col_m, _col_r = st.columns([5, 4, 3])
+
+        with _col_l:
+            with st.popover(f"{icon} {_nm} ({_tk}){_halt_label}", use_container_width=True):
+                if _is_halted:
+                    st.error("⛔ **거래정지 종목** — 현재 매수·매도 불가. 거래 재개 시점 불명확.")
+                st.markdown(
+                    f"<span style='font-size:1rem;font-weight:700;color:{clr}'>{_nm}</span>"
+                    f"&nbsp;<code>{_tk}</code>",
+                    unsafe_allow_html=True,
+                )
+                if _signal and _sc:
+                    st.markdown(
+                        f"<div style='display:inline-block;background:{_sc}22;border:1px solid {_sc}88;"
+                        f"border-radius:6px;padding:4px 12px;margin:4px 0 6px;"
+                        f"font-size:0.9rem;font-weight:700;color:{_sc}'>🎯 {_signal}</div>",
+                        unsafe_allow_html=True,
+                    )
+                    if _sig_rsn:
+                        st.caption(_sig_rsn)
+                st.markdown(f"**{dir_} 이유:** {_rsn}")
+                if _vn:
+                    st.info(f"📐 {_vn}")
+                st.markdown(
+                    f"<a href='/?market={mkt}&code={_tk}' target='_blank' "
+                    f"style='display:block;text-align:center;padding:8px;border-radius:6px;"
+                    f"background:#262730;color:#fafafa;text-decoration:none;font-size:0.9rem;"
+                    f"border:1px solid #555;margin-top:6px;'>📊 종목 분석 보러가기</a>",
+                    unsafe_allow_html=True,
+                )
+
+        with _col_m:
+            if _price_str:
+                st.markdown(
+                    f"<div style='text-align:center;font-size:0.8rem;font-weight:600;"
+                    f"color:{_pclr};padding-top:6px;letter-spacing:0.3px'>{_price_str}</div>",
+                    unsafe_allow_html=True,
+                )
+
+        with _col_r:
+            if _signal and _sc:
+                st.markdown(
+                    f"<div style='text-align:center;font-size:0.75rem;font-weight:700;"
+                    f"color:{_sc};background:{_sc}22;border:1px solid {_sc}44;"
+                    f"border-radius:4px;padding:3px 5px;margin-top:4px'>{_signal}</div>",
+                    unsafe_allow_html=True,
+                )
 
 
 def _render_stock_popover(stocks: list, color: str, label: str, key_prefix: str):
