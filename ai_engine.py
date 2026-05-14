@@ -242,13 +242,13 @@ def generate_market_scenarios() -> dict:
         '          "trigger": "현실화 조건 (1문장)",\n'
         '          "economic_analysis": "경제적 영향. PER/밸류에이션 관점 포함 (2~3문장)",\n'
         '          "rising_stocks": [\n'
-        '            {"name": "종목명", "ticker": "국내=6자리숫자코드/미국=심볼", "reason": "이유", "valuation_note": "PER 코멘트"}\n'
+        '            {"name": "종목명", "ticker": "국내=6자리숫자코드/미국=심볼", "reason": "이유", "valuation_note": "PER 코멘트", "signal": "매우 강력 추천/추천/중간추천/비추천/매우 비추천", "signal_reason": "현재 매수 관점 한 줄 요약"}\n'
         "          ],\n"
         '          "falling_stocks": [\n'
-        '            {"name": "종목명", "ticker": "국내=6자리숫자코드/미국=심볼", "reason": "이유", "valuation_note": "PER 코멘트"}\n'
+        '            {"name": "종목명", "ticker": "국내=6자리숫자코드/미국=심볼", "reason": "이유", "valuation_note": "PER 코멘트", "signal": "매우 강력 추천/추천/중간추천/비추천/매우 비추천", "signal_reason": "현재 매수 관점 한 줄 요약"}\n'
         "          ],\n"
         '          "theme_stocks": [\n'
-        '            {"name": "종목명", "ticker": "KOSPI/KOSDAQ 6자리숫자코드", "type": "대장주 또는 직접관련주 또는 간접테마주", "historical_pattern": "과거 유사 이슈 때 이 종목이 어떻게 움직였는지 (1문장)", "reason": "이번에 연동 상승이 예상되는 이유"}\n'
+        '            {"name": "종목명", "ticker": "KOSPI/KOSDAQ 6자리숫자코드", "type": "대장주 또는 직접관련주 또는 간접테마주", "historical_pattern": "과거 유사 이슈 때 이 종목이 어떻게 움직였는지 (1문장)", "reason": "이번에 연동 상승이 예상되는 이유", "signal": "매우 강력 추천/추천/중간추천/비추천/매우 비추천", "signal_reason": "현재 매수 관점 한 줄 요약"}\n'
         "          ],\n"
         '          "short_strategy": "단타 전략: 진입 타이밍·청산 조건 (1~2문장)",\n'
         '          "long_strategy": "장타 전략: 포지션 방향·보유 기간 (1~2문장)"\n'

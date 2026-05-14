@@ -971,24 +971,23 @@ def _render_stock_section(group: list, mkt: str, icon: str, dir_: str, clr: str,
             unsafe_allow_html=True,
         )
         return
-    _RATING_COLOR = {
+    _SIGNAL_COLOR = {
         "매우 강력 추천": "#00c853", "추천": "#69f0ae",
         "중간추천": "#ffd740", "비추천": "#ff7043", "매우 비추천": "#f44336",
     }
     for _i, _s in enumerate(group[:5]):
         _tk_raw = str(_s.get("ticker", ""))
         _tk, _ = _normalize_ticker(_tk_raw)
-        _nm  = str(_s.get("name", ""))
-        _rsn = str(_s.get("reason", ""))
-        _vn  = str(_s.get("valuation_note", ""))
+        _nm       = str(_s.get("name", ""))
+        _rsn      = str(_s.get("reason", ""))
+        _vn       = str(_s.get("valuation_note", ""))
+        _signal   = str(_s.get("signal", ""))
+        _sig_rsn  = str(_s.get("signal_reason", ""))
         _is_halted = _tk in halted_set
         _halt_label = " ⛔거래정지" if _is_halted else ""
-        _signal_key = f"_sc_signal_{_tk}"
-        _cached = st.session_state.get(_signal_key)
-        _rating = _cached.get("rating", "") if _cached else ""
-        _rc = _RATING_COLOR.get(_rating, "#aaa")
-        _rating_label = f" · {_rating}" if _rating else ""
-        with st.popover(f"{icon} {_nm} ({_tk}){_halt_label}{_rating_label}", use_container_width=True):
+        _sc = _SIGNAL_COLOR.get(_signal, "")
+        _signal_label = f" · {_signal}" if _signal else ""
+        with st.popover(f"{icon} {_nm} ({_tk}){_halt_label}{_signal_label}", use_container_width=True):
             if _is_halted:
                 st.error("⛔ **거래정지 종목** — 현재 매수·매도 불가. 거래 재개 시점 불명확.")
             st.markdown(
@@ -996,32 +995,15 @@ def _render_stock_section(group: list, mkt: str, icon: str, dir_: str, clr: str,
                 f"&nbsp;<code>{_tk}</code>",
                 unsafe_allow_html=True,
             )
-            # 매수 신호 배지
-            if _rating:
+            if _signal and _sc:
                 st.markdown(
-                    f"<div style='display:inline-block;background:{_rc}22;border:1px solid {_rc}88;"
-                    f"border-radius:6px;padding:4px 12px;margin:4px 0 8px;"
-                    f"font-size:0.9rem;font-weight:700;color:{_rc}'>🎯 {_rating}</div>",
+                    f"<div style='display:inline-block;background:{_sc}22;border:1px solid {_sc}88;"
+                    f"border-radius:6px;padding:4px 12px;margin:4px 0 6px;"
+                    f"font-size:0.9rem;font-weight:700;color:{_sc}'>🎯 {_signal}</div>",
                     unsafe_allow_html=True,
                 )
-                if _cached.get("short_term_view_pct"):
-                    st.caption(f"단기 전망: {_cached['short_term_view_pct']}")
-            elif mkt == "KR" and not _is_halted:
-                if st.button("🎯 매수 신호 분석", key=f"sc_sig_{_tk}_{key_prefix}_{_i}", use_container_width=True):
-                    with st.spinner("AI 분석 중..."):
-                        try:
-                            from data_kr import get_kr_stock_price, get_kr_investor_trend
-                            from ai_engine import generate_kr_stock_report
-                            _p = get_kr_stock_price(_tk)
-                            _inv = []
-                            try: _inv = get_kr_investor_trend(_tk)
-                            except Exception: pass
-                            if _p:
-                                _rep = generate_kr_stock_report(_tk, _nm, _p, _inv)
-                                st.session_state[_signal_key] = _rep
-                                st.rerun()
-                        except Exception as _e:
-                            st.error(f"분석 실패: {_e}")
+                if _sig_rsn:
+                    st.caption(_sig_rsn)
             st.markdown(f"**{dir_} 이유:** {_rsn}")
             if _vn:
                 st.info(f"📐 {_vn}")
@@ -1253,29 +1235,43 @@ def show_market_scenarios():
                             _type_colors = {"대장주": "#ff4b4b", "직접관련주": "#ff8a65", "간접테마주": "#ffd740"}
                             _type_icons  = {"대장주": "👑", "직접관련주": "🔗", "간접테마주": "🌊"}
                             _theme_cols = st.columns(min(len(_theme_stocks), 3))
+                            _T_SIGNAL_COLOR = {
+                                "매우 강력 추천": "#00c853", "추천": "#69f0ae",
+                                "중간추천": "#ffd740", "비추천": "#ff7043", "매우 비추천": "#f44336",
+                            }
                             for _ti, _ts in enumerate(_theme_stocks):
                                 _tc = _type_colors.get(_ts.get("type",""), "#aaa")
                                 _ti_icon = _type_icons.get(_ts.get("type",""), "")
                                 _t_ticker = _ts.get("ticker","")
                                 _t_halted = _t_ticker in _halted_set
+                                _t_signal = _ts.get("signal", "")
+                                _t_sig_rsn = _ts.get("signal_reason", "")
+                                _t_sc = _T_SIGNAL_COLOR.get(_t_signal, "")
                                 _halt_bar = (
                                     "<div style='background:#b71c1c22;border:1px solid #b71c1c66;"
                                     "border-radius:4px;padding:3px 7px;margin-bottom:5px;"
                                     "font-size:0.73rem;color:#ef9a9a;font-weight:700'>"
-                                    "⛔ 거래정지 — 현재 매수·매도 불가. 거래 재개 시점 불명확.</div>"
+                                    "⛔ 거래정지 — 현재 매수·매도 불가.</div>"
                                 ) if _t_halted else ""
+                                _signal_bar = (
+                                    f"<div style='display:inline-block;background:{_t_sc}22;"
+                                    f"border:1px solid {_t_sc}88;border-radius:4px;padding:2px 8px;"
+                                    f"margin-bottom:4px;font-size:0.73rem;font-weight:700;color:{_t_sc}'>"
+                                    f"🎯 {_t_signal}</div><br>"
+                                ) if (_t_signal and _t_sc and not _t_halted) else ""
                                 with _theme_cols[_ti % len(_theme_cols)]:
                                     st.markdown(
                                         f"<div style='background:rgba(255,215,64,0.06);border-left:3px solid {_tc};"
                                         f"border-radius:6px;padding:7px 10px;margin-bottom:6px;font-size:0.8rem'>"
-                                        f"{_halt_bar}"
+                                        f"{_halt_bar}{_signal_bar}"
                                         f"<span style='color:{_tc};font-weight:700'>{_ti_icon} {_ts.get('name','')}</span> "
                                         f"<a href='/?market=KR&code={_t_ticker}' target='_blank' "
                                         f"style='color:#888;font-size:0.74rem;text-decoration:none'>({_t_ticker}) ↗</a><br>"
                                         f"<span style='color:#999;font-size:0.75rem'>{_ts.get('type','')}</span><br>"
                                         f"<span style='color:#bbb'>{_ts.get('historical_pattern','')}</span><br>"
                                         f"<span style='color:#e0e0e0'>{_ts.get('reason','')}</span>"
-                                        f"</div>",
+                                        + (f"<br><span style='color:#aaa;font-size:0.72rem'>{_t_sig_rsn}</span>" if _t_sig_rsn and not _t_halted else "")
+                                        + f"</div>",
                                         unsafe_allow_html=True
                                     )
 
