@@ -1809,26 +1809,38 @@ def show_favorites_center():
                         name = fav.get('종목명', '')
                         
                         # 시세 조회
-                        price, pct = 0, 0
+                        price, pct, change = 0, 0, 0
                         if mkt == '국내':
                             p_data = get_kr_stock_price(ticker)
                             price = p_data.get('price', 0)
                             pct = p_data.get('change_pct', 0)
+                            change = p_data.get('change', 0)
                             price_str = f'₩{price:,}'
+                            chg_arrow = "▲" if pct > 0 else "▼" if pct < 0 else ""
+                            chg_str = f"{chg_arrow} {abs(int(change)):,}원 ({pct:+.2f}%)" if change != 0 else f"({pct:+.2f}%)"
                         else:
                             p_map = get_us_prices_bulk((ticker,))
-                            p_data = p_map.get(ticker, {"price": 0, "change_pct": 0})
+                            p_data = p_map.get(ticker, {"price": 0, "change": 0.0, "change_pct": 0})
                             price = p_data.get('price', 0)
                             pct = p_data.get('change_pct', 0)
+                            change = p_data.get('change', 0.0)
                             price_str = f'${price:,.2f}'
+                            chg_arrow = "▲" if pct > 0 else "▼" if pct < 0 else ""
+                            chg_str = f"{chg_arrow} ${abs(change):.2f} ({pct:+.2f}%)" if change != 0 else f"({pct:+.2f}%)"
 
                         # [수정포인트] 반드시 p_data가 생성된 직후에 이름을 확인해야 에러가 안남
                         if mkt == '국내' and name == ticker:
                             name = p_data.get('name', ticker)
-                        
+
                         color = "#ff4b4b" if pct > 0 else "#00c853" if pct < 0 else "#888"
                         st.markdown(f"**{name}** ({ticker})")
-                        st.markdown(f"<h3 style='margin:0;color:{color}'>{price_str} <small>({pct:+.2f}%)</small></h3>", unsafe_allow_html=True)
+                        st.markdown(
+                            f"<h3 style='margin:0'>"
+                            f"<span style='color:#eee'>{price_str}</span>"
+                            f"&nbsp;<small style='color:{color}'>{chg_str}</small>"
+                            f"</h3>",
+                            unsafe_allow_html=True,
+                        )
                         
                         # ── 즐겨찾기용 자동 AI 가이드 로직 ──────────────────────
                         _fav_guide = "⚪ 관망"
@@ -2968,14 +2980,13 @@ def main():
                             pct_color = "up-kr" if is_up else "down-kr" if is_dn else ""
                             if price_kr:
                                 _badges_html = _kr_stock_badges_html(price_kr)
-                                st.error(f"DEBUG: halt='{price_kr.get('halt')}', managed='{price_kr.get('managed')}', sc='{price_kr.get('status_code')}'")
                                 st.markdown(
                                     f"<div style='display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap'>"
-                                    f"<span style='font-size:1.44rem;font-weight:700;color:#ff4b4b'>!!!DEBUG!!! **{_real_dtv_name}**</span> "
+                                    f"<span style='font-size:1.44rem;font-weight:700'>{_real_dtv_name}</span> "
                                     f"<span style='font-size:1.17rem;color:#888'>({_dtv_code})</span>"
                                     f"{_badges_html} &nbsp; "
                                     f"<span style='font-size:1.26rem;font-weight:600'>₩{price_kr['price']:,}</span> &nbsp; "
-                                    f'<span class="{pct_color}" style="font-size:1.15rem;font-weight:600">{arrow} {price_kr["change_pct"]:+.2f}%</span>'
+                                    f'<span class="{pct_color}" style="font-size:1.15rem;font-weight:600">{arrow} {abs(price_kr.get("change", 0)):,}원 ({price_kr["change_pct"]:+.2f}%)</span>'
                                     f"</div>",
                                     unsafe_allow_html=True,
                                 )

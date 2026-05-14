@@ -175,8 +175,9 @@ def get_us_prices_bulk(tickers_tuple: tuple) -> dict:
             fi = yf.Ticker(ticker).fast_info
             price = round(fi.get("lastPrice", 0) or 0, 2)
             prev = fi.get("previousClose", 0) or 0
+            change = round(price - prev, 2) if prev > 0 else 0.0
             change_pct = round(((price - prev) / prev * 100) if prev > 0 else 0.0, 2)
-            results[ticker] = {"price": price, "change_pct": change_pct}
+            results[ticker] = {"price": price, "change": change, "change_pct": change_pct}
         except Exception:
-            results[ticker] = {"price": 0.0, "change_pct": 0.0}
+            results[ticker] = {"price": 0.0, "change": 0.0, "change_pct": 0.0}
     return results
