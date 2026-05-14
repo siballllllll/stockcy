@@ -58,6 +58,50 @@ def render_star_toggle(market, code, name, key_suffix=""):
             save_favorite(market, code, name)
         st.rerun()
 
+def _kr_stock_badges_html(price_info: dict) -> str:
+    """거래정지·투자경고 등 KR 종목 상태 배지 HTML을 반환합니다. 정상이면 빈 문자열."""
+    if not price_info:
+        return ""
+    badges = []
+
+    _BADGE = (
+        "<span style='display:inline-block;padding:1px 7px;border-radius:4px;"
+        "font-size:0.72rem;font-weight:700;margin-left:4px;"
+        "background:{bg};color:{fg}'>{text}</span>"
+    )
+
+    halt      = price_info.get("halt", "N")
+    managed   = price_info.get("managed", "N")
+    sc        = price_info.get("status_code", "55")
+    mw        = price_info.get("mrkt_warn", "00")
+    short_ov  = price_info.get("short_over", "N")
+    vi        = price_info.get("vi_type", "")
+
+    if halt == "Y":
+        badges.append(_BADGE.format(bg="#b71c1c", fg="#fff", text="거래정지"))
+    if managed == "Y":
+        badges.append(_BADGE.format(bg="#4a148c", fg="#fff", text="관리종목"))
+    # 시장경고(mrkt_warn)와 종목상태(status_code) 중 더 높은 수준을 사용
+    warn_level = max(
+        {"00": 0, "01": 1, "02": 2, "03": 3}.get(mw, 0),
+        {"55": 0, "51": 1, "52": 2, "53": 2, "54": 3}.get(sc, 0),
+    )
+    if warn_level == 1:
+        badges.append(_BADGE.format(bg="#f57f17", fg="#fff", text="투자주의"))
+    elif warn_level == 2:
+        badges.append(_BADGE.format(bg="#e65100", fg="#fff", text="투자경고"))
+    elif warn_level >= 3:
+        badges.append(_BADGE.format(bg="#b71c1c", fg="#fff", text="투자위험"))
+    if short_ov == "Y":
+        badges.append(_BADGE.format(bg="#1565c0", fg="#fff", text="단기과열"))
+    if vi == "01":
+        badges.append(_BADGE.format(bg="#00695c", fg="#fff", text="정적VI"))
+    elif vi == "02":
+        badges.append(_BADGE.format(bg="#00695c", fg="#fff", text="동적VI"))
+
+    return "".join(badges)
+
+
 def _get_chart_colors():
     """Return (font_color, grid_color) adapted to the current Streamlit theme."""
     try:
@@ -2764,10 +2808,12 @@ def main():
                                 
                             pct_color = "up-kr" if is_up else "down-kr" if is_dn else ""
                             if price_kr:
+                                _badges_html = _kr_stock_badges_html(price_kr)
                                 st.markdown(
-                                    f"<div style='display:flex;align-items:center;gap:8px;margin-bottom:8px'>"
+                                    f"<div style='display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap'>"
                                     f"<span style='font-size:1.44rem;font-weight:700'>**{_real_dtv_name}**</span> "
-                                    f"<span style='font-size:1.17rem;color:#888'>({_dtv_code})</span> &nbsp; "
+                                    f"<span style='font-size:1.17rem;color:#888'>({_dtv_code})</span>"
+                                    f"{_badges_html} &nbsp; "
                                     f"<span style='font-size:1.26rem;font-weight:600'>₩{price_kr['price']:,}</span> &nbsp; "
                                     f'<span class="{pct_color}" style="font-size:1.15rem;font-weight:600">{arrow} {price_kr["change_pct"]:+.2f}%</span>'
                                     f"</div>",
@@ -2893,10 +2939,12 @@ def main():
                                 st.session_state.kr_selected_name = _real_name
                             
                             pct_color = "up-kr" if is_up else "down-kr" if is_dn else ""
+                            _badges_html = _kr_stock_badges_html(price_kr)
                             st.markdown(
-                                f"<div style='display:flex;align-items:center;gap:8px;margin-bottom:8px'>"
+                                f"<div style='display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap'>"
                                 f"<span style='font-size:1.44rem;font-weight:700'>**{_real_name}**</span> "
-                                f"<span style='font-size:1.17rem;color:#888'>({selected_code_kr})</span> &nbsp; "
+                                f"<span style='font-size:1.17rem;color:#888'>({selected_code_kr})</span>"
+                                f"{_badges_html} &nbsp; "
                                 f"<span style='font-size:1.26rem;font-weight:600'>₩{price_kr['price']:,}</span> &nbsp; "
                                 f'<span class="{pct_color}" style="font-size:1.15rem;font-weight:600">{arrow} {price_kr["change_pct"]:+.2f}%</span>'
                                 f"</div>",

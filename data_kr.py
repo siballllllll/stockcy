@@ -255,6 +255,13 @@ def get_kr_stock_price(stock_code: str):
             "per": o.get("per", "-"),
             "pbr": o.get("pbr", "-"),
             "market_cap": _format_market_cap(o.get("hts_avls", "")),
+            # 거래 상태 필드
+            "status_code": o.get("iscd_stat_cls_code", "55"),   # 55=정상, 51=투자주의, 52=투자경고, 53=위험예고, 54=투자위험
+            "mrkt_warn": o.get("mrkt_warn_cls_code", "00"),     # 00=없음, 01=투자주의, 02=투자경고, 03=투자위험
+            "short_over": o.get("sltr_yn", "N"),                # 단기과열 Y/N
+            "managed": o.get("mang_issu_yn", "N"),              # 관리종목 Y/N
+            "halt": o.get("trht_yn", "N"),                      # 거래정지 Y/N
+            "vi_type": o.get("vi_cls_code", ""),                # 정적VI=01, 동적VI=02
         }
 
     # KIS API 실패 → yfinance 폴백 (.KS 우선, .KQ 차선)
