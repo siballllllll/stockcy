@@ -703,8 +703,9 @@ def get_kr_prices_bulk(tickers_tuple: tuple) -> dict:
         try:
             fi = yf.Ticker(yf_ticker).fast_info
             price = round(fi.get("lastPrice", 0) or 0)
-            prev = fi.get("previousClose", 0) or 0
-            change_pct = round(((price - prev) / prev * 100) if prev > 0 else 0.0, 2)
+            reg_price = round(fi.get("regularMarketPrice", 0) or price)
+            prev = fi.get("regularMarketPreviousClose", 0) or fi.get("previousClose", 0) or 0
+            change_pct = round(((reg_price - prev) / prev * 100) if prev > 0 else 0.0, 2)
             results[code] = {"price": price, "change_pct": change_pct, **_kis_status}
         except Exception:
             results[code] = {"price": 0, "change_pct": 0.0, **_kis_status}

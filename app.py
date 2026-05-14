@@ -2125,8 +2125,9 @@ def show_favorites_center():
                                         except Exception:
                                             pass
                                     except Exception as _ai_err:
-                                        st.session_state[_fav_err_key] = str(_ai_err)
-                        
+                                        from ai_engine import _friendly_error as _fav_friendly_error
+                                        st.session_state[_fav_err_key] = _fav_friendly_error(_ai_err)
+
                         with _btn_col2:
                             if st.button('🎒', key=f'fav_port_{ticker}', use_container_width=True, help="포트폴리오에 즉시 추가"):
                                 if "portfolio" not in st.session_state:
@@ -2150,13 +2151,8 @@ def show_favorites_center():
                         # 에러 상태 표시 + 재시도 안내
                         if _fav_err_key in st.session_state:
                             _err_msg = st.session_state[_fav_err_key]
-                            if "TIMEOUT" in _err_msg:
-                                st.warning("⏱ AI 응답 시간이 초과되었습니다. 버튼을 다시 눌러 재시도하세요.")
-                            elif "QUOTA" in _err_msg:
-                                st.error("📵 오늘 AI 사용량이 초과되었습니다. 내일 다시 시도해주세요.")
-                            else:
-                                st.error(f"❌ 분석 실패: {_err_msg[:120]}...")
-                                st.caption("버튼을 다시 눌러 재시도할 수 있습니다.")
+                            st.warning(f"⚠️ {_err_msg}")
+                            st.caption("버튼을 다시 눌러 재시도할 수 있습니다.")
 
                         if _fav_res_key in st.session_state:
                             res = st.session_state[_fav_res_key]
