@@ -1177,7 +1177,15 @@ def show_market_scenarios():
                         with _us2:
                             _render_stock_section(_f_us, "US", "🔴", "하락", "#ff4b4b", f"d_{_pk}_us")
 
-                        # 테마 연동주 행
+                        # 테마 연동주 행 — rising/falling과 중복 종목 제거
+                        _rising_falling_tickers = {
+                            _normalize_ticker(str(s.get("ticker","")))[0]
+                            for s in _rising + _falling
+                        }
+                        _theme_stocks = [
+                            s for s in _theme_stocks
+                            if _normalize_ticker(str(s.get("ticker","")))[0] not in _rising_falling_tickers
+                        ]
                         if _theme_stocks:
                             st.markdown(
                                 "<div style='font-size:0.75rem;font-weight:700;color:#ffd740;"
