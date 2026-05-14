@@ -1025,6 +1025,29 @@ def show_market_scenarios():
     _today = __import__("datetime").date.today().strftime("%Y-%m-%d")
     _cache_key = f"market_scenarios_{_today}"
 
+    # 버튼 최상단 배치 — 데이터 로딩 전에 항상 즉시 표시
+    _ref_col, _close_col = st.columns([3, 1])
+    with _ref_col:
+        _do_refresh = st.button("🔄 새로 분석", use_container_width=True)
+    with _close_col:
+        _do_close = st.button("닫기", use_container_width=True)
+
+    if _do_refresh:
+        for _k in list(st.session_state.keys()):
+            if _k.startswith("_sc_detail_") or _k == "market_scenarios_data":
+                st.session_state.pop(_k, None)
+        try:
+            from db import delete_ai_cache
+            delete_ai_cache(_cache_key)
+        except Exception:
+            pass
+        st.rerun()
+    if _do_close:
+        st.session_state.pop("_dialog_open", None)
+        st.rerun()
+
+    st.divider()
+
     if "market_scenarios_data" not in st.session_state:
         # Google Sheets 캐시 확인
         from db import load_ai_cache, save_ai_cache
@@ -1320,22 +1343,6 @@ def show_market_scenarios():
                                                 f"<span style='color:#5c9bd6'>촉매: {_ls.get('catalyst','')}</span></div>",
                                                 unsafe_allow_html=True)
 
-    _ref_col, _close_col = st.columns([3, 1])
-    with _ref_col:
-        if st.button("🔄 새로 분석", use_container_width=True):
-            for _k in list(st.session_state.keys()):
-                if _k.startswith("_sc_detail_") or _k == "market_scenarios_data":
-                    st.session_state.pop(_k, None)
-            try:
-                from db import delete_ai_cache
-                delete_ai_cache(_cache_key)
-            except Exception:
-                pass
-            st.rerun()
-    with _close_col:
-        if st.button("닫기", use_container_width=True):
-            st.session_state.pop("_dialog_open", None)
-            st.rerun()
 
 
 @st.dialog("오늘의 데일리 브리핑 📝")
