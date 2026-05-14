@@ -402,6 +402,28 @@ def load_sector_map() -> dict:
     except Exception:
         pass
 
+    # ── 상장폐지 종목 제거 — pykrx 현재 거래 종목 기준 필터링 ──────────────
+    try:
+        from pykrx import stock as _pykrx
+        import datetime as _dt
+        _today = _dt.date.today().strftime("%Y%m%d")
+        _active: set = set()
+        for _mkt in ["KOSPI", "KOSDAQ"]:
+            try:
+                _active.update(_pykrx.get_market_ticker_list(_today, market=_mkt))
+            except Exception:
+                pass
+        if _active:
+            for _sec in list(raw.keys()):
+                for _sub in list(raw[_sec].keys()):
+                    raw[_sec][_sub] = [s for s in raw[_sec][_sub] if s.get("code") in _active]
+                    if not raw[_sec][_sub]:
+                        del raw[_sec][_sub]
+                if not raw[_sec]:
+                    del raw[_sec]
+    except Exception:
+        pass
+
     return _enrich_with_krx(raw)
 
 
