@@ -1049,6 +1049,82 @@ def _normalize_ticker(raw: str) -> tuple[str, str]:
     return t, "US"
 
 
+def _render_analysis_diff(prev: dict, curr: dict, prev_time: str):
+    """이전 AI 분석 결과와 현재 결과를 비교해 변경점을 렌더링합니다."""
+    from datetime import datetime as _dt
+    # 경과 시간 계산
+    try:
+        _pd = _dt.strptime(prev_time, "%Y-%m-%d %H:%M:%S")
+        _diff = _dt.now() - _pd
+        _mins = int(_diff.total_seconds() / 60)
+        if _mins < 60:
+            _elapsed = f"{_mins}분 전"
+        elif _mins < 1440:
+            _elapsed = f"{_mins // 60}시간 {_mins % 60}분 전"
+        else:
+            _elapsed = f"{_mins // 1440}일 전"
+    except Exception:
+        _elapsed = prev_time
+
+    _fields = [
+        ("매수 구간", "buy_target"),
+        ("목 표 가", "sell_target"),
+        ("손 절 가", "stop_loss"),
+        ("단기 등급", "rating"),
+        ("중장기 등급", "long_term_rating"),
+        ("단기 전망", "short_term_view_pct"),
+    ]
+    _changed = [(label, prev.get(key, "-"), curr.get(key, "-"))
+                for label, key in _fields
+                if str(prev.get(key, "")).strip() != str(curr.get(key, "")).strip()]
+
+    if not _changed:
+        st.info(f"📊 이전 분석({_elapsed})과 동일한 결과입니다.")
+        return
+
+    # 변동 원인 휴리스틱
+    _rating_changed = any(k == "단기 등급" for k, _, _ in _changed)
+    _price_only = all(k in ("매수 구간", "목 표 가", "손 절 가", "단기 전망") for k, _, _ in _changed)
+    if _rating_changed:
+        _prev_r = prev.get("rating", "")
+        _curr_r = curr.get("rating", "")
+        _rating_order = ["매우 비추천", "비추천", "중간추천", "추천", "매우 강력 추천"]
+        _pi = _rating_order.index(_prev_r) if _prev_r in _rating_order else 2
+        _ci = _rating_order.index(_curr_r) if _curr_r in _rating_order else 2
+        if _ci > _pi:
+            _reason = "시장 상황 개선 또는 새로운 호재로 추천 등급이 상향되었습니다."
+        else:
+            _reason = "시장 상황 악화 또는 리스크 증가로 추천 등급이 하향되었습니다."
+    elif _price_only:
+        _reason = "현재 주가 변동에 따라 AI가 진입 타점을 재조정했습니다."
+    else:
+        _reason = "시장 상황 또는 뉴스·수급 변화가 반영되어 분석이 업데이트되었습니다."
+
+    rows_html = ""
+    for _label, _old, _new in _changed:
+        rows_html += (
+            f"<tr>"
+            f"<td style='padding:4px 10px;color:#aaa;white-space:nowrap'>{_label}</td>"
+            f"<td style='padding:4px 10px;color:#888;text-decoration:line-through'>{_old}</td>"
+            f"<td style='padding:4px 10px;color:#ffd740;font-weight:600'>→ {_new}</td>"
+            f"</tr>"
+        )
+
+    st.markdown(
+        f"<div style='background:rgba(255,215,64,0.06);border:1px solid rgba(255,215,64,0.25);"
+        f"border-radius:8px;padding:10px 14px;margin:8px 0'>"
+        f"<div style='font-size:0.82rem;font-weight:700;color:#ffd740;margin-bottom:6px'>"
+        f"🔄 이전 분석 대비 변경점 &nbsp;<span style='font-weight:400;color:#888;font-size:0.78rem'>({_elapsed} · {prev_time[:16]})</span>"
+        f"</div>"
+        f"<table style='border-collapse:collapse;width:100%;font-size:0.82rem'>{rows_html}</table>"
+        f"<div style='margin-top:8px;font-size:0.8rem;color:#bbb;border-top:1px solid rgba(255,255,255,0.08);padding-top:6px'>"
+        f"💡 {_reason}"
+        f"</div>"
+        f"</div>",
+        unsafe_allow_html=True,
+    )
+
+
 def _render_stock_section(group: list, mkt: str, icon: str, dir_: str, clr: str, key_prefix: str, halted_set: set = None):
     """종목 목록 렌더링 — 섹션 헤더 없이 버튼만 (헤더는 호출부에서 행 단위로 처리)."""
     if halted_set is None:
@@ -1985,11 +2061,19 @@ def show_favorites_center():
                         # ── 버튼 레이아웃: AI 분석 | 포트폴리오 추가 ─────────────────
                         _fav_res_key = f"fav_ai_result_{ticker}"
                         _fav_err_key = f"fav_ai_error_{ticker}"
-                        
+                        _fav_prev_key = f"fav_ai_prev_{ticker}"
+
                         _btn_col1, _btn_col2 = st.columns([3, 1])
                         with _btn_col1:
                             if st.button('🤖 AI 분석', key=f'fav_ai_{ticker}', use_container_width=True, type="primary"):
                                 st.session_state.pop(_fav_err_key, None)
+                                # 이전 이력 미리 불러오기
+                                try:
+                                    from db import load_stock_analysis_history
+                                    _fav_hist = load_stock_analysis_history(ticker)
+                                    st.session_state[_fav_prev_key] = _fav_hist[-1] if _fav_hist else None
+                                except Exception:
+                                    st.session_state[_fav_prev_key] = None
                                 with st.spinner('AI 분석 중...'):
                                     try:
                                         if mkt == '국내':
@@ -2005,6 +2089,12 @@ def show_favorites_center():
                                             res = generate_stock_report(ticker, price, pct)
                                         st.session_state[_fav_res_key] = res
                                         st.session_state.pop(_fav_err_key, None)
+                                        # 이력 저장
+                                        try:
+                                            from db import save_stock_analysis_history
+                                            save_stock_analysis_history(mkt, ticker, name, price, res)
+                                        except Exception:
+                                            pass
                                     except Exception as _ai_err:
                                         st.session_state[_fav_err_key] = str(_ai_err)
                         
@@ -2044,6 +2134,23 @@ def show_favorites_center():
                             if "error" in str(res.get("rating", "")):
                                 st.error(res.get("analysis", "분석 오류"))
                             else:
+                                # ── 변경점 비교 표시 ────────────────────────────
+                                _fav_prev = st.session_state.get(_fav_prev_key)
+                                if _fav_prev and isinstance(_fav_prev, dict):
+                                    import json as _hjson
+                                    try:
+                                        _prev_full = _hjson.loads(_fav_prev.get("JSON", "{}"))
+                                    except Exception:
+                                        _prev_full = {
+                                            "buy_target": _fav_prev.get("매수구간", ""),
+                                            "sell_target": _fav_prev.get("목표가", ""),
+                                            "stop_loss": _fav_prev.get("손절가", ""),
+                                            "rating": _fav_prev.get("등급", ""),
+                                            "long_term_rating": _fav_prev.get("중장기등급", ""),
+                                            "short_term_view_pct": _fav_prev.get("단기전망률", ""),
+                                        }
+                                    _render_analysis_diff(_prev_full, res, _fav_prev.get("분석시간", ""))
+
                                 cur_sym = "₩" if mkt == "국내" else "$"
                                 # ── 등급 배지 (항상 표시) ──────────────────────
                                 _rating = res.get("rating", "-")
@@ -3678,9 +3785,18 @@ def main():
                                         "AI 분석 결과를 참고할 때 이 점을 반드시 감안하세요."
                                     )
 
+                                _kr_ai_prev_key = f"kr_ai_prev_{selected_code_kr}"
+
                                 if st.button("🎯 AI 수급 & 타점 분석 실행", key="kr_ai_btn",
                                              use_container_width=True, type="primary"):
                                     st.session_state.pop(_ai_err_key, None)
+                                    # 이전 이력 미리 불러오기
+                                    try:
+                                        from db import load_stock_analysis_history
+                                        _kr_hist = load_stock_analysis_history(selected_code_kr)
+                                        st.session_state[_kr_ai_prev_key] = _kr_hist[-1] if _kr_hist else None
+                                    except Exception:
+                                        st.session_state[_kr_ai_prev_key] = None
                                     with st.spinner("AI가 수급과 뉴스를 융합 분석 중... (최대 50초)"):
                                         try:
                                             from ai_engine import generate_kr_stock_report
@@ -3690,6 +3806,15 @@ def main():
                                             )
                                             st.session_state[_ai_key] = kr_rep
                                             st.session_state.pop(_ai_err_key, None)
+                                            # 이력 저장
+                                            try:
+                                                from db import save_stock_analysis_history
+                                                save_stock_analysis_history(
+                                                    "국내", selected_code_kr, price_kr["name"],
+                                                    price_kr.get("price", ""), kr_rep
+                                                )
+                                            except Exception:
+                                                pass
 
                                             # AI 등급 '추천' 이상이면 ai_portfolio 자동 추가
                                             _kr_rating = kr_rep.get("rating", "-")
@@ -3733,7 +3858,24 @@ def main():
                                 if _ai_key in st.session_state:
                                     rep_kr = st.session_state[_ai_key]
                                     cur_sym = "₩"
-                                    
+
+                                    # ── 변경점 비교 표시 ────────────────────────────
+                                    _kr_prev = st.session_state.get(_kr_ai_prev_key)
+                                    if _kr_prev and isinstance(_kr_prev, dict):
+                                        import json as _kjson
+                                        try:
+                                            _kr_prev_full = _kjson.loads(_kr_prev.get("JSON", "{}"))
+                                        except Exception:
+                                            _kr_prev_full = {
+                                                "buy_target": _kr_prev.get("매수구간", ""),
+                                                "sell_target": _kr_prev.get("목표가", ""),
+                                                "stop_loss": _kr_prev.get("손절가", ""),
+                                                "rating": _kr_prev.get("등급", ""),
+                                                "long_term_rating": _kr_prev.get("중장기등급", ""),
+                                                "short_term_view_pct": _kr_prev.get("단기전망률", ""),
+                                            }
+                                        _render_analysis_diff(_kr_prev_full, rep_kr, _kr_prev.get("분석시간", ""))
+
                                     # 등급 배지
                                     _r = rep_kr.get("rating", "-")
                                     _lr = rep_kr.get("long_term_rating", "-")
@@ -6130,16 +6272,34 @@ def main():
                                 _chg_p = detail_us["change_pct"]
                                 _us_ai_key  = f"report_{_us_ticker_cur}"
                                 _us_ai_err_key = f"report_error_{_us_ticker_cur}"
+                                _us_ai_prev_key = f"us_ai_prev_{_us_ticker_cur}"
 
                                 if st.button("🎯 AI 분석 실행", use_container_width=True,
                                              type="primary", key="us_ai_report_btn"):
                                     st.session_state.pop(_us_ai_err_key, None)
+                                    # 이전 이력 미리 불러오기
+                                    try:
+                                        from db import load_stock_analysis_history
+                                        _us_hist = load_stock_analysis_history(_us_ticker_cur)
+                                        st.session_state[_us_ai_prev_key] = _us_hist[-1] if _us_hist else None
+                                    except Exception:
+                                        st.session_state[_us_ai_prev_key] = None
                                     with st.spinner("AI가 수급·뉴스·차트를 융합 분석 중... (최대 50초)"):
                                         try:
                                             from ai_engine import generate_stock_report
                                             _rep_j = generate_stock_report(_us_ticker_cur, _cur_p, _chg_p)
                                             st.session_state[_us_ai_key] = _rep_j
                                             st.session_state.pop(_us_ai_err_key, None)
+                                            # 이력 저장
+                                            try:
+                                                from db import save_stock_analysis_history
+                                                save_stock_analysis_history(
+                                                    "미국", _us_ticker_cur,
+                                                    detail_us.get("name", _us_ticker_cur),
+                                                    _cur_p, _rep_j
+                                                )
+                                            except Exception:
+                                                pass
 
                                             # AI 등급 '추천' 이상이면 ai_portfolio 자동 추가
                                             _us_rating = _rep_j.get("rating", "-")
@@ -6185,7 +6345,24 @@ def main():
                                 if _us_ai_key in st.session_state:
                                     _rep = st.session_state[_us_ai_key]
                                     cur_sym = "$"
-                                    
+
+                                    # ── 변경점 비교 표시 ────────────────────────────
+                                    _us_prev = st.session_state.get(_us_ai_prev_key)
+                                    if _us_prev and isinstance(_us_prev, dict):
+                                        import json as _ujson
+                                        try:
+                                            _us_prev_full = _ujson.loads(_us_prev.get("JSON", "{}"))
+                                        except Exception:
+                                            _us_prev_full = {
+                                                "buy_target": _us_prev.get("매수구간", ""),
+                                                "sell_target": _us_prev.get("목표가", ""),
+                                                "stop_loss": _us_prev.get("손절가", ""),
+                                                "rating": _us_prev.get("등급", ""),
+                                                "long_term_rating": _us_prev.get("중장기등급", ""),
+                                                "short_term_view_pct": _us_prev.get("단기전망률", ""),
+                                            }
+                                        _render_analysis_diff(_us_prev_full, _rep, _us_prev.get("분석시간", ""))
+
                                     # 등급 배지
                                     _r = _rep.get("rating", "-")
                                     _lr = _rep.get("long_term_rating", "-")

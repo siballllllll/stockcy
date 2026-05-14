@@ -735,3 +735,53 @@ def delete_ai_cache(cache_key: str):
         return True
     except Exception:
         return False
+
+
+# ── 종목 AI 분석 이력 ──────────────────────────────────────────────────────────
+
+_ANALYSIS_HISTORY_HEADERS = [
+    "분석시간", "시장", "티커", "종목명", "현재가",
+    "매수구간", "목표가", "손절가", "등급", "중장기등급", "단기전망률", "JSON",
+]
+
+
+def save_stock_analysis_history(market: str, ticker: str, name: str, current_price, analysis: dict) -> bool:
+    """종목 AI 분석 결과를 '종목분석이력' 탭에 1행 추가 저장합니다."""
+    sh, _ = _get_spreadsheet()
+    if not sh:
+        return False
+    try:
+        import json as _json
+        ws = _get_or_create_worksheet(sh, "종목분석이력", _ANALYSIS_HISTORY_HEADERS)
+        now = (datetime.now() + timedelta(hours=9)).strftime("%Y-%m-%d %H:%M:%S")
+        ws.append_row([
+            now,
+            market,
+            ticker,
+            name,
+            str(current_price) if current_price else "",
+            str(analysis.get("buy_target", "")),
+            str(analysis.get("sell_target", "")),
+            str(analysis.get("stop_loss", "")),
+            str(analysis.get("rating", "")),
+            str(analysis.get("long_term_rating", "")),
+            str(analysis.get("short_term_view_pct", "")),
+            _json.dumps(analysis, ensure_ascii=False)[:6000],
+        ])
+        return True
+    except Exception:
+        return False
+
+
+def load_stock_analysis_history(ticker: str, limit: int = 10) -> list[dict]:
+    """'종목분석이력' 탭에서 해당 티커의 최근 분석 기록을 반환합니다 (오래된→최신 순)."""
+    sh, _ = _get_spreadsheet()
+    if not sh:
+        return []
+    try:
+        ws = sh.worksheet("종목분석이력")
+        records = ws.get_all_records()
+        hits = [r for r in records if str(r.get("티커", "")) == str(ticker)]
+        return hits[-limit:] if len(hits) > limit else hits
+    except Exception:
+        return []
