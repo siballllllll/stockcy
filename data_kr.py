@@ -785,10 +785,11 @@ def get_us_stock_price_kis(ticker: str, exchange: str = "NASDAQ"):
 
 @st.cache_data(ttl=60)
 def get_us_prices_bulk_kis(tickers_exchange_tuple: tuple) -> dict:
-    """섹터 패널용 미국 종목 일괄 시세 조회 (KIS → yfinance 폴백)"""
+    """섹터 패널용 미국 종목 일괄 시세 조회 (KIS → yfinance 폴백, 병렬)"""
     import yfinance as yf
-    results = {}
-    for ticker, exchange in tickers_exchange_tuple:
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    def _fetch_one(ticker: str, exchange: str) -> tuple[str, dict]:
         excd = _KIS_EXCD.get(exchange.upper(), "NAS")
         data = _get(
             "/uapi/overseas-price/v1/quotations/price",
@@ -799,20 +800,28 @@ def get_us_prices_bulk_kis(tickers_exchange_tuple: tuple) -> dict:
             o = data.get("output", {})
             price = float(o.get("last", 0) or 0)
             if price > 0:
-                results[ticker] = {
+                return ticker, {
                     "price":      price,
                     "change_pct": float(o.get("rate", 0) or 0),
                 }
-                continue
-        # yfinance 폴백
         try:
             fi   = yf.Ticker(ticker).fast_info
             p    = round(fi.get("lastPrice", 0) or 0, 2)
             prev = fi.get("previousClose", 0) or 0
             chp  = round(((p - prev) / prev * 100) if prev > 0 else 0, 2)
-            results[ticker] = {"price": p, "change_pct": chp}
+            return ticker, {"price": p, "change_pct": chp}
         except Exception:
-            results[ticker] = {"price": 0.0, "change_pct": 0.0}
+            return ticker, {"price": 0.0, "change_pct": 0.0}
+
+    results: dict = {}
+    with ThreadPoolExecutor(max_workers=10) as ex:
+        futs = {ex.submit(_fetch_one, t, e): t for t, e in tickers_exchange_tuple}
+        for fut in as_completed(futs):
+            try:
+                ticker, val = fut.result()
+                results[ticker] = val
+            except Exception:
+                results[futs[fut]] = {"price": 0.0, "change_pct": 0.0}
     return results
 
 
