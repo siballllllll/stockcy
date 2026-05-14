@@ -1105,20 +1105,12 @@ def _render_stock_section(group: list, mkt: str, icon: str, dir_: str, clr: str,
         else:
             _price_label = ""
 
-        with st.popover(f"{icon} {_nm} ({_tk}){_price_label}{_halt_label}{_signal_label}", use_container_width=True):
+        with st.popover(f"{icon} {_nm} ({_tk}){_halt_label}{_signal_label}", use_container_width=True):
             if _is_halted:
                 st.error("⛔ **거래정지 종목** — 현재 매수·매도 불가. 거래 재개 시점 불명확.")
-            _pop_price_clr = "#ff4b4b" if _cpct >= 0 else "#2b7cff" if mkt == "KR" else "#ff4b4b"
             st.markdown(
                 f"<span style='font-size:1rem;font-weight:700;color:{clr}'>{_nm}</span>"
-                f"&nbsp;<code>{_tk}</code>"
-                + (
-                    f"&nbsp;&nbsp;<span style='font-size:1.05rem;font-weight:700;color:{_pop_price_clr}'>"
-                    f"{'₩' if mkt == 'KR' else '$'}"
-                    f"{'%d' % int(_cp) if mkt == 'KR' else '%.2f' % _cp}"
-                    f"&nbsp;{_arrow}{abs(_cpct):.2f}%</span>"
-                    if _cp and _cp > 0 else ""
-                ),
+                f"&nbsp;<code>{_tk}</code>",
                 unsafe_allow_html=True,
             )
             if _signal and _sc:
@@ -1138,6 +1130,17 @@ def _render_stock_section(group: list, mkt: str, icon: str, dir_: str, clr: str,
                 f"style='display:block;text-align:center;padding:8px;border-radius:6px;"
                 f"background:#262730;color:#fafafa;text-decoration:none;font-size:0.9rem;"
                 f"border:1px solid #555;margin-top:6px;'>📊 종목 분석 보러가기</a>",
+                unsafe_allow_html=True,
+            )
+        # 버튼 아래 현재가 한 줄 (팝오버 바깥)
+        if _cp and _cp > 0:
+            _pclr = "#ff4b4b" if _cpct >= 0 else "#2b7cff"
+            _sym  = "₩" if mkt == "KR" else "$"
+            _pfmt = f"{int(_cp):,}" if mkt == "KR" else f"{_cp:,.2f}"
+            st.markdown(
+                f"<div style='text-align:center;font-size:0.8rem;font-weight:600;"
+                f"color:{_pclr};margin:-4px 0 6px;letter-spacing:0.3px'>"
+                f"{_sym}{_pfmt} &nbsp;{_arrow}&thinsp;{abs(_cpct):.1f}%</div>",
                 unsafe_allow_html=True,
             )
 
