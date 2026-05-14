@@ -792,8 +792,17 @@ def generate_kr_stock_report(stock_code: str, name: str, price_data: dict, inves
 PER: {price_data['per']} | PBR: {price_data['pbr']}
 {investor_summary}
 
+⚠️ [최우선 검증 단계] 분석 시작 전 반드시 구글 검색으로 KRX 종목코드 '{stock_code}'의 실제 종목명을 확인하세요.
+- 검색어: "KRX {stock_code} 종목명" 또는 "{stock_code} 주식 종목"
+- 검색 결과에서 확인한 실제 종목명을 'verified_name' 필드에 기재하세요.
+- 확인된 실제 종목명이 '{name}'과 다를 경우: 'ticker_mismatch'를 true로 설정하고, 실제 종목명({stock_code}) 기준으로만 분석하세요. '{name}' 정보를 혼용하지 마세요.
+- 일치할 경우: 'ticker_mismatch'를 false로 설정하고 정상 분석을 진행하세요.
+
 구글 검색으로 최신 뉴스·실적·공시·섹터 동향을 파악한 뒤 반드시 아래 JSON으로만 응답하세요.
 {{
+  "verified_name": "구글 검색으로 확인한 종목코드 {stock_code}의 실제 종목명",
+  "ticker_mismatch": false,
+
   "rating": "단기 트레이딩 등급 (매우 강력 추천 / 추천 / 중간추천 / 비추천 / 매우 비추천)",
 
   "key_issues": "현재 이 종목에 영향을 주는 핵심 이슈·변수 2~3가지 (마크다운 불릿. 긍정·부정 모두 포함, 실적·수급·섹터·매크로 등 구체적 수치와 함께)",

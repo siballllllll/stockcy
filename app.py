@@ -2152,6 +2152,28 @@ def show_favorites_center():
                                     _render_analysis_diff(_prev_full, res, _fav_prev.get("분석시간", ""))
 
                                 cur_sym = "₩" if mkt == "국내" else "$"
+                                # ── 종목 코드·이름 검증 배너 ────────────────────
+                                if mkt == "국내":
+                                    _fav_verified = res.get("verified_name", "")
+                                    _fav_mismatch = str(res.get("ticker_mismatch", False)).lower() in ("true", "1")
+                                    if _fav_mismatch:
+                                        st.error(
+                                            f"⚠️ **종목코드·종목명 불일치 감지**\n\n"
+                                            f"요청한 종목: **{name} ({ticker})**  \n"
+                                            f"AI 검색 확인 종목: **{_fav_verified}**\n\n"
+                                            f"AI가 잘못된 종목 정보를 참조했을 수 있습니다. "
+                                            f"**매수가·목표가·손절가 등 모든 수치를 신뢰하지 마세요.**"
+                                        )
+                                    else:
+                                        _fav_disp = _fav_verified or name
+                                        st.markdown(
+                                            f"<div style='font-size:0.8rem;color:#666;margin:4px 0 6px;"
+                                            f"padding:4px 10px;background:rgba(255,255,255,0.03);"
+                                            f"border-radius:4px;border-left:2px solid #444'>"
+                                            f"✅ 분석 대상: <b style='color:#aaa'>{_fav_disp} ({ticker})</b>"
+                                            f"</div>",
+                                            unsafe_allow_html=True,
+                                        )
                                 # ── 등급 배지 (항상 표시) ──────────────────────
                                 _rating = res.get("rating", "-")
                                 _lt_rating = res.get("long_term_rating", "-")
@@ -3875,6 +3897,29 @@ def main():
                                                 "short_term_view_pct": _kr_prev.get("단기전망률", ""),
                                             }
                                         _render_analysis_diff(_kr_prev_full, rep_kr, _kr_prev.get("분석시간", ""))
+
+                                    # ── 종목 코드·이름 검증 배너 ────────────────────
+                                    _verified_name = rep_kr.get("verified_name", "")
+                                    _is_mismatch = rep_kr.get("ticker_mismatch", False)
+                                    if str(_is_mismatch).lower() in ("true", "1"):
+                                        st.error(
+                                            f"⚠️ **종목코드·종목명 불일치 감지**\n\n"
+                                            f"요청한 종목: **{price_kr.get('name', selected_code_kr)} ({selected_code_kr})**  \n"
+                                            f"AI 검색 확인 종목: **{_verified_name}**\n\n"
+                                            f"AI가 잘못된 종목 정보를 참조했을 수 있습니다. "
+                                            f"**매수가·목표가·손절가 등 모든 수치를 신뢰하지 마세요.** "
+                                            f"분석을 다시 실행하거나 수동으로 검증해 주세요."
+                                        )
+                                    else:
+                                        _disp_name = _verified_name or price_kr.get("name", selected_code_kr)
+                                        st.markdown(
+                                            f"<div style='font-size:0.8rem;color:#666;margin:4px 0 8px;"
+                                            f"padding:4px 10px;background:rgba(255,255,255,0.03);"
+                                            f"border-radius:4px;border-left:2px solid #444'>"
+                                            f"✅ 분석 대상: <b style='color:#aaa'>{_disp_name} ({selected_code_kr})</b>"
+                                            f"</div>",
+                                            unsafe_allow_html=True,
+                                        )
 
                                     # 등급 배지
                                     _r = rep_kr.get("rating", "-")
