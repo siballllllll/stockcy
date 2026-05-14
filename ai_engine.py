@@ -71,14 +71,83 @@ _API_TIMEOUT_SEC = 90
 
 def _clean_ai_json(raw: str) -> str:
     """AI 응답 텍스트에서 JSON을 추출 가능한 형태로 정제합니다."""
-    text = re.sub(r'```(?:json)?', '', raw).strip()
+    # BOM 제거
+    text = raw.lstrip('﻿').strip()
+    # 백틱 코드블록 제거
+    text = re.sub(r'```(?:json)?', '', text).strip()
     # /* ... */ 블록 주석 제거
     text = re.sub(r'/\*.*?\*/', '', text, flags=re.DOTALL)
-    # // 한줄 주석 제거 (문자열 내부 URL 등 오탐 가능성 낮음)
+    # // 한줄 주석 제거
     text = re.sub(r'//[^\n"]*', '', text)
+    # bare ellipsis placeholder: "key": ... → "key": null
+    text = re.sub(r':\s*\.\.\.', ': null', text)
     # trailing comma 제거: ,} 또는 ,]
     text = re.sub(r',\s*([}\]])', r'\1', text)
     return text
+
+
+def _friendly_error(e: Exception) -> str:
+    """Exception을 사용자 친화적 한국어 메시지로 변환합니다."""
+    err = str(e)
+    if "API_TIMEOUT" in err:
+        return "AI 응답 시간이 초과됐습니다. 잠시 후 다시 시도해주세요."
+    if "QUOTA_EXHAUSTED" in err or "429" in err or "RESOURCE_EXHAUSTED" in err:
+        return "오늘 AI 사용량이 초과됐습니다. 내일 자정 이후 다시 시도해주세요."
+    if "503" in err or "UNAVAILABLE" in err:
+        return "AI 서버가 일시적으로 과부하 상태입니다. 잠시 후 다시 시도해주세요."
+    if "empty_response" in err or (isinstance(e, AttributeError) and "text" in err):
+        return "AI로부터 응답을 받지 못했습니다. 잠시 후 다시 시도해주세요."
+    if isinstance(e, (json.JSONDecodeError, ValueError)):
+        return "AI 응답 형식 오류입니다. 잠시 후 다시 시도해주세요."
+    return "AI 분석 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요."
+
+
+def _repair_truncated_json(fragment: str):
+    """잘린 JSON 복구 시도. 성공 시 parsed 결과, 실패 시 None."""
+    s = fragment.rstrip()
+    s = re.sub(r',\s*$', '', s)
+    s = re.sub(r',?\s*"[^"\\]*(?:\\.[^"\\]*)?\s*:\s*$', '', s)  # 불완전 key:
+    s = re.sub(r',?\s*"[^"\\]*$', '', s)                          # 불완전 문자열
+    s = re.sub(r',\s*$', '', s)
+
+    depth_brace = s.count('{') - s.count('}')
+    depth_bracket = s.count('[') - s.count(']')
+    if depth_brace < 0 or depth_bracket < 0:
+        return None
+
+    repaired = s + ']' * depth_bracket + '}' * depth_brace
+    try:
+        return json.loads(repaired)
+    except Exception:
+        return None
+
+
+def _parse_json_response(response) -> dict:
+    """API 응답에서 JSON 추출 (빈 응답·잘린 JSON 자동 복구). 실패 시 ValueError."""
+    if response is None:
+        raise ValueError("empty_response")
+    raw = getattr(response, 'text', None) or ""
+    if not raw.strip():
+        raise ValueError("empty_response")
+
+    text = _clean_ai_json(raw)
+
+    for start_char in ('{', '['):
+        idx = text.find(start_char)
+        if idx == -1:
+            continue
+        try:
+            result, _ = json.JSONDecoder().raw_decode(text, idx)
+            return result
+        except json.JSONDecodeError:
+            repaired = _repair_truncated_json(text[idx:])
+            if repaired is not None:
+                return repaired
+
+    try:
+        return json.loads(text)
+    except Exception:
+        raise ValueError("no_json_found")
 
 
 def _call_gemini(prompt, use_search=False, temperature=0.7, response_mime_type=None, timeout_sec=None):
@@ -190,14 +259,9 @@ def generate_daily_briefing():
     """
     try:
         response = _call_gemini(prompt, use_search=True, temperature=0.7)
-        text = _clean_ai_json(response.text)
-        start = text.find('{')
-        if start != -1:
-            result, _ = json.JSONDecoder().raw_decode(text, start)
-            return result
-        return json.loads(text)
+        return _parse_json_response(response)
     except Exception as e:
-        return {"error": str(e)}
+        return {"error": _friendly_error(e), "sectors": []}
 
 
 def generate_market_scenarios() -> dict:
@@ -267,14 +331,9 @@ def generate_market_scenarios() -> dict:
     )
     try:
         response = _call_gemini(prompt, use_search=True, temperature=0.6, timeout_sec=120)
-        text = _clean_ai_json(response.text)
-        start = text.find('{')
-        if start != -1:
-            result, _ = json.JSONDecoder().raw_decode(text, start)
-            return result
-        return json.loads(text)
+        return _parse_json_response(response)
     except Exception as e:
-        return {"error": str(e)}
+        return {"error": _friendly_error(e), "issues": []}
 
 
 def generate_scenario_detail(issue_title: str, scenario_title: str, economic_analysis: str,
@@ -317,14 +376,9 @@ def generate_scenario_detail(issue_title: str, scenario_title: str, economic_ana
     )
     try:
         response = _call_gemini(prompt, use_search=True, temperature=0.5, timeout_sec=120)
-        text = _clean_ai_json(response.text)
-        start = text.find('{')
-        if start != -1:
-            result, _ = json.JSONDecoder().raw_decode(text, start)
-            return result
-        return json.loads(text)
+        return _parse_json_response(response)
     except Exception as e:
-        return {"error": str(e)}
+        return {"error": _friendly_error(e)}
 
 
 def generate_mindmap_data():
@@ -410,19 +464,13 @@ def generate_stock_report(ticker, current_price, change_pct):
 """
     try:
         response = _call_gemini(prompt, use_search=True, temperature=0.7)
-        text = _clean_ai_json(response.text)
-        start = text.find('{')
-        if start != -1:
-            result, _ = json.JSONDecoder().raw_decode(text, start)
-            return result
-        return json.loads(text)
+        return _parse_json_response(response)
     except Exception as e:
+        msg = _friendly_error(e)
         return {
             "rating": "분석 오류",
-            "buy_target": "-",
-            "sell_target": "-",
-            "stop_loss": "-",
-            "analysis": f"AI 분석 중 오류가 발생했습니다: {str(e)}"
+            "buy_target": "-", "sell_target": "-", "stop_loss": "-",
+            "analysis": msg
         }
 
 
@@ -468,25 +516,12 @@ def discover_hot_day_trading_stock(context=""):
     """
     try:
         response = _call_gemini(prompt, use_search=True, temperature=0.8)
-        text = response.text
-        if not text:
-            return {
-                "ticker": "N/A",
-                "name_kr": "데이터 차단",
-                "reasoning": "AI가 해당 종목의 급등 이유가 안전 정책에 위배되거나, 과도한 투자 권유로 판단하여 응답을 거부했습니다. 다시 시도해주세요.",
-                "buy_target": "-", "sell_target": "-", "stop_loss": "-"
-            }
-        text = re.sub(r'```(?:json)?', '', text).strip()
-        start = text.find('{')
-        if start == -1:
-            raise ValueError("JSON 객체를 찾을 수 없습니다")
-        result, _ = json.JSONDecoder().raw_decode(text, start)
-        return result
+        return _parse_json_response(response)
     except Exception as e:
         return {
             "ticker": "N/A",
             "name_kr": "오류",
-            "reasoning": f"종목 발굴 중 오류가 발생했습니다: {e}",
+            "reasoning": _friendly_error(e),
             "buy_target": "-", "sell_target": "-", "stop_loss": "-"
         }
 
@@ -780,14 +815,9 @@ KOSDAQ: {kosdaq.get('index',0):,.2f}  ({kosdaq.get('change_pct',0):+.2f}%)
 
     try:
         response = _call_gemini(prompt, use_search=True, temperature=0.35)
-        text = _clean_ai_json(response.text)
-        start = text.find('{')
-        if start != -1:
-            result, _ = json.JSONDecoder().raw_decode(text, start)
-            return result
-        return json.loads(text)
+        return _parse_json_response(response)
     except Exception as e:
-        return {"error": str(e), "picks": []}
+        return {"error": _friendly_error(e), "picks": []}
 
 
 def generate_kr_stock_report(stock_code: str, name: str, price_data: dict, investor_data: list):
@@ -862,18 +892,14 @@ PER: {price_data['per']} | PBR: {price_data['pbr']}
 """
     try:
         response = _call_gemini(prompt, use_search=True, temperature=0.7)
-        text = _clean_ai_json(response.text)
-        start = text.find('{')
-        if start != -1:
-            result, _ = json.JSONDecoder().raw_decode(text, start)
-            return result
-        return json.loads(text)
+        return _parse_json_response(response)
     except Exception as e:
+        msg = _friendly_error(e)
         return {
             "rating": "분석 오류",
             "buy_target": "-", "sell_target": "-", "stop_loss": "-",
             "세력분석": "-",
-            "analysis": f"AI 분석 중 오류가 발생했습니다: {str(e)}"
+            "analysis": msg
         }
 
 
@@ -901,16 +927,11 @@ def analyze_box_pattern(ticker: str, name: str, price_data: dict, market: str = 
     """
     try:
         response = _call_gemini(prompt, use_search=True, temperature=0.5)
-        text = _clean_ai_json(response.text)
-        start = text.find('{')
-        if start != -1:
-            result, _ = json.JSONDecoder().raw_decode(text, start)
-            return result
-        return json.loads(text)
+        return _parse_json_response(response)
     except Exception as e:
         return {
             "support_line": "-", "resistance_line": "-", "breakout_probability": "-",
-            "box_analysis": f"분석 오류: {e}",
+            "box_analysis": _friendly_error(e),
             "supply_demand_analysis": "-", "action_plan": "-"
         }
 
@@ -956,17 +977,9 @@ def generate_dynamic_themes():
     """
     try:
         response = _call_gemini(prompt, use_search=True, temperature=0.7)
-        text = response.text
-        if not text:
-            return {"themes": []}
-        text = re.sub(r'```(?:json)?', '', text).strip()
-        start = text.find('{')
-        if start == -1:
-            raise ValueError("JSON 객체를 찾을 수 없습니다")
-        result, _ = json.JSONDecoder().raw_decode(text, start)
-        return result
+        return _parse_json_response(response)
     except Exception as e:
-        return {"error": str(e), "themes": []}
+        return {"error": _friendly_error(e), "themes": []}
 
 
 @st.cache_data(ttl=3600)  # 1시간 캐싱 (할당량 절약)
@@ -1041,17 +1054,12 @@ def analyze_kr_hot_sectors() -> dict:
 
     try:
         response = _call_gemini(prompt, use_search=True, temperature=0.5)
-        text = _clean_ai_json(response.text)
-        start = text.find('{')
-        if start != -1:
-            result, _ = json.JSONDecoder().raw_decode(text, start)
-            return result
-        return json.loads(text)
+        return _parse_json_response(response)
     except Exception as e:
         err_str = str(e)
         if "QUOTA" in err_str or "429" in err_str or "RESOURCE_EXHAUSTED" in err_str:
             return _quota_error_result("analyze_kr_hot_sectors")
-        return {"error": f"AI 분석 오류: {type(e).__name__}"}
+        return {"error": _friendly_error(e)}
 
 
 def _quota_error_result(fn_name: str) -> dict:
@@ -1116,16 +1124,11 @@ def analyze_today_market() -> dict:
 
     try:
         response = _call_gemini(prompt, use_search=True, temperature=0.4)
-        text = _clean_ai_json(response.text)
-        start = text.find('{')
-        if start != -1:
-            result, _ = json.JSONDecoder().raw_decode(text, start)
-            return result
-        return json.loads(text)
+        return _parse_json_response(response)
     except Exception as e:
         if "QUOTA" in str(e) or "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
             return _quota_error_result("analyze_today_market")
-        return {"error": str(e)}
+        return {"error": _friendly_error(e)}
 
 
 @st.cache_data(ttl=3600)
@@ -1158,14 +1161,9 @@ def analyze_market_pattern(keyword: str) -> dict:
 }}"""
     try:
         response = _call_gemini(prompt, use_search=True, temperature=0.5)
-        text = _clean_ai_json(response.text)
-        start = text.find('{')
-        if start != -1:
-            result, _ = json.JSONDecoder().raw_decode(text, start)
-            return result
-        return json.loads(text)
+        return _parse_json_response(response)
     except Exception as e:
-        return {"keyword": keyword, "error": str(e)}
+        return {"keyword": keyword, "error": _friendly_error(e)}
 
 
 @st.cache_data(ttl=300)
@@ -1181,12 +1179,8 @@ def generate_related_stocks(ticker: str, sector: str = "") -> list:
 ]"""
     try:
         response = _call_gemini(prompt, use_search=True, temperature=0.5)
-        text = _clean_ai_json(response.text)
-        start = text.find('[')
-        if start != -1:
-            result, _ = json.JSONDecoder().raw_decode(text, start)
-            return result if isinstance(result, list) else []
-        return []
+        result = _parse_json_response(response)
+        return result if isinstance(result, list) else []
     except Exception:
         return []
 
@@ -1368,14 +1362,9 @@ DOW    : {dow.get('price',0):,.2f}  ({dow.get('change_pct',0):+.2f}%)
 
     try:
         response = _call_gemini(prompt, use_search=True, temperature=0.35)
-        text = _clean_ai_json(response.text)
-        start = text.find('{')
-        if start != -1:
-            result, _ = json.JSONDecoder().raw_decode(text, start)
-            return result
-        return json.loads(text)
+        return _parse_json_response(response)
     except Exception as e:
-        return {"error": str(e), "picks": []}
+        return {"error": _friendly_error(e), "picks": []}
 
 
 @st.cache_data(ttl=1800)
@@ -1420,16 +1409,11 @@ def analyze_us_today_market() -> dict:
 
     try:
         response = _call_gemini(prompt, use_search=True, temperature=0.4)
-        text = _clean_ai_json(response.text)
-        start = text.find('{')
-        if start != -1:
-            result, _ = json.JSONDecoder().raw_decode(text, start)
-            return result
-        return json.loads(text)
+        return _parse_json_response(response)
     except Exception as e:
         if "QUOTA" in str(e) or "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
             return _quota_error_result("analyze_us_today_market")
-        return {"error": str(e)}
+        return {"error": _friendly_error(e)}
 
 
 @st.cache_data(ttl=3600)
@@ -1485,16 +1469,11 @@ def analyze_us_hot_sectors() -> dict:
 
     try:
         response = _call_gemini(prompt, use_search=True, temperature=0.5)
-        text = _clean_ai_json(response.text)
-        start = text.find('{')
-        if start != -1:
-            result, _ = json.JSONDecoder().raw_decode(text, start)
-            return result
-        return json.loads(text)
+        return _parse_json_response(response)
     except Exception as e:
         if "QUOTA" in str(e) or "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
             return _quota_error_result("analyze_us_hot_sectors")
-        return {"error": f"AI 분석 오류: {type(e).__name__}"}
+        return {"error": _friendly_error(e)}
 
 
 def analyze_sector_theme_linkage(sector_name: str, stocks_with_data: list) -> dict:
@@ -1564,16 +1543,11 @@ def analyze_sector_theme_linkage(sector_name: str, stocks_with_data: list) -> di
 
     try:
         resp = _call_gemini(prompt, use_search=True, temperature=0.3)
-        text = re.sub(r'```(?:json)?', '', resp.text).strip()
-        start = text.find('{')
-        if start != -1:
-            result, _ = json.JSONDecoder().raw_decode(text, start)
-            return result
-        return json.loads(text)
+        return _parse_json_response(resp)
     except Exception as e:
         if "QUOTA" in str(e) or "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
             return _quota_error_result("analyze_sector_theme_linkage")
-        return {"error": f"분석 오류: {type(e).__name__}: {str(e)[:100]}"}
+        return {"error": _friendly_error(e)}
 
 
 def analyze_stock_theme_position(
@@ -1665,16 +1639,11 @@ PER: {price_data.get('per','-')}  PBR: {price_data.get('pbr','-')}
 
     try:
         resp = _call_gemini(prompt, use_search=True, temperature=0.3)
-        text = re.sub(r'```(?:json)?', '', resp.text).strip()
-        start = text.find('{')
-        if start != -1:
-            result, _ = json.JSONDecoder().raw_decode(text, start)
-            return result
-        return json.loads(text)
+        return _parse_json_response(resp)
     except Exception as e:
         if "QUOTA" in str(e) or "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
             return _quota_error_result("analyze_stock_theme_position")
-        return {"error": f"분석 오류: {type(e).__name__}: {str(e)[:100]}"}
+        return {"error": _friendly_error(e)}
 
 
 def fetch_rss_news(max_items_per_feed=5):
@@ -1738,16 +1707,11 @@ def generate_macro_phase_analysis():
     """
     try:
         response = _call_gemini(prompt, use_search=False, temperature=0.5)
-        text = _clean_ai_json(response.text)
-        start = text.find('{{')
-        if start != -1:
-            result, _ = json.JSONDecoder().raw_decode(text, start)
-            return result
-        return json.loads(text)
+        return _parse_json_response(response)
     except Exception as e:
         if "QUOTA" in str(e) or "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
             return _quota_error_result("generate_macro_phase_analysis")
-        return {"error": f"분석 오류: {type(e).__name__}: {str(e)[:100]}"}
+        return {"error": _friendly_error(e)}
 
 
 def analyze_sector_rotation(market_type, raw_market_data):
@@ -1864,14 +1828,9 @@ def analyze_trade_history(trades: list, past_lessons: list = None) -> dict:
 
     try:
         response = _call_gemini(prompt, use_search=True, temperature=0.4)
-        text = _clean_ai_json(response.text)
-        start = text.find('{')
-        if start != -1:
-            result, _ = json.JSONDecoder().raw_decode(text, start)
-            return result
-        return json.loads(text)
+        return _parse_json_response(response)
     except Exception as e:
-        return {"error": str(e)}
+        return {"error": _friendly_error(e), "summary": {}, "trades": []}
 
 
 def analyze_trading_patterns(records: list) -> dict:
@@ -1926,12 +1885,7 @@ def analyze_trading_patterns(records: list) -> dict:
 
     try:
         response = _call_gemini(prompt, use_search=False, temperature=0.4)
-        text = _clean_ai_json(response.text)
-        start = text.find('{')
-        if start != -1:
-            result, _ = json.JSONDecoder().raw_decode(text, start)
-            return result
-        return json.loads(text)
+        return _parse_json_response(response)
     except Exception as e:
-        return {"error": str(e)}
+        return {"error": _friendly_error(e)}
 
