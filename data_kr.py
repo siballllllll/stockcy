@@ -238,11 +238,6 @@ def get_kr_stock_price(stock_code: str):
     )
     if data:
         o = data["output"]
-        # 상태 필드 디버그 로깅 (필드명 확인용 — 확인 후 제거 예정)
-        _status_fields = {k: v for k, v in o.items() if any(kw in k for kw in
-            ["stat", "warn", "sltr", "mang", "trht", "vi_", "halt", "stop"])}
-        if _status_fields:
-            print(f"[KIS STATUS FIELDS] {stock_code}: {_status_fields}")
         return {
             "code": stock_code,
             "name": o.get("hts_kor_isnm", stock_code),
@@ -260,14 +255,13 @@ def get_kr_stock_price(stock_code: str):
             "per": o.get("per", "-"),
             "pbr": o.get("pbr", "-"),
             "market_cap": _format_market_cap(o.get("hts_avls", "")),
-            # 거래 상태 필드 (KIS API 실제 필드명 확인 중)
             "status_code": o.get("iscd_stat_cls_code", "55"),
             "mrkt_warn": o.get("mrkt_warn_cls_code", "00"),
             "short_over": o.get("sltr_yn", "N"),
-            "managed": o.get("mang_issu_yn", "N"),
-            "halt": o.get("trht_yn", "N"),
-            "vi_type": o.get("vi_cls_code", ""),
-            "_raw_status": _status_fields,  # 디버그용 — 확인 후 제거
+            "managed": o.get("mang_issu_cls_code", "N"),   # 실제 필드명
+            "halt": o.get("temp_stop_yn", "N"),             # 실제 필드명
+            "vi_type": o.get("vi_cls_code", "N"),           # "N"=없음
+            "vi_ovtm": o.get("ovtm_vi_cls_code", "N"),     # 시간외 VI
         }
 
     # KIS API 실패 → yfinance 폴백 (.KS 우선, .KQ 차선)

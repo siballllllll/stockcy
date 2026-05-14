@@ -70,21 +70,23 @@ def _kr_stock_badges_html(price_info: dict) -> str:
         "background:{bg};color:{fg}'>{text}</span>"
     )
 
-    halt      = price_info.get("halt", "N")
-    managed   = price_info.get("managed", "N")
-    sc        = price_info.get("status_code", "55")
-    mw        = price_info.get("mrkt_warn", "00")
-    short_ov  = price_info.get("short_over", "N")
-    vi        = price_info.get("vi_type", "")
+    halt     = price_info.get("halt", "N")
+    managed  = price_info.get("managed", "N")
+    sc       = price_info.get("status_code", "55")
+    mw       = price_info.get("mrkt_warn", "00")
+    short_ov = price_info.get("short_over", "N")
+    vi       = price_info.get("vi_type", "N")
+    vi_ovtm  = price_info.get("vi_ovtm", "N")
 
     if halt == "Y":
         badges.append(_BADGE.format(bg="#b71c1c", fg="#fff", text="거래정지"))
     if managed == "Y":
         badges.append(_BADGE.format(bg="#4a148c", fg="#fff", text="관리종목"))
-    # 시장경고(mrkt_warn)와 종목상태(status_code) 중 더 높은 수준을 사용
+
+    # 시장경고(mrkt_warn)와 종목상태(status_code) 중 더 높은 수준 적용
     warn_level = max(
         {"00": 0, "01": 1, "02": 2, "03": 3}.get(mw, 0),
-        {"55": 0, "51": 1, "52": 2, "53": 2, "54": 3}.get(sc, 0),
+        {"55": 0, "58": 0, "51": 1, "52": 2, "53": 2, "54": 3}.get(sc, 0),
     )
     if warn_level == 1:
         badges.append(_BADGE.format(bg="#f57f17", fg="#fff", text="투자주의"))
@@ -92,12 +94,14 @@ def _kr_stock_badges_html(price_info: dict) -> str:
         badges.append(_BADGE.format(bg="#e65100", fg="#fff", text="투자경고"))
     elif warn_level >= 3:
         badges.append(_BADGE.format(bg="#b71c1c", fg="#fff", text="투자위험"))
+
     if short_ov == "Y":
         badges.append(_BADGE.format(bg="#1565c0", fg="#fff", text="단기과열"))
-    if vi == "01":
-        badges.append(_BADGE.format(bg="#00695c", fg="#fff", text="정적VI"))
-    elif vi == "02":
-        badges.append(_BADGE.format(bg="#00695c", fg="#fff", text="동적VI"))
+    # vi_type/vi_ovtm: "N" = 없음, 그 외 값이면 VI 발동
+    if vi not in ("N", "", None):
+        badges.append(_BADGE.format(bg="#00695c", fg="#fff", text="VI발동"))
+    elif vi_ovtm not in ("N", "", None):
+        badges.append(_BADGE.format(bg="#00695c", fg="#fff", text="시간외VI"))
 
     return "".join(badges)
 
@@ -3153,11 +3157,6 @@ def main():
                                             f"</div>",
                                             unsafe_allow_html=True,
                                         )
-                                    # 임시 디버그 (상태 필드명 확인용)
-                                    _raw = price_kr.get("_raw_status", {})
-                                    if _raw:
-                                        with st.expander("🔧 [DEBUG] KIS 상태 필드 원본값"):
-                                            st.json(_raw)
 
                                     # 현재가 강조
                                     _pc = "#ff4b4b" if is_up else "#2b7cff" if is_dn else "#aaa"
