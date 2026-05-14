@@ -4662,12 +4662,17 @@ def main():
                                     _hc.markdown(f"<p style='margin:0;font-size:0.94rem;color:#888'>{_ht}</p>", unsafe_allow_html=True)
 
                                 def _render_sector_stocks(sub_name, stocks, prices, code_locations, selected_sector):
+                                    _rendered = 0
                                     for i, s in enumerate(stocks):
-                                        if i > 0:
-                                            st.markdown('<hr class="toss-divider" style="margin:2px 0">', unsafe_allow_html=True)
                                         pdata = prices.get(s["code"], {"price": 0, "change_pct": 0.0})
                                         pct   = pdata["change_pct"]
                                         pval  = pdata["price"]
+                                        # 가격 0 = KIS·yfinance 모두 데이터 없음 → 상장폐지 종목 스킵
+                                        if pval == 0 and pct == 0.0 and not pdata.get("halt"):
+                                            continue
+                                        if _rendered > 0:
+                                            st.markdown('<hr class="toss-divider" style="margin:2px 0">', unsafe_allow_html=True)
+                                        _rendered += 1
                                         pct_color = "#ff4b4b" if pct > 0 else "#2b7cff" if pct < 0 else "#888"
                                         other_locs = [loc for loc in code_locations.get(s["code"], []) if loc != f"{selected_sector} › {sub_name}"]
                                         help_text = f"다중 섹터: {', '.join(other_locs)}" if other_locs else None
