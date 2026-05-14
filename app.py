@@ -2890,11 +2890,18 @@ def main():
                                     with _s_col:
                                         render_star_toggle("국내", _pick.get("code", ""), _pick.get("name", ""), f"pick_{_ci}")
                                     with _c_col:
+                                        _from_search2 = _pick.get("from_search", False)
+                                        _fs_badge2 = (
+                                            "<span style='font-size:0.72rem;color:#ff9800;"
+                                            "background:rgba(255,152,0,0.15);border:1px solid #ff980066;"
+                                            "border-radius:3px;padding:1px 5px;margin-left:5px'>"
+                                            "🔍 AI발굴</span>"
+                                        ) if _from_search2 else ""
                                         st.html(
                                             f"<div style='background:{_row_bg};border:{_row_bdr};"
                                             f"border-radius:8px;padding:8px 10px;margin-bottom:2px'>"
                                             f"<div style='display:flex;justify-content:space-between;align-items:center'>"
-                                            f"<span style='font-size:1.04rem;font-weight:700'>{_pick.get('name','')}</span>"
+                                            f"<span style='font-size:1.04rem;font-weight:700'>{_pick.get('name','')}{_fs_badge2}</span>"
                                             f"<span style='display:inline-block;padding:1px 7px;border-radius:4px;"
                                             f"background:{_urg_color2}33;border:1px solid {_urg_color2};"
                                             f"color:{_urg_color2};font-size:0.82rem;font-weight:700'>"
@@ -3027,6 +3034,13 @@ def main():
 
                             _border_color = "rgba(255,75,75,0.3)" if _already_surged else "rgba(255,255,255,0.1)"
 
+                            _fs_badge = (
+                                "<span style='font-size:0.72rem;color:#ff9800;"
+                                "background:rgba(255,152,0,0.15);border:1px solid #ff980066;"
+                                "border-radius:3px;padding:1px 5px;margin-left:4px'>"
+                                "🔍 AI발굴 · 코드 직접 확인 필요</span>"
+                            ) if _pick.get("from_search", False) else ""
+
                             _card_html = (
                                 f"<div class='toss-card sc-card' style='"
                                 f"border-color:{_border_color};padding:14px 14px 12px 14px'>"
@@ -3035,7 +3049,7 @@ def main():
                                 f"<div>"
                                 f"<span style='font-size:0.9rem;color:#888'>#{_pick.get('rank',_sel_idx+1)}</span>&nbsp;"
                                 f"<div style='font-size:1.1rem;font-weight:700;line-height:1.2;margin-top:2px'>"
-                                f"{_pick.get('name','')}</div>"
+                                f"{_pick.get('name','')}{_fs_badge}</div>"
                                 f"<span style='font-size:0.88rem;color:#666'>{_pick.get('code','')}</span>"
                                 f"</div>"
                                 f"<div style='text-align:right'>"
@@ -5479,11 +5493,18 @@ def main():
                                     with _u_star_col:
                                         render_star_toggle("미국", _up_ticker, _up_name, f"us_pick_{_uci}")
                                     with _u_card_col:
+                                        _up_fs = _up.get("from_search", False)
+                                        _up_fs_badge = (
+                                            "<span style='font-size:0.72rem;color:#ff9800;"
+                                            "background:rgba(255,152,0,0.15);border:1px solid #ff980066;"
+                                            "border-radius:3px;padding:1px 5px;margin-left:4px'>"
+                                            "🔍 AI발굴</span>"
+                                        ) if _up_fs else ""
                                         st.html(
                                             f"<div style='background:{_up_row_bg};border:{_up_row_bdr};"
                                             f"border-radius:8px;padding:8px 10px;margin-bottom:2px'>"
                                             f"<div style='display:flex;justify-content:space-between;align-items:center'>"
-                                            f"<span style='font-size:1.04rem;font-weight:700'>{_up_name} <span style='font-size:1.1rem;color:#666'>({_up_ticker})</span></span>"
+                                            f"<span style='font-size:1.04rem;font-weight:700'>{_up_name} <span style='font-size:1.1rem;color:#666'>({_up_ticker})</span>{_up_fs_badge}</span>"
                                             f"<span style='display:inline-block;padding:1px 7px;border-radius:4px;"
                                             f"background:{_up_urg_color}33;border:1px solid {_up_urg_color};"
                                             f"color:{_up_urg_color};font-size:0.82rem;font-weight:700'>"
@@ -6284,6 +6305,8 @@ def main():
                                             st.session_state.discovered_sell      = _hs.get("sell_target", "-")
                                             st.session_state.discovered_stop      = _hs.get("stop_loss", "-")
                                             st.session_state.discovered_reasoning = _hs.get("reasoning")
+                                            st.session_state.discovered_verified  = _hs.get("ticker_verified", None)
+                                            st.session_state.discovered_vname     = _hs.get("verified_name", "")
                                             from db import log_ai_recommendation
                                             log_ai_recommendation(
                                                 "단타발굴", _hs.get("ticker",""), _hs.get("name_kr",""),
@@ -6294,6 +6317,16 @@ def main():
                                             st.error(_hs.get("reasoning"))
                                 if "discovered_ticker" in st.session_state:
                                     with st.container(border=True):
+                                        # 티커 검증 상태 표시
+                                        _dv = st.session_state.get("discovered_verified", None)
+                                        _dvn = st.session_state.get("discovered_vname", "")
+                                        if _dv is False or str(_dv).lower() == "false":
+                                            st.warning(
+                                                f"⚠️ **티커 미검증** — AI가 이 티커의 실거래 여부를 확인하지 못했습니다. "
+                                                f"투자 전 직접 확인하세요."
+                                            )
+                                        elif _dvn:
+                                            st.caption(f"✅ 검증된 회사명: {_dvn}")
                                         st.markdown(
                                             f"**{st.session_state.discovered_name} "
                                             f"({st.session_state.discovered_ticker})**"
@@ -6407,6 +6440,28 @@ def main():
                                                 "short_term_view_pct": _us_prev.get("단기전망률", ""),
                                             }
                                         _render_analysis_diff(_us_prev_full, _rep, _us_prev.get("분석시간", ""))
+
+                                    # ── 티커 검증 배너 ────────────────────────────
+                                    _us_verified = _rep.get("verified_name", "")
+                                    _us_mismatch = str(_rep.get("ticker_mismatch", False)).lower() in ("true", "1")
+                                    if _us_mismatch:
+                                        st.error(
+                                            f"⚠️ **티커·회사명 불일치 감지**\n\n"
+                                            f"요청한 티커: **{_us_ticker_cur}**  \n"
+                                            f"AI 검색 확인 회사: **{_us_verified}**\n\n"
+                                            f"AI가 잘못된 회사 정보를 참조했을 수 있습니다. "
+                                            f"**매수가·목표가·손절가 등 모든 수치를 신뢰하지 마세요.**"
+                                        )
+                                    else:
+                                        _us_disp = _us_verified or detail_us.get("name", _us_ticker_cur)
+                                        st.markdown(
+                                            f"<div style='font-size:0.8rem;color:#666;margin:4px 0 8px;"
+                                            f"padding:4px 10px;background:rgba(255,255,255,0.03);"
+                                            f"border-radius:4px;border-left:2px solid #444'>"
+                                            f"✅ 분석 대상: <b style='color:#aaa'>{_us_disp} ({_us_ticker_cur})</b>"
+                                            f"</div>",
+                                            unsafe_allow_html=True,
+                                        )
 
                                     # 등급 배지
                                     _r = _rep.get("rating", "-")

@@ -361,8 +361,16 @@ def generate_stock_report(ticker, current_price, change_pct):
 데이터가 상승을 지지하면 상승을, 하락을 지지하면 하락을 솔직하게 제시하세요.
 근거 없는 낙관도, 근거 없는 비관도 금지. 수치와 사실로만 서술하세요.
 
+⚠️ [최우선 검증 단계] 분석 전 반드시 구글 검색으로 티커 '{ticker}'가 실제 NYSE/NASDAQ/AMEX 상장 회사인지 확인하세요.
+- 검색어: "{ticker} stock company name NYSE NASDAQ"
+- 확인한 실제 회사명을 'verified_name'에 기재하세요.
+- 확인한 회사가 분석 맥락과 다르거나 확인 불가 시 'ticker_mismatch': true 설정.
+
 구글 검색으로 최신 뉴스·실적·SEC 공시·옵션 플로우를 파악한 뒤 반드시 아래 JSON 형식으로만 응답하세요:
 {{
+  "verified_name": "구글 검색으로 확인한 티커 {ticker}의 실제 회사명",
+  "ticker_mismatch": false,
+
   "rating": "단기 트레이딩 등급 (매우 강력 추천 / 추천 / 중간추천 / 비추천 / 매우 비추천)",
 
   "key_issues": "현재 이 종목에 영향을 주는 핵심 이슈·변수 2~3가지 (마크다운 불릿. 긍정·부정 모두 포함, 실적·수급·매크로 등 구체적 수치와 함께)",
@@ -392,7 +400,7 @@ def generate_stock_report(ticker, current_price, change_pct):
 !! [딥링크] 종목 언급 시 반드시 '종목명(티커)' 형식: Apple(AAPL), NVIDIA(NVDA) 등
 """
     try:
-        response = _call_gemini(prompt, use_search=False, temperature=0.7)
+        response = _call_gemini(prompt, use_search=True, temperature=0.7)
         text = _clean_ai_json(response.text)
         start = text.find('{')
         if start != -1:
@@ -432,9 +440,16 @@ def discover_hot_day_trading_stock(context=""):
     종목을 선정했다면 반드시 구글 검색을 통해 해당 종목의 **'오늘 현재 실시간 주가(Current Price)'**를 파악하세요.
     현재가를 기준으로 하루 5~10% 이익을 노릴 수 있는 실질적인 진입가(Buy Target)와 목표가(Sell Target), 그리고 칼같은 손절가(Stop Loss)를 산정하세요.
 
+    ⚠️ [필수 검증] 발굴한 종목의 티커가 실제로 NYSE/NASDAQ에 상장되어 오늘 거래 중인지 구글 검색으로 반드시 확인하세요.
+    - 검색어: "[티커] stock price today NYSE NASDAQ"
+    - 확인된 실제 회사명을 'verified_name'에 기재하세요.
+    - 오늘 실제로 거래 중임이 확인되면 'ticker_verified': true, 확인 불가 시 'ticker_verified': false.
+
     반드시 아래 JSON 형식으로만 응답하세요.
     {{
       "ticker": "티커 (예: SOUN, SMCI, PLTR 등 중소형 변동성 주식)",
+      "verified_name": "구글 검색으로 확인한 실제 회사명",
+      "ticker_verified": true,
       "name_kr": "종목명",
       "buy_target": "현재가 부근의 실질적 매수 적정 구간 및 추격 매수 금지선 (예: $15.50 ~ $16.00 이하)",
       "sell_target": "매수가 대비 5~10% 이익 구간의 목표가",
@@ -728,6 +743,7 @@ KOSDAQ: {kosdaq.get('index',0):,.2f}  ({kosdaq.get('change_pct',0):+.2f}%)
       "rank": 1,
       "code": "종목코드 6자리",
       "name": "종목명",
+      "from_search": false,
       "theme": "핵심 테마 1~2개 (섹터명 기준)",
       "pattern": "해당하는 급등 직전 패턴명 (예: 거래량가속돌파, 박스권돌파, 눌림목반등, 테마추종 등)",
       "reason": "패턴 근거 + 오늘 재료 + 테마 연동 이유 + 진입 근거 (3~4줄)",
@@ -748,7 +764,10 @@ KOSDAQ: {kosdaq.get('index',0):,.2f}  ({kosdaq.get('change_pct',0):+.2f}%)
   ]
 }}
 
-⚠️ 자가검증: change_pct ≥ 10%인 종목이 있으면 반드시 교체하세요."""
+⚠️ 자가검증 (반드시 수행):
+① change_pct ≥ 10%인 종목이 있으면 교체하세요.
+② 위 '급등 직전 시그널 후보군' 목록에 없는 종목을 선택했다면 해당 픽의 'from_search': true로 설정하고 reason에 구글 검색 근거를 명시하세요.
+③ code가 실제 KRX 6자리 코드인지 확인하세요 (숫자 6자리 형식)."""
 
     try:
         response = _call_gemini(prompt, use_search=True, temperature=0.35)
@@ -975,8 +994,8 @@ def analyze_kr_hot_sectors() -> dict:
 1. 위 DB에서 오늘 가장 뜨거운 섹터 5~7개를 선택하세요. keyword는 위 섹터명과 정확히 일치해야 합니다.
 2. DB에 없어도 오늘 뉴스에서 새롭게 부각되는 테마가 있으면 신규 keyword로 추가하세요 (예: 양자컴퓨터·암호, 우주·항공우주).
 3. 실시간 급등 종목 데이터가 있으면 해당 종목이 속한 섹터의 hot_codes에 반영하세요.
-4. hot_codes: 이 섹터에서 오늘 가장 주목받는 종목코드 최대 10개 (KR 6자리).
-5. new_stocks: DB에 없지만 오늘 뉴스로 주목받는 신규 종목 (신규 섹터일 때 특히 중요).
+4. hot_codes: 이 섹터에서 오늘 가장 주목받는 종목코드 최대 10개 (KR 6자리). ⚠️ 반드시 구글 검색으로 각 코드가 실제 KRX 상장 종목 코드인지 확인하고, 확인되지 않은 코드는 제외하세요.
+5. new_stocks: DB에 없지만 오늘 뉴스로 주목받는 신규 종목 (신규 섹터일 때 특히 중요). ⚠️ code와 name이 실제로 일치하는지 구글 검색으로 확인 후 기재하세요.
 6. dynamic_subsectors: 이 섹터 안에서 오늘 뉴스·수급으로 새롭게 부각되는 세부 테마 최대 2개.
    예) '통신' 섹터에서 '광통신'이 급부상, 'AI·로봇' 섹터에서 '온디바이스AI'가 급부상하는 경우.
    세부테마가 없으면 빈 배열 []로 두세요.
@@ -1314,6 +1333,7 @@ DOW    : {dow.get('price',0):,.2f}  ({dow.get('change_pct',0):+.2f}%)
       "rank": 1,
       "ticker": "티커심볼",
       "name": "영문 종목명",
+      "from_search": false,
       "theme": "핵심 테마 1~2개",
       "pattern": "해당 급등 직전 패턴명",
       "reason": "패턴 근거 + 오늘 재료 + 진입 가능한 이유 (3줄 이내)",
@@ -1329,7 +1349,10 @@ DOW    : {dow.get('price',0):,.2f}  ({dow.get('change_pct',0):+.2f}%)
   ]
 }}
 
-⚠️ 자가검증: change_pct ≥ 12%인 종목이 있으면 반드시 교체하세요."""
+⚠️ 자가검증 (반드시 수행):
+① change_pct ≥ 12%인 종목은 교체하세요.
+② 위 '급등 직전 시그널 후보군' 목록에 없는 종목을 선택했다면 해당 픽의 'from_search': true로 설정하고 reason에 구글 검색 근거를 명시하세요.
+③ ticker가 실제 NYSE/NASDAQ 상장 심볼인지 확인하세요."""
 
     try:
         response = _call_gemini(prompt, use_search=True, temperature=0.35)
