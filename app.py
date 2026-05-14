@@ -65,8 +65,8 @@ def _kr_stock_badges_html(price_info: dict) -> str:
     badges = []
 
     _BADGE = (
-        "<span style='display:inline-block;padding:1px 7px;border-radius:4px;"
-        "font-size:0.72rem;font-weight:700;margin-left:4px;"
+        "<span title='{tip}' style='display:inline-block;padding:1px 7px;border-radius:4px;"
+        "font-size:0.72rem;font-weight:700;margin-left:4px;cursor:help;"
         "background:{bg};color:{fg}'>{text}</span>"
     )
 
@@ -78,33 +78,36 @@ def _kr_stock_badges_html(price_info: dict) -> str:
     vi       = str(price_info.get("vi_type", "N")).strip()
     vi_ovtm  = str(price_info.get("vi_ovtm", "N")).strip()
 
-    # 거래정지: halt 필드가 'N'/빈값/'0'이 아니거나, 상태코드가 '58'(거래정지)인 경우
     if halt not in ("N", "", "0", None) or sc == "58":
-        badges.append(_BADGE.format(bg="#b71c1c", fg="#fff", text="거래정지"))
-    
-    # 관리종목: managed 필드가 'N'/빈값/'00'이 아니거나, 상태코드가 '51'(관리종목)인 경우
+        badges.append(_BADGE.format(bg="#b71c1c", fg="#fff", text="거래정지",
+            tip="거래정지: 현재 매수·매도가 불가능합니다. 거래 재개 시점 불명확, 상장폐지 가능성 있음."))
     if managed not in ("N", "", "00", None) or sc == "51":
-        badges.append(_BADGE.format(bg="#4a148c", fg="#fff", text="관리종목"))
+        badges.append(_BADGE.format(bg="#4a148c", fg="#fff", text="관리종목",
+            tip="관리종목: KRX 상장 적격성 심사 대상 종목. 상장폐지 심사를 받을 수 있습니다."))
 
-    # 시장경고(mrkt_warn)와 종목상태(status_code) 중 더 높은 수준 적용
     warn_level = max(
         {"00": 0, "01": 1, "02": 2, "03": 3}.get(mw, 0),
         {"55": 0, "58": 0, "51": 1, "52": 2, "53": 2, "54": 3}.get(sc, 0),
     )
     if warn_level == 1:
-        badges.append(_BADGE.format(bg="#f57f17", fg="#fff", text="투자주의"))
+        badges.append(_BADGE.format(bg="#f57f17", fg="#fff", text="투자주의",
+            tip="투자주의: 단기 급등·이상거래 감지. 신중한 투자가 필요합니다."))
     elif warn_level == 2:
-        badges.append(_BADGE.format(bg="#e65100", fg="#fff", text="투자경고"))
+        badges.append(_BADGE.format(bg="#e65100", fg="#fff", text="투자경고",
+            tip="투자경고: 투자주의 후속 단계. 추가 급등 시 매매 제한이 발동될 수 있습니다."))
     elif warn_level >= 3:
-        badges.append(_BADGE.format(bg="#b71c1c", fg="#fff", text="투자위험"))
+        badges.append(_BADGE.format(bg="#b71c1c", fg="#fff", text="투자위험",
+            tip="투자위험: 최고 단계 경고. 매매거래 정지 직전 단계입니다."))
 
     if short_ov == "Y":
-        badges.append(_BADGE.format(bg="#1565c0", fg="#fff", text="단기과열"))
-    # vi_type/vi_ovtm: "N" = 없음, 그 외 값이면 VI 발동
+        badges.append(_BADGE.format(bg="#1565c0", fg="#fff", text="단기과열",
+            tip="단기과열: 단기간 급등으로 과열 지정. 변동성이 매우 크며 추가 규제가 적용될 수 있습니다."))
     if vi not in ("N", "", None):
-        badges.append(_BADGE.format(bg="#00695c", fg="#fff", text="VI발동"))
+        badges.append(_BADGE.format(bg="#00695c", fg="#fff", text="VI발동",
+            tip="변동성완화장치(VI) 발동: 급격한 가격 변동으로 2분간 단일가 매매로 전환됩니다."))
     elif vi_ovtm not in ("N", "", None):
-        badges.append(_BADGE.format(bg="#00695c", fg="#fff", text="시간외VI"))
+        badges.append(_BADGE.format(bg="#00695c", fg="#fff", text="시간외VI",
+            tip="시간외VI: 시간외 거래 중 변동성완화장치 발동."))
 
     return "".join(badges)
 
@@ -3392,6 +3395,23 @@ def main():
                             elif st.session_state.kr_right_tab == _rp_tabs[2]:
                                 _ai_key  = f"kr_report_{selected_code_kr}"
                                 _ai_err_key = f"kr_report_error_{selected_code_kr}"
+
+                                # 거래정지·관리종목 경고
+                                _is_halted  = str(price_kr.get("halt", "N")).strip() not in ("N", "", "0", None) or str(price_kr.get("status_code", "55")).strip() == "58"
+                                _is_managed = str(price_kr.get("managed", "N")).strip() not in ("N", "", "00", None)
+                                if _is_halted:
+                                    st.error(
+                                        "⚠️ **거래정지 종목입니다.**  \n"
+                                        "현재 매수·매도가 불가능하며 거래 재개 시점이 불명확합니다.  \n"
+                                        "아래 AI 분석은 **거래가 재개될 경우를 가정한 참고용**이며, "
+                                        "실제 투자 판단에 직접 활용하지 마세요."
+                                    )
+                                elif _is_managed:
+                                    st.warning(
+                                        "⚠️ **관리종목입니다.**  \n"
+                                        "KRX 상장 적격성 심사 대상으로 상장폐지 위험이 있습니다.  \n"
+                                        "AI 분석 결과를 참고할 때 이 점을 반드시 감안하세요."
+                                    )
 
                                 if st.button("🎯 AI 수급 & 타점 분석 실행", key="kr_ai_btn",
                                              use_container_width=True, type="primary"):
