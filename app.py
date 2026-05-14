@@ -78,9 +78,9 @@ def _kr_stock_badges_html(price_info: dict) -> str:
     vi       = price_info.get("vi_type", "N")
     vi_ovtm  = price_info.get("vi_ovtm", "N")
 
-    if halt == "Y":
+    if halt not in ("N", "", None):
         badges.append(_BADGE.format(bg="#b71c1c", fg="#fff", text="거래정지"))
-    if managed == "Y":
+    if managed not in ("N", "", None):
         badges.append(_BADGE.format(bg="#4a148c", fg="#fff", text="관리종목"))
 
     # 시장경고(mrkt_warn)와 종목상태(status_code) 중 더 높은 수준 적용
