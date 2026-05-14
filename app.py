@@ -1212,6 +1212,136 @@ def show_market_scenarios():
             st.rerun()
 
 
+@st.dialog("🇰🇷 국내 테마주 분석", width="large")
+def show_kr_theme_analysis():
+    _today = __import__("datetime").date.today().strftime("%Y-%m-%d")
+    _cache_key = f"kr_theme_{_today}"
+
+    if "kr_theme_data" not in st.session_state:
+        from db import load_ai_cache, save_ai_cache
+        _cached = load_ai_cache(_cache_key)
+        if _cached:
+            st.session_state.kr_theme_data = _cached
+        else:
+            with st.spinner("🔍 오늘의 이슈를 분석해 테마주 패턴을 조회 중입니다... (최대 120초)"):
+                from ai_engine import generate_kr_theme_analysis
+                _new = generate_kr_theme_analysis()
+            st.session_state.kr_theme_data = _new
+            if _new and "error" not in _new:
+                try:
+                    save_ai_cache(_cache_key, _new)
+                except Exception:
+                    pass
+
+    data = st.session_state.get("kr_theme_data")
+
+    if not data or "error" in (data or {}):
+        st.error(f"분석 실패: {data.get('error','알 수 없는 오류') if data else '응답 없음'}")
+        if st.button("🔄 재시도"):
+            st.session_state.pop("kr_theme_data", None)
+            st.rerun()
+        return
+
+    st.caption("오늘 이슈 기반 — 과거 테마 패턴 분석을 통해 대장주·관련주·간접테마주를 구분합니다.")
+
+    _themes = data.get("themes", [])
+    if not _themes:
+        st.warning("분석된 테마가 없습니다.")
+        return
+
+    _theme_tabs = st.tabs([f"{'🔥' if i==0 else '📌'} {th.get('theme_name','테마')}" for i, th in enumerate(_themes)])
+
+    for _ttab, _theme in zip(_theme_tabs, _themes):
+        with _ttab:
+            _momentum = _theme.get("theme_momentum", "보통")
+            _duration = _theme.get("expected_duration", "-")
+            _mc = {"강함": "#ff4b4b", "보통": "#ffd740", "약함": "#888"}.get(_momentum, "#888")
+
+            st.markdown(
+                f"<div style='background:rgba(255,255,255,0.04);border-radius:10px;padding:12px 16px;margin-bottom:12px'>"
+                f"<b style='font-size:1.05rem'>{_theme.get('trigger_news','')}</b><br>"
+                f"<span style='color:#aaa;font-size:0.82rem'>예상 지속: {_duration} &nbsp;|&nbsp; "
+                f"테마 강도: <b style='color:{_mc}'>{_momentum}</b></span>"
+                f"</div>",
+                unsafe_allow_html=True
+            )
+
+            _hist = _theme.get("historical_case", "")
+            if _hist:
+                with st.expander("📚 과거 유사 사례"):
+                    st.markdown(_hist)
+
+            _rising = _theme.get("rising_stocks", [])
+            _falling = _theme.get("falling_stocks", [])
+
+            _rc, _fc = st.columns(2)
+
+            with _rc:
+                st.markdown("#### 📈 상승 예상 종목")
+                _type_order = ["대장주", "직접관련주", "간접테마주"]
+                _type_colors = {"대장주": "#ff4b4b", "직접관련주": "#ff8a65", "간접테마주": "#ffd740"}
+                _type_icons = {"대장주": "👑", "직접관련주": "🔗", "간접테마주": "🌊"}
+                for _stype in _type_order:
+                    _group = [s for s in _rising if s.get("type") == _stype]
+                    if not _group:
+                        continue
+                    _col = _type_colors.get(_stype, "#ccc")
+                    _icon = _type_icons.get(_stype, "")
+                    st.markdown(f"<p style='color:{_col};font-weight:700;margin:10px 0 4px'>{_icon} {_stype}</p>", unsafe_allow_html=True)
+                    for _s in _group:
+                        _ticker = _s.get("ticker", "")
+                        _name = _s.get("name", "")
+                        _hist_p = _s.get("historical_pattern", "")
+                        _reason = _s.get("reason", "")
+                        _risk = _s.get("risk", "")
+                        st.markdown(
+                            f"<div style='background:rgba(255,75,75,0.07);border-left:3px solid {_col};"
+                            f"border-radius:6px;padding:8px 12px;margin-bottom:6px'>"
+                            f"<b style='color:{_col}'>{_name}</b> "
+                            f"<a href='/?market=KR&code={_ticker}' target='_blank' "
+                            f"style='color:#aaa;font-size:0.78rem;text-decoration:none'>({_ticker}) ↗</a><br>"
+                            f"<span style='font-size:0.8rem;color:#bbb'>📌 {_hist_p}</span><br>"
+                            f"<span style='font-size:0.8rem'>{_reason}</span>"
+                            + (f"<br><span style='font-size:0.75rem;color:#f87171'>⚠️ {_risk}</span>" if _risk else "")
+                            + "</div>",
+                            unsafe_allow_html=True
+                        )
+
+            with _fc:
+                st.markdown("#### 📉 하락 예상 종목")
+                if not _falling:
+                    st.caption("하락 예상 종목 없음")
+                for _s in _falling:
+                    _ticker = _s.get("ticker", "")
+                    _name = _s.get("name", "")
+                    _reason = _s.get("reason", "")
+                    st.markdown(
+                        f"<div style='background:rgba(43,124,255,0.07);border-left:3px solid #2b7cff;"
+                        f"border-radius:6px;padding:8px 12px;margin-bottom:6px'>"
+                        f"<b style='color:#5c9bd6'>{_name}</b> "
+                        f"<a href='/?market=KR&code={_ticker}' target='_blank' "
+                        f"style='color:#aaa;font-size:0.78rem;text-decoration:none'>({_ticker}) ↗</a><br>"
+                        f"<span style='font-size:0.8rem'>{_reason}</span>"
+                        f"</div>",
+                        unsafe_allow_html=True
+                    )
+
+    _ref_col, _close_col = st.columns([3, 1])
+    with _ref_col:
+        if st.button("🔄 새로 분석", key="kr_theme_refresh", use_container_width=True):
+            st.session_state.pop("kr_theme_data", None)
+            try:
+                from db import delete_ai_cache
+                delete_ai_cache(_cache_key)
+            except Exception:
+                pass
+            st.rerun()
+    with _close_col:
+        if st.button("닫기", key="kr_theme_close", use_container_width=True):
+            st.session_state.pop("_dialog_open", None)
+            st.rerun()
+
+
 @st.dialog("오늘의 데일리 브리핑 📝")
 def show_daily_briefing():
     with st.spinner("🧠 AI가 글로벌 실시간 뉴스를 분석하여 브리핑을 작성 중입니다..."):
@@ -1886,6 +2016,10 @@ def main():
         if st.button("📈 시나리오", key="top_nav_scenario", use_container_width=True):
             st.session_state._dialog_open = True
             show_market_scenarios()
+    with _sp:
+        if st.button("🇰🇷 테마주", key="top_nav_kr_theme", use_container_width=True):
+            st.session_state._dialog_open = True
+            show_kr_theme_analysis()
     with _hm1:
         if st.button("🇰🇷 국내", key="top_mkt_kr",
                      type="primary" if _is_kr_nav else "secondary",

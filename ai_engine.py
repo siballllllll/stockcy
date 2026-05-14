@@ -303,6 +303,70 @@ def generate_scenario_detail(issue_title: str, scenario_title: str, economic_ana
         return {"error": str(e)}
 
 
+def generate_kr_theme_analysis() -> dict:
+    """
+    국내 주식 테마주 분석 — 현재 이슈 기반으로 과거 테마 패턴을 조회해
+    대장주·직접관련주·간접테마주의 예상 상승/하락 종목을 제시합니다.
+    """
+    prompt = (
+        "당신은 국내 주식시장(KOSPI/KOSDAQ) 20년 경력의 테마주 전문 애널리스트입니다.\n"
+        "구글 검색으로 오늘 한국 증시에 가장 큰 영향을 줄 수 있는 이슈·뉴스 3~4개를 파악하세요.\n\n"
+        "【핵심 분석 방법】\n"
+        "한국 증시에서는 특정 이슈가 발생하면, 직접 관련 종목만 오르지 않습니다.\n"
+        "과거 유사 사례에서 '테마'로 묶인 주변 관련주들이 함께 급등하는 패턴이 반복됩니다.\n"
+        "예시: 'AI 붐' 이슈 → 대장주(삼성전자) + AI서버관련(한미반도체) + 전력인프라(LS일렉트릭) + 냉각(에스티아이) 등\n"
+        "예시: '방산' 이슈 → 대장주(한화에어로스페이스) + K2전차(현대로템) + 함정(한화오션) + 탄약(풍산) + 방산소재(에코프로비엠) 등\n\n"
+        "각 이슈에 대해:\n"
+        "1. 과거 유사 사례에서 어떤 테마로 묶여 움직였는지 분석\n"
+        "2. 이번에도 같은 패턴으로 움직일 가능성이 있는 종목들을 대장주·직접관련주·간접테마주로 구분\n"
+        "3. 상승 예상 종목과 하락 예상 종목 제시\n\n"
+        "【종목 구분 기준】\n"
+        "- 대장주: 해당 테마에서 가장 직접적인 수혜를 받는 핵심 종목 (시장 대표성)\n"
+        "- 직접관련주: 사업 구조상 직접 관련이 있는 종목\n"
+        "- 간접테마주: 약간만 관련 있지만 시장 심리상 같은 테마로 묶이는 종목 (과거 패턴 근거)\n\n"
+        "반드시 아래 JSON 형식으로만 응답하세요 (백틱, 주석 절대 금지):\n\n"
+        "{\n"
+        '  "themes": [\n'
+        "    {\n"
+        '      "theme_no": 1,\n'
+        '      "theme_name": "테마명 (예: AI반도체, 방산, 원자력 등)",\n'
+        '      "trigger_news": "오늘 이 테마를 촉발한 뉴스/이슈 (1~2문장)",\n'
+        '      "historical_case": "과거 유사 사례: 언제, 어떤 이슈로, 어떤 종목들이 함께 올랐는지 (2~3문장)",\n'
+        '      "theme_momentum": "강함/보통/약함",\n'
+        '      "expected_duration": "단기(1~3일)/중기(1~2주)/장기(1개월+)",\n'
+        '      "rising_stocks": [\n'
+        '        {\n'
+        '          "name": "종목명",\n'
+        '          "ticker": "KOSPI/KOSDAQ 6자리 숫자코드 (예: 005930)",\n'
+        '          "type": "대장주 또는 직접관련주 또는 간접테마주",\n'
+        '          "historical_pattern": "과거 유사 이슈 때 이 종목이 어떻게 움직였는지 (1문장)",\n'
+        '          "reason": "이번에 상승이 예상되는 이유",\n'
+        '          "risk": "주의해야 할 리스크"\n'
+        '        }\n'
+        "      ],\n"
+        '      "falling_stocks": [\n'
+        '        {\n'
+        '          "name": "종목명",\n'
+        '          "ticker": "KOSPI/KOSDAQ 6자리 숫자코드",\n'
+        '          "reason": "하락이 예상되는 이유"\n'
+        '        }\n'
+        "      ]\n"
+        "    }\n"
+        "  ]\n"
+        "}"
+    )
+    try:
+        response = _call_gemini(prompt, use_search=True, temperature=0.6, timeout_sec=120)
+        text = _clean_ai_json(response.text)
+        start = text.find('{')
+        if start != -1:
+            result, _ = json.JSONDecoder().raw_decode(text, start)
+            return result
+        return json.loads(text)
+    except Exception as e:
+        return {"error": str(e)}
+
+
 def generate_mindmap_data():
     """
     최신 뉴스를 바탕으로 급등/급락 인과관계 마인드맵(Mermaid 문법)을 생성합니다.
