@@ -1025,12 +1025,12 @@ def show_market_scenarios():
     _today = __import__("datetime").date.today().strftime("%Y-%m-%d")
     _cache_key = f"market_scenarios_{_today}"
 
-    # 버튼 최상단 배치 — 데이터 로딩 전에 항상 즉시 표시
-    _ref_col, _close_col = st.columns([3, 1])
+    # 버튼 최상단 우측 정렬 — 데이터 로딩 전에 즉시 표시
+    _spc, _ref_col, _close_col = st.columns([4, 1.4, 0.6])
     with _ref_col:
-        _do_refresh = st.button("🔄 새로 분석", use_container_width=True)
+        _do_refresh = st.button("🔄 새로 분석", use_container_width=True, type="secondary")
     with _close_col:
-        _do_close = st.button("닫기", use_container_width=True)
+        _do_close = st.button("✕", use_container_width=True, type="secondary")
 
     if _do_refresh:
         for _k in list(st.session_state.keys()):
@@ -1045,8 +1045,6 @@ def show_market_scenarios():
     if _do_close:
         st.session_state.pop("_dialog_open", None)
         st.rerun()
-
-    st.divider()
 
     if "market_scenarios_data" not in st.session_state:
         # Google Sheets 캐시 확인
