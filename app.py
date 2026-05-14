@@ -1041,6 +1041,7 @@ def show_market_scenarios():
             delete_ai_cache(_cache_key)
         except Exception:
             pass
+        st.session_state._scenario_dialog_open = True
         st.rerun()
     if _do_close:
         st.session_state.pop("_dialog_open", None)
@@ -2016,6 +2017,8 @@ def main():
     with _hn6:
         if st.button("📈 시나리오", key="top_nav_scenario", use_container_width=True):
             st.session_state._dialog_open = True
+            st.session_state._scenario_dialog_open = True
+        if st.session_state.pop("_scenario_dialog_open", False):
             show_market_scenarios()
     with _hm1:
         if st.button("🇰🇷 국내", key="top_mkt_kr",
