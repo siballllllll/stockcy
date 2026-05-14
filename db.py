@@ -427,15 +427,140 @@ def load_sector_map() -> dict:
     return _enrich_with_krx(raw)
 
 
+# FDR 영문 섹터 → 한국어 섹터 매핑
+_FDR_TO_KR_SECTOR = {
+    "Technology":             "빅테크·AI소프트",
+    "Healthcare":             "바이오·헬스케어",
+    "Financial Services":     "금융·핀테크",
+    "Financials":             "금융·핀테크",
+    "Finance":                "금융·핀테크",
+    "Consumer Cyclical":      "소비재·유통",
+    "Consumer Discretionary": "소비재·유통",
+    "Consumer Defensive":     "소비재·유통",
+    "Consumer Staples":       "소비재·유통",
+    "Communication Services": "통신·네트워크",
+    "Communications":         "통신·네트워크",
+    "Energy":                 "에너지·원자력",
+    "Industrials":            "전통 산업·소재",
+    "Industrial":             "전통 산업·소재",
+    "Basic Materials":        "광업·귀금속·원자재",
+    "Materials":              "광업·귀금속·원자재",
+    "Real Estate":            "리츠·부동산",
+    "Utilities":              "전력 인프라·그리드",
+}
+
+# FDR 영문 업종(Industry) → 한국어 세부섹터 매핑
+_FDR_TO_KR_INDUSTRY = {
+    "Semiconductors":                           "반도체",
+    "Semiconductor Equipment & Materials":      "반도체 장비·소재",
+    "Software—Application":                     "소프트웨어·앱",
+    "Software—Infrastructure":                  "소프트웨어·인프라",
+    "Information Technology Services":          "IT서비스",
+    "Computer Hardware":                        "컴퓨터 하드웨어",
+    "Electronic Components":                    "전자부품",
+    "Internet Content & Information":           "인터넷·콘텐츠",
+    "Electronics & Computer Distribution":      "전자·컴퓨터 유통",
+    "Scientific & Technical Instruments":       "계측·기술장비",
+    "Biotechnology":                            "바이오테크",
+    "Drug Manufacturers—General":               "제약 대형",
+    "Drug Manufacturers—Specialty & Generic":   "제약 중소형",
+    "Medical Devices":                          "의료기기",
+    "Medical Instruments & Supplies":           "의료기기·용품",
+    "Diagnostics & Research":                   "진단·연구",
+    "Healthcare Plans":                         "헬스케어 보험",
+    "Health Information Services":              "헬스케어 IT",
+    "Banks—Diversified":                        "종합은행",
+    "Banks—Regional":                           "지역은행",
+    "Insurance—Life":                           "생명보험",
+    "Insurance—Property & Casualty":            "손해보험",
+    "Insurance—Diversified":                    "복합보험",
+    "Asset Management":                         "자산운용",
+    "Capital Markets":                          "자본시장",
+    "Credit Services":                          "신용서비스",
+    "Mortgage Finance":                         "모기지금융",
+    "Electronic Gaming & Multimedia":           "게임·멀티미디어",
+    "Telecom Services":                         "통신서비스",
+    "Entertainment":                            "엔터테인먼트",
+    "Broadcasting":                             "방송",
+    "Publishing":                               "출판·미디어",
+    "Advertising Agencies":                     "광고대행",
+    "Auto Manufacturers":                       "자동차 제조",
+    "Auto Parts":                               "자동차 부품",
+    "Specialty Retail":                         "전문 소매",
+    "Apparel Retail":                           "의류 소매",
+    "Apparel Manufacturing":                    "의류 제조",
+    "Department Stores":                        "백화점·유통",
+    "Discount Stores":                          "할인점",
+    "Grocery Stores":                           "식료품점",
+    "Restaurants":                              "외식업",
+    "Travel Services":                          "여행서비스",
+    "Airlines":                                 "항공사",
+    "Hotels & Motels":                          "호텔·모텔",
+    "Lodging":                                  "숙박",
+    "Resorts & Casinos":                        "리조트·카지노",
+    "Leisure":                                  "레저",
+    "Oil & Gas E&P":                            "석유·가스 탐사",
+    "Oil & Gas Integrated":                     "석유·가스 통합",
+    "Oil & Gas Refining & Marketing":           "정유·마케팅",
+    "Oil & Gas Equipment & Services":           "석유·가스 장비",
+    "Oil & Gas Midstream":                      "석유·가스 미드스트림",
+    "Uranium":                                  "우라늄",
+    "Solar":                                    "태양광",
+    "Utilities—Regulated Electric":             "규제 전력",
+    "Utilities—Renewable":                      "재생에너지",
+    "Utilities—Independent Power Producers":    "독립발전사",
+    "Utilities—Diversified":                    "다각화 유틸리티",
+    "Utilities—Regulated Gas":                  "규제 가스",
+    "Utilities—Regulated Water":                "규제 수도",
+    "Gold":                                     "금광",
+    "Silver":                                   "은광",
+    "Copper":                                   "구리·광물",
+    "Steel":                                    "철강",
+    "Aluminum":                                 "알루미늄",
+    "Other Industrial Metals & Mining":         "기타 광업",
+    "Agricultural Inputs":                      "농업 소재",
+    "Chemicals":                                "화학",
+    "Specialty Chemicals":                      "특수화학",
+    "Building Materials":                       "건설 소재",
+    "Aerospace & Defense":                      "항공·방산",
+    "Industrial Machinery":                     "산업기계",
+    "Farm & Heavy Construction Machinery":      "농기계·중장비",
+    "Electrical Equipment & Parts":             "전기장비·부품",
+    "Engineering & Construction":               "엔지니어링·건설",
+    "Waste Management":                         "폐기물관리",
+    "Staffing & Employment Services":           "인력파견",
+    "Business Services":                        "비즈니스서비스",
+    "Rental & Leasing Services":                "임대·리스",
+    "Security & Protection Services":           "보안서비스",
+    "Trucking":                                 "트럭운송",
+    "Railroads":                                "철도",
+    "Marine Shipping":                          "해운",
+    "Integrated Freight & Logistics":           "물류·택배",
+    "REIT—Diversified":                         "다각화 리츠",
+    "REIT—Office":                              "오피스 리츠",
+    "REIT—Industrial":                          "산업 리츠",
+    "REIT—Retail":                              "리테일 리츠",
+    "REIT—Residential":                         "주거 리츠",
+    "REIT—Mortgage":                            "모기지 리츠",
+    "REIT—Specialty":                           "특수 리츠",
+    "REIT—Healthcare Facilities":               "헬스케어 리츠",
+    "REIT—Hotel & Motel":                       "호텔 리츠",
+    "Real Estate Services":                     "부동산 서비스",
+    "Real Estate—Diversified":                  "복합 부동산",
+    "Consumer Electronics":                     "소비자가전",
+    "Packaging & Containers":                   "포장재",
+    "Paper & Paper Products":                   "제지",
+    "Lumber & Wood Production":                 "목재",
+    "Personal Services":                        "개인서비스",
+    "Education & Training Services":            "교육·훈련",
+    "Medical Care Facilities":                  "의료시설",
+    "Pharmaceutical Retailers":                 "의약품 소매",
+}
+
+
 @st.cache_data(ttl=300)
 def load_us_sector_map() -> dict:
-    """Google Sheets 섹터DB_US 탭 → sectors_us.py → FDR 전종목 업종 순으로 병합.
-
-    1. 구글 시트 / sectors_us.py 로 큐레이션 섹터맵 로드
-    2. FDR(FinanceDataReader) 업종 분류로 전종목 자동 보강
-       - 기존 섹터에 없는 업종만 추가 (중복 방지)
-       - 기존 세부섹터에 없는 종목만 추가
-    """
+    """Google Sheets 섹터DB_US 탭 → sectors_us.py → FDR 전종목 업종 순으로 병합."""
     try:
         sh, _ = _get_spreadsheet()
         if sh is None:
@@ -465,6 +590,27 @@ def load_us_sector_map() -> dict:
     except Exception:
         from sectors_us import US_SECTOR_MAP
         raw = US_SECTOR_MAP
+
+    # FDR 전종목으로 보강: 기존에 없는 종목만 해당 한국어 섹터에 추가
+    try:
+        from data_kr import get_us_fdr_sector_map
+        fdr_map = get_us_fdr_sector_map()
+        # 이미 등록된 티커 집합 (중복 방지)
+        existing = {s["ticker"] for subs in raw.values() for stks in subs.values() for s in stks}
+        for fdr_sec, fdr_subs in fdr_map.items():
+            kr_sec = _FDR_TO_KR_SECTOR.get(fdr_sec)
+            if not kr_sec or kr_sec not in raw:
+                continue
+            for fdr_sub, fdr_stocks in fdr_subs.items():
+                kr_sub = _FDR_TO_KR_INDUSTRY.get(fdr_sub, fdr_sub)
+                new = [s for s in fdr_stocks if s["ticker"] not in existing]
+                if not new:
+                    continue
+                raw[kr_sec].setdefault(kr_sub, []).extend(new)
+                for s in new:
+                    existing.add(s["ticker"])
+    except Exception:
+        pass
 
     return raw
 
