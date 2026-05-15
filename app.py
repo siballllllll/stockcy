@@ -3283,7 +3283,7 @@ def main():
                                     unsafe_allow_html=True,
                                 )
                             else:
-                                st.markdown(f"**{_real_dtv_name}** ({_dtv_code})")
+                                st.markdown(f"{_real_dtv_name} ({_dtv_code})")
 
                             _kr_echarts_chart(_dtv_code, interval="5", height=600)
 
@@ -3404,9 +3404,8 @@ def main():
                             
                             pct_color = "up-kr" if is_up else "down-kr" if is_dn else ""
                             _badges_html = _kr_stock_badges_html(price_kr)
-                            st.markdown(
                                 f"<div style='display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap'>"
-                                f"<span style='font-size:1.44rem;font-weight:700'>**{_real_name}**</span> "
+                                f"<span style='font-size:1.44rem;font-weight:700'>{_real_name}</span> "
                                 f"<span style='font-size:1.17rem;color:#888'>({selected_code_kr})</span>"
                                 f"{_badges_html} &nbsp; "
                                 f"<span style='font-size:1.26rem;font-weight:600'>₩{price_kr['price']:,}</span> &nbsp; "
@@ -5814,7 +5813,7 @@ def main():
                                 _ar_cur  = "▲" if _chg_cur >= 0 else "▼"
                                 st.markdown(
                                     f"<div style='display:flex;align-items:center;gap:8px;margin-bottom:8px'>"
-                                    f"<span style='font-size:1.44rem;font-weight:700'>**{_real_us_dname}**</span> "
+                                    f"<span style='font-size:1.44rem;font-weight:700'>{_real_us_dname}</span> "
                                     f"<span style='font-size:1.17rem;color:#888'>({_us_dticker})</span> &nbsp; "
                                     f"<span style='font-size:1.26rem;font-weight:600'>${detail_us['price']:,.2f}</span> &nbsp; "
                                     f"<span style='color:{_col_cur};font-size:1.15rem;font-weight:600'>{_ar_cur} ${abs(detail_us.get('change', 0)):.2f} ({_chg_cur:+.2f}%)</span>"
@@ -5822,7 +5821,7 @@ def main():
                                     unsafe_allow_html=True,
                                 )
                             else:
-                                st.markdown(f"**{_real_us_dname}** ({_us_dticker})")
+                                st.markdown(f"{_real_us_dname} ({_us_dticker})")
                             _tv_ivs_d = [("5분","5"),("15분","15"),("1시간","60"),("1일","D")]
                             _tv_iv_cols_d = st.columns(len(_tv_ivs_d))
                             for _tii, (_til, _tiv) in enumerate(_tv_ivs_d):
@@ -5909,7 +5908,7 @@ def main():
                                 _ar  = "▲" if _chg >= 0 else "▼"
                                 st.markdown(
                                     f"<div style='display:flex;align-items:center;gap:8px;margin-bottom:8px'>"
-                                    f"<span style='font-size:1.44rem;font-weight:700'>**{_real_us_name}**</span> "
+                                    f"<span style='font-size:1.44rem;font-weight:700'>{_real_us_name}</span> "
                                     f"<span style='font-size:1.17rem;color:#888'>({_us_ticker_cur})</span> &nbsp; "
                                     f"<span style='font-size:1.26rem;font-weight:600'>${detail_us.get('price', 0):,.2f}</span> &nbsp; "
                                     f"<span style='color:{_col};font-size:1.15rem;font-weight:600'>{_ar} ${abs(detail_us.get('change', 0)):.2f} ({_chg:+.2f}%)</span>"
@@ -5919,7 +5918,7 @@ def main():
                             else:
                                 st.markdown(
                                     f"<div style='display:flex;align-items:center;gap:8px;margin-bottom:8px'>"
-                                    f"<span style='font-size:1.44rem;font-weight:700'>**{_real_us_name}**</span> "
+                                    f"<span style='font-size:1.44rem;font-weight:700'>{_real_us_name}</span> "
                                     f"<span style='font-size:1.17rem;color:#888'>({_us_ticker_cur})</span>"
                                     f"</div>",
                                     unsafe_allow_html=True,
