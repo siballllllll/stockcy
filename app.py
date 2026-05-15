@@ -308,7 +308,7 @@ def _us_echarts_chart(ticker: str, interval: str = "5", height: int = 600, perio
                     "axisLine": {"onZero": False, "lineStyle": {"color": "#444"}},
                     "splitLine": {"show": False}, "min": "dataMin", "max": "dataMax",
                     "axisPointer": {"z": 100},
-                    "axisLabel": {"color": "#888", "fontSize": 14, "interval": _label_interval}
+                    "axisLabel": {"color": "#888", "fontSize": 12, "interval": "auto", "hideOverlap": True}
                 },
                 {
                     "type": "category", "gridIndex": 1, "data": category_data, "boundaryGap": False,
@@ -444,7 +444,7 @@ def _kr_echarts_chart(stock_code: str, interval: str = "1", height: int = 600, p
                     "axisLine": {"onZero": False, "lineStyle": {"color": "#444"}},
                     "splitLine": {"show": False}, "min": "dataMin", "max": "dataMax",
                     "axisPointer": {"z": 100},
-                    "axisLabel": {"color": "#888", "fontSize": 14, "interval": _label_interval}
+                    "axisLabel": {"color": "#888", "fontSize": 12, "interval": "auto", "hideOverlap": True}
                 },
                 {
                     "type": "category", "gridIndex": 1, "data": category_data, "boundaryGap": False,
