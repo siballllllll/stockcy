@@ -2402,11 +2402,12 @@ def main():
                 _cache_key_nav = f"market_scenarios_{_today_ck}"
                 _t = threading.Thread(target=_run_scenario_bg, args=(_nav_task_id, _cache_key_nav), daemon=True)
                 _t.start()
-        # 완료 시 깜빡이는 초록 점 / 분석 중 회색 점
-        if _scenario_ready:
+        # 완료 시 깜빡이는 초록 점 / 분석 중 안내
+        if _nav_task_status == "done":
             st.markdown("<div style='text-align:center;margin-top:-6px'><span class='scenario-ready-dot'></span></div>", unsafe_allow_html=True)
         elif _nav_task_status == "running":
             st.markdown("<div style='text-align:center;margin-top:-6px;font-size:0.65rem;color:#888'>분석 중…</div>", unsafe_allow_html=True)
+        
         if st.session_state.pop("_scenario_dialog_open", False):
             show_market_scenarios()
     with _hm1:
