@@ -2312,6 +2312,11 @@ def main():
     if not st.session_state.get("kr_name_to_code"):
         try:
             _kr_res = get_kr_name_to_code_map()
+            if not _kr_res:
+                # 이전 빈 결과가 캐싱된 경우 → 강제 초기화 후 재시도
+                get_kr_name_to_code_map.clear()
+                get_kr_code_to_name_map.clear()
+                _kr_res = get_kr_name_to_code_map()
             if _kr_res:
                 st.session_state.kr_name_to_code = _kr_res
         except RuntimeError:
@@ -2322,7 +2327,12 @@ def main():
             st.session_state.us_ticker_map = _us_res
     if not st.session_state.get("kr_code_to_name"):
         try:
-            st.session_state.kr_code_to_name = get_kr_code_to_name_map()
+            _c2n_res = get_kr_code_to_name_map()
+            if not _c2n_res:
+                get_kr_name_to_code_map.clear()
+                get_kr_code_to_name_map.clear()
+                _c2n_res = get_kr_code_to_name_map()
+            st.session_state.kr_code_to_name = _c2n_res or {}
         except RuntimeError:
             st.session_state.kr_code_to_name = {}
     
