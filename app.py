@@ -6001,23 +6001,25 @@ def main():
                         _us_tm = st.session_state.get("us_ticker_map") or {}
                         _us_all_stk: dict = {}
                         
-                        # 1. 섹터맵에서 한국어 이름이 있는 종목 우선 등록
+                        from us_kr_names import get_kr_name
+                        
+                        # 1. 티커맵(전종목)을 순회하며 한국어 이름 적용
+                        if _us_tm:
+                            for _tk, _ti in _us_tm.items():
+                                _eng_name = _ti.get("name", _tk)
+                                _kr_name = get_kr_name(_tk, _eng_name)
+                                _lbl = f"{_kr_name} ({_tk})"
+                                _us_all_stk[_lbl] = {"ticker": _tk, "exchange": _ti.get("exchange", "NASDAQ")}
+                        
+                        # 2. 섹터맵(큐레이션) 보강 (혹시 누락된 것이 있다면)
                         from db import load_us_sector_map as _load_us_sm
                         _us_sm = _load_us_sm()
                         for _sec_val in _us_sm.values():
                             for _sub_val in _sec_val.values():
                                 for _s in _sub_val:
                                     _lbl = f"{_s['name']} ({_s['ticker']})"
-                                    _us_all_stk[_lbl] = {"ticker": _s["ticker"], "exchange": _s.get("exchange", "NASDAQ")}
-                        
-                        # 2. 티커맵(영어이름)으로 보강 (한국어 이름이 없는 종목만 추가)
-                        if _us_tm:
-                            # 빠른 티커 체크를 위한 집합 생성
-                            _registered_tickers = {v["ticker"] for v in _us_all_stk.values()}
-                            for _tk, _ti in _us_tm.items():
-                                if _tk not in _registered_tickers:
-                                    _lbl = f"{_ti['name']} ({_tk})"
-                                    _us_all_stk[_lbl] = {"ticker": _tk, "exchange": _ti.get("exchange", "NASDAQ")}
+                                    if _lbl not in _us_all_stk:
+                                        _us_all_stk[_lbl] = {"ticker": _s["ticker"], "exchange": _s.get("exchange", "NASDAQ")}
                         _us_opts    = sorted(_us_all_stk.keys())
                         _us_def_lbl = next((l for l in _us_opts if f"({_us_ticker_cur})" in l), _us_opts[0] if _us_opts else "")
 
