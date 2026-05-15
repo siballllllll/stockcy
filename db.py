@@ -95,8 +95,11 @@ def load_portfolio_from_gsheet():
         records = ws.get_all_records()
         portfolio_list = []
         for r in records:
+            ticker = str(r.get("티커", ""))
+            if ticker.isdigit() and len(ticker) < 6:
+                ticker = ticker.zfill(6)
             portfolio_list.append({
-                "ticker": str(r.get("티커", "")),
+                "ticker": ticker,
                 "name": str(r.get("종목명", "")),
                 "buy_price": float(r.get("매수가($)", 0) or 0),
                 "quantity": int(r.get("수량", 0) or 0),
@@ -140,17 +143,21 @@ def load_ai_portfolio_from_gsheet():
     try:
         ws = sh.worksheet("AI추천포트폴리오")
         records = ws.get_all_records()
-        return [
-            {
-                "ticker":    str(r.get("티커", "")),
+        result = []
+        for r in records:
+            if not r.get("티커"): continue
+            ticker = str(r.get("티커", ""))
+            if ticker.isdigit() and len(ticker) < 6:
+                ticker = ticker.zfill(6)
+            result.append({
+                "ticker":    ticker,
                 "name":      str(r.get("종목명", "")),
                 "buy_price": float(r.get("매수가($)", 0) or 0),
                 "quantity":  int(r.get("수량", 0) or 0),
                 "buy_date":  str(r.get("저장시간", "")),
                 "rating":    str(r.get("등급", "-")),
-            }
-            for r in records if r.get("티커")
-        ]
+            })
+        return result
     except Exception:
         return []
 
@@ -211,6 +218,13 @@ def load_trade_history_from_gsheet():
         records = ws.get_all_records()
         if not records:
             return pd.DataFrame(), "구글 시트의 거래내역 탭이 비어있습니다."
+        
+        # 티커 0 누락 보정
+        for r in records:
+            t = str(r.get("티커", ""))
+            if t.isdigit() and len(t) < 6:
+                r["티커"] = t.zfill(6)
+                
         return pd.DataFrame(records), "성공"
     except gspread.WorksheetNotFound:
         return pd.DataFrame(), "거래내역 탭이 아직 없습니다. 매도 기록 시 자동으로 생성됩니다."
@@ -283,6 +297,11 @@ def load_favorites():
     try:
         ws = sh.worksheet("즐겨찾기")
         records = ws.get_all_records()
+        # 티커 0 누락 방지 (국내 종목 6자리)
+        for r in records:
+            t = str(r.get("티커", ""))
+            if t.isdigit() and len(t) < 6:
+                r["티커"] = t.zfill(6)
         return records, "성공"
     except gspread.WorksheetNotFound:
         return [], "즐겨찾기 목록이 비어있습니다."
