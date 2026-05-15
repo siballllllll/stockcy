@@ -617,6 +617,50 @@ US_KR_NAME_MAP = {
     "JEPI": "커버드콜 ETF(JEPI)",
     "JEPQ": "나스닥 커버드콜 ETF(JEPQ)",
     "ONDS": "온다스",
+    "LUNR": "인튜이티브 머신스",
+    "ASTS": "AST 스페이스모바일",
+    "RKLB": "로켓 랩",
+    "PLTR": "팔란티어",
+    "SNOW": "스노우플레이크",
+    "U": "유니티",
+    "SQ": "블록(스퀘어)",
+    "COIN": "코인베이스",
+    "MSTR": "마이크로스트래티지",
+    "HOOD": "로빈후드",
+    "AFRM": "어펌",
+    "SOFI": "소파이",
+    "UPST": "업스타트",
+    "MARA": "마라톤 디지털",
+    "RIOT": "라이엇 플랫폼즈",
+    "CLSK": "클린스파크",
+    "IREN": "아이리스 에너지",
+    "WULF": "테라울프",
+    "CIFR": "사이퍼 마이닝",
+    "BTBT": "비트 디지털",
+    "BITF": "비트팜스",
+    "HIVE": "하이브 디지털",
+    "CAN": "가나안",
+    "EH": "이항",
+    "Joby": "조비 에비에이션",
+    "ACHR": "아처 에비에이션",
+    "VRT": "버티브 홀딩스",
+    "GCT": "기가클라우드",
+    "APP": "앱러빈",
+}
+
+_WORD_MAP = {
+    "Technology": "테크놀로지", "Technologies": "테크놀로지스", "Systems": "시스템즈",
+    "Digital": "디지털", "Energy": "에너지", "Global": "글로벌", "International": "인터내셔널",
+    "Networks": "네트웍스", "Medical": "메디컬", "Health": "헬스", "Solutions": "솔루션즈",
+    "Group": "그룹", "Holdings": "홀딩스", "Capital": "캐피탈", "Financial": "파이낸셜",
+    "Electric": "일렉트릭", "Airlines": "항공", "Mining": "마이닝", "Materials": "머티어리얼즈",
+    "Resources": "리소시즈", "Trust": "트러스트", "Fund": "펀드", "Growth": "그로스",
+    "Value": "밸류", "Dividend": "배당", "High Yield": "고배당", "ETF": "ETF",
+    "Semiconductor": "반도체", "Auto": "오토", "Software": "소프트웨어",
+    "Cloud": "클라우드", "Solar": "솔라", "Bio": "바이오", "Pharma": "파마",
+    "Therapeutics": "테라퓨틱스", "Communications": "커뮤니케이션즈",
+    "Power": "파워", "Petroleum": "석유", "Gas": "가스", "Oil": "오일",
+    "Bank": "은행", "Insurance": "보험", "Investment": "투자", "Real Estate": "부동산",
 }
 
 def get_kr_name(ticker, english_name):
@@ -630,8 +674,23 @@ def get_kr_name(ticker, english_name):
     cleaned = re.sub(r'\s+(Inc|Corp|Ltd|S\.A\.|plc|Group|Holdings|Co|Company|Incorporated|Corporation|Limited|Plc|L\.P\.)(\.|\b).*', '', english_name, flags=re.I)
     cleaned = cleaned.strip()
     
+    # 3. 지능형 단어 변환 (Technology -> 테크놀로지 등)
+    words = cleaned.split()
+    translated_words = []
+    for w in words:
+        # 문장 부호 제거 후 비교
+        base_w = re.sub(r'[^a-zA-Z]', '', w)
+        if base_w in _WORD_MAP:
+            translated_words.append(_WORD_MAP[base_w])
+        elif base_w.capitalize() in _WORD_MAP:
+            translated_words.append(_WORD_MAP[base_w.capitalize()])
+        else:
+            translated_words.append(w)
+    
+    cleaned = " ".join(translated_words)
+    
     # 너무 길면 자름
-    if len(cleaned) > 25:
-        cleaned = cleaned[:24] + ".."
+    if len(cleaned) > 30:
+        cleaned = cleaned[:29] + ".."
         
     return cleaned
