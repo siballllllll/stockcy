@@ -172,7 +172,7 @@ def get_kr_name_to_code_map() -> dict:
     except Exception:
         pass
 
-    return {}
+    raise RuntimeError("전종목 맵 로딩 실패 (FDR·pykrx·KRX 모두 실패)")
 
 @st.cache_data(ttl=86400)
 def get_kr_code_to_name_map() -> dict:

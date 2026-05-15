@@ -2310,15 +2310,21 @@ def main():
     # ── 무거운 데이터 맵 사전 로드 (세션 캐싱) ───────────────────────────
     # @st.cache_data(ttl=86400) 서버 공유 캐시 → 첫 로드 후 24h 즉시 반환
     if not st.session_state.get("kr_name_to_code"):
-        _kr_res = get_kr_name_to_code_map()
-        if _kr_res:
-            st.session_state.kr_name_to_code = _kr_res
+        try:
+            _kr_res = get_kr_name_to_code_map()
+            if _kr_res:
+                st.session_state.kr_name_to_code = _kr_res
+        except RuntimeError:
+            pass
     if not st.session_state.get("us_ticker_map"):
         _us_res = get_us_ticker_map()
         if _us_res:
             st.session_state.us_ticker_map = _us_res
     if not st.session_state.get("kr_code_to_name"):
-        st.session_state.kr_code_to_name = get_kr_code_to_name_map()
+        try:
+            st.session_state.kr_code_to_name = get_kr_code_to_name_map()
+        except RuntimeError:
+            st.session_state.kr_code_to_name = {}
     
     _krx_map = st.session_state.get("kr_name_to_code") or {}
     _c2n_kr  = st.session_state.get("kr_code_to_name") or {}
@@ -3379,18 +3385,18 @@ def main():
                         if price_kr:
                             # 이름 보정: 코드맵 → 시세 name → KIS API 순으로 시도
                             _c2n = st.session_state.get("kr_code_to_name") or {}
-                            _price_name = price_kr.get('name') or ""
+                            _price_name = str(price_kr.get('name') or "").strip()
+                            def _valid_name(s):
+                                return s if s and s.strip() and s.strip() != selected_code_kr else None
                             _real_name = (
-                                _c2n.get(selected_code_kr)
-                                or (_price_name if _price_name != selected_code_kr else None)
-                                or selected_code_kr
+                                _valid_name(_c2n.get(selected_code_kr))
+                                or _valid_name(_price_name)
                             )
-                            # 여전히 코드면 KIS API로 직접 조회
-                            if _real_name == selected_code_kr:
+                            # 여전히 없으면 KIS API로 직접 조회
+                            if not _real_name:
                                 _kis_name, _ = get_kr_stock_name_kis(selected_code_kr)
-                                if _kis_name:
-                                    _real_name = _kis_name
-                                    # 코드맵 세션 보정
+                                _real_name = _valid_name(_kis_name) or selected_code_kr
+                                if _real_name != selected_code_kr:
                                     st.session_state.kr_code_to_name[selected_code_kr] = _real_name
                             if st.session_state.kr_selected_name != _real_name:
                                 st.session_state.kr_selected_name = _real_name
