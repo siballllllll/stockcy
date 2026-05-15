@@ -3393,21 +3393,12 @@ def main():
                     # ── 일반 주식 검색 모드 ──────────────────────────────────
                     else:
                         if price_kr:
-                            # 이름 보정: 코드맵 → 시세 name → KIS API 순으로 시도
-                            _c2n = st.session_state.get("kr_code_to_name") or {}
-                            _price_name = str(price_kr.get('name') or "").strip()
-                            def _valid_name(s):
-                                return s if s and s.strip() and s.strip() != selected_code_kr else None
-                            _real_name = (
-                                _valid_name(_c2n.get(selected_code_kr))
-                                or _valid_name(_price_name)
-                            )
-                            # 여전히 없으면 KIS API로 직접 조회
-                            if not _real_name:
-                                _kis_name, _ = get_kr_stock_name_kis(selected_code_kr)
-                                _real_name = _valid_name(_kis_name) or selected_code_kr
-                                if _real_name != selected_code_kr:
-                                    st.session_state.kr_code_to_name[selected_code_kr] = _real_name
+                            # 이름 보정: 세션 저장 이름 -> 코드맵 -> 시세 데이터 순
+                            _real_name = st.session_state.get("kr_selected_name")
+                            if not _real_name or _real_name == selected_code_kr:
+                                _c2n = st.session_state.get("kr_code_to_name") or {}
+                                _real_name = _c2n.get(selected_code_kr, price_kr.get('name') or selected_code_kr)
+                            
                             if st.session_state.kr_selected_name != _real_name:
                                 st.session_state.kr_selected_name = _real_name
                             
