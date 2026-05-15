@@ -236,27 +236,51 @@ def _us_echarts_chart(ticker: str, interval: str = "5", height: int = 600, perio
             _start_idx = 0
             for i, row in df.iterrows():
                 _h = row["datetime"].hour
+                # KST 기준 세션 정밀 판별 (서머타임 EDT 기준)
                 if 17 <= _h < 22: _cur_s = "PRE"
                 elif _h == 22 and row["datetime"].minute < 30: _cur_s = "PRE"
                 elif (_h == 22 and row["datetime"].minute >= 30) or (23 <= _h) or (0 <= _h < 5): _cur_s = "REG"
                 elif 5 <= _h < 9: _cur_s = "POST"
                 else: _cur_s = "OTHER"
+                
                 if _last_session is None:
                     _last_session = _cur_s
                     _start_idx = i
                 elif _cur_s != _last_session:
-                    _color = {"PRE": "rgba(245, 197, 24, 0.05)", "REG": "rgba(43, 124, 255, 0.03)", "POST": "rgba(156, 39, 176, 0.05)"}.get(_last_session, "rgba(0,0,0,0)")
+                    # 세션 종료 및 기록
+                    _color = {
+                        "PRE": "rgba(255, 152, 0, 0.08)",   # 주황 (장전)
+                        "REG": "rgba(0, 200, 83, 0.06)",    # 초록 (정규)
+                        "POST": "rgba(156, 39, 176, 0.08)"  # 보라 (장후)
+                    }.get(_last_session, "rgba(0,0,0,0)")
+                    
                     if _last_session in ["PRE", "REG", "POST"]:
                         _mark_areas.append([
-                            {"name": _last_session, "xAxis": category_data[_start_idx], "itemStyle": {"color": _color}, "label": {"position": "insideTop", "color": "#888", "fontSize": 12, "distance": 10}},
+                            {
+                                "name": _last_session,
+                                "xAxis": category_data[_start_idx],
+                                "itemStyle": {"color": _color},
+                                "label": {"position": "insideTop", "color": "#aaa", "fontSize": 11, "fontWeight": "bold", "distance": 15}
+                            },
                             {"xAxis": category_data[i-1]}
                         ])
                     _last_session = _cur_s
                     _start_idx = i
+            
+            # 마지막 잔여 세션 처리
             if _last_session in ["PRE", "REG", "POST"]:
-                _color = {"PRE": "rgba(245, 197, 24, 0.05)", "REG": "rgba(43, 124, 255, 0.03)", "POST": "rgba(156, 39, 176, 0.05)"}.get(_last_session, "rgba(0,0,0,0)")
+                _color = {
+                    "PRE": "rgba(255, 152, 0, 0.08)",
+                    "REG": "rgba(0, 200, 83, 0.06)",
+                    "POST": "rgba(156, 39, 176, 0.08)"
+                }.get(_last_session, "rgba(0,0,0,0)")
                 _mark_areas.append([
-                    {"name": _last_session, "xAxis": category_data[_start_idx], "itemStyle": {"color": _color}, "label": {"position": "insideTop", "color": "#888", "fontSize": 12, "distance": 10}},
+                    {
+                        "name": _last_session,
+                        "xAxis": category_data[_start_idx],
+                        "itemStyle": {"color": _color},
+                        "label": {"position": "insideTop", "color": "#aaa", "fontSize": 11, "fontWeight": "bold", "distance": 15}
+                    },
                     {"xAxis": category_data[len(df)-1]}
                 ])
 
