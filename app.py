@@ -236,11 +236,11 @@ def _us_echarts_chart(ticker: str, interval: str = "5", height: int = 600, perio
             _start_idx = 0
             for i, row in df.iterrows():
                 _h = row["datetime"].hour
-                # KST 기준 세션 정밀 판별 (서머타임 EDT 기준)
-                if 17 <= _h < 22: _cur_s = "PRE"
-                elif _h == 22 and row["datetime"].minute < 30: _cur_s = "PRE"
-                elif (_h == 22 and row["datetime"].minute >= 30) or (23 <= _h) or (0 <= _h < 5): _cur_s = "REG"
-                elif 5 <= _h < 9: _cur_s = "POST"
+                # 현지 시간(ET) 기준 세션 판별
+                if 4 <= _h < 9: _cur_s = "PRE"
+                elif _h == 9 and row["datetime"].minute < 30: _cur_s = "PRE"
+                elif (_h == 9 and row["datetime"].minute >= 30) or (10 <= _h < 16): _cur_s = "REG"
+                elif 16 <= _h < 20: _cur_s = "POST"
                 else: _cur_s = "OTHER"
                 
                 if _last_session is None:
