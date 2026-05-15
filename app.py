@@ -2308,8 +2308,8 @@ def main():
     inject_custom_css()
     
     # ── 무거운 데이터 맵 사전 로드 (세션 캐싱, 병렬) ──────────────────────
-    _need_kr = "kr_name_to_code" not in st.session_state or not st.session_state.kr_name_to_code
-    _need_us = "us_ticker_map"    not in st.session_state or not st.session_state.us_ticker_map
+    _need_kr = "kr_name_to_code" not in st.session_state or not st.session_state.get("kr_name_to_code") or {}
+    _need_us = "us_ticker_map"    not in st.session_state or not st.session_state.get("us_ticker_map") or {}
     if _need_kr or _need_us:
         from concurrent.futures import ThreadPoolExecutor
         with ThreadPoolExecutor(max_workers=2) as _ex:
@@ -2323,7 +2323,7 @@ def main():
                 _us_res = _fus.result()
                 if _us_res:
                     st.session_state.us_ticker_map = _us_res
-    if "kr_code_to_name" not in st.session_state or not st.session_state.kr_code_to_name:
+    if "kr_code_to_name" not in st.session_state or not st.session_state.get("kr_code_to_name") or {}:
         st.session_state.kr_code_to_name = get_kr_code_to_name_map()
     
     _krx_map = st.session_state.get("kr_name_to_code") or {}
@@ -3251,7 +3251,7 @@ def main():
                             _dtv_name = st.session_state.kr_sector_detail_name
                             
                             # 이름 보정: 마스터 맵에서 실제 이름 조회
-                            _c2n_d = st.session_state.kr_code_to_name
+                            _c2n_d = st.session_state.get("kr_code_to_name") or {}
                             _real_dtv_name = _c2n_d.get(_dtv_code, _dtv_name)
                             if _real_dtv_name == _dtv_code and price_kr and price_kr.get('name'):
                                 _real_dtv_name = price_kr['name']
@@ -3384,7 +3384,7 @@ def main():
                     else:
                         if price_kr:
                             # 이름 보정: 코드맵 → 시세 name → KIS API 순으로 시도
-                            _c2n = st.session_state.kr_code_to_name
+                            _c2n = st.session_state.get("kr_code_to_name") or {}
                             _price_name = price_kr.get('name') or ""
                             _real_name = (
                                 _c2n.get(selected_code_kr)
@@ -3503,7 +3503,7 @@ def main():
                     if kr_mode == "📊 일반 주식 검색":
                         _cur_code = st.session_state.kr_selected_code
                         _cur_name = st.session_state.kr_selected_name
-                        _krx_map = st.session_state.kr_name_to_code
+                        _krx_map = st.session_state.get("kr_name_to_code") or {}
                         new_code = _cur_code
                         new_name = _cur_name
                         if _krx_map:
@@ -3559,7 +3559,7 @@ def main():
                             if manual_code_kr and len(manual_code_kr) == 6 and manual_code_kr.isdigit():
                                 new_code = manual_code_kr
                                 # 코드→이름: 세션맵 → KIS API 순으로 조회
-                                _c2n = st.session_state.kr_code_to_name
+                                _c2n = st.session_state.get("kr_code_to_name") or {}
                                 new_name = _c2n.get(new_code)
                                 if not new_name or new_name == new_code:
                                     _looked_up, _ = get_kr_stock_name_kis(new_code)
@@ -5776,7 +5776,7 @@ def main():
                 detail_us = None
                 if _us_need_price:
                     with st.spinner(""):
-                        _tmp_us_map = st.session_state.us_ticker_map
+                        _tmp_us_map = st.session_state.get("us_ticker_map") or {}
                         _us_exch_for_detail = _tmp_us_map.get(_us_ticker_cur, {}).get("exchange", "NASDAQ") if _tmp_us_map else "NASDAQ"
                         detail_us = get_us_stock_detail(_us_ticker_cur, _us_exch_for_detail)
 
@@ -5790,7 +5790,7 @@ def main():
                         if st.session_state.us_sector_view == "detail":
                             _us_dticker   = st.session_state.us_sector_detail_ticker
                             _us_dname     = st.session_state.us_sector_detail_name
-                            _tmp_us_map = st.session_state.us_ticker_map
+                            _tmp_us_map = st.session_state.get("us_ticker_map") or {}
                             _us_dexchange = _tmp_us_map.get(_us_dticker, {}).get("exchange", "NASDAQ") if _tmp_us_map else st.session_state.get("us_sector_detail_exchange", "NASDAQ")
                             st.session_state.us_sector_detail_exchange = _us_dexchange
                             _tv_dexchange = _YF_TO_TV.get(_us_dexchange.upper(), _us_dexchange.upper())
@@ -5798,7 +5798,7 @@ def main():
                             _us_tv_sym    = f"{_tv_dexchange}:{_us_dticker}"
 
                             # 이름 보정
-                            _us_tm_head = st.session_state.us_ticker_map
+                            _us_tm_head = st.session_state.get("us_ticker_map") or {}
                             _real_us_dname = _us_dname
                             if _us_tm_head and _us_dticker in _us_tm_head:
                                 _real_us_dname = _us_tm_head[_us_dticker].get("name", _us_dname)
@@ -5889,7 +5889,7 @@ def main():
                     else:
                         if detail_us:
                             # 이름 보정
-                            _us_tm_head_g = st.session_state.us_ticker_map
+                            _us_tm_head_g = st.session_state.get("us_ticker_map") or {}
                             _real_us_name = _us_ticker_cur
                             if _us_tm_head_g and _us_ticker_cur in _us_tm_head_g:
                                 _real_us_name = _us_tm_head_g[_us_ticker_cur].get("name", _us_ticker_cur)
@@ -5998,7 +5998,7 @@ def main():
 
                 with _us_right_ctr:
                     if us_mode == "📊 일반 주식 검색":
-                        _us_tm = st.session_state.us_ticker_map
+                        _us_tm = st.session_state.get("us_ticker_map") or {}
                         _us_all_stk: dict = {}
                         if _us_tm:
                             for _tk, _ti in _us_tm.items():
@@ -6638,7 +6638,7 @@ def main():
                         if st.session_state.us_sector_view == "detail":
                             _us_dticker   = st.session_state.us_sector_detail_ticker
                             _us_dname     = st.session_state.us_sector_detail_name
-                            _tmp_us_map = st.session_state.us_ticker_map
+                            _tmp_us_map = st.session_state.get("us_ticker_map") or {}
                             _us_dexchange = _tmp_us_map.get(_us_dticker, {}).get("exchange", "NASDAQ") if _tmp_us_map else st.session_state.get("us_sector_detail_exchange", "NASDAQ")
                             st.session_state.us_sector_detail_exchange = _us_dexchange
 
@@ -7611,8 +7611,8 @@ def main():
 
             st.markdown("---")
 
-            _kr_map = st.session_state.kr_code_to_name
-            _us_map = st.session_state.us_ticker_map
+            _kr_map = st.session_state.get("kr_code_to_name") or {}
+            _us_map = st.session_state.get("us_ticker_map") or {}
 
             for idx, item in enumerate(port_list):
                 ticker = item["ticker"]
