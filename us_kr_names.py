@@ -616,6 +616,7 @@ US_KR_NAME_MAP = {
     "SCHD": "배당성장 ETF(SCHD)",
     "JEPI": "커버드콜 ETF(JEPI)",
     "JEPQ": "나스닥 커버드콜 ETF(JEPQ)",
+    "ONDS": "온다스",
 }
 
 def get_kr_name(ticker, english_name):
