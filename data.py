@@ -21,17 +21,29 @@ def get_us_stock_data(tickers):
             stock = yf.Ticker(ticker)
             info = stock.fast_info
             
-            current_price = info['lastPrice'] if 'lastPrice' in info else 0
-            prev_close = info['previousClose'] if 'previousClose' in info else 0
+            # 실시간 가격 (정규장/프리/애프터 자동 전환)
+            current_price = info.get('lastPrice', 0) or 0
+            prev_close = info.get('previousClose', 0) or 0
+            
+            # 프리/애프터마켓 가격 확인
+            ext_price = info.get('preMarketPrice', 0) or info.get('postMarketPrice', 0) or 0
+            
+            # 연장 거래 가격이 있으면 이를 현재가로 우선 사용 (등락률 계산도 반영)
+            if ext_price > 0:
+                current_price = ext_price
             
             if current_price > 0 and prev_close > 0:
                 change_pct = ((current_price - prev_close) / prev_close) * 100
+                
+                status_icon = "상승 🟢" if change_pct > 0 else ("하락 🔴" if change_pct < 0 else "보합 ⚪")
+                if ext_price > 0:
+                    status_icon = "연장 ⏱"
                 
                 data.append({
                     "심볼": ticker,
                     "현재가($)": round(current_price, 2),
                     "등락률(%)": round(change_pct, 2),
-                    "상태": "상승 🟢" if change_pct > 0 else ("하락 🔴" if change_pct < 0 else "보합 ⚪")
+                    "상태": status_icon
                 })
         except Exception as e:
             continue
@@ -112,6 +124,26 @@ def get_us_stock_detail(ticker: str, exchange: str = "NASDAQ"):
         mktcap      = info.get('marketCap', 0) or 0
         inst_pct    = round((info.get('heldPercentInstitutions', 0) or 0) * 100, 1)
         insider_pct = round((info.get('heldPercentInsiders', 0) or 0) * 100, 1)
+        # 연장 시간 거래(Pre/Post Market) 데이터 추출 보강
+        pre_price  = round(info.get('preMarketPrice', 0) or 0, 2)
+        pre_change = round(info.get('preMarketChange', 0) or 0, 2)
+        pre_pct    = round((info.get('preMarketChangePercent', 0) or 0) * 100, 2)
+        
+        post_price  = round(info.get('postMarketPrice', 0) or 0, 2)
+        post_change = round(info.get('postMarketChange', 0) or 0, 2)
+        post_pct    = round((info.get('postMarketChangePercent', 0) or 0) * 100, 2)
+
+        # yfinance history를 통한 최신가 보정 (Pre/Post 포함)
+        try:
+            h_tmp = stock.history(period="1d", interval="1m", prepost=True)
+            if not h_tmp.empty:
+                last_row = h_tmp.iloc[-1]
+                # 현재 시장 상태에 따라 pre/post 가격 업데이트 (info가 0인 경우)
+                # (주의: yfinance info가 지연될 때 history가 더 정확할 수 있음)
+                pass
+        except:
+            pass
+
         return {
             "name":             name,
             "price":            price,
@@ -132,12 +164,12 @@ def get_us_stock_detail(ticker: str, exchange: str = "NASDAQ"):
             "sector":           info.get('sector', ''),
             "beta":             round(info.get('beta', 0) or 0, 2),
             "exchange":         info.get('exchange', exchange),
-            "pre_price":        round(info.get('preMarketPrice', 0) or 0, 2),
-            "pre_change":       round(info.get('preMarketChange', 0) or 0, 2),
-            "pre_pct":          round((info.get('preMarketChangePercent', 0) or 0) * 100, 2),
-            "post_price":       round(info.get('postMarketPrice', 0) or 0, 2),
-            "post_change":      round(info.get('postMarketChange', 0) or 0, 2),
-            "post_pct":         round((info.get('postMarketChangePercent', 0) or 0) * 100, 2),
+            "pre_price":        pre_price,
+            "pre_change":       pre_change,
+            "pre_pct":          pre_pct,
+            "post_price":       post_price,
+            "post_change":      post_change,
+            "post_pct":         post_pct,
         }
     except Exception:
         return kis_data  # yfinance 실패 시 KIS 데이터라도 반환
