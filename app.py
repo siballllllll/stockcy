@@ -2308,18 +2308,22 @@ def main():
     inject_custom_css()
     
     # ── 무거운 데이터 맵 사전 로드 (세션 캐싱, 병렬) ──────────────────────
-    _need_kr = "kr_name_to_code" not in st.session_state
-    _need_us = "us_ticker_map"    not in st.session_state
+    _need_kr = "kr_name_to_code" not in st.session_state or not st.session_state.kr_name_to_code
+    _need_us = "us_ticker_map"    not in st.session_state or not st.session_state.us_ticker_map
     if _need_kr or _need_us:
         from concurrent.futures import ThreadPoolExecutor
         with ThreadPoolExecutor(max_workers=2) as _ex:
             _fkr = _ex.submit(get_kr_name_to_code_map) if _need_kr else None
             _fus = _ex.submit(get_us_ticker_map)        if _need_us else None
             if _fkr:
-                st.session_state.kr_name_to_code = _fkr.result()
+                _kr_res = _fkr.result()
+                if _kr_res:  # 빈 결과는 저장 안 함 (다음 렌더에서 재시도)
+                    st.session_state.kr_name_to_code = _kr_res
             if _fus:
-                st.session_state.us_ticker_map = _fus.result()
-    if "kr_code_to_name" not in st.session_state:
+                _us_res = _fus.result()
+                if _us_res:
+                    st.session_state.us_ticker_map = _us_res
+    if "kr_code_to_name" not in st.session_state or not st.session_state.kr_code_to_name:
         st.session_state.kr_code_to_name = get_kr_code_to_name_map()
     
     _krx_map = st.session_state.kr_name_to_code
@@ -3379,11 +3383,21 @@ def main():
                     # ── 일반 주식 검색 모드 ──────────────────────────────────
                     else:
                         if price_kr:
-                            # 이름 보정: 마스터 맵에서 먼저 찾고, 없으면 시세 데이터 사용
+                            # 이름 보정: 코드맵 → 시세 name → KIS API 순으로 시도
                             _c2n = st.session_state.kr_code_to_name
-                            _real_name = _c2n.get(selected_code_kr, price_kr.get('name') or selected_code_kr)
-                            
-                            # 세션 이름 업데이트 (코드로 박혀있는 경우 방지)
+                            _price_name = price_kr.get('name') or ""
+                            _real_name = (
+                                _c2n.get(selected_code_kr)
+                                or (_price_name if _price_name != selected_code_kr else None)
+                                or selected_code_kr
+                            )
+                            # 여전히 코드면 KIS API로 직접 조회
+                            if _real_name == selected_code_kr:
+                                _kis_name, _ = get_kr_stock_name_kis(selected_code_kr)
+                                if _kis_name:
+                                    _real_name = _kis_name
+                                    # 코드맵 세션 보정
+                                    st.session_state.kr_code_to_name[selected_code_kr] = _real_name
                             if st.session_state.kr_selected_name != _real_name:
                                 st.session_state.kr_selected_name = _real_name
                             
@@ -3506,6 +3520,8 @@ def main():
                             new_code = _opt_codes[_opt_labels.index(_sel_label)]
                             new_name = _sel_label.split(" (")[0]
                         else:
+                            # FDR 맵 로딩 실패 시: 인기 종목 + 6자리 코드 직접 입력
+                            st.caption("⏳ 전종목 목록 로딩 중... 아래에서 코드를 직접 입력하세요.")
                             POPULAR_KR = {
                                 "삼성전자 (005930)": "005930",
                                 "SK하이닉스 (000660)": "000660",
@@ -3533,8 +3549,8 @@ def main():
                                 new_code = _pop[selected_label]
                                 new_name = selected_label.split(" (")[0]
                             with col_manual:
-                                manual_code_kr = st.text_input("직접 입력 (6자리 코드)", "").strip()
-                            
+                                manual_code_kr = st.text_input("6자리 코드 직접 입력", "").strip()
+
                             if manual_code_kr and any(c.isalpha() for c in manual_code_kr):
                                 st.warning("🇺🇸 미국 종목 티커인 것 같습니다. '미국 주식 검색' 탭을 이용해 주세요.")
                             elif manual_code_kr and (len(manual_code_kr) != 6 or not manual_code_kr.isdigit()):
@@ -3542,9 +3558,12 @@ def main():
 
                             if manual_code_kr and len(manual_code_kr) == 6 and manual_code_kr.isdigit():
                                 new_code = manual_code_kr
-                                # 이름 찾기 시도
+                                # 코드→이름: 세션맵 → KIS API 순으로 조회
                                 _c2n = st.session_state.kr_code_to_name
-                                new_name = _c2n.get(new_code, new_code)
+                                new_name = _c2n.get(new_code)
+                                if not new_name or new_name == new_code:
+                                    _looked_up, _ = get_kr_stock_name_kis(new_code)
+                                    new_name = _looked_up or new_code
                         if new_code != st.session_state.kr_selected_code:
                             st.session_state.kr_selected_code = new_code
                             st.session_state.kr_selected_name = new_name
