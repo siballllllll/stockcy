@@ -2307,23 +2307,17 @@ def main():
     init_session_state()
     inject_custom_css()
     
-    # ── 무거운 데이터 맵 사전 로드 (세션 캐싱, 병렬) ──────────────────────
-    _need_kr = "kr_name_to_code" not in st.session_state or not st.session_state.get("kr_name_to_code") or {}
-    _need_us = "us_ticker_map"    not in st.session_state or not st.session_state.get("us_ticker_map") or {}
-    if _need_kr or _need_us:
-        from concurrent.futures import ThreadPoolExecutor
-        with ThreadPoolExecutor(max_workers=2) as _ex:
-            _fkr = _ex.submit(get_kr_name_to_code_map) if _need_kr else None
-            _fus = _ex.submit(get_us_ticker_map)        if _need_us else None
-            if _fkr:
-                _kr_res = _fkr.result()
-                if _kr_res:  # 빈 결과는 저장 안 함 (다음 렌더에서 재시도)
-                    st.session_state.kr_name_to_code = _kr_res
-            if _fus:
-                _us_res = _fus.result()
-                if _us_res:
-                    st.session_state.us_ticker_map = _us_res
-    if "kr_code_to_name" not in st.session_state or not st.session_state.get("kr_code_to_name") or {}:
+    # ── 무거운 데이터 맵 사전 로드 (세션 캐싱) ───────────────────────────
+    # @st.cache_data(ttl=86400) 서버 공유 캐시 → 첫 로드 후 24h 즉시 반환
+    if not st.session_state.get("kr_name_to_code"):
+        _kr_res = get_kr_name_to_code_map()
+        if _kr_res:
+            st.session_state.kr_name_to_code = _kr_res
+    if not st.session_state.get("us_ticker_map"):
+        _us_res = get_us_ticker_map()
+        if _us_res:
+            st.session_state.us_ticker_map = _us_res
+    if not st.session_state.get("kr_code_to_name"):
         st.session_state.kr_code_to_name = get_kr_code_to_name_map()
     
     _krx_map = st.session_state.get("kr_name_to_code") or {}
@@ -3520,8 +3514,7 @@ def main():
                             new_code = _opt_codes[_opt_labels.index(_sel_label)]
                             new_name = _sel_label.split(" (")[0]
                         else:
-                            # FDR 맵 로딩 실패 시: 인기 종목 + 6자리 코드 직접 입력
-                            st.caption("⏳ 전종목 목록 로딩 중... 아래에서 코드를 직접 입력하세요.")
+                            # FDR 맵 로딩 전: 인기 종목 + 6자리 코드 직접 입력
                             POPULAR_KR = {
                                 "삼성전자 (005930)": "005930",
                                 "SK하이닉스 (000660)": "000660",
