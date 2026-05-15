@@ -512,8 +512,8 @@ def get_kr_minute_chart(stock_code: str, interval: int = 5):
     else:
         yf_interval, period = "30m", "60d"
 
-    # ── 1차: yfinance 과거 데이터 (오늘 이전 날짜) ──────────────────────────
-    df_hist = pd.DataFrame()
+    # ── 1차: yfinance 데이터 (과거 + 오늘 일부 포함 가능) ──────────────────────────
+    df_all = pd.DataFrame()
     for suffix in [".KS", ".KQ"]:
         try:
             raw = yf.Ticker(f"{stock_code}{suffix}").history(
@@ -524,57 +524,46 @@ def get_kr_minute_chart(stock_code: str, interval: int = 5):
             if raw.index.tz is not None:
                 raw.index = raw.index.tz_convert("Asia/Seoul").tz_localize(None)
             tmp = raw.reset_index()
-            dt_col = next(
-                (c for c in tmp.columns if str(c).lower() in ("datetime", "date", "index")), None
-            )
-            if dt_col is None:
-                continue
-            tmp = tmp.rename(columns={dt_col: "datetime"})
-            tmp.columns = [str(c).lower().strip() for c in tmp.columns]
-            needed = ["datetime", "open", "high", "low", "close", "volume"]
-            if not all(c in tmp.columns for c in needed):
-                continue
-            df_hist = tmp[needed].copy()
-            break
+            dt_col = next((c for c in tmp.columns if str(c).lower() in ("datetime", "date", "index")), None)
+            if dt_col:
+                tmp = tmp.rename(columns={dt_col: "datetime"})
+                tmp.columns = [str(c).lower().strip() for c in tmp.columns]
+                needed = ["datetime", "open", "high", "low", "close", "volume"]
+                if all(c in tmp.columns for c in needed):
+                    df_all = tmp[needed].copy()
+                    break
         except Exception:
             continue
 
-    if not df_hist.empty:
-        if yf_interval != f"{interval}m":
-            df_hist = df_hist.set_index("datetime").resample(f"{interval}min").agg(
-                {"open": "first", "high": "max", "low": "min", "close": "last", "volume": "sum"}
-            ).dropna().reset_index()
-        df_hist = df_hist[
-            (df_hist["datetime"].dt.time >= _dtm.time(9, 0)) &
-            (df_hist["datetime"].dt.time <= _dtm.time(15, 30)) &
-            (df_hist["datetime"].dt.date < _today)   # 오늘 이전 날짜만
-        ].reset_index(drop=True)
-
-    # ── 2차: KIS API 오늘 데이터 ─────────────────────────────────────────────
-    df_today = pd.DataFrame()
+    # ── 2차: KIS API 오늘 실시간 데이터 ─────────────────────────────────────────────
+    df_kis = pd.DataFrame()
     try:
         df_kis = _kis_minute_chart_raw(stock_code)
-        if not df_kis.empty:
-            df_today = df_kis.set_index("datetime").resample(f"{interval}min").agg(
-                {"open": "first", "high": "max", "low": "min", "close": "last", "volume": "sum"}
-            ).dropna().reset_index()
     except Exception:
         pass
 
-    # KIS 실패 시 yfinance 오늘 데이터 사용
-    if df_today.empty and not df_hist.empty:
-        df_today_yf = df_hist[df_hist["datetime"].dt.date == _today].copy()
-        if not df_today_yf.empty:
-            df_today = df_today_yf
-            df_hist = df_hist[df_hist["datetime"].dt.date < _today].reset_index(drop=True)
-
-    # ── 합산 ─────────────────────────────────────────────────────────────────
-    frames = [f for f in [df_hist, df_today] if not f.empty]
-    if not frames:
+    # ── 데이터 병합 (중복 제거 및 정렬) ───────────────────────────────────────────
+    df = pd.concat([df_all, df_kis]).drop_duplicates("datetime").sort_values("datetime").reset_index(drop=True)
+    
+    if df.empty:
         return pd.DataFrame()
 
-    df = pd.concat(frames).drop_duplicates("datetime").sort_values("datetime").reset_index(drop=True)
-    return df[df["datetime"] <= _now_kr].reset_index(drop=True)
+    # ── 장중 시간대 필터링 (9:00 ~ 15:30) ──────────────────────────────────────────
+    df = df[
+        (df["datetime"].dt.time >= _dtm.time(9, 0)) &
+        (df["datetime"].dt.time <= _dtm.time(15, 30))
+    ].copy()
+
+    # ── 리샘플링 (원하는 분봉 단위로 변환) ─────────────────────────────────────────
+    if interval > 1:
+        # 시간축 기준을 9:00에 맞추기 위해 origin='start' 사용 고려 가능하나, 기본값도 보통 정시 기준
+        df = df.set_index("datetime").resample(f"{interval}min").agg({
+            "open": "first", "high": "max", "low": "min", "close": "last", "volume": "sum"
+        }).dropna().reset_index()
+
+    # ── 미래 데이터 및 중복 제거 최종 확인 ─────────────────────────────────────────
+    df = df[df["datetime"] <= (_now_kr + _dtm.timedelta(minutes=1))].reset_index(drop=True)
+    return df
 
 
 @st.cache_data(ttl=90, show_spinner=False)
