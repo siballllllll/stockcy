@@ -3404,6 +3404,7 @@ def main():
                             
                             pct_color = "up-kr" if is_up else "down-kr" if is_dn else ""
                             _badges_html = _kr_stock_badges_html(price_kr)
+                            st.markdown(
                                 f"<div style='display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap'>"
                                 f"<span style='font-size:1.44rem;font-weight:700'>{_real_name}</span> "
                                 f"<span style='font-size:1.17rem;color:#888'>({selected_code_kr})</span>"
