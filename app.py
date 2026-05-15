@@ -6000,29 +6000,24 @@ def main():
                     if us_mode == "📊 일반 주식 검색":
                         _us_tm = st.session_state.get("us_ticker_map") or {}
                         _us_all_stk: dict = {}
+                        
+                        # 1. 섹터맵에서 한국어 이름이 있는 종목 우선 등록
+                        from db import load_us_sector_map as _load_us_sm
+                        _us_sm = _load_us_sm()
+                        for _sec_val in _us_sm.values():
+                            for _sub_val in _sec_val.values():
+                                for _s in _sub_val:
+                                    _lbl = f"{_s['name']} ({_s['ticker']})"
+                                    _us_all_stk[_lbl] = {"ticker": _s["ticker"], "exchange": _s.get("exchange", "NASDAQ")}
+                        
+                        # 2. 티커맵(영어이름)으로 보강 (한국어 이름이 없는 종목만 추가)
                         if _us_tm:
+                            # 빠른 티커 체크를 위한 집합 생성
+                            _registered_tickers = {v["ticker"] for v in _us_all_stk.values()}
                             for _tk, _ti in _us_tm.items():
-                                _lbl = f"{_ti['name']} ({_tk})"
-                                _us_all_stk[_lbl] = {"ticker": _tk, "exchange": _ti.get("exchange", "NASDAQ")}
-                        else:
-                            # 폴백: 섹터맵 + 인기 종목
-                            from db import load_us_sector_map as _load_us_sm
-                            _us_sm = _load_us_sm()
-                            for _ss in _us_sm.values():
-                                for _sst in _ss.values():
-                                    for _s in _sst:
-                                        _lbl = f"{_s['name']} ({_s['ticker']})"
-                                        _us_all_stk[_lbl] = {"ticker": _s["ticker"], "exchange": _s.get("exchange", "NASDAQ")}
-                            for _pn, _pt, _pe in [
-                                ("엔비디아","NVDA","NASDAQ"),("애플","AAPL","NASDAQ"),
-                                ("마이크로소프트","MSFT","NASDAQ"),("테슬라","TSLA","NASDAQ"),
-                                ("아마존","AMZN","NASDAQ"),("메타","META","NASDAQ"),
-                                ("알파벳","GOOGL","NASDAQ"),("팔란티어","PLTR","NYSE"),
-                                ("브로드컴","AVGO","NASDAQ"),("TSMC","TSM","NYSE"),
-                            ]:
-                                _pl = f"{_pn} ({_pt})"
-                                if _pl not in _us_all_stk:
-                                    _us_all_stk[_pl] = {"ticker": _pt, "exchange": _pe}
+                                if _tk not in _registered_tickers:
+                                    _lbl = f"{_ti['name']} ({_tk})"
+                                    _us_all_stk[_lbl] = {"ticker": _tk, "exchange": _ti.get("exchange", "NASDAQ")}
                         _us_opts    = sorted(_us_all_stk.keys())
                         _us_def_lbl = next((l for l in _us_opts if f"({_us_ticker_cur})" in l), _us_opts[0] if _us_opts else "")
 
