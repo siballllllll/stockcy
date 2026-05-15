@@ -442,11 +442,11 @@ def generate_stock_report(ticker, current_price, change_pct):
   "short_term_view_price": "단기 예상 도달 가격대 (달러 단위)",
   "short_term_view_reason": "이 전망의 구체적 근거 — 실적, 수급 흐름, 기술적 지지·저항 등 수치 포함 (2~3문장)",
 
-  "buy_target": "매수 적정 구간 / 추격매수 금지선 (달러 단위)",
-  "sell_target": "단기 목표가 (달러 단위)",
-  "stop_loss": "손절가 (달러 단위)",
+  "buy_target": "매수 적정 구간 (가이드라인만 제시, 시스템이 현재가 기준 ±1%로 자동 교정 예정)",
+  "sell_target": "단기 목표가 (가이드라인 제시, 시스템이 +6%로 자동 교정 예정)",
+  "stop_loss": "손절가 (가이드라인 제시, 시스템이 -2%로 자동 교정 예정)",
 
-  "mid_term_view_pct": "중기(1~3개월) 예상 변동률 — 객관적 근거로 판단 (예: +12~+20% 또는 -8~-15%)",
+  "mid_term_view_pct": "중기(1~3개월) 예상 변동률 (시스템이 +15%로 자동 교정 예정)",
   "mid_term_view_price": "중기 예상 가격대 (달러 단위)",
   "mid_term_view_condition": "이 중기 전망의 핵심 변수 또는 catalyst (상승·하락 모두 가능, 구체적인 이벤트·조건)",
 
@@ -455,16 +455,31 @@ def generate_stock_report(ticker, current_price, change_pct):
 
   "long_term_rating": "중장기 등급 (적극 매수 / 분할 매수 / 관망 / 비중 축소 / 전량 매도)",
   "long_term_period": "권장 투자 기간",
-  "long_term_target": "중장기 목표가 (달러 단위)",
+  "long_term_target": "중장기 목표가 (달러 단위, 시스템이 +30%로 자동 교정 예정)",
   "long_term_target_pct": "중장기 예상 수익/손실률",
   "long_term_analysis": "매크로 사이클·펀더멘털 중장기 분석 (마크다운 상세)"
 }}
+
+!! [수치 산정 주의] 타점(buy/sell/stop) 및 중장기 목표가는 시스템이 실시간 현재가 기반으로 강제 덮어쓰기(Override) 하므로, AI는 논리적 근거 확보에 집중하세요.
 
 !! [딥링크] 종목 언급 시 반드시 '종목명(티커)' 형식: Apple(AAPL), NVIDIA(NVDA) 등
 """
     try:
         response = _call_gemini(prompt, use_search=True, temperature=0.7)
-        return _parse_json_response(response)
+        res = _parse_json_response(response)
+
+        # [Python Override - Hallucination Prevention]
+        try:
+            cp = float(current_price)
+            res["buy_target"] = f"${cp * 0.99:.2f} ~ ${cp * 1.01:.2f}"
+            res["sell_target"] = f"${cp * 1.06:.2f} (+6%)"
+            res["stop_loss"] = f"${cp * 0.98:.2f} (-2%)"
+            res["mid_term_view_price"] = f"${cp * 1.15:.2f} (+15%)"
+            res["long_term_target"] = f"${cp * 1.30:.2f} (+30%)"
+        except Exception:
+            pass
+
+        return res
     except Exception as e:
         msg = _friendly_error(e)
         return {
@@ -508,15 +523,38 @@ def discover_hot_day_trading_stock(context=""):
       "verified_name": "구글 검색으로 확인한 실제 회사명",
       "ticker_verified": true,
       "name_kr": "종목명",
-      "buy_target": "현재가 부근의 실질적 매수 적정 구간 및 추격 매수 금지선 (예: $15.50 ~ $16.00 이하)",
-      "sell_target": "매수가 대비 5~10% 이익 구간의 목표가",
-      "stop_loss": "매수가 대비 -2~3% 구간의 칼같은 손절가",
+      "buy_target": "매수 적정 구간 가이드라인 (시스템이 현재가 기준 ±1% 자동 교정 예정)",
+      "sell_target": "목표가 가이드라인 (시스템이 +6% 자동 교정 예정)",
+      "stop_loss": "손절가 가이드라인 (시스템이 -2% 자동 교정 예정)",
       "reasoning": "선정 이유: 1) 세력 수급(거래량 급증) 근거, 2) 차트/모멘텀 분석, 3) 관련 재료 (마크다운 포맷으로 주요 포인트이 있게 상세하게 작성)"
     }}
+
+    ⚠️ [수치 산정 주의] 최종 타점은 시스템이 실시간 현재가를 재조회하여 강제 덮어쓰기 하므로, AI는 최적의 종목 발굴 논리에만 집중하세요.
     """
     try:
         response = _call_gemini(prompt, use_search=True, temperature=0.8)
-        return _parse_json_response(response)
+        res = _parse_json_response(response)
+
+        # [Python Override - Hallucination Prevention]
+        ticker = res.get("ticker")
+        if ticker:
+            from data import get_us_stock_data
+            try:
+                # 실시간 시세 재조회하여 타점 강제 덮어쓰기
+                price_data = get_us_stock_data([ticker])
+                if price_data and ticker in price_data:
+                    cp = float(price_data[ticker]['price'])
+                    res["buy_target"] = f"${cp * 0.99:.2f} ~ ${cp * 1.01:.2f} 이하"
+                    res["sell_target"] = f"${cp * 1.06:.2f} (+6%)"
+                    res["stop_loss"] = f"${cp * 0.98:.2f} (-2%)"
+                else:
+                    res["buy_target"] = "시세 조회 실패 (수동 확인 권장)"
+                    res["sell_target"] = "시세 조회 실패"
+                    res["stop_loss"] = "시세 조회 실패"
+            except Exception:
+                res["buy_target"] = "시세 조회 중 오류"
+
+        return res
     except Exception as e:
         return {
             "ticker": "N/A",
@@ -869,11 +907,11 @@ PER: {price_data['per']} | PBR: {price_data['pbr']}
   "short_term_view_price": "단기 예상 도달 가격대 (원 단위)",
   "short_term_view_reason": "이 전망의 구체적 근거 — 이슈, 수급 흐름, 기술적 지지·저항, 실적 등 수치 포함 (2~3문장)",
 
-  "buy_target": "매수 적정 구간 / 추격매수 금지선 (원 단위)",
-  "sell_target": "단기 목표가 (원 단위)",
-  "stop_loss": "손절가 (원 단위)",
+  "buy_target": "매수 적정 구간 (가이드라인, 시스템이 ±1% 자동 교정 예정)",
+  "sell_target": "단기 목표가 (가이드라인, 시스템이 +6% 자동 교정 예정)",
+  "stop_loss": "손절가 (가이드라인, 시스템이 -2% 자동 교정 예정)",
 
-  "mid_term_view_pct": "중기(1~3개월) 예상 변동률 — 객관적 근거로 판단 (예: +12~+20% 또는 -8~-15%)",
+  "mid_term_view_pct": "중기(1~3개월) 예상 변동률 (시스템이 +15%로 자동 교정 예정)",
   "mid_term_view_price": "중기 예상 가격대 (원 단위)",
   "mid_term_view_condition": "이 중기 전망의 핵심 변수 또는 catalyst (상승·하락 모두 가능, 구체적인 이벤트·조건)",
 
@@ -883,16 +921,32 @@ PER: {price_data['per']} | PBR: {price_data['pbr']}
 
   "long_term_rating": "중장기 등급 (적극 매수 / 분할 매수 / 관망 / 비중 축소 / 전량 매도)",
   "long_term_period": "권장 투자 기간",
-  "long_term_target": "중장기 목표가 (원 단위, 3~6개월 관점)",
+  "long_term_target": "중장기 목표가 (원 단위, 시스템이 +30%로 자동 교정 예정)",
   "long_term_target_pct": "중장기 예상 수익/손실률",
   "long_term_analysis": "거시경제 사이클·펀더멘털 기반 중장기 분석 (마크다운 상세)"
 }}
+
+!! [수치 산정 주의] 모든 가격 타점은 시스템이 실시간 현재가 기반으로 강제 덮어쓰기 하므로, AI는 수치 계산보다 분석 논리에 집중하세요.
 
 !! [딥링크] 종목 언급 시 반드시 '종목명(6자리코드)' 형식: 삼성전자(005930), SK하이닉스(000660) 등
 """
     try:
         response = _call_gemini(prompt, use_search=True, temperature=0.7)
-        return _parse_json_response(response)
+        res = _parse_json_response(response)
+
+        # [Python Override - Hallucination Prevention]
+        try:
+            cp = float(price_data['price'])
+            res["buy_target"] = f"{int(cp * 0.99):,}원 ~ {int(cp * 1.01):,}원"
+            res["sell_target"] = f"{int(cp * 1.06):,}원 (+6%)"
+            res["stop_loss"] = f"{int(cp * 0.98):,}원 (-2%)"
+            res["short_term_view_price"] = f"{int(cp * 1.06):,}원"
+            res["mid_term_view_price"] = f"{int(cp * 1.15):,}원 (+15%)"
+            res["long_term_target"] = f"{int(cp * 1.30):,}원 (+30%)"
+        except Exception:
+            pass
+
+        return res
     except Exception as e:
         msg = _friendly_error(e)
         return {
