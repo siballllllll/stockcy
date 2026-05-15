@@ -229,6 +229,37 @@ def _us_echarts_chart(ticker: str, interval: str = "5", height: int = 600, perio
             _label_interval = "auto"
             _zoom_start = max(0, int((1 - _view / max(_total, 1)) * 100)) if _total > _view else 0
 
+        # --- 미국 세션 구분 (MarkArea) 계산 ---
+        _mark_areas = []
+        if _is_minute and not df.empty:
+            _last_session = None
+            _start_idx = 0
+            for i, row in df.iterrows():
+                _h = row["datetime"].hour
+                if 17 <= _h < 22: _cur_s = "PRE"
+                elif _h == 22 and row["datetime"].minute < 30: _cur_s = "PRE"
+                elif (_h == 22 and row["datetime"].minute >= 30) or (23 <= _h) or (0 <= _h < 5): _cur_s = "REG"
+                elif 5 <= _h < 9: _cur_s = "POST"
+                else: _cur_s = "OTHER"
+                if _last_session is None:
+                    _last_session = _cur_s
+                    _start_idx = i
+                elif _cur_s != _last_session:
+                    _color = {"PRE": "rgba(245, 197, 24, 0.05)", "REG": "rgba(43, 124, 255, 0.03)", "POST": "rgba(156, 39, 176, 0.05)"}.get(_last_session, "rgba(0,0,0,0)")
+                    if _last_session in ["PRE", "REG", "POST"]:
+                        _mark_areas.append([
+                            {"name": _last_session, "xAxis": category_data[_start_idx], "itemStyle": {"color": _color}, "label": {"position": "insideTop", "color": "#888", "fontSize": 12, "distance": 10}},
+                            {"xAxis": category_data[i-1]}
+                        ])
+                    _last_session = _cur_s
+                    _start_idx = i
+            if _last_session in ["PRE", "REG", "POST"]:
+                _color = {"PRE": "rgba(245, 197, 24, 0.05)", "REG": "rgba(43, 124, 255, 0.03)", "POST": "rgba(156, 39, 176, 0.05)"}.get(_last_session, "rgba(0,0,0,0)")
+                _mark_areas.append([
+                    {"name": _last_session, "xAxis": category_data[_start_idx], "itemStyle": {"color": _color}, "label": {"position": "insideTop", "color": "#888", "fontSize": 12, "distance": 10}},
+                    {"xAxis": category_data[len(df)-1]}
+                ])
+
         options = {
             "backgroundColor": "rgba(0,0,0,0)",
             "animation": False,
@@ -293,6 +324,10 @@ def _us_echarts_chart(ticker: str, interval: str = "5", height: int = 600, perio
                     "itemStyle": {
                         "color": "#ff4b4b", "color0": "#2b7cff",
                         "borderColor": "#ff4b4b", "borderColor0": "#2b7cff"
+                    },
+                    "markArea": {
+                        "silent": True,
+                        "data": _mark_areas
                     }
                 },
                 {"name": "MA5", "type": "line", "data": ma5, "smooth": True, "showSymbol": False, "lineStyle": {"width": 1, "color": "#f5c518"}},
