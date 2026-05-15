@@ -5887,30 +5887,44 @@ def main():
                                "backgroundColor":"rgba(0,0,0,1)"}}
                               </script></div>''', height=430)
                     else:
-                        if detail_us:
+                        if True: # detail_us가 없어도 기본 정보는 표시
                             # 이름 보정
                             _us_tm_head_g = st.session_state.get("us_ticker_map") or {}
                             _real_us_name = _us_ticker_cur
                             if _us_tm_head_g and _us_ticker_cur in _us_tm_head_g:
                                 _real_us_name = _us_tm_head_g[_us_ticker_cur].get("name", _us_ticker_cur)
-                            elif detail_us.get('name') and detail_us['name'] != _us_ticker_cur:
+                            elif detail_us and detail_us.get('name') and detail_us['name'] != _us_ticker_cur:
                                 _real_us_name = detail_us['name']
+                            
+                            # 한국어 이름 재확인
+                            from us_kr_names import get_kr_name
+                            _real_us_name = get_kr_name(_us_ticker_cur, _real_us_name)
                             
                             if st.session_state.us_selected_name != _real_us_name:
                                 st.session_state.us_selected_name = _real_us_name
 
-                            _chg = detail_us.get("change_pct", 0)
-                            _col = "#00c853" if _chg >= 0 else "#ff4b4b"
-                            _ar  = "▲" if _chg >= 0 else "▼"
-                            st.markdown(
-                                f"<div style='display:flex;align-items:center;gap:8px;margin-bottom:8px'>"
-                                f"<span style='font-size:1.44rem;font-weight:700'>**{_real_us_name}**</span> "
-                                f"<span style='font-size:1.17rem;color:#888'>({_us_ticker_cur})</span> &nbsp; "
-                                f"<span style='font-size:1.26rem;font-weight:600'>${detail_us.get('price', 0):,.2f}</span> &nbsp; "
-                                f"<span style='color:{_col};font-size:1.15rem;font-weight:600'>{_ar} ${abs(detail_us.get('change', 0)):.2f} ({_chg:+.2f}%)</span>"
-                                f"</div>",
-                                unsafe_allow_html=True,
-                            )
+                            if detail_us:
+                                _chg = detail_us.get("change_pct", 0)
+                                _col = "#00c853" if _chg >= 0 else "#ff4b4b"
+                                _ar  = "▲" if _chg >= 0 else "▼"
+                                st.markdown(
+                                    f"<div style='display:flex;align-items:center;gap:8px;margin-bottom:8px'>"
+                                    f"<span style='font-size:1.44rem;font-weight:700'>**{_real_us_name}**</span> "
+                                    f"<span style='font-size:1.17rem;color:#888'>({_us_ticker_cur})</span> &nbsp; "
+                                    f"<span style='font-size:1.26rem;font-weight:600'>${detail_us.get('price', 0):,.2f}</span> &nbsp; "
+                                    f"<span style='color:{_col};font-size:1.15rem;font-weight:600'>{_ar} ${abs(detail_us.get('change', 0)):.2f} ({_chg:+.2f}%)</span>"
+                                    f"</div>",
+                                    unsafe_allow_html=True,
+                                )
+                            else:
+                                st.markdown(
+                                    f"<div style='display:flex;align-items:center;gap:8px;margin-bottom:8px'>"
+                                    f"<span style='font-size:1.44rem;font-weight:700'>**{_real_us_name}**</span> "
+                                    f"<span style='font-size:1.17rem;color:#888'>({_us_ticker_cur})</span>"
+                                    f"</div>",
+                                    unsafe_allow_html=True,
+                                )
+                                st.warning("⚠️ 현재 시세 정보를 불러올 수 없습니다. 잠시 후 다시 시도해주세요.")
 
                         # 드롭다운 스타일 타임프레임 선택 (US)
                         _utf_c1, _utf_c2, _utf_c3 = st.columns([2, 3, 5])
@@ -6008,10 +6022,14 @@ def main():
                             for _tk, _ti in _us_tm.items():
                                 _eng_name = _ti.get("name", _tk)
                                 _kr_name = get_kr_name(_tk, _eng_name)
-                                _lbl = f"{_kr_name} ({_tk})"
+                                # 한국어 이름이 영어 이름과 다를 경우에만 병기
+                                if _kr_name != _eng_name:
+                                    _lbl = f"{_kr_name} ({_eng_name} / {_tk})"
+                                else:
+                                    _lbl = f"{_eng_name} ({_tk})"
                                 _us_all_stk[_lbl] = {"ticker": _tk, "exchange": _ti.get("exchange", "NASDAQ")}
                         
-                        # 2. 섹터맵(큐레이션) 보강 (혹시 누락된 것이 있다면)
+                        # 2. 섹터맵(큐레이션) 보강
                         from db import load_us_sector_map as _load_us_sm
                         _us_sm = _load_us_sm()
                         for _sec_val in _us_sm.values():
