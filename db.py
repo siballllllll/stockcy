@@ -585,7 +585,7 @@ _FDR_IND_MAP: dict = {
 }
 
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=43200)
 def load_us_sector_map() -> dict:
     """Google Sheets 섹터DB_US 탭 → sectors_us.py → FDR 전종목 업종 순으로 병합."""
     try:

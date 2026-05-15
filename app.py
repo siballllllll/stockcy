@@ -2307,13 +2307,20 @@ def main():
     init_session_state()
     inject_custom_css()
     
-    # ── 무거운 데이터 맵 사전 로드 (세션 캐싱) ──────────────────────────
-    if "kr_name_to_code" not in st.session_state:
-        st.session_state.kr_name_to_code = get_kr_name_to_code_map()
+    # ── 무거운 데이터 맵 사전 로드 (세션 캐싱, 병렬) ──────────────────────
+    _need_kr = "kr_name_to_code" not in st.session_state
+    _need_us = "us_ticker_map"    not in st.session_state
+    if _need_kr or _need_us:
+        from concurrent.futures import ThreadPoolExecutor
+        with ThreadPoolExecutor(max_workers=2) as _ex:
+            _fkr = _ex.submit(get_kr_name_to_code_map) if _need_kr else None
+            _fus = _ex.submit(get_us_ticker_map)        if _need_us else None
+            if _fkr:
+                st.session_state.kr_name_to_code = _fkr.result()
+            if _fus:
+                st.session_state.us_ticker_map = _fus.result()
     if "kr_code_to_name" not in st.session_state:
         st.session_state.kr_code_to_name = get_kr_code_to_name_map()
-    if "us_ticker_map" not in st.session_state:
-        st.session_state.us_ticker_map = get_us_ticker_map()
     
     _krx_map = st.session_state.kr_name_to_code
     _c2n_kr  = st.session_state.kr_code_to_name
