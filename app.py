@@ -2326,9 +2326,9 @@ def main():
     if "kr_code_to_name" not in st.session_state or not st.session_state.kr_code_to_name:
         st.session_state.kr_code_to_name = get_kr_code_to_name_map()
     
-    _krx_map = st.session_state.kr_name_to_code
-    _c2n_kr  = st.session_state.kr_code_to_name
-    _us_map  = st.session_state.us_ticker_map
+    _krx_map = st.session_state.get("kr_name_to_code") or {}
+    _c2n_kr  = st.session_state.get("kr_code_to_name") or {}
+    _us_map  = st.session_state.get("us_ticker_map")   or {}
     
     _is_kr_nav = "국내" in st.session_state.market
     _nav_mode_key = "kr_mode" if _is_kr_nav else "us_mode"
