@@ -7512,6 +7512,25 @@ def main():
             "📋 거래 성과",
         ])
 
+        # AI 프롬프트 설명 텍스트가 필드 값으로 저장된 경우 "-"로 정리
+        _LEAKED_KEYWORDS = ("시스템이", "가이드라인", "자동 교정", "예정)", "대체됨)", "덮어씌")
+        _SANITIZE_KEYS = ("buy_target", "sell_target", "stop_loss",
+                          "mid_term_view_price", "long_term_target", "short_term_view_price")
+
+        def _clean_field(v):
+            s = str(v or "").strip()
+            if not s or s == "-":
+                return s
+            if any(kw in s for kw in _LEAKED_KEYWORDS):
+                return "-"
+            return s
+
+        def _sanitize_item(item: dict) -> dict:
+            for k in _SANITIZE_KEYS:
+                if k in item:
+                    item[k] = _clean_field(item[k])
+            return item
+
         def render_holdings(portfolio_key, show_add=False):
             # 매도/삭제 pending 처리
             pending_key = f"_remove_{portfolio_key}"
@@ -7529,7 +7548,7 @@ def main():
                     except Exception:
                         pass
 
-            port_list = st.session_state.get(portfolio_key, [])
+            port_list = [_sanitize_item(item) for item in st.session_state.get(portfolio_key, [])]
 
             if show_add:
                 with st.expander("➕ 종목 직접 추가"):
