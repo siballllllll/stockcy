@@ -7781,42 +7781,44 @@ def main():
                     with cr:
                         st.markdown(f"**매도가({cur_sym}) / 수량 입력 후 기록**")
 
-                        # ── 추천 매도가 빠른 설정 ──────────────────────────────
-                        import re as _re
-                        _ai_tgt_raw = str(item.get("sell_target", "") or "")
-                        _ai_tgt_num = None
-                        if _ai_tgt_raw and _ai_tgt_raw not in ("-", ""):
-                            _m_digits = _re.sub(r"[^\d.]", "", _ai_tgt_raw)
-                            if _m_digits:
-                                try:
-                                    _ai_tgt_num = float(_m_digits)
-                                except Exception:
-                                    pass
-
-                        def _rec_p(_pct: float) -> float:
-                            _v = bp * (1 + _pct / 100)
-                            return float(int(round(_v)) if is_kr else round(_v, 2))
-
-                        _recs = [
-                            ("+3%",     _rec_p(3)),
-                            ("+5%",     _rec_p(5)),
-                            ("+8%",     _rec_p(8)),
-                            ("손절-3%", _rec_p(-3)),
-                        ]
-                        if _ai_tgt_num and _ai_tgt_num > 0:
-                            _recs.insert(0, ("AI목표", float(_ai_tgt_num)))
-
-                        st.caption("📌 추천 매도가")
-                        _rcols = st.columns(len(_recs))
-                        for _ri, ((_rl, _rv), _rc) in enumerate(zip(_recs, _rcols)):
-                            _rfmt = f"{int(_rv):,}" if is_kr else f"{_rv:,.2f}"
-                            if _rc.button(
-                                f"{_rl}\n{cur_sym}{_rfmt}",
-                                key=f"rec_{portfolio_key}_{idx}_{_ri}",
-                                use_container_width=True,
-                            ):
-                                st.session_state[f"sellp_{portfolio_key}_{idx}"] = _rv
-                                st.rerun()
+                        # ── AI 매도 타이밍 분석 ────────────────────────────────
+                        _st_key = f"sell_timing_{portfolio_key}_{idx}"
+                        if st.button("🤖 AI 매도 타이밍 분석", key=f"stbtn_{portfolio_key}_{idx}",
+                                     use_container_width=True):
+                            with st.spinner("AI 분석 중..."):
+                                from ai_engine import analyze_sell_timing
+                                st.session_state[_st_key] = analyze_sell_timing(
+                                    ticker, name, float(bp), float(cp),
+                                    "KR" if is_kr else "US"
+                                )
+                        _st_res = st.session_state.get(_st_key)
+                        if _st_res:
+                            if _st_res.get("error"):
+                                st.error(_st_res["error"])
+                            else:
+                                _VERDICT_COLOR = {
+                                    "즉시 매도":     "#ff4b4b",
+                                    "분할 매도":     "#ff9800",
+                                    "보유 유지":     "#00c853",
+                                    "추가 매수 고려": "#2b7cff",
+                                }
+                                _vd = _st_res.get("verdict", "")
+                                _vc = _VERDICT_COLOR.get(_vd, "#a78bfa")
+                                st.markdown(
+                                    f"<div style='margin:4px 0 6px;padding:5px 10px;"
+                                    f"background:{_vc}22;border-left:3px solid {_vc};"
+                                    f"border-radius:4px;font-weight:700;color:{_vc}'>"
+                                    f"{_vd}</div>",
+                                    unsafe_allow_html=True,
+                                )
+                                if _st_res.get("timing"):
+                                    st.caption(f"⏰ {_st_res['timing']}")
+                                if _st_res.get("reason"):
+                                    st.markdown(_st_res["reason"])
+                                if _st_res.get("target_exit"):
+                                    st.caption(f"🎯 목표 청산: {_st_res['target_exit']}")
+                                if _st_res.get("risk"):
+                                    st.warning(_st_res["risk"], icon="⚠️")
                         # ───────────────────────────────────────────────────────
 
                         _sp_col, _sq_col = st.columns([3, 2])

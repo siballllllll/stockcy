@@ -435,6 +435,47 @@ def generate_mindmap_data():
         return f"graph TD\n  A[\"분석 시스템\"] --> B[\"{str(e)[:30]}\"]"
 
 
+@st.cache_data(ttl=300)
+def analyze_sell_timing(ticker: str, name: str, avg_price: float, current_price: float, market: str = "KR") -> dict:
+    """평단가 기준 AI 매도 타이밍 분석. 결과를 5분간 캐싱."""
+    pnl_pct = (current_price - avg_price) / avg_price * 100 if avg_price > 0 else 0
+    sign = "+" if pnl_pct >= 0 else ""
+    if market == "KR":
+        avg_str = f"{int(avg_price):,}원"
+        cp_str  = f"{int(current_price):,}원"
+    else:
+        avg_str = f"${avg_price:.2f}"
+        cp_str  = f"${current_price:.2f}"
+
+    prompt = f"""당신은 개인 투자자의 실전 포트폴리오를 관리하는 전문 트레이딩 어드바이저입니다.
+
+[보유 종목 현황]
+종목: {name} ({ticker})
+평단가: {avg_str}
+현재가: {cp_str}
+현재 수익률: {sign}{pnl_pct:.2f}%
+
+구글 검색으로 {name}({ticker})의 최신 뉴스, 차트 흐름, 수급 동향, 거시경제 변수를 파악하세요.
+위 투자자가 보유 중인 포지션 기준으로, 지금 매도하는 것이 좋은지, 기다려야 하는지, 타이밍을 어떻게 잡아야 하는지 분석하세요.
+
+반드시 아래 JSON 형식으로만 응답하세요 (마크다운 백틱 없이):
+{{
+  "verdict": "즉시 매도 | 분할 매도 | 보유 유지 | 추가 매수 고려",
+  "timing": "구체적인 매도 타이밍 — 오늘 장 마감 전 / 다음 저항선 도달 시 / 실적 발표 전 등 구체 조건",
+  "reason": "판단 근거 — 현재 수익률 상황, 차트 기술적 위치, 최신 뉴스·이슈, 수급 흐름을 종합 (마크다운 불릿 3~4줄)",
+  "target_exit": "권장 매도 목표가 또는 청산 트리거 조건 (구체적 가격 또는 이벤트)",
+  "risk": "보유 지속 시 주의해야 할 핵심 리스크 1~2문장"
+}}"""
+
+    try:
+        response = _call_gemini(prompt, use_search=True, temperature=0.4)
+        return _parse_json_response(response)
+    except Exception as e:
+        if "QUOTA" in str(e) or "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
+            return {"error": "API 할당량 초과 — 잠시 후 다시 시도하세요."}
+        return {"error": _friendly_error(e)}
+
+
 def generate_stock_report(ticker, current_price, change_pct):
     """
     선택한 주식의 세력 수급 등급 및 타점을 분석하여 JSON 객체로 반환합니다.
