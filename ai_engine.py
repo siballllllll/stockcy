@@ -1031,11 +1031,16 @@ def analyze_box_pattern(ticker: str, name: str, price_data: dict, market: str = 
     당신은 15년 경력의 월스트리트 기술적 분석 및 세력 수급 추적 전문가입니다.
     현재 {name}({ticker})의 주가는 {price_str}{currency} 입니다.
     구글 검색을 통해 최근 3개월~6개월 간의 차트 흐름, 거래량 터진 구간, 그리고 주요 주체(외국인/기관/세력)의 매집/이탈 동향을 파악하세요.
-    
+
+    ⚠️ [가격 응답 규칙] support_line과 resistance_line은 반드시 숫자만(콤마·단위 제외) 응답하세요.
+    - support_line은 현재가({price_str})보다 낮은 실제 지지 가격대 숫자 (예: 72000)
+    - resistance_line은 현재가({price_str})보다 높은 실제 저항 가격대 숫자 (예: 78000)
+    - 이 조건을 충족하지 못하면 시스템이 오류로 처리합니다.
+
     반드시 아래 JSON 형식으로만 응답하세요 (마크다운 백틱 없이):
     {{
-      "support_line": "1차 지지선 가격 (예: 72,000원)",
-      "resistance_line": "1차 저항선 가격 (예: 78,000원)",
+      "support_line": "1차 지지선 — 숫자만 (예: 72000)",
+      "resistance_line": "1차 저항선 — 숫자만 (예: 78000)",
       "breakout_probability": "저항선 돌파 확률 (예: 75%)",
       "box_analysis": "현재 박스권(지지/저항) 형성 배경과 돌파 또는 이탈 가능성에 대한 기술적 분석 (3~4문장)",
       "supply_demand_analysis": "최근 세력(외국인/기관/고래)의 수급 동향 및 매집/분산 여부 파악 (3~4문장)",
@@ -1045,18 +1050,27 @@ def analyze_box_pattern(ticker: str, name: str, price_data: dict, market: str = 
     try:
         response = _call_gemini(prompt, use_search=True, temperature=0.5)
         res = _parse_json_response(response)
-        # [Python Override - 지지/저항 현재가 기준 고정]
+        # [Python Sanity Check - 지지/저항선 논리 검증]
+        _err_msg = "차트 데이터 분석 오류 (재시도 요망)"
         try:
             cp = float(price_data.get("price", 0))
-            if cp > 0:
+            sup_raw = re.sub(r"[^\d.]", "", str(res.get("support_line", "")))
+            resist_raw = re.sub(r"[^\d.]", "", str(res.get("resistance_line", "")))
+            sup = float(sup_raw) if sup_raw else 0.0
+            resist = float(resist_raw) if resist_raw else 0.0
+            if cp > 0 and sup > 0 and resist > 0 and sup < cp < resist:
                 if market == "KR":
-                    res["support_line"] = f"{int(cp * 0.95):,}원 (-5%)"
-                    res["resistance_line"] = f"{int(cp * 1.05):,}원 (+5%)"
+                    res["support_line"] = f"{int(sup):,}원"
+                    res["resistance_line"] = f"{int(resist):,}원"
                 else:
-                    res["support_line"] = f"${cp * 0.95:.2f} (-5%)"
-                    res["resistance_line"] = f"${cp * 1.05:.2f} (+5%)"
+                    res["support_line"] = f"${sup:.2f}"
+                    res["resistance_line"] = f"${resist:.2f}"
+            else:
+                res["support_line"] = _err_msg
+                res["resistance_line"] = _err_msg
         except Exception:
-            pass
+            res["support_line"] = _err_msg
+            res["resistance_line"] = _err_msg
         return res
     except Exception as e:
         return {
