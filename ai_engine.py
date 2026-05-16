@@ -376,7 +376,32 @@ def generate_scenario_detail(issue_title: str, scenario_title: str, economic_ana
     )
     try:
         response = _call_gemini(prompt, use_search=True, temperature=0.5, timeout_sec=120)
-        return _parse_json_response(response)
+        res = _parse_json_response(response)
+        # [Python Override - 실시간 현재가 기반 단타 타점 교정]
+        try:
+            from data import get_us_stock_data
+            stocks = res.get("short_detail", {}).get("stocks", [])
+            if stocks:
+                tickers = [s.get("ticker", "") for s in stocks if s.get("ticker")]
+                if tickers:
+                    df_prices = get_us_stock_data(tickers)
+                    price_map = {}
+                    if not df_prices.empty:
+                        for _, row in df_prices.iterrows():
+                            price_map[row["심볼"]] = float(row["현재가($)"])
+                    for s in stocks:
+                        cp = price_map.get(s.get("ticker", ""), 0)
+                        if cp > 0:
+                            s["entry_point"] = f"${cp:.2f} (현재가)"
+                            s["target"] = f"${cp * 1.06:.2f} (+6%)"
+                            s["stop"] = f"${cp * 0.98:.2f} (-2%)"
+                        else:
+                            s["entry_point"] = "시세 조회 실패"
+                            s["target"] = "시세 조회 실패"
+                            s["stop"] = "시세 조회 실패"
+        except Exception:
+            pass
+        return res
     except Exception as e:
         return {"error": _friendly_error(e)}
 
@@ -442,12 +467,12 @@ def generate_stock_report(ticker, current_price, change_pct):
   "short_term_view_price": "단기 예상 도달 가격대 (달러 단위)",
   "short_term_view_reason": "이 전망의 구체적 근거 — 실적, 수급 흐름, 기술적 지지·저항 등 수치 포함 (2~3문장)",
 
-  "buy_target": "매수 적정 구간 (가이드라인만 제시, 시스템이 현재가 기준 ±1%로 자동 교정 예정)",
-  "sell_target": "단기 목표가 (가이드라인 제시, 시스템이 +6%로 자동 교정 예정)",
-  "stop_loss": "손절가 (가이드라인 제시, 시스템이 -2%로 자동 교정 예정)",
+  "buy_target": "매수 적정 구간 가이드라인 (rating이 추천/매우 강력 추천이면 시스템이 현재가 ±1%로 자동 교정, 그 외 등급이면 '관망'으로 대체됨)",
+  "sell_target": "단기 목표가 가이드라인 (추천/매우 강력 추천이면 시스템이 +6%로 자동 교정)",
+  "stop_loss": "손절가 가이드라인 (추천/매우 강력 추천이면 시스템이 -2%로 자동 교정)",
 
-  "mid_term_view_pct": "중기(1~3개월) 예상 변동률 (시스템이 +15%로 자동 교정 예정)",
-  "mid_term_view_price": "중기 예상 가격대 (달러 단위)",
+  "mid_term_view_pct": "중기(1~3개월) 예상 변동률 — % 기호 없이 순수 숫자만 (예: 8.5 또는 -6.0)",
+  "mid_term_view_price": "중기 예상 가격대 (달러 단위, 시스템이 mid_term_view_pct로 자동 계산)",
   "mid_term_view_condition": "이 중기 전망의 핵심 변수 또는 catalyst (상승·하락 모두 가능, 구체적인 이벤트·조건)",
 
   "analysis": "종합 단타 전략 (최신 뉴스, 차트 패턴, 진입 근거 등 마크다운 상세)",
@@ -455,8 +480,8 @@ def generate_stock_report(ticker, current_price, change_pct):
 
   "long_term_rating": "중장기 등급 (적극 매수 / 분할 매수 / 관망 / 비중 축소 / 전량 매도)",
   "long_term_period": "권장 투자 기간",
-  "long_term_target": "중장기 목표가 (달러 단위, 시스템이 +30%로 자동 교정 예정)",
-  "long_term_target_pct": "중장기 예상 수익/손실률",
+  "long_term_target": "중장기 목표가 가이드라인 (달러 단위, 시스템이 long_term_target_pct로 자동 계산)",
+  "long_term_target_pct": "중장기 예상 수익/손실률 — % 기호 없이 순수 숫자만 (예: 25.0 또는 -10.0)",
   "long_term_analysis": "매크로 사이클·펀더멘털 중장기 분석 (마크다운 상세)"
 }}
 
@@ -468,14 +493,37 @@ def generate_stock_report(ticker, current_price, change_pct):
         response = _call_gemini(prompt, use_search=True, temperature=0.7)
         res = _parse_json_response(response)
 
-        # [Python Override - Hallucination Prevention]
+        # [Python Override - Conditional & No-Fallback]
         try:
             cp = float(current_price)
-            res["buy_target"] = f"${cp * 0.99:.2f} ~ ${cp * 1.01:.2f}"
-            res["sell_target"] = f"${cp * 1.06:.2f} (+6%)"
-            res["stop_loss"] = f"${cp * 0.98:.2f} (-2%)"
-            res["mid_term_view_price"] = f"${cp * 1.15:.2f} (+15%)"
-            res["long_term_target"] = f"${cp * 1.30:.2f} (+30%)"
+            rating = str(res.get("rating", ""))
+
+            # 조건부 단기 타점: 추천/매우 강력 추천일 때만 계산
+            if rating in ("추천", "매우 강력 추천"):
+                res["buy_target"] = f"${cp:.2f} ~ ${cp * 1.01:.2f}"
+                res["sell_target"] = f"${cp * 1.06:.2f} (+6%)"
+                res["stop_loss"]   = f"${cp * 0.98:.2f} (-2%)"
+            else:
+                res["buy_target"] = "관망 (진입 타점 없음)"
+                res["sell_target"] = "단타 진입 불가"
+                res["stop_loss"]   = "단타 진입 불가"
+
+            # 노-폴백 중기 목표가: AI 수익률 숫자 → 실제 가격 환산
+            try:
+                mid_pct = float(str(res.get("mid_term_view_pct", "")).strip().replace("%", "").replace("+", ""))
+                sign = "+" if mid_pct >= 0 else ""
+                res["mid_term_view_price"] = f"${cp * (1 + mid_pct / 100):.2f} ({sign}{mid_pct:.1f}%)"
+            except Exception:
+                res["mid_term_view_price"] = "AI 수익률 산정 불가 (재분석 요망)"
+
+            # 노-폴백 장기 목표가
+            try:
+                lt_pct = float(str(res.get("long_term_target_pct", "")).strip().replace("%", "").replace("+", ""))
+                sign = "+" if lt_pct >= 0 else ""
+                res["long_term_target"] = f"${cp * (1 + lt_pct / 100):.2f} ({sign}{lt_pct:.1f}%)"
+            except Exception:
+                res["long_term_target"] = "AI 수익률 산정 불가 (재분석 요망)"
+
         except Exception:
             pass
 
@@ -907,12 +955,12 @@ PER: {price_data['per']} | PBR: {price_data['pbr']}
   "short_term_view_price": "단기 예상 도달 가격대 (원 단위)",
   "short_term_view_reason": "이 전망의 구체적 근거 — 이슈, 수급 흐름, 기술적 지지·저항, 실적 등 수치 포함 (2~3문장)",
 
-  "buy_target": "매수 적정 구간 (가이드라인, 시스템이 ±1% 자동 교정 예정)",
-  "sell_target": "단기 목표가 (가이드라인, 시스템이 +6% 자동 교정 예정)",
-  "stop_loss": "손절가 (가이드라인, 시스템이 -2% 자동 교정 예정)",
+  "buy_target": "매수 적정 구간 가이드라인 (rating이 추천/매우 강력 추천이면 시스템이 현재가 ±1%로 자동 교정, 그 외 등급이면 '관망'으로 대체됨)",
+  "sell_target": "단기 목표가 가이드라인 (추천/매우 강력 추천이면 시스템이 +6%로 자동 교정)",
+  "stop_loss": "손절가 가이드라인 (추천/매우 강력 추천이면 시스템이 -2%로 자동 교정)",
 
-  "mid_term_view_pct": "중기(1~3개월) 예상 변동률 (시스템이 +15%로 자동 교정 예정)",
-  "mid_term_view_price": "중기 예상 가격대 (원 단위)",
+  "mid_term_view_pct": "중기(1~3개월) 예상 변동률 — % 기호 없이 순수 숫자만 (예: 8.5 또는 -6.0)",
+  "mid_term_view_price": "중기 예상 가격대 (원 단위, 시스템이 mid_term_view_pct로 자동 계산)",
   "mid_term_view_condition": "이 중기 전망의 핵심 변수 또는 catalyst (상승·하락 모두 가능, 구체적인 이벤트·조건)",
 
   "세력분석": "외국인/기관 수급 흐름과 그 의미를 2~3문장으로 분석",
@@ -921,8 +969,8 @@ PER: {price_data['per']} | PBR: {price_data['pbr']}
 
   "long_term_rating": "중장기 등급 (적극 매수 / 분할 매수 / 관망 / 비중 축소 / 전량 매도)",
   "long_term_period": "권장 투자 기간",
-  "long_term_target": "중장기 목표가 (원 단위, 시스템이 +30%로 자동 교정 예정)",
-  "long_term_target_pct": "중장기 예상 수익/손실률",
+  "long_term_target": "중장기 목표가 가이드라인 (원 단위, 시스템이 long_term_target_pct로 자동 계산)",
+  "long_term_target_pct": "중장기 예상 수익/손실률 — % 기호 없이 순수 숫자만 (예: 25.0 또는 -10.0)",
   "long_term_analysis": "거시경제 사이클·펀더멘털 기반 중장기 분석 (마크다운 상세)"
 }}
 
@@ -934,15 +982,30 @@ PER: {price_data['per']} | PBR: {price_data['pbr']}
         response = _call_gemini(prompt, use_search=True, temperature=0.7)
         res = _parse_json_response(response)
 
-        # [Python Override - Hallucination Prevention]
+        # [Python Override - Conditional & No-Fallback]
         try:
             cp = float(price_data['price'])
-            res["buy_target"] = f"{int(cp * 0.99):,}원 ~ {int(cp * 1.01):,}원"
-            res["sell_target"] = f"{int(cp * 1.06):,}원 (+6%)"
-            res["stop_loss"] = f"{int(cp * 0.98):,}원 (-2%)"
-            res["short_term_view_price"] = f"{int(cp * 1.06):,}원"
-            res["mid_term_view_price"] = f"{int(cp * 1.15):,}원 (+15%)"
-            res["long_term_target"] = f"{int(cp * 1.30):,}원 (+30%)"
+            rating = str(res.get("rating", ""))
+            if rating in ("추천", "매우 강력 추천"):
+                res["buy_target"] = f"{int(cp * 0.99):,}원 ~ {int(cp * 1.01):,}원"
+                res["sell_target"] = f"{int(cp * 1.06):,}원 (+6%)"
+                res["stop_loss"] = f"{int(cp * 0.98):,}원 (-2%)"
+            else:
+                res["buy_target"] = "관망 (진입 타점 없음)"
+                res["sell_target"] = "단타 진입 불가"
+                res["stop_loss"] = "단타 진입 불가"
+            try:
+                mid_pct = float(str(res.get("mid_term_view_pct", "")).strip().replace("%", "").replace("+", ""))
+                sign = "+" if mid_pct >= 0 else ""
+                res["mid_term_view_price"] = f"{int(cp * (1 + mid_pct / 100)):,}원 ({sign}{mid_pct:.1f}%)"
+            except Exception:
+                res["mid_term_view_price"] = "AI 수익률 산정 불가 (재분석 요망)"
+            try:
+                lt_pct = float(str(res.get("long_term_target_pct", "")).strip().replace("%", "").replace("+", ""))
+                sign = "+" if lt_pct >= 0 else ""
+                res["long_term_target"] = f"{int(cp * (1 + lt_pct / 100)):,}원 ({sign}{lt_pct:.1f}%)"
+            except Exception:
+                res["long_term_target"] = "AI 수익률 산정 불가 (재분석 요망)"
         except Exception:
             pass
 
@@ -981,7 +1044,20 @@ def analyze_box_pattern(ticker: str, name: str, price_data: dict, market: str = 
     """
     try:
         response = _call_gemini(prompt, use_search=True, temperature=0.5)
-        return _parse_json_response(response)
+        res = _parse_json_response(response)
+        # [Python Override - 지지/저항 현재가 기준 고정]
+        try:
+            cp = float(price_data.get("price", 0))
+            if cp > 0:
+                if market == "KR":
+                    res["support_line"] = f"{int(cp * 0.95):,}원 (-5%)"
+                    res["resistance_line"] = f"{int(cp * 1.05):,}원 (+5%)"
+                else:
+                    res["support_line"] = f"${cp * 0.95:.2f} (-5%)"
+                    res["resistance_line"] = f"${cp * 1.05:.2f} (+5%)"
+        except Exception:
+            pass
+        return res
     except Exception as e:
         return {
             "support_line": "-", "resistance_line": "-", "breakout_probability": "-",
@@ -1693,7 +1769,23 @@ PER: {price_data.get('per','-')}  PBR: {price_data.get('pbr','-')}
 
     try:
         resp = _call_gemini(prompt, use_search=True, temperature=0.3)
-        return _parse_json_response(resp)
+        res = _parse_json_response(resp)
+        # [Python Override - 진입 타이밍 조건부]
+        try:
+            cp = float(price_data.get("price", 0))
+            entry_timing = str(res.get("entry_timing", ""))
+            _positive = ("즉시 진입", "눌림목 대기", "돌파 확인 후")
+            if cp > 0 and any(t in entry_timing for t in _positive):
+                res["buy_target"] = f"{int(cp * 0.99):,}원 ~ {int(cp * 1.01):,}원"
+                res["sell_target"] = f"{int(cp * 1.06):,}원 (+6%)"
+                res["stop_loss"] = f"{int(cp * 0.98):,}원 (-2%)"
+            else:
+                res["buy_target"] = "관망 (진입 타점 없음)"
+                res["sell_target"] = "단타 진입 불가"
+                res["stop_loss"] = "단타 진입 불가"
+        except Exception:
+            pass
+        return res
     except Exception as e:
         if "QUOTA" in str(e) or "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
             return _quota_error_result("analyze_stock_theme_position")
