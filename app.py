@@ -7512,23 +7512,51 @@ def main():
             "📋 거래 성과",
         ])
 
-        # AI 프롬프트 설명 텍스트가 필드 값으로 저장된 경우 "-"로 정리
+        # AI 프롬프트 설명 텍스트 누출 감지 및 현재가 기반 자동 재계산
         _LEAKED_KEYWORDS = ("시스템이", "가이드라인", "자동 교정", "예정)", "대체됨)", "덮어씌")
-        _SANITIZE_KEYS = ("buy_target", "sell_target", "stop_loss",
-                          "mid_term_view_price", "long_term_target", "short_term_view_price")
+        _RECALC_RATINGS  = ("추천", "매우 강력 추천")
 
-        def _clean_field(v):
+        def _is_leaked(v):
             s = str(v or "").strip()
-            if not s or s == "-":
-                return s
-            if any(kw in s for kw in _LEAKED_KEYWORDS):
-                return "-"
-            return s
+            return bool(s) and s != "-" and any(kw in s for kw in _LEAKED_KEYWORDS)
 
-        def _sanitize_item(item: dict) -> dict:
-            for k in _SANITIZE_KEYS:
-                if k in item:
-                    item[k] = _clean_field(item[k])
+        def _recalc_item(item: dict, cp: float, is_kr: bool) -> dict:
+            """누출된 프롬프트 텍스트를 현재가 기반 실제 값으로 교체."""
+            rating = str(item.get("rating", "") or "")
+            can_trade = rating in _RECALC_RATINGS
+
+            if _is_leaked(item.get("buy_target")):
+                if can_trade and cp > 0:
+                    item["buy_target"] = (
+                        f"{int(cp * 0.99):,}원 ~ {int(cp * 1.01):,}원" if is_kr
+                        else f"${cp * 0.99:.2f} ~ ${cp * 1.01:.2f}"
+                    )
+                else:
+                    item["buy_target"] = "관망 (진입 타점 없음)"
+
+            if _is_leaked(item.get("sell_target")):
+                if can_trade and cp > 0:
+                    item["sell_target"] = (
+                        f"{int(cp * 1.06):,}원 (+6%)" if is_kr
+                        else f"${cp * 1.06:.2f} (+6%)"
+                    )
+                else:
+                    item["sell_target"] = "단타 진입 불가"
+
+            if _is_leaked(item.get("stop_loss")):
+                if can_trade and cp > 0:
+                    item["stop_loss"] = (
+                        f"{int(cp * 0.98):,}원 (-2%)" if is_kr
+                        else f"${cp * 0.98:.2f} (-2%)"
+                    )
+                else:
+                    item["stop_loss"] = "단타 진입 불가"
+
+            # 중장기 목표가는 재계산 불가(수익률 모름) → "-"로만 정리
+            for k in ("mid_term_view_price", "long_term_target", "short_term_view_price"):
+                if _is_leaked(item.get(k)):
+                    item[k] = "-"
+
             return item
 
         def render_holdings(portfolio_key, show_add=False):
@@ -7548,7 +7576,7 @@ def main():
                     except Exception:
                         pass
 
-            port_list = [_sanitize_item(item) for item in st.session_state.get(portfolio_key, [])]
+            port_list = list(st.session_state.get(portfolio_key, []))
 
             if show_add:
                 with st.expander("➕ 종목 직접 추가"):
@@ -7723,6 +7751,7 @@ def main():
                 bp = item["buy_price"]
                 qty = item["quantity"]
                 cp = prices.get(ticker, bp)
+                item = _recalc_item(item, cp, is_kr)
 
                 pnl = (cp - bp) * qty
                 pnl_pct = ((cp - bp) / bp * 100) if bp > 0 else 0
