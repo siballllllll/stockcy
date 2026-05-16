@@ -7780,6 +7780,45 @@ def main():
                                    delta_color="normal" if pnl >= 0 else "inverse")
                     with cr:
                         st.markdown(f"**매도가({cur_sym}) / 수량 입력 후 기록**")
+
+                        # ── 추천 매도가 빠른 설정 ──────────────────────────────
+                        import re as _re
+                        _ai_tgt_raw = str(item.get("sell_target", "") or "")
+                        _ai_tgt_num = None
+                        if _ai_tgt_raw and _ai_tgt_raw not in ("-", ""):
+                            _m_digits = _re.sub(r"[^\d.]", "", _ai_tgt_raw)
+                            if _m_digits:
+                                try:
+                                    _ai_tgt_num = float(_m_digits)
+                                except Exception:
+                                    pass
+
+                        def _rec_p(_pct: float) -> float:
+                            _v = bp * (1 + _pct / 100)
+                            return float(int(round(_v)) if is_kr else round(_v, 2))
+
+                        _recs = [
+                            ("+3%",     _rec_p(3)),
+                            ("+5%",     _rec_p(5)),
+                            ("+8%",     _rec_p(8)),
+                            ("손절-3%", _rec_p(-3)),
+                        ]
+                        if _ai_tgt_num and _ai_tgt_num > 0:
+                            _recs.insert(0, ("AI목표", float(_ai_tgt_num)))
+
+                        st.caption("📌 추천 매도가")
+                        _rcols = st.columns(len(_recs))
+                        for _ri, ((_rl, _rv), _rc) in enumerate(zip(_recs, _rcols)):
+                            _rfmt = f"{int(_rv):,}" if is_kr else f"{_rv:,.2f}"
+                            if _rc.button(
+                                f"{_rl}\n{cur_sym}{_rfmt}",
+                                key=f"rec_{portfolio_key}_{idx}_{_ri}",
+                                use_container_width=True,
+                            ):
+                                st.session_state[f"sellp_{portfolio_key}_{idx}"] = _rv
+                                st.rerun()
+                        # ───────────────────────────────────────────────────────
+
                         _sp_col, _sq_col = st.columns([3, 2])
                         with _sp_col:
                             sell_p = st.number_input(
