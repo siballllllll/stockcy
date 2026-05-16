@@ -1063,61 +1063,76 @@ PER: {price_data['per']} | PBR: {price_data['pbr']}
 
 def analyze_box_pattern(ticker: str, name: str, price_data: dict, market: str = "KR"):
     """
-    현재 주가의 박스권(지지선/저항선), 돌파 가능성, 세력 및 수급 동향을 분석합니다.
+    퀀트+AI 하이브리드: Python이 실제 차트 데이터로 지지/저항선을 계산하고,
+    AI는 그 수치를 근거로 돌파 가능성과 수급 동향만 뉴스 기반으로 분석합니다.
     """
-    price_str = f"{price_data.get('price', 0):,}" if market == "KR" else f"{price_data.get('price', 0):.2f}"
+    cp = float(price_data.get("price", 0))
     currency = "원" if market == "KR" else "달러"
-    
-    prompt = f"""
-    당신은 15년 경력의 월스트리트 기술적 분석 및 세력 수급 추적 전문가입니다.
-    현재 {name}({ticker})의 주가는 {price_str}{currency} 입니다.
-    구글 검색을 통해 최근 3개월~6개월 간의 차트 흐름, 거래량 터진 구간, 그리고 주요 주체(외국인/기관/세력)의 매집/이탈 동향을 파악하세요.
 
-    ⚠️ [가격 응답 규칙] support_line과 resistance_line은 반드시 숫자만(콤마·단위 제외) 응답하세요.
-    - support_line은 현재가({price_str})보다 낮은 실제 지지 가격대 숫자 (예: 72000)
-    - resistance_line은 현재가({price_str})보다 높은 실제 저항 가격대 숫자 (예: 78000)
-    - 이 조건을 충족하지 못하면 시스템이 오류로 처리합니다.
+    # ── Step 1: Python 정량 계산 (최근 20거래일 고가/저가) ─────────────────
+    support_price = cp * 0.95   # 데이터 조회 실패 시 폴백
+    resistance_price = cp * 1.05
+    _data_source = "폴백(±5%)"
+    try:
+        from data_kr import get_kr_daily_chart, get_us_daily_chart
+        df_chart = get_kr_daily_chart(ticker, period="3mo") if market == "KR" \
+                   else get_us_daily_chart(ticker, period="3mo")
+        if not df_chart.empty and len(df_chart) >= 5:
+            recent = df_chart.tail(20)
+            support_price = float(recent["low"].min())
+            resistance_price = float(recent["high"].max())
+            _data_source = f"실제 차트 {len(recent)}거래일"
+    except Exception:
+        pass
 
-    반드시 아래 JSON 형식으로만 응답하세요 (마크다운 백틱 없이):
-    {{
-      "support_line": "1차 지지선 — 숫자만 (예: 72000)",
-      "resistance_line": "1차 저항선 — 숫자만 (예: 78000)",
-      "breakout_probability": "저항선 돌파 확률 (예: 75%)",
-      "box_analysis": "현재 박스권(지지/저항) 형성 배경과 돌파 또는 이탈 가능성에 대한 기술적 분석 (3~4문장)",
-      "supply_demand_analysis": "최근 세력(외국인/기관/고래)의 수급 동향 및 매집/분산 여부 파악 (3~4문장)",
-      "action_plan": "현재 자리에서의 구체적인 대응 전략 (매수/관망/매도 등)"
-    }}
-    """
+    # ── Step 2: 포맷 문자열 생성 ──────────────────────────────────────────
+    if market == "KR":
+        sup_str = f"{int(support_price):,}원"
+        res_str = f"{int(resistance_price):,}원"
+        cp_str  = f"{int(cp):,}원"
+    else:
+        sup_str = f"${support_price:.2f}"
+        res_str = f"${resistance_price:.2f}"
+        cp_str  = f"${cp:.2f}"
+
+    # ── Step 3: AI 프롬프트에 정량값 주입 ─────────────────────────────────
+    prompt = f"""당신은 15년 경력의 기술적 분석 및 세력 수급 추적 전문가입니다.
+
+[퀀트 알고리즘 계산 결과 — 최근 20거래일 실제 OHLC 데이터 기반]
+종목: {name} ({ticker})
+현재가: {cp_str}
+1차 지지선 (20일 최저가): {sup_str}  ← 이 수치를 그대로 사용할 것
+1차 저항선 (20일 최고가): {res_str}  ← 이 수치를 그대로 사용할 것
+데이터 출처: {_data_source}
+
+⚠️ [중요] support_line과 resistance_line은 위 계산값을 그대로 답하세요. 임의로 변경하거나 다른 수치를 추측하지 마세요.
+
+구글 검색으로 최신 뉴스·수급·공시를 파악해 아래 분석을 완성하세요.
+반드시 아래 JSON 형식으로만 응답하세요 (마크다운 백틱 없이):
+{{
+  "support_line": "{sup_str}",
+  "resistance_line": "{res_str}",
+  "breakout_probability": "저항선 돌파 확률 (예: 65%) — 뉴스·수급 근거 기반",
+  "box_analysis": "현재 박스권 형성 배경과 돌파/이탈 가능성 기술적 분석 (3~4문장, 뉴스 및 수급 데이터 포함)",
+  "supply_demand_analysis": "외국인·기관·세력 수급 동향 및 매집/분산 여부 (3~4문장)",
+  "action_plan": "현재 자리 대응 전략 — 매수 타이밍, 저항 돌파 후 전략, 손절 기준 포함"
+}}"""
+
     try:
         response = _call_gemini(prompt, use_search=True, temperature=0.5)
         res = _parse_json_response(response)
-        # [Python Sanity Check - 지지/저항선 논리 검증]
-        _err_msg = "차트 데이터 분석 오류 (재시도 요망)"
-        try:
-            cp = float(price_data.get("price", 0))
-            sup_raw = re.sub(r"[^\d.]", "", str(res.get("support_line", "")))
-            resist_raw = re.sub(r"[^\d.]", "", str(res.get("resistance_line", "")))
-            sup = float(sup_raw) if sup_raw else 0.0
-            resist = float(resist_raw) if resist_raw else 0.0
-            if cp > 0 and sup > 0 and resist > 0 and sup < cp < resist:
-                if market == "KR":
-                    res["support_line"] = f"{int(sup):,}원"
-                    res["resistance_line"] = f"{int(resist):,}원"
-                else:
-                    res["support_line"] = f"${sup:.2f}"
-                    res["resistance_line"] = f"${resist:.2f}"
-            else:
-                res["support_line"] = _err_msg
-                res["resistance_line"] = _err_msg
-        except Exception:
-            res["support_line"] = _err_msg
-            res["resistance_line"] = _err_msg
+        # [Python Override - 정량 계산값으로 강제 덮어쓰기]
+        res["support_line"] = sup_str
+        res["resistance_line"] = res_str
         return res
     except Exception as e:
         return {
-            "support_line": "-", "resistance_line": "-", "breakout_probability": "-",
+            "support_line": sup_str,
+            "resistance_line": res_str,
+            "breakout_probability": "-",
             "box_analysis": _friendly_error(e),
-            "supply_demand_analysis": "-", "action_plan": "-"
+            "supply_demand_analysis": "-",
+            "action_plan": "-",
         }
 
 
