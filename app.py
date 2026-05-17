@@ -1320,7 +1320,7 @@ def _render_analysis_diff(prev: dict, curr: dict, prev_time: str):
     )
 
 
-def _render_stock_section(group: list, mkt: str, icon: str, dir_: str, clr: str, key_prefix: str, halted_set: set = None):
+def _render_stock_section(group: list, mkt: str, icon: str, dir_: str, clr: str, key_prefix: str, halted_set: set = None, show_targets: bool = False):
     """종목 목록 렌더링 — 섹션 헤더 없이 버튼만 (헤더는 호출부에서 행 단위로 처리)."""
     if halted_set is None:
         halted_set = set()
@@ -1400,6 +1400,20 @@ def _render_stock_section(group: list, mkt: str, icon: str, dir_: str, clr: str,
                 st.markdown(f"**{dir_} 이유:** {_rsn}")
                 if _vn:
                     st.info(f"📐 {_vn}")
+                if show_targets:
+                    _bt = _s.get("buy_target", "")
+                    _sv = _s.get("sell_target", "")
+                    _sl = _s.get("stop_loss", "")
+                    if _bt or _sv or _sl:
+                        st.markdown(
+                            f"<div style='background:#111827;border-radius:6px;padding:8px 10px;"
+                            f"margin-top:6px;font-size:0.82rem;line-height:1.7'>"
+                            f"<div>💰 <b>매수 타점:</b> {_bt}</div>"
+                            f"<div>🎯 <b>목표가:</b> {_sv}</div>"
+                            f"<div>🛡️ <b>손절선:</b> {_sl}</div>"
+                            f"</div>",
+                            unsafe_allow_html=True,
+                        )
                 st.markdown(
                     f"<a href='/?market={mkt}&code={_tk}' target='_blank' "
                     f"style='display:block;text-align:center;padding:8px;border-radius:6px;"
@@ -1426,7 +1440,7 @@ def _render_stock_section(group: list, mkt: str, icon: str, dir_: str, clr: str,
                 )
 
 
-def _render_stock_popover(stocks: list, color: str, label: str, key_prefix: str):
+def _render_stock_popover(stocks: list, color: str, label: str, key_prefix: str, show_targets: bool = False):
     """종목 목록을 KR/US 섹션으로 나눠 렌더링 (각 최대 5개)."""
     _icon = "🟢" if color == "up" else "🔴"
     _dir  = "상승" if color == "up" else "하락"
@@ -1442,9 +1456,85 @@ def _render_stock_popover(stocks: list, color: str, label: str, key_prefix: str)
         f"color:{'#00c853' if color=='up' else '#ff4b4b'}'>{label}</div>",
         unsafe_allow_html=True,
     )
-    _render_stock_section(_kr_stocks, "KR", _icon, _dir, _clr, f"{key_prefix}_kr")
+    _render_stock_section(_kr_stocks, "KR", _icon, _dir, _clr, f"{key_prefix}_kr", show_targets=show_targets)
     st.markdown("<div style='margin:6px 0;border-top:1px solid #333;'></div>", unsafe_allow_html=True)
-    _render_stock_section(_us_stocks, "US", _icon, _dir, _clr, f"{key_prefix}_us")
+    _render_stock_section(_us_stocks, "US", _icon, _dir, _clr, f"{key_prefix}_us", show_targets=show_targets)
+
+
+def _render_custom_issue_result(res: dict, key_prefix: str):
+    """커스텀 이슈 스나이퍼 결과 렌더링."""
+    if "error" in res:
+        st.error(f"분석 실패: {res['error']}")
+        return
+    _DIR_COLOR = {"강세": "#00c853", "약세": "#ff4b4b", "혼조": "#ffd740"}
+    _summary = res.get("summary", "")
+    if _summary:
+        st.caption(_summary)
+    _scenarios = res.get("scenarios", [])
+    if not _scenarios:
+        st.warning("시나리오 데이터를 불러오지 못했습니다.")
+        return
+    _sc_labels = []
+    for _sc in _scenarios:
+        _d = _sc.get("market_direction", "")
+        _emoji = "🟢" if _d == "강세" else ("🔴" if _d == "약세" else "🟡")
+        _sc_labels.append(f"{_emoji} 시나리오 {_sc.get('label','?')}: {_sc.get('title','')}")
+    _sc_tabs = st.tabs(_sc_labels)
+    for _tab, _sc in zip(_sc_tabs, _scenarios):
+        with _tab:
+            _dir = _sc.get("market_direction", "")
+            _dir_clr = _DIR_COLOR.get(_dir, "#aaa")
+            _prob_pct = _sc.get("probability_pct", "?")
+            _trigger = _sc.get("trigger", "")
+            _eco = _sc.get("economic_analysis", "")
+            st.markdown(
+                f"<div style='display:flex;gap:8px;margin-bottom:8px'>"
+                f"<span style='background:{_dir_clr}33;border:1px solid {_dir_clr}88;"
+                f"border-radius:4px;padding:2px 10px;font-size:0.82rem;color:{_dir_clr}'>{_dir}</span>"
+                f"<span style='background:#33333388;border-radius:4px;padding:2px 10px;"
+                f"font-size:0.82rem;color:#ccc'>확률 {_prob_pct}%</span>"
+                f"</div>",
+                unsafe_allow_html=True,
+            )
+            if _trigger:
+                st.markdown(f"**⚡ 현실화 조건:** {_trigger}")
+            if _eco:
+                st.markdown(f"**📊 경제 분석:** {_eco}")
+            _rising = _sc.get("rising_stocks", [])
+            _falling = _sc.get("falling_stocks", [])
+            _theme = _sc.get("theme_stocks", [])
+            _col_up, _col_dn = st.columns(2)
+            with _col_up:
+                _render_stock_popover(_rising, "up", "🟢 상승 수혜주", f"{key_prefix}_sc{_sc.get('label','')}_rise", show_targets=True)
+            with _col_dn:
+                _render_stock_popover(_falling, "down", "🔴 하락 위험주", f"{key_prefix}_sc{_sc.get('label','')}_fall", show_targets=True)
+            if _theme:
+                st.markdown(
+                    "<div style='font-size:0.9rem;font-weight:700;margin:8px 0 4px;color:#ffd740'>🔥 테마 연동주</div>",
+                    unsafe_allow_html=True,
+                )
+                _render_stock_section(_theme, "KR", "🔥", "테마", "#ffd740",
+                                      f"{key_prefix}_sc{_sc.get('label','')}_theme", show_targets=True)
+            _short = _sc.get("short_strategy", "")
+            _long = _sc.get("long_strategy", "")
+            if _short or _long:
+                _s1, _s2 = st.columns(2)
+                with _s1:
+                    if _short:
+                        st.markdown(
+                            f"<div style='background:#1a1a2e;border-radius:6px;padding:8px 10px;margin-top:8px'>"
+                            f"<div style='font-size:0.78rem;color:#ffd740;font-weight:700;margin-bottom:4px'>⚡ 단타전략</div>"
+                            f"<div style='font-size:0.82rem;color:#e0e0e0'>{_short}</div></div>",
+                            unsafe_allow_html=True,
+                        )
+                with _s2:
+                    if _long:
+                        st.markdown(
+                            f"<div style='background:#1a2e1a;border-radius:6px;padding:8px 10px;margin-top:8px'>"
+                            f"<div style='font-size:0.78rem;color:#69f0ae;font-weight:700;margin-bottom:4px'>📈 장타전략</div>"
+                            f"<div style='font-size:0.82rem;color:#e0e0e0'>{_long}</div></div>",
+                            unsafe_allow_html=True,
+                        )
 
 
 @st.dialog("📈 이슈별 시장 시나리오", width="large")
@@ -1452,6 +1542,45 @@ def show_market_scenarios():
     _today = __import__("datetime").date.today().strftime("%Y-%m-%d")
     _cache_key = f"market_scenarios_{_today}"
 
+    # ── 커스텀 이슈 스나이퍼 ─────────────────────────────────────────────
+    st.markdown(
+        "<div style='font-size:0.95rem;font-weight:700;color:#ffd740;margin-bottom:6px'>"
+        "🎯 커스텀 이슈 스나이퍼</div>",
+        unsafe_allow_html=True,
+    )
+    _ci_col_inp, _ci_col_btn = st.columns([4, 1])
+    with _ci_col_inp:
+        _ci_keyword = st.text_input(
+            "이슈 키워드",
+            placeholder="예: 우크라이나 재건, 반도체 관세, 달러 약세, AI 버블...",
+            key="ci_keyword_input",
+            label_visibility="collapsed",
+        )
+    with _ci_col_btn:
+        _ci_run = st.button("🔍 분석", key="ci_run_btn", use_container_width=True, type="primary")
+
+    _ci_kw = _ci_keyword.strip()
+    _ci_result_key = f"_ci_result_{_ci_kw}" if _ci_kw else "_ci_result_none"
+
+    if _ci_run and _ci_kw:
+        st.session_state.pop(_ci_result_key, None)
+        with st.spinner(f"AI가 '{_ci_kw}' 이슈의 수혜주와 타점을 분석 중입니다..."):
+            from ai_engine import analyze_custom_issue
+            st.session_state[_ci_result_key] = analyze_custom_issue(_ci_kw)
+    elif _ci_run:
+        st.warning("이슈 키워드를 입력해주세요.")
+
+    _ci_stored = st.session_state.get(_ci_result_key)
+    if _ci_stored:
+        st.markdown(
+            f"<h4 style='margin:10px 0 4px;color:#ffd740'>📌 {_ci_stored.get('title', _ci_kw)}</h4>",
+            unsafe_allow_html=True,
+        )
+        _render_custom_issue_result(_ci_stored, key_prefix=f"ci_{_ci_kw[:20]}")
+
+    st.markdown("<hr style='margin:10px 0;opacity:0.2'>", unsafe_allow_html=True)
+
+    # ── 기존 자동 시나리오 ───────────────────────────────────────────────
     # 버튼 최상단 우측 정렬 — 데이터 로딩 전에 즉시 표시
     _spc, _ref_col = st.columns([5, 2])
     with _ref_col:

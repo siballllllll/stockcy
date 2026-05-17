@@ -336,6 +336,117 @@ def generate_market_scenarios() -> dict:
         return {"error": _friendly_error(e), "issues": []}
 
 
+@st.cache_data(ttl=300)
+def analyze_custom_issue(keyword: str) -> dict:
+    """사용자 지정 이슈 키워드에 대한 A/B 시나리오 분석 + Python Override."""
+    prompt = (
+        f"당신은 월스트리트 20년 경력의 매크로 전략가이자 퀀트 트레이더입니다.\n"
+        f"사용자가 지정한 이슈 키워드: [{keyword}]\n\n"
+        "구글 검색으로 이 이슈의 최신 현황을 파악한 후, A(낙관)·B(비관) 두 가지 시나리오를 작성하세요.\n\n"
+        "⚠️ [종목 신뢰성 원칙 — 최우선 적용]\n"
+        "모든 종목은 구글 검색으로 반드시 검증하세요:\n"
+        "- 국내 ticker: KOSPI/KOSDAQ 6자리 숫자 코드 (예: 005930)\n"
+        "- 미국 ticker: NYSE/NASDAQ 심볼 (예: NVDA)\n"
+        "검증 안 된 종목 절대 금지. 거래정지·폐지 종목도 제외.\n\n"
+        "theme_stocks는 단타·스윙에 유리한 국내 중소형주(시총 1조 미만 코스닥 우선) 3~5개.\n"
+        "rising_stocks·falling_stocks에 이미 있는 종목, 시총 10조↑ 대형주는 제외.\n\n"
+        "반드시 아래 JSON 형식으로만 응답 (백틱·주석 절대 금지):\n\n"
+        "{\n"
+        '  "title": "이슈 제목",\n'
+        '  "summary": "현황 요약 (1~2문장)",\n'
+        '  "scenarios": [\n'
+        "    {\n"
+        '      "label": "A",\n'
+        '      "title": "시나리오 제목",\n'
+        '      "probability_pct": 60,\n'
+        '      "market_direction": "강세/약세/혼조",\n'
+        '      "trigger": "현실화 조건 (1문장)",\n'
+        '      "economic_analysis": "경제적 영향, PER·금리·수급 포함 (2~3문장)",\n'
+        '      "rising_stocks": [\n'
+        '        {"name": "종목명", "ticker": "코드", "reason": "이유", "valuation_note": "PER 코멘트", "signal": "매우 강력 추천/추천/중간추천/비추천/매우 비추천", "signal_reason": "현재 매수 관점 한 줄"}\n'
+        "      ],\n"
+        '      "falling_stocks": [\n'
+        '        {"name": "종목명", "ticker": "코드", "reason": "이유", "valuation_note": "", "signal": "매우 강력 추천/추천/중간추천/비추천/매우 비추천", "signal_reason": "한 줄"}\n'
+        "      ],\n"
+        '      "theme_stocks": [\n'
+        '        {"name": "종목명", "ticker": "6자리코드", "type": "직접관련주 또는 간접테마주", "historical_pattern": "과거 유사 이슈 때 움직임 (1문장)", "reason": "이번 연동 이유", "signal": "매우 강력 추천/추천/중간추천/비추천/매우 비추천", "signal_reason": "한 줄"}\n'
+        "      ],\n"
+        '      "short_strategy": "단타 전략: 진입 타이밍·청산 조건 (1~2문장)",\n'
+        '      "long_strategy": "장타 전략: 포지션 방향·보유 기간 (1~2문장)"\n'
+        "    },\n"
+        "    {\n"
+        '      "label": "B",\n'
+        '      "title": "시나리오 제목",\n'
+        '      "probability_pct": 40,\n'
+        '      "market_direction": "강세/약세/혼조",\n'
+        '      "trigger": "현실화 조건 (1문장)",\n'
+        '      "economic_analysis": "경제적 영향 (2~3문장)",\n'
+        '      "rising_stocks": [],\n'
+        '      "falling_stocks": [],\n'
+        '      "theme_stocks": [],\n'
+        '      "short_strategy": "단타 전략",\n'
+        '      "long_strategy": "장타 전략"\n'
+        "    }\n"
+        "  ]\n"
+        "}"
+    )
+    try:
+        response = _call_gemini(prompt, use_search=True, temperature=0.6, timeout_sec=120)
+        res = _parse_json_response(response)
+
+        def _is_kr(tk):
+            return str(tk).strip().isdigit() and len(str(tk).strip()) == 6
+
+        def _override_group(stocks):
+            kr_tks = tuple(str(s.get("ticker","")).strip() for s in stocks
+                           if s.get("ticker") and _is_kr(s.get("ticker","")))
+            us_tks = tuple(str(s.get("ticker","")).strip() for s in stocks
+                           if s.get("ticker") and not _is_kr(s.get("ticker","")))
+            kr_prices, us_prices = {}, {}
+            if kr_tks:
+                try:
+                    from data_kr import get_kr_prices_bulk
+                    kr_prices = get_kr_prices_bulk(kr_tks)
+                except Exception:
+                    pass
+            if us_tks:
+                try:
+                    from data import get_us_prices_bulk
+                    us_prices = get_us_prices_bulk(us_tks)
+                except Exception:
+                    pass
+            for s in stocks:
+                tk = str(s.get("ticker","")).strip()
+                if not tk:
+                    continue
+                is_kr = _is_kr(tk)
+                cp = float(((kr_prices if is_kr else us_prices).get(tk) or {}).get("price", 0) or 0)
+                rating = str(s.get("signal", ""))
+                if cp > 0:
+                    if rating in ("추천", "매우 강력 추천"):
+                        if is_kr:
+                            s["buy_target"]  = f"{int(cp*0.99):,}원 ~ {int(cp*1.01):,}원"
+                            s["sell_target"] = f"{int(cp*1.06):,}원 (+6%)"
+                            s["stop_loss"]   = f"{int(cp*0.98):,}원 (-2%)"
+                        else:
+                            s["buy_target"]  = f"${cp*0.99:.2f} ~ ${cp*1.01:.2f}"
+                            s["sell_target"] = f"${cp*1.06:.2f} (+6%)"
+                            s["stop_loss"]   = f"${cp*0.98:.2f} (-2%)"
+                    else:
+                        s["buy_target"]  = "관망 (진입 타점 없음)"
+                        s["sell_target"] = "관망"
+                        s["stop_loss"]   = "관망"
+
+        for _sc in res.get("scenarios", []):
+            _override_group(_sc.get("rising_stocks", []))
+            _override_group(_sc.get("falling_stocks", []))
+            _override_group(_sc.get("theme_stocks", []))
+
+        return res
+    except Exception as e:
+        return {"error": _friendly_error(e), "title": keyword, "scenarios": []}
+
+
 def generate_scenario_detail(issue_title: str, scenario_title: str, economic_analysis: str,
                               rising: list, falling: list) -> dict:
     """특정 시나리오의 상세 심층 분석을 생성합니다."""
