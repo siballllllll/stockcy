@@ -1092,6 +1092,34 @@ def inject_custom_css():
                 padding: 0.5rem !important;
             }
 
+            /* 제목 축소 */
+            [data-testid="stMarkdownContainer"] h1 { font-size: 1.15rem !important; }
+            [data-testid="stMarkdownContainer"] h2 { font-size: 1.0rem !important; }
+            [data-testid="stMarkdownContainer"] h3 { font-size: 0.9rem !important; }
+
+            /* 메트릭 값 추가 축소 */
+            [data-testid="stMetricValue"] { font-size: 0.92rem !important; }
+
+            /* 버튼 텍스트 */
+            [data-testid="stBaseButton-secondary"] p,
+            [data-testid="stBaseButton-primary"] p { font-size: 0.76rem !important; }
+
+            /* 극단타/단기/중기/장기 분석 카드 */
+            .stockcy-anal-card {
+                padding: 4px 5px !important;
+            }
+            .stockcy-anal-card > div:first-child {
+                font-size: 0.68rem !important;
+                margin-bottom: 1px !important;
+            }
+            .stockcy-anal-card > div:nth-child(2) {
+                font-size: 0.72rem !important;
+            }
+            .stockcy-anal-card > div:last-child {
+                font-size: 0.6rem !important;
+                margin-top: 2px !important;
+            }
+
             /* 주요 콘텐츠 좌우 → 위아래 스택 (:has 지원) */
             [data-testid="stHorizontalBlock"]:has([data-mobile-stack]) {
                 flex-direction: column !important;
@@ -4122,7 +4150,7 @@ def main():
                                 ]:
                                     with _rcol:
                                         st.markdown(
-                                            f"<div style='background:rgba(255,255,255,0.05);border-left:3px solid {_rc_color};"
+                                            f"<div class='stockcy-anal-card' style='background:rgba(255,255,255,0.05);border-left:3px solid {_rc_color};"
                                             f"border-radius:6px;padding:8px 10px;margin:4px 0'>"
                                             f"<div style='font-size:1.1rem;color:#888;margin-bottom:2px'>{_rtitle}</div>"
                                             f"<div style='font-size:1.04rem;font-weight:700;color:{_rc_color}'>{_rl}</div>"
@@ -6631,7 +6659,7 @@ def main():
                                 ]:
                                     with _urcol:
                                         st.markdown(
-                                            f"<div style='background:rgba(255,255,255,0.05);border-left:3px solid {_urc_c};"
+                                            f"<div class='stockcy-anal-card' style='background:rgba(255,255,255,0.05);border-left:3px solid {_urc_c};"
                                             f"border-radius:6px;padding:8px 10px;margin:4px 0'>"
                                             f"<div style='font-size:1.1rem;color:#888;margin-bottom:2px'>{_urt}</div>"
                                             f"<div style='font-size:1.04rem;font-weight:700;color:{_urc_c}'>{_url}</div>"
