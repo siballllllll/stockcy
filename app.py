@@ -1653,6 +1653,16 @@ def show_market_scenarios():
 
     # ── 탭 2: 커스텀 이슈 스나이퍼 ──────────────────────────────────────
     with _tab_custom:
+        # ── 최근 검색어 히스토리 로드 (세션당 1회) ───────────────────────
+        if "_ci_history_loaded" not in st.session_state:
+            try:
+                from db import load_ai_cache as _lhi
+                _h = _lhi("custom_issue_history")
+                st.session_state["_ci_history"] = _h.get("keywords", []) if _h else []
+            except Exception:
+                st.session_state["_ci_history"] = []
+            st.session_state["_ci_history_loaded"] = True
+
         with st.form(key="ci_form", border=False):
             _ci_col_inp, _ci_col_btn = st.columns([4, 1])
             with _ci_col_inp:
@@ -1665,7 +1675,30 @@ def show_market_scenarios():
             with _ci_col_btn:
                 _ci_run = st.form_submit_button("🔍 분석", use_container_width=True, type="primary")
 
-        _ci_kw = _ci_keyword.strip()
+        # ── 최근 검색어 칩 표시 ──────────────────────────────────────────
+        _ci_history = st.session_state.get("_ci_history", [])
+        if _ci_history:
+            st.markdown(
+                "<div style='font-size:0.75rem;color:#888;margin:2px 0 4px'>🕐 최근 검색</div>",
+                unsafe_allow_html=True,
+            )
+            _ci_chip_cols = st.columns(min(len(_ci_history), 4))
+            for _ci_hi, _ci_hkw in enumerate(_ci_history[:8]):
+                with _ci_chip_cols[_ci_hi % 4]:
+                    if st.button(
+                        _ci_hkw,
+                        key=f"ci_hist_{_ci_hi}",
+                        use_container_width=True,
+                        help=f"'{_ci_hkw}' 다시 분석",
+                    ):
+                        st.session_state["_ci_chip_kw"] = _ci_hkw
+                        st.session_state["ci_keyword_input"] = _ci_hkw
+                        st.rerun()
+
+        # 칩 클릭 시 → 폼 제출처럼 처리
+        _ci_chip_kw   = st.session_state.pop("_ci_chip_kw", None)
+        _ci_kw        = _ci_chip_kw or _ci_keyword.strip()
+        _ci_triggered = bool(_ci_chip_kw) or (_ci_run and bool(_ci_keyword.strip()))
 
         # ── 백그라운드 완료 결과 세션 반영 ───────────────────────────────
         for _ci_tid in [k for k in list(_SCENARIO_TASKS) if k.startswith("_ci_")]:
@@ -1673,24 +1706,37 @@ def show_market_scenarios():
                 _ci_t = _SCENARIO_TASKS.get(_ci_tid)
             if _ci_t and _ci_t["status"] in ("done", "error"):
                 st.session_state["_ci_result"] = _ci_t.get("result")
-                st.session_state["_ci_last_kw"] = _ci_tid[4:]  # strip "_ci_" prefix
-                st.session_state["_ci_cache_checked"] = True   # 방금 완료, 캐시 재조회 불필요
+                st.session_state["_ci_last_kw"] = _ci_tid[4:]
+                st.session_state["_ci_cache_checked"] = True
                 with _SCENARIO_LOCK:
                     _SCENARIO_TASKS.pop(_ci_tid, None)
                 break
 
-        # ── 폼 제출 처리 ──────────────────────────────────────────────────
-        if _ci_run and _ci_kw:
+        # ── 분석 시작 (폼 제출 또는 칩 클릭) ────────────────────────────
+        if _ci_triggered and _ci_kw:
             st.session_state.pop("_ci_result", None)
             st.session_state["_ci_last_kw"] = _ci_kw
-            st.session_state["_ci_cache_checked"] = False  # 새 키워드 → 캐시 재조회 허용
+            st.session_state["_ci_cache_checked"] = False
+
+            # 최근 검색어 업데이트
+            _new_hist = [_ci_kw] + [h for h in _ci_history if h != _ci_kw]
+            _new_hist = _new_hist[:8]
+            st.session_state["_ci_history"] = _new_hist
+            def _save_hist(_h=_new_hist):
+                try:
+                    from db import save_ai_cache
+                    save_ai_cache("custom_issue_history", {"keywords": _h}, ttl_hours=24 * 30)
+                except Exception:
+                    pass
+            threading.Thread(target=_save_hist, daemon=True).start()
+
             _ci_new_tid = f"_ci_{_ci_kw}"
             with _SCENARIO_LOCK:
                 _SCENARIO_TASKS[_ci_new_tid] = {"status": "running", "result": None}
             threading.Thread(target=_run_custom_issue_bg, args=(_ci_new_tid, _ci_kw), daemon=True).start()
             st.session_state._scenario_dialog_open = True
             st.rerun()
-        elif _ci_run:
+        elif _ci_run and not _ci_keyword.strip():
             st.warning("이슈 키워드를 입력해주세요.")
 
         # ── 진행 중 표시 ──────────────────────────────────────────────────
