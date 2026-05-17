@@ -1546,16 +1546,17 @@ def show_market_scenarios():
 
     # ── 탭 2: 커스텀 이슈 스나이퍼 ──────────────────────────────────────
     with _tab_custom:
-        _ci_col_inp, _ci_col_btn = st.columns([4, 1])
-        with _ci_col_inp:
-            _ci_keyword = st.text_input(
-                "이슈 키워드",
-                placeholder="예: 우크라이나 재건, 반도체 관세, 달러 약세, AI 버블...",
-                key="ci_keyword_input",
-                label_visibility="collapsed",
-            )
-        with _ci_col_btn:
-            _ci_run = st.button("🔍 분석", key="ci_run_btn", use_container_width=True, type="primary")
+        with st.form(key="ci_form", border=False):
+            _ci_col_inp, _ci_col_btn = st.columns([4, 1])
+            with _ci_col_inp:
+                _ci_keyword = st.text_input(
+                    "이슈 키워드",
+                    placeholder="예: 우크라이나 재건, 반도체 관세, 달러 약세, AI 버블...",
+                    key="ci_keyword_input",
+                    label_visibility="collapsed",
+                )
+            with _ci_col_btn:
+                _ci_run = st.form_submit_button("🔍 분석", use_container_width=True, type="primary")
 
         _ci_kw = _ci_keyword.strip()
         _ci_result_key = f"_ci_result_{_ci_kw}" if _ci_kw else "_ci_result_none"
