@@ -1675,25 +1675,22 @@ def show_market_scenarios():
             with _ci_col_btn:
                 _ci_run = st.form_submit_button("🔍 분석", use_container_width=True, type="primary")
 
-        # ── 최근 검색어 칩 표시 ──────────────────────────────────────────
+        # ── 최근 검색어 텍스트 링크 표시 ────────────────────────────────
         _ci_history = st.session_state.get("_ci_history", [])
         if _ci_history:
+            import urllib.parse as _ulp
+            _links_html = "&nbsp;&nbsp;·&nbsp;&nbsp;".join(
+                f"<a href='?ci_chip={_ulp.quote(kw)}&reopen=1' "
+                f"style='color:#888;font-size:0.82rem;text-decoration:none;' "
+                f"onmouseover=\"this.style.color='#ccc';this.style.textDecoration='underline'\" "
+                f"onmouseout=\"this.style.color='#888';this.style.textDecoration='none'\">{kw}</a>"
+                for kw in _ci_history[:8]
+            )
             st.markdown(
-                "<div style='font-size:0.75rem;color:#888;margin:2px 0 4px'>🕐 최근 검색</div>",
+                f"<div style='margin:4px 0 8px;line-height:2'>🕐 <span style='font-size:0.75rem;color:#666'>최근 검색</span>"
+                f"&nbsp;&nbsp;{_links_html}</div>",
                 unsafe_allow_html=True,
             )
-            _ci_chip_cols = st.columns(min(len(_ci_history), 4))
-            for _ci_hi, _ci_hkw in enumerate(_ci_history[:8]):
-                with _ci_chip_cols[_ci_hi % 4]:
-                    if st.button(
-                        _ci_hkw,
-                        key=f"ci_hist_{_ci_hi}",
-                        use_container_width=True,
-                        help=f"'{_ci_hkw}' 다시 분석",
-                    ):
-                        st.session_state["_ci_chip_kw"] = _ci_hkw
-                        st.session_state["ci_keyword_input"] = _ci_hkw
-                        st.rerun()
 
         # 칩 클릭 시 → 폼 제출처럼 처리
         _ci_chip_kw   = st.session_state.pop("_ci_chip_kw", None)
@@ -2811,8 +2808,16 @@ def show_favorites_center():
         st.markdown("<div style='margin-bottom:30px'></div>", unsafe_allow_html=True)
 
 def main():
-    # ── URL 파라미터 처리 (종목 즉시 이동) ──────────────────────────────
+    # ── URL 파라미터 처리 (종목 즉시 이동 / 최근검색어 클릭) ───────────
     _qp = st.query_params
+    if "ci_chip" in _qp:
+        import urllib.parse as _ulp
+        _ci_chip_val = _ulp.unquote(_qp.get("ci_chip", ""))
+        st.query_params.clear()
+        if _ci_chip_val:
+            st.session_state["_ci_chip_kw"] = _ci_chip_val
+            st.session_state["_scenario_dialog_open"] = True
+            st.rerun()
     if "market" in _qp and "code" in _qp:
         _q_mkt = _qp.get("market")
         _q_code = _qp.get("code")
