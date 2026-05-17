@@ -2465,73 +2465,35 @@ def main():
     _is_kr_nav = "국내" in st.session_state.market
     _nav_mode_key = "kr_mode" if _is_kr_nav else "us_mode"
 
-    # ── 상단 네비게이션 바 (Streamlit 버튼 + JS 스타일링) ─────────────────
+    # ── 상단 네비게이션 바 ─────────────────────────────────────────────────
     _nav_cur_mode = st.session_state.get(_nav_mode_key, "🎯 AI 타점 보드")
     _nav_sig_k = "_kr_sig_count_last" if _is_kr_nav else "_us_sig_count_last"
     _nav_sig_n = st.session_state.get(_nav_sig_k, 0)
     _picks_label = f"🎯 타점보드" + (f" {_nav_sig_n}" if _nav_sig_n > 0 else "")
 
-    _hdr_l, _hn1, _hn2, _hn3, _hn5, _hn4, _hn6, _sp, _hm1, _hm2, _hset, _hcache = st.columns(
-        [0.85, 0.55, 0.55, 0.55, 0.55, 0.45, 0.5, 0.85, 0.75, 0.75, 0.4, 0.4], gap="small"
+    # 시나리오 공통 처리
+    _today_ck = __import__("datetime").date.today().strftime("%Y-%m-%d")
+    _nav_task_id = f"scenario_market_scenarios_{_today_ck}"
+    _nav_task_status = _SCENARIO_TASKS.get(_nav_task_id, {}).get("status")
+
+    # ── 헤더 행: 로고 | 시장선택 | 유틸 | 메뉴 토글 ──────────────────────
+    _hdr_l, _hm1, _hm2, _hset, _hcache, _hdr_menu = st.columns(
+        [2.2, 0.7, 0.7, 0.4, 0.4, 0.65], gap="small"
     )
     with _hdr_l:
+        _cur_page_label = {
+            "🎯 AI 타점 보드":    _picks_label,
+            "📊 일반 주식 검색":  "📊 종목검색",
+            "🔥 오늘의 이슈 섹터": "🔥 섹터분석",
+            "⭐ 즐겨찾기 관리":   "⭐ 즐겨찾기",
+        }.get(_nav_cur_mode, "📈 Stockcy")
         st.markdown(
-            "<p style='margin:6px 0 0 0;font-size:1.21rem;font-weight:800;"
-            "letter-spacing:-0.5px;white-space:nowrap'>📈 Stockcy</p>",
+            f"<p style='margin:6px 0 0 0;font-size:1.15rem;font-weight:800;"
+            f"letter-spacing:-0.5px;white-space:nowrap'>📈 Stockcy"
+            f"<span style='font-size:0.82rem;font-weight:500;color:#ff9800;"
+            f"margin-left:8px'>{_cur_page_label}</span></p>",
             unsafe_allow_html=True,
         )
-    with _hn1:
-        if st.button(_picks_label, key="top_nav_picks",
-                     type="primary" if _nav_cur_mode == "🎯 AI 타점 보드" else "secondary",
-                     use_container_width=True):
-            st.session_state[_nav_mode_key] = "🎯 AI 타점 보드"
-            st.rerun()
-    with _hn2:
-        if st.button("📊 종목검색", key="top_nav_search",
-                     type="primary" if _nav_cur_mode == "📊 일반 주식 검색" else "secondary",
-                     use_container_width=True):
-            st.session_state[_nav_mode_key] = "📊 일반 주식 검색"
-            st.rerun()
-    with _hn3:
-        if st.button("🔥 섹터분석", key="top_nav_sector",
-                     type="primary" if _nav_cur_mode == "🔥 오늘의 이슈 섹터" else "secondary",
-                     use_container_width=True):
-            st.session_state[_nav_mode_key] = "🔥 오늘의 이슈 섹터"
-            st.rerun()
-    with _hn5:
-        if st.button("⭐ 즐겨찾기", key="top_nav_fav",
-                     type="primary" if _nav_cur_mode == "⭐ 즐겨찾기 관리" else "secondary",
-                     use_container_width=True):
-            st.session_state[_nav_mode_key] = "⭐ 즐겨찾기 관리"
-            st.rerun()
-    with _hn4:
-        if st.button("📰 브리핑", key="top_nav_briefing", use_container_width=True):
-            st.session_state._dialog_open = True
-            show_daily_briefing()
-    with _hn6:
-        _today_ck = __import__("datetime").date.today().strftime("%Y-%m-%d")
-        _nav_task_id = f"scenario_market_scenarios_{_today_ck}"
-        _nav_task_status = _SCENARIO_TASKS.get(_nav_task_id, {}).get("status")
-        _scenario_ready = (_nav_task_status == "done" and "market_scenarios_data" not in st.session_state)
-        if st.button("📈 시나리오", key="top_nav_scenario", use_container_width=True):
-            st.session_state._dialog_open = True
-            st.session_state._scenario_dialog_open = True
-            with _SCENARIO_LOCK:
-                _already_started = _nav_task_id in _SCENARIO_TASKS
-            if not _already_started and "market_scenarios_data" not in st.session_state:
-                with _SCENARIO_LOCK:
-                    _SCENARIO_TASKS[_nav_task_id] = {"status": "running", "result": None}
-                _cache_key_nav = f"market_scenarios_{_today_ck}"
-                _t = threading.Thread(target=_run_scenario_bg, args=(_nav_task_id, _cache_key_nav), daemon=True)
-                _t.start()
-        # 완료 시 깜빡이는 초록 점 / 분석 중 안내
-        if _nav_task_status == "done":
-            st.markdown("<div style='text-align:center;margin-top:-6px'><span class='scenario-ready-dot'></span></div>", unsafe_allow_html=True)
-        elif _nav_task_status == "running":
-            st.markdown("<div style='text-align:center;margin-top:-6px;font-size:0.65rem;color:#888'>분석 중…</div>", unsafe_allow_html=True)
-        
-        if st.session_state.pop("_scenario_dialog_open", False):
-            show_market_scenarios()
     with _hm1:
         if st.button("🇰🇷 국내", key="top_mkt_kr",
                      type="primary" if _is_kr_nav else "secondary",
@@ -2547,13 +2509,84 @@ def main():
                 st.session_state.market = "미국 주식 🇺🇸"
                 st.rerun()
     with _hset:
-        if st.button("⚙️", key="btn_settings_menu", use_container_width=True, help="설정 / 테마 변경"):
+        if st.button("⚙️", key="btn_settings_menu", use_container_width=True, help="설정"):
             st.session_state["_sc_open_native_menu"] = True
             st.rerun()
     with _hcache:
         if st.button("🔄", key="btn_cache_clear", use_container_width=True, help="캐시 초기화"):
             st.cache_data.clear()
             st.rerun()
+    with _hdr_menu:
+        _menu_open = st.session_state.get("_nav_menu_open", False)
+        _menu_icon = "✕ 닫기" if _menu_open else "☰ 메뉴"
+        if st.button(_menu_icon, key="btn_nav_menu_toggle", use_container_width=True):
+            st.session_state["_nav_menu_open"] = not _menu_open
+            st.rerun()
+
+    # ── 메뉴 드롭다운 (토글 시 펼쳐짐) ────────────────────────────────────
+    if st.session_state.get("_nav_menu_open", False):
+        st.markdown("<div style='margin:4px 0 2px'>", unsafe_allow_html=True)
+        _mn1, _mn2, _mn3 = st.columns(3, gap="small")
+        with _mn1:
+            if st.button(
+                f"{'✅ ' if _nav_cur_mode == '🎯 AI 타점 보드' else ''}{_picks_label}",
+                key="menu_nav_picks", use_container_width=True,
+                type="primary" if _nav_cur_mode == "🎯 AI 타점 보드" else "secondary",
+            ):
+                st.session_state[_nav_mode_key] = "🎯 AI 타점 보드"
+                st.session_state["_nav_menu_open"] = False
+                st.rerun()
+        with _mn2:
+            if st.button(
+                f"{'✅ ' if _nav_cur_mode == '📊 일반 주식 검색' else ''}📊 종목검색",
+                key="menu_nav_search", use_container_width=True,
+                type="primary" if _nav_cur_mode == "📊 일반 주식 검색" else "secondary",
+            ):
+                st.session_state[_nav_mode_key] = "📊 일반 주식 검색"
+                st.session_state["_nav_menu_open"] = False
+                st.rerun()
+        with _mn3:
+            if st.button(
+                f"{'✅ ' if _nav_cur_mode == '🔥 오늘의 이슈 섹터' else ''}🔥 섹터분석",
+                key="menu_nav_sector", use_container_width=True,
+                type="primary" if _nav_cur_mode == "🔥 오늘의 이슈 섹터" else "secondary",
+            ):
+                st.session_state[_nav_mode_key] = "🔥 오늘의 이슈 섹터"
+                st.session_state["_nav_menu_open"] = False
+                st.rerun()
+        _mn4, _mn5, _mn6 = st.columns(3, gap="small")
+        with _mn4:
+            if st.button(
+                f"{'✅ ' if _nav_cur_mode == '⭐ 즐겨찾기 관리' else ''}⭐ 즐겨찾기",
+                key="menu_nav_fav", use_container_width=True,
+                type="primary" if _nav_cur_mode == "⭐ 즐겨찾기 관리" else "secondary",
+            ):
+                st.session_state[_nav_mode_key] = "⭐ 즐겨찾기 관리"
+                st.session_state["_nav_menu_open"] = False
+                st.rerun()
+        with _mn5:
+            if st.button("📰 브리핑", key="menu_nav_briefing", use_container_width=True):
+                st.session_state["_nav_menu_open"] = False
+                st.session_state._dialog_open = True
+                show_daily_briefing()
+        with _mn6:
+            _sc_dot = " 🟢" if _nav_task_status == "done" else (" ⏳" if _nav_task_status == "running" else "")
+            if st.button(f"📈 시나리오{_sc_dot}", key="menu_nav_scenario", use_container_width=True):
+                st.session_state["_nav_menu_open"] = False
+                st.session_state._dialog_open = True
+                st.session_state._scenario_dialog_open = True
+                with _SCENARIO_LOCK:
+                    _already_started = _nav_task_id in _SCENARIO_TASKS
+                if not _already_started and "market_scenarios_data" not in st.session_state:
+                    with _SCENARIO_LOCK:
+                        _SCENARIO_TASKS[_nav_task_id] = {"status": "running", "result": None}
+                    _cache_key_nav = f"market_scenarios_{_today_ck}"
+                    _t = threading.Thread(target=_run_scenario_bg, args=(_nav_task_id, _cache_key_nav), daemon=True)
+                    _t.start()
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    if st.session_state.pop("_scenario_dialog_open", False):
+        show_market_scenarios()
 
     # ── ⚙️ 버튼 → Streamlit 기본 메뉴 열기 (JS로 햄버거 버튼 클릭) ──────
     if st.session_state.pop("_sc_open_native_menu", False):
