@@ -1709,13 +1709,15 @@ def show_market_scenarios():
                 st.session_state["_ci_result"] = _ci_t.get("result")
                 st.session_state["_ci_last_kw"] = _ci_tid[4:]
                 st.session_state["_ci_cache_checked"] = True
+                st.session_state.pop("_ci_dialog_suppress", None)
                 with _SCENARIO_LOCK:
                     _SCENARIO_TASKS.pop(_ci_tid, None)
                 break
 
-        # ── 분석 시작 (폼 제출 또는 칩 클릭) ────────────────────────────
+        # ── 분析 시작 (폼 제출 또는 칩 클릭) ────────────────────────────
         if _ci_triggered and _ci_kw:
             st.session_state.pop("_ci_result", None)
+            st.session_state.pop("_ci_dialog_suppress", None)
             st.session_state["_ci_last_kw"] = _ci_kw
             st.session_state["_ci_cache_checked"] = False
 
@@ -1747,11 +1749,24 @@ def show_market_scenarios():
             None
         )
         if _ci_running_kw:
-            st.info(
-                f"🔄 **'{_ci_running_kw}' 이슈를 백그라운드에서 분석 중입니다.**\n\n"
-                "창을 닫고 다른 기능을 자유롭게 사용하세요.  \n"
-                "완료되면 다시 이 탭을 열면 결과가 표시됩니다."
+            st.markdown(
+                f"<div style='background:#1a2a1a;border:1px solid #2d5a2d;border-radius:8px;"
+                f"padding:16px 18px;margin:8px 0'>"
+                f"<div style='font-size:1.05rem;font-weight:700;color:#4caf50;margin-bottom:6px'>"
+                f"🔄 분析 중...</div>"
+                f"<div style='color:#ccc;font-size:0.9rem'>"
+                f"<b style='color:#fff'>'{_ci_running_kw}'</b> 이슈를 AI가 분석하고 있습니다.<br>"
+                f"<span style='color:#888;font-size:0.82rem'>완료되면 이 창에 자동으로 결과가 표시됩니다. (최대 120초)</span>"
+                f"</div></div>",
+                unsafe_allow_html=True,
             )
+            if st.button(
+                "✕ 닫기  (백그라운드에서 계속 실행됩니다)",
+                key="ci_close_suppress",
+                use_container_width=True,
+            ):
+                st.session_state["_ci_dialog_suppress"] = True
+                st.rerun()
 
         # ── 결과 로드: 세션 → Google Sheets 캐시 (새로고침 후 복원) ────────
         _ci_stored      = st.session_state.get("_ci_result")
@@ -3159,7 +3174,15 @@ def main():
 })();
 </script>""", height=0, scrolling=False)
 
-    if st.session_state.pop("_scenario_dialog_open", False):
+    _ci_any_running_now = any(
+        v.get("status") == "running"
+        for k, v in _SCENARIO_TASKS.items()
+        if k.startswith("_ci_")
+    )
+    _open_dialog_flag = st.session_state.pop("_scenario_dialog_open", False)
+    if _open_dialog_flag or (
+        _ci_any_running_now and not st.session_state.get("_ci_dialog_suppress", False)
+    ):
         show_market_scenarios()
 
     # ── ⚙️ 버튼 → Streamlit 기본 메뉴 열기 (JS로 햄버거 버튼 클릭) ──────
