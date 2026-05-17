@@ -2536,50 +2536,61 @@ def main():
             st.cache_data.clear(); st.rerun()
 
     # ══ 모바일 전용 네비 (≤768px) — data-mnav 마커로 CSS 제어 ══════════════
-    # 헤더 행: 로고 + 시장 + 유틸 + 햄버거
-    _mh_l, _mh_kr, _mh_us, _mh_set, _mh_cache, _mh_tog = st.columns(
-        [2.0, 0.7, 0.7, 0.45, 0.45, 0.7], gap="small"
-    )
+    # 헤더 행: 로고 + ☰ 만 (2열)
+    _mh_l, _mh_tog = st.columns([4, 1], gap="small")
     with _mh_l:
         _cur_page_lbl = {
             "🎯 AI 타점 보드":    _picks_label,
-            "📊 일반 주식 검색":  "📊 종목",
-            "🔥 오늘의 이슈 섹터": "🔥 섹터",
+            "📊 일반 주식 검색":  "📊 종목검색",
+            "🔥 오늘의 이슈 섹터": "🔥 섹터분석",
             "⭐ 즐겨찾기 관리":   "⭐ 즐겨찾기",
         }.get(_nav_cur_mode, "")
+        _mkt_badge = "🇰🇷" if _is_kr_nav else "🇺🇸"
         st.markdown(
             f"<span data-mnav='1' style='display:none'></span>"
             f"<p style='margin:6px 0 0 0;font-size:1.1rem;font-weight:800;"
-            f"letter-spacing:-0.5px;white-space:nowrap'>📈 Stockcy"
+            f"letter-spacing:-0.5px;white-space:nowrap'>📈 Stockcy "
+            f"<span style='font-size:0.82rem'>{_mkt_badge}</span>"
             f"<span style='font-size:0.78rem;font-weight:500;color:#ff9800;"
             f"margin-left:6px'>{_cur_page_lbl}</span></p>",
             unsafe_allow_html=True,
         )
-    with _mh_kr:
-        if st.button("🇰🇷", key="m_mkt_kr",
-                     type="primary" if _is_kr_nav else "secondary",
-                     use_container_width=True):
-            if not _is_kr_nav:
-                st.session_state.market = "국내 주식 🇰🇷"; st.rerun()
-    with _mh_us:
-        if st.button("🇺🇸", key="m_mkt_us",
-                     type="primary" if not _is_kr_nav else "secondary",
-                     use_container_width=True):
-            if _is_kr_nav:
-                st.session_state.market = "미국 주식 🇺🇸"; st.rerun()
-    with _mh_set:
-        if st.button("⚙️", key="m_btn_settings", use_container_width=True):
-            st.session_state["_sc_open_native_menu"] = True; st.rerun()
-    with _mh_cache:
-        if st.button("🔄", key="m_btn_cache", use_container_width=True):
-            st.cache_data.clear(); st.rerun()
     with _mh_tog:
         _menu_open = st.session_state.get("_nav_menu_open", False)
         if st.button("✕" if _menu_open else "☰", key="m_btn_menu_toggle", use_container_width=True):
             st.session_state["_nav_menu_open"] = not _menu_open; st.rerun()
 
-    # 모바일 드롭다운 메뉴
+    # 모바일 드롭다운 메뉴 (☰ 클릭 시 펼쳐짐)
     if st.session_state.get("_nav_menu_open", False):
+        # 시장 선택 + 유틸 행
+        _mm_kr, _mm_us, _mm_set, _mm_cache = st.columns(4, gap="small")
+        with _mm_kr:
+            st.markdown("<span data-mnav='1' style='display:none'></span>", unsafe_allow_html=True)
+            if st.button(f"{'✅ ' if _is_kr_nav else ''}🇰🇷 국내",
+                         key="m_menu_kr", use_container_width=True,
+                         type="primary" if _is_kr_nav else "secondary"):
+                if not _is_kr_nav:
+                    st.session_state.market = "국내 주식 🇰🇷"
+                st.session_state["_nav_menu_open"] = False; st.rerun()
+        with _mm_us:
+            if st.button(f"{'✅ ' if not _is_kr_nav else ''}🇺🇸 미국",
+                         key="m_menu_us", use_container_width=True,
+                         type="primary" if not _is_kr_nav else "secondary"):
+                if _is_kr_nav:
+                    st.session_state.market = "미국 주식 🇺🇸"
+                st.session_state["_nav_menu_open"] = False; st.rerun()
+        with _mm_set:
+            if st.button("⚙️ 설정", key="m_menu_settings", use_container_width=True):
+                st.session_state["_sc_open_native_menu"] = True
+                st.session_state["_nav_menu_open"] = False; st.rerun()
+        with _mm_cache:
+            if st.button("🔄 새로고침", key="m_menu_cache", use_container_width=True):
+                st.cache_data.clear()
+                st.session_state["_nav_menu_open"] = False; st.rerun()
+
+        st.markdown("<hr style='margin:4px 0;opacity:0.2'>", unsafe_allow_html=True)
+
+        # 네비 항목 행 1
         _mm1, _mm2, _mm3 = st.columns(3, gap="small")
         with _mm1:
             st.markdown("<span data-mnav='1' style='display:none'></span>", unsafe_allow_html=True)
@@ -2595,11 +2606,13 @@ def main():
                 st.session_state[_nav_mode_key] = "📊 일반 주식 검색"
                 st.session_state["_nav_menu_open"] = False; st.rerun()
         with _mm3:
-            if st.button(f"{'✅ ' if _nav_cur_mode == '🔥 오늘의 이슈 섹터' else ''}🔥 섹터",
+            if st.button(f"{'✅ ' if _nav_cur_mode == '🔥 오늘의 이슈 섹터' else ''}🔥 섹터분석",
                          key="m_menu_sector", use_container_width=True,
                          type="primary" if _nav_cur_mode == "🔥 오늘의 이슈 섹터" else "secondary"):
                 st.session_state[_nav_mode_key] = "🔥 오늘의 이슈 섹터"
                 st.session_state["_nav_menu_open"] = False; st.rerun()
+
+        # 네비 항목 행 2
         _mm4, _mm5, _mm6 = st.columns(3, gap="small")
         with _mm4:
             st.markdown("<span data-mnav='1' style='display:none'></span>", unsafe_allow_html=True)
