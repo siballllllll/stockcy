@@ -1763,6 +1763,7 @@ button.ci-del-btn:hover{color:#e55!important;background:transparent!important;}
             st.session_state["_ci_result"]        = _sess_cache[_ci_kw]
             st.session_state["_ci_last_kw"]       = _ci_kw
             st.session_state["_ci_cache_checked"] = True
+            st.session_state.pop("_ci_dialog_suppress", None)
             _new_hist = [_ci_kw] + [h for h in _ci_history if h != _ci_kw]
             st.session_state["_ci_history"]       = _new_hist[:8]
             st.rerun()
@@ -1777,6 +1778,7 @@ button.ci-del-btn:hover{color:#e55!important;background:transparent!important;}
                     st.session_state["_ci_result"]        = _ci_gsh_res
                     st.session_state["_ci_last_kw"]       = _ci_kw
                     st.session_state["_ci_cache_checked"] = True
+                    st.session_state.pop("_ci_dialog_suppress", None)
                     _sc = st.session_state.get("_ci_result_cache", {})
                     _sc[_ci_kw] = _ci_gsh_res
                     if len(_sc) > 8:
@@ -3272,6 +3274,9 @@ def main():
     )
     _ci_has_result = bool(st.session_state.get("_ci_result"))
     _open_dialog_flag = st.session_state.pop("_scenario_dialog_open", False)
+    if _open_dialog_flag:
+        # 사용자가 직접 버튼 눌러 열 때 suppress 초기화 (이전 닫기/삭제 잔재 제거)
+        st.session_state.pop("_ci_dialog_suppress", None)
     if _open_dialog_flag or (
         (_ci_any_running_now or _ci_has_result)
         and not st.session_state.get("_ci_dialog_suppress", False)
