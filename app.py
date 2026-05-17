@@ -1091,6 +1091,25 @@ def inject_custom_css():
             [data-testid="stVerticalBlockBorderWrapper"] > div {
                 padding: 0.5rem !important;
             }
+
+            /* 주요 콘텐츠 좌우 → 위아래 스택 (:has 지원) */
+            [data-testid="stHorizontalBlock"]:has([data-mobile-stack]) {
+                flex-direction: column !important;
+            }
+            [data-testid="stHorizontalBlock"]:has([data-mobile-stack]) > [data-testid="stColumn"] {
+                width: 100% !important;
+                flex: none !important;
+                max-width: 100% !important;
+            }
+            /* JS 클래스 폴백 */
+            .stockcy-stack-block {
+                flex-direction: column !important;
+            }
+            .stockcy-stack-block > [data-testid="stColumn"] {
+                width: 100% !important;
+                flex: none !important;
+                max-width: 100% !important;
+            }
         }
         </style>
     """, unsafe_allow_html=True)
@@ -2590,8 +2609,8 @@ def main():
 
     # 모바일 드롭다운 메뉴 (☰ 클릭 시 펼쳐짐)
     if st.session_state.get("_nav_menu_open", False):
-        # 시장 선택 + 유틸 행
-        _mm_kr, _mm_us, _mm_set, _mm_cache = st.columns(4, gap="small")
+        # 시장 선택 행 (2열)
+        _mm_kr, _mm_us = st.columns(2, gap="small")
         with _mm_kr:
             st.markdown("<span data-mnav='1' style='display:none'></span>", unsafe_allow_html=True)
             if st.button(f"{'✅ ' if _is_kr_nav else ''}🇰🇷 국내",
@@ -2607,7 +2626,11 @@ def main():
                 if _is_kr_nav:
                     st.session_state.market = "미국 주식 🇺🇸"
                 st.session_state["_nav_menu_open"] = False; st.rerun()
+
+        # 유틸 행 (2열)
+        _mm_set, _mm_cache = st.columns(2, gap="small")
         with _mm_set:
+            st.markdown("<span data-mnav='1' style='display:none'></span>", unsafe_allow_html=True)
             if st.button("⚙️ 설정", key="m_menu_settings", use_container_width=True):
                 st.session_state["_sc_open_native_menu"] = True
                 st.session_state["_nav_menu_open"] = False; st.rerun()
@@ -2692,6 +2715,26 @@ def main():
         b.classList.add('stockcy-mnav-block');
         b.classList.remove('stockcy-dnav-block');
         b.style.setProperty('display', mob ? '' : 'none', 'important');
+      });
+      pdoc.querySelectorAll('[data-mobile-stack]').forEach(function(el) {
+        var b = el.closest('[data-testid="stHorizontalBlock"]');
+        if (!b) return;
+        b.classList.add('stockcy-stack-block');
+        if (mob) {
+          b.style.setProperty('flex-direction', 'column', 'important');
+          b.querySelectorAll('[data-testid="stColumn"]').forEach(function(c) {
+            c.style.setProperty('width','100%','important');
+            c.style.setProperty('flex','none','important');
+            c.style.setProperty('max-width','100%','important');
+          });
+        } else {
+          b.style.removeProperty('flex-direction');
+          b.querySelectorAll('[data-testid="stColumn"]').forEach(function(c) {
+            c.style.removeProperty('width');
+            c.style.removeProperty('flex');
+            c.style.removeProperty('max-width');
+          });
+        }
       });
     }
     applyNav();
@@ -3142,6 +3185,7 @@ def main():
 
                 # ── 좌 패널: 컨트롤 + 종목 목록 ─────────────────────────
                 with _pb_left:
+                    st.markdown("<span data-mobile-stack='1' style='display:none'></span>", unsafe_allow_html=True)
                     with st.container(height=750):
                         # 신호 배너
                         if _new_count > 0 and _pb_key not in st.session_state:
@@ -3525,6 +3569,7 @@ def main():
 
                 col_chart, col_right = st.columns([5, 5])
                 with col_chart:
+                    st.markdown("<span data-mobile-stack='1' style='display:none'></span>", unsafe_allow_html=True)
                     _chart_ctr = st.container(height=750)
                 with col_right:
                     _right_ctr = st.container(height=750)
@@ -5756,6 +5801,7 @@ def main():
 
                 # ── 좌 패널: 컨트롤 + 종목 목록 ─────────────────────────
                 with _us_pb_left:
+                    st.markdown("<span data-mobile-stack='1' style='display:none'></span>", unsafe_allow_html=True)
                     with st.container(height=750):
                         # 신호 배너
                         if _us_new_count > 0 and _us_pb_key not in st.session_state:
@@ -6059,6 +6105,7 @@ def main():
 
                 col_us_chart, col_us_right = st.columns([5.5, 4.5])
                 with col_us_chart:
+                    st.markdown("<span data-mobile-stack='1' style='display:none'></span>", unsafe_allow_html=True)
                     _us_chart_ctr = st.container(height=750)
                 with col_us_right:
                     _us_right_ctr = st.container(height=750)
