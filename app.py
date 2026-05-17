@@ -1012,7 +1012,19 @@ def inject_custom_css():
             flex: 1 1 auto !important;
         }
 
-        /* ══ 데스크톱/모바일 네비 선택적 표시 ══════════════════════════ */
+        /* ══ 수평 스크롤 전역 차단 ══════════════════════════════════════ */
+        body, html {
+            overflow-x: hidden !important;
+            max-width: 100vw !important;
+        }
+        [data-testid="stAppViewContainer"],
+        [data-testid="stMain"],
+        [data-testid="stMainBlockContainer"] {
+            overflow-x: hidden !important;
+            max-width: 100vw !important;
+        }
+
+        /* ══ 데스크톱/모바일 네비 선택적 표시 (CSS :has 지원 브라우저) ══ */
         /* 모바일 전용 nav — 데스크톱에서 숨김 */
         [data-testid="stHorizontalBlock"]:has([data-mnav]) {
             display: none !important;
@@ -1021,6 +1033,9 @@ def inject_custom_css():
         [data-testid="stHorizontalBlock"]:has([data-dnav]) {
             display: flex !important;
         }
+        /* JS가 추가하는 클래스 기반 제어 (모든 브라우저 지원) */
+        .stockcy-dnav-block { display: flex !important; }
+        .stockcy-mnav-block { display: none !important; }
 
         /* ══ 모바일 반응형 (≤ 768px) ══════════════════════════════════ */
         @media (max-width: 768px) {
@@ -1029,14 +1044,27 @@ def inject_custom_css():
                 padding: 0.2rem 0.3rem 1rem !important;
             }
 
-            /* 데스크톱 nav 숨김 */
+            /* 데스크톱 nav 숨김 (:has 지원) */
             [data-testid="stHorizontalBlock"]:has([data-dnav]) {
                 display: none !important;
             }
-            /* 모바일 nav 표시 */
+            /* 모바일 nav 표시 (:has 지원) */
             [data-testid="stHorizontalBlock"]:has([data-mnav]) {
                 display: flex !important;
                 flex-wrap: nowrap !important;
+            }
+            /* JS 클래스 기반 (:has 미지원 폴백) */
+            .stockcy-dnav-block { display: none !important; }
+            .stockcy-mnav-block { display: flex !important; flex-wrap: nowrap !important; }
+
+            /* 컬럼 최소 너비 제거 (모바일 overflow 방지) */
+            [data-testid="stColumn"] {
+                min-width: 0 !important;
+                flex: 1 1 0 !important;
+            }
+            [data-testid="stHorizontalBlock"] {
+                flex-wrap: nowrap !important;
+                overflow: hidden !important;
             }
 
             /* 메트릭 폰트 축소 */
@@ -2640,6 +2668,43 @@ def main():
                     _cache_key_nav = f"market_scenarios_{_today_ck}"
                     _t = threading.Thread(target=_run_scenario_bg, args=(_nav_task_id, _cache_key_nav), daemon=True)
                     _t.start()
+
+    # ── 모바일 nav JS 폴백 (CSS :has 미지원 브라우저 대응) ───────────────
+    import streamlit.components.v1 as _cmp_nav
+    _cmp_nav.html("""<script>
+(function(){
+  try {
+    var pwin = window.parent;
+    var pdoc = pwin.document;
+    pdoc.body.style.overflowX = 'hidden';
+    function applyNav() {
+      var mob = pwin.innerWidth <= 768;
+      pdoc.querySelectorAll('[data-dnav]').forEach(function(el) {
+        var b = el.closest('[data-testid="stHorizontalBlock"]');
+        if (!b) return;
+        b.classList.add('stockcy-dnav-block');
+        b.classList.remove('stockcy-mnav-block');
+        b.style.setProperty('display', mob ? 'none' : 'flex', 'important');
+      });
+      pdoc.querySelectorAll('[data-mnav]').forEach(function(el) {
+        var b = el.closest('[data-testid="stHorizontalBlock"]');
+        if (!b) return;
+        b.classList.add('stockcy-mnav-block');
+        b.classList.remove('stockcy-dnav-block');
+        b.style.setProperty('display', mob ? '' : 'none', 'important');
+      });
+    }
+    applyNav();
+    pwin.addEventListener('resize', applyNav);
+    if (!pwin._stockcyNavObs) {
+      pwin._stockcyNavObs = new MutationObserver(function(muts) {
+        for (var i=0;i<muts.length;i++) { if(muts[i].addedNodes.length){applyNav();break;} }
+      });
+      pwin._stockcyNavObs.observe(pdoc.body, {childList:true, subtree:true});
+    }
+  } catch(e) {}
+})();
+</script>""", height=0, scrolling=False)
 
     if st.session_state.pop("_scenario_dialog_open", False):
         show_market_scenarios()
