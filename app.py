@@ -1679,16 +1679,20 @@ def show_market_scenarios():
         _ci_history = st.session_state.get("_ci_history", [])
         if _ci_history:
             import urllib.parse as _ulp
-            _links_html = "&nbsp;&nbsp;·&nbsp;&nbsp;".join(
+            _items_html = "&nbsp;&nbsp;·&nbsp;&nbsp;".join(
                 f"<a href='?ci_chip={_ulp.quote(kw)}&reopen=1' "
                 f"style='color:#888;font-size:0.82rem;text-decoration:none;' "
                 f"onmouseover=\"this.style.color='#ccc';this.style.textDecoration='underline'\" "
                 f"onmouseout=\"this.style.color='#888';this.style.textDecoration='none'\">{kw}</a>"
+                f"<a href='?ci_del={_ulp.quote(kw)}' "
+                f"style='color:#555;font-size:0.72rem;text-decoration:none;margin-left:3px;' "
+                f"onmouseover=\"this.style.color='#e55'\" "
+                f"onmouseout=\"this.style.color='#555'\">✕</a>"
                 for kw in _ci_history[:8]
             )
             st.markdown(
                 f"<div style='margin:4px 0 8px;line-height:2'>🕐 <span style='font-size:0.75rem;color:#666'>최근 검색</span>"
-                f"&nbsp;&nbsp;{_links_html}</div>",
+                f"&nbsp;&nbsp;{_items_html}</div>",
                 unsafe_allow_html=True,
             )
 
@@ -2817,6 +2821,23 @@ def main():
         if _ci_chip_val:
             st.session_state["_ci_chip_kw"] = _ci_chip_val
             st.session_state["_scenario_dialog_open"] = True
+            st.rerun()
+    if "ci_del" in _qp:
+        import urllib.parse as _ulp
+        _ci_del_kw = _ulp.unquote(_qp.get("ci_del", ""))
+        st.query_params.clear()
+        if _ci_del_kw:
+            _cur_hist = st.session_state.get("_ci_history", [])
+            _new_hist = [h for h in _cur_hist if h != _ci_del_kw]
+            st.session_state["_ci_history"] = _new_hist
+            def _del_hist_save(_h=_new_hist):
+                try:
+                    from db import save_ai_cache
+                    save_ai_cache("custom_issue_history", {"keywords": _h}, ttl_hours=24 * 30)
+                except Exception:
+                    pass
+            import threading as _thr
+            _thr.Thread(target=_del_hist_save, daemon=True).start()
             st.rerun()
     if "market" in _qp and "code" in _qp:
         _q_mkt = _qp.get("market")
