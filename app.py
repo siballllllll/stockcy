@@ -1554,6 +1554,95 @@ def _render_custom_issue_result(res: dict, key_prefix: str):
                             unsafe_allow_html=True,
                         )
 
+            # ── 상세 분석 버튼 ──────────────────────────────────────────
+            _ci_detail_key = f"_ci_detail_{key_prefix}_{_sc.get('label','')}"
+            st.markdown("<div style='margin-top:10px'></div>", unsafe_allow_html=True)
+            if st.button(
+                "🔍 상세 분석 보기",
+                key=f"btn_{_ci_detail_key}",
+                use_container_width=True,
+                help="진입가·목표가·손절가, 역사적 선례, 리스크 요인을 포함한 심층 분석",
+            ):
+                if _ci_detail_key not in st.session_state:
+                    with st.spinner("🔬 심층 분석 중... (최대 120초)"):
+                        from ai_engine import generate_scenario_detail as _gsd
+                        st.session_state[_ci_detail_key] = _gsd(
+                            issue_title=res.get("title", ""),
+                            scenario_title=_sc.get("title", ""),
+                            economic_analysis=_sc.get("economic_analysis", ""),
+                            rising=_sc.get("rising_stocks", []),
+                            falling=_sc.get("falling_stocks", []),
+                        )
+
+            _ci_det = st.session_state.get(_ci_detail_key)
+            if _ci_det:
+                if "error" in _ci_det:
+                    st.error(f"상세 분석 오류: {_ci_det['error']}")
+                else:
+                    with st.expander("📋 심층 분석 결과", expanded=True):
+                        st.markdown(
+                            "<div style='font-size:0.72rem;color:#888;background:rgba(255,215,64,0.05);"
+                            "border:1px solid rgba(255,215,64,0.2);border-radius:4px;padding:4px 10px;"
+                            "margin-bottom:8px'>⚠️ 진입가·목표가·손절가는 AI가 구글 검색으로 조회한 실제가 기반입니다. "
+                            "매수 전 반드시 현재가를 직접 확인하세요.</div>",
+                            unsafe_allow_html=True,
+                        )
+                        st.markdown(
+                            f"<div style='padding:8px 12px;background:rgba(255,255,255,0.04);"
+                            f"border-radius:6px;font-size:0.86rem;color:#ddd;margin-bottom:8px'>"
+                            f"🔬 <b>심층 분석</b><br>{_ci_det.get('deep_analysis','')}</div>",
+                            unsafe_allow_html=True,
+                        )
+                        st.markdown(
+                            f"<div style='padding:8px 12px;background:rgba(255,215,64,0.06);"
+                            f"border-left:3px solid #ffd740;border-radius:4px;"
+                            f"font-size:0.84rem;color:#ccc;margin-bottom:8px'>"
+                            f"📖 <b>역사적 선례</b><br>{_ci_det.get('historical_precedent','')}</div>",
+                            unsafe_allow_html=True,
+                        )
+                        _ci_risks = _ci_det.get("key_risks", [])
+                        if _ci_risks:
+                            st.markdown("**⚠️ 주요 리스크**")
+                            for _r in _ci_risks:
+                                st.markdown(f"- {_r}")
+                        _short_d = _ci_det.get("short_detail", {})
+                        _long_d  = _ci_det.get("long_detail", {})
+                        _da1, _da2 = st.columns(2)
+                        with _da1:
+                            st.markdown("**⚡ 단타 상세**")
+                            if _short_d.get("entry"):
+                                st.markdown(f"진입: {_short_d['entry']}")
+                            if _short_d.get("exit"):
+                                st.markdown(f"청산: {_short_d['exit']}")
+                            if _short_d.get("timing"):
+                                st.markdown(f"타이밍: {_short_d['timing']}")
+                            for _ss in _short_d.get("stocks", []):
+                                st.markdown(
+                                    f"<div style='padding:4px 0;font-size:0.8rem;"
+                                    f"border-bottom:1px solid rgba(255,255,255,0.06)'>"
+                                    f"<b style='color:#00c853'>{_ss.get('name','')} ({_ss.get('ticker','')})</b><br>"
+                                    f"진입: {_ss.get('entry_point','-')} | 목표: {_ss.get('target','-')} | 손절: {_ss.get('stop','-')}<br>"
+                                    f"<span style='color:#888'>{_ss.get('note','')}</span></div>",
+                                    unsafe_allow_html=True,
+                                )
+                        with _da2:
+                            st.markdown("**🏹 장타 상세**")
+                            if _long_d.get("thesis"):
+                                st.markdown(f"근거: {_long_d['thesis']}")
+                            if _long_d.get("hold_period"):
+                                st.markdown(f"보유 기간: {_long_d['hold_period']}")
+                            if _long_d.get("position_sizing"):
+                                st.markdown(f"비중: {_long_d['position_sizing']}")
+                            for _ls in _long_d.get("stocks", []):
+                                st.markdown(
+                                    f"<div style='padding:4px 0;font-size:0.8rem;"
+                                    f"border-bottom:1px solid rgba(255,255,255,0.06)'>"
+                                    f"<b style='color:#ffd740'>{_ls.get('name','')} ({_ls.get('ticker','')})</b><br>"
+                                    f"{_ls.get('reason','')}<br>"
+                                    f"<span style='color:#5c9bd6'>촉매: {_ls.get('catalyst','')}</span></div>",
+                                    unsafe_allow_html=True,
+                                )
+
 
 @st.dialog("📈 이슈별 시장 시나리오", width="large")
 def show_market_scenarios():
