@@ -24,6 +24,17 @@ def _run_scenario_bg(task_id: str, cache_key: str):
     except Exception as e:
         with _SCENARIO_LOCK:
             _SCENARIO_TASKS[task_id] = {"status": "error", "result": {"error": str(e)}}
+
+def _run_custom_issue_bg(task_id: str, keyword: str):
+    """백그라운드 스레드에서 커스텀 이슈 분석을 실행하고 _SCENARIO_TASKS에 저장."""
+    try:
+        from ai_engine import analyze_custom_issue
+        result = analyze_custom_issue(keyword)
+        with _SCENARIO_LOCK:
+            _SCENARIO_TASKS[task_id] = {"status": "done", "result": result}
+    except Exception as e:
+        with _SCENARIO_LOCK:
+            _SCENARIO_TASKS[task_id] = {"status": "error", "result": {"error": str(e)}}
 try:
     from streamlit_autorefresh import st_autorefresh as _st_autorefresh
     _HAVE_AUTOREFRESH = True
@@ -1559,15 +1570,35 @@ def show_market_scenarios():
                 _ci_run = st.form_submit_button("🔍 분석", use_container_width=True, type="primary")
 
         _ci_kw = _ci_keyword.strip()
+        _ci_task_id = f"_ci_{_ci_kw}" if _ci_kw else "_ci_none"
         _ci_result_key = f"_ci_result_{_ci_kw}" if _ci_kw else "_ci_result_none"
 
         if _ci_run and _ci_kw:
+            # 이전 결과·태스크 초기화 후 백그라운드 시작
             st.session_state.pop(_ci_result_key, None)
-            with st.spinner(f"AI가 '{_ci_kw}' 이슈의 수혜주와 타점을 분석 중입니다..."):
-                from ai_engine import analyze_custom_issue
-                st.session_state[_ci_result_key] = analyze_custom_issue(_ci_kw)
+            with _SCENARIO_LOCK:
+                _SCENARIO_TASKS[_ci_task_id] = {"status": "running", "result": None}
+            _t = threading.Thread(target=_run_custom_issue_bg, args=(_ci_task_id, _ci_kw), daemon=True)
+            _t.start()
+            st.session_state._scenario_dialog_open = True
+            st.rerun()
         elif _ci_run:
             st.warning("이슈 키워드를 입력해주세요.")
+
+        # 백그라운드 완료 결과 세션에 반영
+        with _SCENARIO_LOCK:
+            _ci_bg = _SCENARIO_TASKS.get(_ci_task_id)
+        if _ci_bg and _ci_bg["status"] in ("done", "error") and _ci_result_key not in st.session_state:
+            st.session_state[_ci_result_key] = _ci_bg["result"]
+            with _SCENARIO_LOCK:
+                _SCENARIO_TASKS.pop(_ci_task_id, None)
+
+        if _ci_bg and _ci_bg["status"] == "running":
+            st.info(
+                f"🔄 **'{_ci_kw}' 이슈를 백그라운드에서 분석 중입니다.**\n\n"
+                "창을 닫고 다른 기능을 자유롭게 사용하세요.  \n"
+                "완료되면 다시 이 탭을 열면 결과가 표시됩니다."
+            )
 
         _ci_stored = st.session_state.get(_ci_result_key)
         if _ci_stored:
@@ -2619,8 +2650,13 @@ def main():
         _today_ck_rf = __import__("datetime").date.today().strftime("%Y-%m-%d")
         _rf_task_id  = f"scenario_market_scenarios_{_today_ck_rf}"
         _rf_status   = _SCENARIO_TASKS.get(_rf_task_id, {}).get("status")
-        if _rf_status == "running":
-            # 시나리오 완료 감지용 짧은 폴링
+        _ci_any_running = any(
+            v.get("status") == "running"
+            for k, v in _SCENARIO_TASKS.items()
+            if k.startswith("_ci_")
+        )
+        if _rf_status == "running" or _ci_any_running:
+            # 시나리오/커스텀 이슈 완료 감지용 짧은 폴링
             _st_autorefresh(interval=3000, limit=None, key="stockcy_scenario_poll")
         else:
             _st_autorefresh(interval=600000, limit=None, key="stockcy_refresh")
