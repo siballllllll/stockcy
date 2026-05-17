@@ -1680,14 +1680,14 @@ def show_market_scenarios():
         if _ci_history:
             import urllib.parse as _ulp
             _items_html = "&nbsp;&nbsp;·&nbsp;&nbsp;".join(
-                f"<a href='?ci_chip={_ulp.quote(kw)}&reopen=1' "
-                f"style='color:#888;font-size:0.82rem;text-decoration:none;' "
+                f"<span onclick=\"window.top.location.href='?ci_chip={_ulp.quote(kw)}&reopen=1'\" "
+                f"style='color:#888;font-size:0.82rem;cursor:pointer;' "
                 f"onmouseover=\"this.style.color='#ccc';this.style.textDecoration='underline'\" "
-                f"onmouseout=\"this.style.color='#888';this.style.textDecoration='none'\">{kw}</a>"
-                f"<a href='?ci_del={_ulp.quote(kw)}' "
-                f"style='color:#555;font-size:0.72rem;text-decoration:none;margin-left:3px;' "
+                f"onmouseout=\"this.style.color='#888';this.style.textDecoration='none'\">{kw}</span>"
+                f"<span onclick=\"window.top.location.href='?ci_del={_ulp.quote(kw)}'\" "
+                f"style='color:#555;font-size:0.72rem;cursor:pointer;margin-left:3px;' "
                 f"onmouseover=\"this.style.color='#e55'\" "
-                f"onmouseout=\"this.style.color='#555'\">✕</a>"
+                f"onmouseout=\"this.style.color='#555'\">✕</span>"
                 for kw in _ci_history[:8]
             )
             st.markdown(
