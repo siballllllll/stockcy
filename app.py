@@ -32,6 +32,13 @@ def _run_custom_issue_bg(task_id: str, keyword: str):
         result = analyze_custom_issue(keyword)
         with _SCENARIO_LOCK:
             _SCENARIO_TASKS[task_id] = {"status": "done", "result": result}
+        if "error" not in result:
+            try:
+                from db import save_ai_cache
+                # keyword + result를 하나의 캐시 항목으로 저장 (7일 TTL)
+                save_ai_cache("custom_issue_latest", {"keyword": keyword, "result": result}, ttl_hours=24 * 7)
+            except Exception:
+                pass
     except Exception as e:
         with _SCENARIO_LOCK:
             _SCENARIO_TASKS[task_id] = {"status": "error", "result": {"error": str(e)}}
@@ -1570,43 +1577,88 @@ def show_market_scenarios():
                 _ci_run = st.form_submit_button("🔍 분석", use_container_width=True, type="primary")
 
         _ci_kw = _ci_keyword.strip()
-        _ci_task_id = f"_ci_{_ci_kw}" if _ci_kw else "_ci_none"
-        _ci_result_key = f"_ci_result_{_ci_kw}" if _ci_kw else "_ci_result_none"
 
-        if _ci_run and _ci_kw:
-            # 이전 결과·태스크 초기화 후 백그라운드 시작
-            st.session_state.pop(_ci_result_key, None)
+        # ── 백그라운드 완료 결과 세션 반영 ───────────────────────────────
+        for _ci_tid in [k for k in list(_SCENARIO_TASKS) if k.startswith("_ci_")]:
             with _SCENARIO_LOCK:
-                _SCENARIO_TASKS[_ci_task_id] = {"status": "running", "result": None}
-            _t = threading.Thread(target=_run_custom_issue_bg, args=(_ci_task_id, _ci_kw), daemon=True)
-            _t.start()
+                _ci_t = _SCENARIO_TASKS.get(_ci_tid)
+            if _ci_t and _ci_t["status"] in ("done", "error"):
+                st.session_state["_ci_result"] = _ci_t.get("result")
+                st.session_state["_ci_last_kw"] = _ci_tid[4:]  # strip "_ci_" prefix
+                st.session_state["_ci_cache_checked"] = True   # 방금 완료, 캐시 재조회 불필요
+                with _SCENARIO_LOCK:
+                    _SCENARIO_TASKS.pop(_ci_tid, None)
+                break
+
+        # ── 폼 제출 처리 ──────────────────────────────────────────────────
+        if _ci_run and _ci_kw:
+            st.session_state.pop("_ci_result", None)
+            st.session_state["_ci_last_kw"] = _ci_kw
+            st.session_state["_ci_cache_checked"] = False  # 새 키워드 → 캐시 재조회 허용
+            _ci_new_tid = f"_ci_{_ci_kw}"
+            with _SCENARIO_LOCK:
+                _SCENARIO_TASKS[_ci_new_tid] = {"status": "running", "result": None}
+            threading.Thread(target=_run_custom_issue_bg, args=(_ci_new_tid, _ci_kw), daemon=True).start()
             st.session_state._scenario_dialog_open = True
             st.rerun()
         elif _ci_run:
             st.warning("이슈 키워드를 입력해주세요.")
 
-        # 백그라운드 완료 결과 세션에 반영
-        with _SCENARIO_LOCK:
-            _ci_bg = _SCENARIO_TASKS.get(_ci_task_id)
-        if _ci_bg and _ci_bg["status"] in ("done", "error") and _ci_result_key not in st.session_state:
-            st.session_state[_ci_result_key] = _ci_bg["result"]
-            with _SCENARIO_LOCK:
-                _SCENARIO_TASKS.pop(_ci_task_id, None)
-
-        if _ci_bg and _ci_bg["status"] == "running":
+        # ── 진행 중 표시 ──────────────────────────────────────────────────
+        _ci_running_kw = next(
+            (_tid[4:] for _tid, _tv in _SCENARIO_TASKS.items()
+             if _tid.startswith("_ci_") and _tv.get("status") == "running"),
+            None
+        )
+        if _ci_running_kw:
             st.info(
-                f"🔄 **'{_ci_kw}' 이슈를 백그라운드에서 분석 중입니다.**\n\n"
+                f"🔄 **'{_ci_running_kw}' 이슈를 백그라운드에서 분석 중입니다.**\n\n"
                 "창을 닫고 다른 기능을 자유롭게 사용하세요.  \n"
                 "완료되면 다시 이 탭을 열면 결과가 표시됩니다."
             )
 
-        _ci_stored = st.session_state.get(_ci_result_key)
+        # ── 결과 로드: 세션 → Google Sheets 캐시 (새로고침 후 복원) ────────
+        _ci_stored      = st.session_state.get("_ci_result")
+        _ci_active_kw   = st.session_state.get("_ci_last_kw", "")
+
+        if _ci_stored is None and not st.session_state.get("_ci_cache_checked", False):
+            try:
+                from db import load_ai_cache as _lci
+                _ci_from_cache = _lci("custom_issue_latest")
+                if _ci_from_cache:
+                    _cached_kw = _ci_from_cache.get("keyword", "")
+                    # 새 키워드 제출 중이라면 구 캐시 사용 안 함
+                    if not _ci_active_kw or _cached_kw == _ci_active_kw:
+                        _ci_stored    = _ci_from_cache.get("result")
+                        _ci_active_kw = _cached_kw
+                        if _ci_stored:
+                            st.session_state["_ci_result"]   = _ci_stored
+                            st.session_state["_ci_last_kw"]  = _ci_active_kw
+            except Exception:
+                pass
+            st.session_state["_ci_cache_checked"] = True
+
+        # ── 결과 표시 ─────────────────────────────────────────────────────
         if _ci_stored:
-            st.markdown(
-                f"<h4 style='margin:10px 0 4px;color:#ffd740'>📌 {_ci_stored.get('title', _ci_kw)}</h4>",
-                unsafe_allow_html=True,
-            )
-            _render_custom_issue_result(_ci_stored, key_prefix=f"ci_{_ci_kw[:20]}")
+            _col_title, _col_del = st.columns([5, 1])
+            with _col_title:
+                st.markdown(
+                    f"<h4 style='margin:10px 0 4px;color:#ffd740'>"
+                    f"📌 {_ci_stored.get('title', _ci_active_kw)}</h4>",
+                    unsafe_allow_html=True,
+                )
+            with _col_del:
+                if st.button("🗑️ 삭제", key="ci_delete_btn", help="결과를 삭제합니다"):
+                    st.session_state.pop("_ci_result", None)
+                    st.session_state.pop("_ci_last_kw", None)
+                    st.session_state["_ci_cache_checked"] = False
+                    try:
+                        from db import delete_ai_cache
+                        delete_ai_cache("custom_issue_latest")
+                    except Exception:
+                        pass
+                    st.rerun()
+            _render_custom_issue_result(_ci_stored, key_prefix=f"ci_{_ci_active_kw[:20]}")
 
     # ── 탭 1: AI 자동 시나리오 ──────────────────────────────────────────
     with _tab_auto:
