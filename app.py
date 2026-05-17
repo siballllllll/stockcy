@@ -1677,6 +1677,33 @@ def _render_ci_tab_fragment():
             "<div style='font-size:0.75rem;color:#888;margin:2px 0 4px'>🕐 최근 검색</div>",
             unsafe_allow_html=True,
         )
+        # 검색어 버튼을 텍스트 링크 스타일로 보이게 하는 CSS/JS 주입
+        st.markdown("""
+<img src="data:text/plain,x" onerror="
+(function(){
+  function styleChipBtns(){
+    document.querySelectorAll('[data-testid=stHorizontalBlock]').forEach(function(row){
+      var cols=row.querySelectorAll('[data-testid=column]');
+      if(cols.length!==2)return;
+      var b1=cols[0].querySelector('button'),b2=cols[1].querySelector('button');
+      if(b1&&b2&&b2.innerText.trim()==='✕'&&!row.dataset.ciStyled){
+        b1.classList.add('ci-kw-btn');
+        b2.classList.add('ci-del-btn');
+        row.dataset.ciStyled='1';
+      }
+    });
+  }
+  styleChipBtns();
+  new MutationObserver(styleChipBtns).observe(document.body,{childList:true,subtree:true});
+})();
+" style="display:none">
+<style>
+button.ci-kw-btn{background:transparent!important;border:none!important;box-shadow:none!important;color:#aaa!important;padding:1px 4px!important;font-size:0.82rem!important;min-height:0!important;height:auto!important;text-align:left!important;line-height:1.6!important;justify-content:flex-start!important;}
+button.ci-kw-btn:hover{color:#fff!important;text-decoration:underline!important;background:transparent!important;}
+button.ci-del-btn{background:transparent!important;border:none!important;box-shadow:none!important;color:#555!important;font-size:0.72rem!important;padding:0!important;min-height:0!important;height:auto!important;}
+button.ci-del-btn:hover{color:#e55!important;background:transparent!important;}
+</style>
+""", unsafe_allow_html=True)
         for _ci_hi, _ci_hkw in enumerate(_ci_history[:8]):
             _c_kw, _c_del = st.columns([10, 1])
             with _c_kw:
