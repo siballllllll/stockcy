@@ -1011,6 +1011,69 @@ def inject_custom_css():
             min-width: 0 !important;
             flex: 1 1 auto !important;
         }
+
+        /* ══ 모바일 반응형 (≤ 768px) ══════════════════════════════════ */
+        @media (max-width: 768px) {
+            /* 전체 좌우 패딩 축소 */
+            [data-testid="stMainBlockContainer"] {
+                padding: 0.2rem 0.3rem 1rem !important;
+            }
+
+            /* 헤더 네비 행 → 가로 스크롤 (버튼 찌그러짐 방지) */
+            [data-testid="stHorizontalBlock"] {
+                flex-wrap: nowrap !important;
+                overflow-x: auto !important;
+                -webkit-overflow-scrolling: touch !important;
+                scrollbar-width: none !important;
+                gap: 2px !important;
+            }
+            [data-testid="stHorizontalBlock"]::-webkit-scrollbar {
+                display: none !important;
+            }
+            /* 컬럼 항목이 0으로 압축되지 않도록 */
+            [data-testid="stHorizontalBlock"] > [data-testid="column"] {
+                min-width: fit-content !important;
+                flex-shrink: 0 !important;
+            }
+
+            /* 네비 탭 버튼 모바일 축소 */
+            div[data-testid="stButton"] > button[data-navbtn] {
+                font-size: 0.72rem !important;
+                padding: 2px 5px !important;
+                min-height: 30px !important;
+            }
+            /* 마켓 pill 모바일 축소 */
+            div[data-testid="stButton"] > button[data-mktbtn] {
+                font-size: 0.72rem !important;
+                padding: 1px 5px !important;
+                min-height: 26px !important;
+            }
+
+            /* 메트릭 폰트 축소 */
+            [data-testid="stMetricValue"] {
+                font-size: 1.05rem !important;
+            }
+            [data-testid="stMetricLabel"] {
+                font-size: 0.72rem !important;
+            }
+
+            /* 탭 버튼 축소 */
+            [data-testid="stTabs"] button {
+                font-size: 0.78rem !important;
+                padding: 4px 7px !important;
+            }
+
+            /* 텍스트 전반 축소 */
+            [data-testid="stMarkdownContainer"] p,
+            [data-testid="stMarkdownContainer"] li {
+                font-size: 0.88rem !important;
+            }
+
+            /* container border 내부 패딩 축소 */
+            [data-testid="stVerticalBlockBorderWrapper"] > div {
+                padding: 0.5rem !important;
+            }
+        }
         </style>
     """, unsafe_allow_html=True)
 
