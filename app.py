@@ -1671,67 +1671,102 @@ def _render_ci_tab_fragment():
         with _ci_col_btn:
             _ci_run = st.form_submit_button("🔍 분析", use_container_width=True, type="primary")
 
-    # ── 최근 검색어 버튼 표시 ────────────────────────────────────────
+    # ── 최근 검색 드롭다운 (JS) ──────────────────────────────────────
     _ci_history = st.session_state.get("_ci_history", [])
-    if _ci_history:
-        st.markdown(
-            "<div style='font-size:0.75rem;color:#888;margin:2px 0 4px'>🕐 최근 검색</div>",
-            unsafe_allow_html=True,
-        )
-        # 검색어 버튼을 텍스트 링크 스타일로 보이게 하는 CSS/JS 주입
-        st.markdown("""
-<img src="data:text/plain,x" onerror="
-(function(){
-  function styleChipBtns(){
-    document.querySelectorAll('[data-testid=stHorizontalBlock]').forEach(function(row){
-      var cols=row.querySelectorAll('[data-testid=column]');
-      if(cols.length!==2)return;
-      var b1=cols[0].querySelector('button'),b2=cols[1].querySelector('button');
-      if(b1&&b2&&b2.innerText.trim()==='✕'&&!row.dataset.ciStyled){
-        b1.classList.add('ci-kw-btn');
-        b2.classList.add('ci-del-btn');
-        row.dataset.ciStyled='1';
-      }
-    });
-  }
-  styleChipBtns();
-  new MutationObserver(styleChipBtns).observe(document.body,{childList:true,subtree:true});
-})();
-" style="display:none">
+    import json as _json, time as _time
+    _ci_hist_json = _json.dumps(_ci_history[:8], ensure_ascii=False)
+    _ci_ts = int(_time.time() * 1000) % 9999999
+    st.markdown(f"""
+<img src="data:text/plain,{_ci_ts}" onerror="(function(){{
+  var hist = {_ci_hist_json};
+  function build() {{
+    var inp = document.querySelector('input[aria-label=\\"이슈 키워드\\"]');
+    if (!inp) return;
+    var wrap = inp.closest('[data-testid=stTextInput]');
+    if (!wrap) return;
+    var histStr = JSON.stringify(hist);
+    if (wrap.dataset.ciDdHist === histStr) return;
+    wrap.dataset.ciDdHist = histStr;
+    wrap.style.position = 'relative';
+    var old = document.getElementById('ci-search-dd');
+    if (old) old.remove();
+    if (!hist.length) return;
+    var dd = document.createElement('div');
+    dd.id = 'ci-search-dd';
+    dd.style.cssText = 'display:none;position:absolute;top:calc(100% + 3px);left:0;right:0;z-index:99999;background:#18182a;border:1px solid #3a3a6a;border-radius:10px;overflow:hidden;box-shadow:0 8px 28px rgba(0,0,0,0.75);';
+    var hdr = document.createElement('div');
+    hdr.style.cssText = 'padding:7px 14px 5px;font-size:0.7rem;color:#666;letter-spacing:0.06em;border-bottom:1px solid #2a2a40;';
+    hdr.textContent = '최근 검색';
+    dd.appendChild(hdr);
+    hist.forEach(function(kw) {{
+      var row = document.createElement('div');
+      row.style.cssText = 'display:flex;align-items:center;padding:9px 14px;cursor:pointer;gap:10px;border-bottom:1px solid #22223a;transition:background 0.12s;';
+      row.innerHTML = '<span style="color:#555;font-size:0.78rem;flex-shrink:0;">🕐</span><span style="flex:1;color:#ccc;font-size:0.9rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + kw + '</span><span class="ci-dd-x" data-kw="' + kw.replace(/"/g,\\"&quot;\\") + '" style="color:#444;font-size:0.8rem;padding:2px 4px;border-radius:4px;flex-shrink:0;line-height:1;">✕</span>';
+      row.addEventListener('mouseenter', function(){{ this.style.background='rgba(80,80,180,0.18)'; }});
+      row.addEventListener('mouseleave', function(){{ this.style.background=''; }});
+      row.querySelector('.ci-dd-x').addEventListener('mouseenter', function(e){{ e.stopPropagation(); this.style.color='#e55'; }});
+      row.querySelector('.ci-dd-x').addEventListener('mouseleave', function(e){{ e.stopPropagation(); this.style.color='#444'; }});
+      row.addEventListener('mousedown', function(e) {{
+        var xBtn = e.target.closest('.ci-dd-x');
+        e.preventDefault();
+        var setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype,'value').set;
+        if (xBtn) {{
+          setter.call(inp, '__DEL__:' + xBtn.dataset.kw);
+        }} else {{
+          setter.call(inp, kw);
+        }}
+        inp.dispatchEvent(new Event('input', {{bubbles:true}}));
+        dd.style.display = 'none';
+        setTimeout(function() {{
+          var form = inp.closest('[data-testid=stForm]') || inp.closest('form');
+          var btn = form && (form.querySelector('button[kind=primaryFormSubmit]') || form.querySelector('button[type=submit]'));
+          if (btn) btn.click();
+        }}, 60);
+      }});
+      dd.appendChild(row);
+    }});
+    wrap.appendChild(dd);
+    if (!inp.dataset.ciDdEvt) {{
+      inp.dataset.ciDdEvt = '1';
+      inp.addEventListener('focus', function() {{ if(hist.length) dd.style.display='block'; }});
+      inp.addEventListener('blur',  function() {{ setTimeout(function(){{ dd.style.display='none'; }}, 180); }});
+      inp.addEventListener('input', function() {{ dd.style.display = this.value ? 'none' : (hist.length ? 'block' : 'none'); }});
+    }}
+  }}
+  build();
+  if (!window._ciDdObs) {{
+    window._ciDdObs = new MutationObserver(build);
+    window._ciDdObs.observe(document.body, {{childList:true,subtree:true}});
+  }}
+}})();" style="display:none">
 <style>
-button.ci-kw-btn{background:transparent!important;border:none!important;box-shadow:none!important;color:#aaa!important;padding:1px 4px!important;font-size:0.82rem!important;min-height:0!important;height:auto!important;text-align:left!important;line-height:1.6!important;justify-content:flex-start!important;}
-button.ci-kw-btn:hover{color:#fff!important;text-decoration:underline!important;background:transparent!important;}
-button.ci-del-btn{background:transparent!important;border:none!important;box-shadow:none!important;color:#555!important;font-size:0.72rem!important;padding:0!important;min-height:0!important;height:auto!important;}
-button.ci-del-btn:hover{color:#e55!important;background:transparent!important;}
+#ci-search-dd::-webkit-scrollbar{{width:4px}}
+#ci-search-dd::-webkit-scrollbar-thumb{{background:#3a3a6a;border-radius:2px}}
 </style>
 """, unsafe_allow_html=True)
-        for _ci_hi, _ci_hkw in enumerate(_ci_history[:8]):
-            _c_kw, _c_del = st.columns([10, 1])
-            with _c_kw:
-                if st.button(
-                    _ci_hkw, key=f"ci_hist_{_ci_hi}",
-                    use_container_width=True, help=f"'{_ci_hkw}' 재검색",
-                ):
-                    st.session_state["_ci_chip_kw"] = _ci_hkw
-                    st.rerun()          # fragment 만 재실행 — dialog 닫히지 않음
-            with _c_del:
-                if st.button("✕", key=f"ci_del_{_ci_hi}", help="검색기록 삭제"):
-                    _cur = st.session_state.get("_ci_history", [])
-                    _new_h = [h for h in _cur if h != _ci_hkw]
-                    st.session_state["_ci_history"] = _new_h
-                    def _del_save(_h=_new_h):
-                        try:
-                            from db import save_ai_cache as _sac
-                            _sac("custom_issue_history", {"keywords": _h}, ttl_hours=24 * 30)
-                        except Exception:
-                            pass
-                    threading.Thread(target=_del_save, daemon=True).start()
-                    st.rerun()
 
     # ── 클릭 / 제출 처리 ─────────────────────────────────────────────
     _ci_chip_kw   = st.session_state.pop("_ci_chip_kw", None)
-    _ci_kw        = _ci_chip_kw or _ci_keyword.strip()
-    _ci_triggered = bool(_ci_chip_kw) or (_ci_run and bool(_ci_keyword.strip()))
+    _ci_raw       = _ci_chip_kw or _ci_keyword.strip()
+
+    # 드롭다운 삭제 요청 처리 (__DEL__:키워드 prefix)
+    if _ci_run and _ci_raw.startswith("__DEL__:"):
+        _del_kw = _ci_raw[8:]
+        _cur_h  = st.session_state.get("_ci_history", [])
+        _new_h  = [h for h in _cur_h if h != _del_kw]
+        st.session_state["_ci_history"] = _new_h
+        st.session_state["ci_keyword_input"] = ""
+        def _dd_del_save(_h=_new_h):
+            try:
+                from db import save_ai_cache as _sac
+                _sac("custom_issue_history", {"keywords": _h}, ttl_hours=24 * 30)
+            except Exception:
+                pass
+        threading.Thread(target=_dd_del_save, daemon=True).start()
+        st.rerun()
+
+    _ci_kw        = _ci_raw
+    _ci_triggered = bool(_ci_chip_kw) or (_ci_run and bool(_ci_kw) and not _ci_kw.startswith("__DEL__:"))
 
     # ── 백그라운드 완료 결과 세션 반영 ───────────────────────────────
     for _ci_tid in [k for k in list(_SCENARIO_TASKS) if k.startswith("_ci_")]:
