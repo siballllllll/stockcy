@@ -35,8 +35,9 @@ def _run_custom_issue_bg(task_id: str, keyword: str):
         if "error" not in result:
             try:
                 from db import save_ai_cache
-                # keyword + result를 하나의 캐시 항목으로 저장 (7일 TTL)
                 save_ai_cache("custom_issue_latest", {"keyword": keyword, "result": result}, ttl_hours=24 * 7)
+                # 키워드별 개별 캐시 저장 → 최근 검색 클릭 시 즉시 복원
+                save_ai_cache(f"ci_{keyword[:40]}", {"keyword": keyword, "result": result}, ttl_hours=24 * 7)
             except Exception:
                 pass
     except Exception as e:
@@ -1766,28 +1767,51 @@ button.ci-del-btn:hover{color:#e55!important;background:transparent!important;}
             st.session_state["_ci_history"]       = _new_hist[:8]
             st.rerun()
         else:
-            # 새 분析 시작
-            st.session_state.pop("_ci_result", None)
-            st.session_state.pop("_ci_dialog_suppress", None)
-            st.session_state["_ci_last_kw"]       = _ci_kw
-            st.session_state["_ci_cache_checked"] = False
-            _new_hist = [_ci_kw] + [h for h in _ci_history if h != _ci_kw]
-            _new_hist = _new_hist[:8]
-            st.session_state["_ci_history"] = _new_hist
-            def _save_hist(_h=_new_hist):
-                try:
-                    from db import save_ai_cache
-                    save_ai_cache("custom_issue_history", {"keywords": _h}, ttl_hours=24 * 30)
-                except Exception:
-                    pass
-            threading.Thread(target=_save_hist, daemon=True).start()
-            _ci_new_tid = f"_ci_{_ci_kw}"
-            with _SCENARIO_LOCK:
-                _SCENARIO_TASKS[_ci_new_tid] = {"status": "running", "result": None}
-            threading.Thread(
-                target=_run_custom_issue_bg, args=(_ci_new_tid, _ci_kw), daemon=True
-            ).start()
-            st.rerun()
+            # GSheets 키워드별 캐시 확인 (세션 캐시 미스 시)
+            _ci_gsh_hit = False
+            try:
+                from db import load_ai_cache as _lci_kw
+                _ci_gsh = _lci_kw(f"ci_{_ci_kw[:40]}")
+                if _ci_gsh and _ci_gsh.get("result") and "error" not in _ci_gsh.get("result", {}):
+                    _ci_gsh_res = _ci_gsh["result"]
+                    st.session_state["_ci_result"]        = _ci_gsh_res
+                    st.session_state["_ci_last_kw"]       = _ci_kw
+                    st.session_state["_ci_cache_checked"] = True
+                    _sc = st.session_state.get("_ci_result_cache", {})
+                    _sc[_ci_kw] = _ci_gsh_res
+                    if len(_sc) > 8:
+                        _sc.pop(next(iter(_sc)))
+                    st.session_state["_ci_result_cache"] = _sc
+                    _new_hist = [_ci_kw] + [h for h in _ci_history if h != _ci_kw]
+                    st.session_state["_ci_history"]       = _new_hist[:8]
+                    _ci_gsh_hit = True
+            except Exception:
+                pass
+            if _ci_gsh_hit:
+                st.rerun()
+            else:
+                # 새 분析 시작
+                st.session_state.pop("_ci_result", None)
+                st.session_state.pop("_ci_dialog_suppress", None)
+                st.session_state["_ci_last_kw"]       = _ci_kw
+                st.session_state["_ci_cache_checked"] = False
+                _new_hist = [_ci_kw] + [h for h in _ci_history if h != _ci_kw]
+                _new_hist = _new_hist[:8]
+                st.session_state["_ci_history"] = _new_hist
+                def _save_hist(_h=_new_hist):
+                    try:
+                        from db import save_ai_cache
+                        save_ai_cache("custom_issue_history", {"keywords": _h}, ttl_hours=24 * 30)
+                    except Exception:
+                        pass
+                threading.Thread(target=_save_hist, daemon=True).start()
+                _ci_new_tid = f"_ci_{_ci_kw}"
+                with _SCENARIO_LOCK:
+                    _SCENARIO_TASKS[_ci_new_tid] = {"status": "running", "result": None}
+                threading.Thread(
+                    target=_run_custom_issue_bg, args=(_ci_new_tid, _ci_kw), daemon=True
+                ).start()
+                st.rerun()
     elif _ci_run and not _ci_keyword.strip():
         st.warning("이슈 키워드를 입력해주세요.")
 
@@ -1852,16 +1876,17 @@ button.ci-del-btn:hover{color:#e55!important;background:transparent!important;}
                 unsafe_allow_html=True,
             )
         with _col_del:
-            if st.button("🗑️ 삭제", key="ci_delete_btn", help="결과를 삭제합니다"):
+            if st.button("🗑️ 삭제", key="ci_delete_btn", help="결과를 삭제하고 창을 닫습니다"):
                 st.session_state.pop("_ci_result", None)
                 st.session_state.pop("_ci_last_kw", None)
                 st.session_state["_ci_cache_checked"] = False
+                st.session_state["_ci_dialog_suppress"] = True  # 결과 삭제 후 dialog 자동 재오픈 방지
                 try:
                     from db import delete_ai_cache
                     delete_ai_cache("custom_issue_latest")
                 except Exception:
                     pass
-                st.rerun()
+                st.rerun(scope="app")
         _render_custom_issue_result(_ci_stored, key_prefix=f"ci_{_ci_active_kw[:20]}")
 
 
@@ -3241,13 +3266,15 @@ def main():
 </script>""", height=0, scrolling=False)
 
     _ci_any_running_now = any(
-        v.get("status") == "running"
+        v.get("status") in ("running", "done")   # done 포함: 결과를 fragment가 읽기 전에 dialog 닫히는 버그 방지
         for k, v in _SCENARIO_TASKS.items()
         if k.startswith("_ci_")
     )
+    _ci_has_result = bool(st.session_state.get("_ci_result"))
     _open_dialog_flag = st.session_state.pop("_scenario_dialog_open", False)
     if _open_dialog_flag or (
-        _ci_any_running_now and not st.session_state.get("_ci_dialog_suppress", False)
+        (_ci_any_running_now or _ci_has_result)
+        and not st.session_state.get("_ci_dialog_suppress", False)
     ):
         show_market_scenarios()
 
