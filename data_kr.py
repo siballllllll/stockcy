@@ -105,10 +105,21 @@ def get_kr_fdr_sector_map() -> dict:
 def get_kr_name_to_code_map() -> dict:
     """전체 KOSPI+KOSDAQ 종목 이름→{code, suffix} 맵 반환 (24시간 캐시).
 
-    FinanceDataReader → pykrx → KRX 직접 API 순으로 시도.
+    정적 JSON → FinanceDataReader → pykrx → KRX 직접 API 순으로 시도.
     해외 서버(Streamlit Cloud)에서도 동작하도록 여러 소스를 시도한다.
     """
     result: dict = {}
+
+    # 0차: 번들된 정적 JSON (네트워크 불필요, 최우선)
+    try:
+        import json, os
+        _static = os.path.join(os.path.dirname(__file__), "kr_stocks_static.json")
+        with open(_static, "r", encoding="utf-8") as f:
+            result = json.load(f)
+        if result:
+            return result
+    except Exception:
+        pass
 
     # 1차: FinanceDataReader (해외 서버에서도 동작)
     try:
