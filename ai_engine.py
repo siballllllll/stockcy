@@ -12,16 +12,23 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 
 def _fix_kr_stock_names(stocks: list) -> list:
-    """AI가 생성한 한국 종목 name을 실제 KRX 코드→이름 맵으로 교정."""
+    """AI가 생성한 한국 종목 name을 실제 KRX 코드→이름 맵으로 교정.
+    KRX에 없는 코드(AI 허구)는 목록에서 제거."""
     try:
         from data_kr import get_kr_code_to_name_map
         code_map = get_kr_code_to_name_map()
     except Exception:
         return stocks
-    for s in stocks:
+    remove_idx = []
+    for i, s in enumerate(stocks):
         tk = str(s.get("ticker", "")).strip()
-        if tk.isdigit() and len(tk) == 6 and tk in code_map:
-            s["name"] = code_map[tk]
+        if tk.isdigit() and len(tk) == 6:
+            if tk in code_map:
+                s["name"] = code_map[tk]   # 이름 교정
+            else:
+                remove_idx.append(i)        # 실재하지 않는 코드 → 제거
+    for i in reversed(remove_idx):
+        stocks.pop(i)
     return stocks
 
 

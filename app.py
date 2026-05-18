@@ -1978,6 +1978,11 @@ def show_market_scenarios():
             from db import load_ai_cache
             _cached = load_ai_cache(_cache_key)
             if _cached:
+                try:
+                    from ai_engine import _fix_scenario_names
+                    _fix_scenario_names(_cached)
+                except Exception:
+                    pass
                 st.session_state.market_scenarios_data = _cached
                 st.caption("📦 오늘 생성된 캐시에서 불러왔습니다.")
             else:
