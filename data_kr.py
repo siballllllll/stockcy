@@ -314,28 +314,91 @@ def get_kr_stock_price(stock_code: str):
     return None
 
 
+@st.cache_data(ttl=300, show_spinner=False)
+def _get_kr_shares_map() -> dict:
+    """KOSPI+KOSDAQ 전 종목 코드→발행주식수 맵 (FDR, 24h 캐시)"""
+    try:
+        import FinanceDataReader as fdr
+        result = {}
+        for mkt in ["KOSPI", "KOSDAQ"]:
+            df = fdr.StockListing(mkt)
+            if "Code" in df.columns and "Stocks" in df.columns:
+                for _, row in df.iterrows():
+                    code = str(row["Code"]).zfill(6)
+                    shares = int(row.get("Stocks", 0) or 0)
+                    if shares > 0:
+                        result[code] = shares
+        return result
+    except Exception:
+        return {}
+
+
 @st.cache_data(ttl=60)
 def get_kr_investor_trend(stock_code: str):
-    """종목별 외국인/기관/개인 순매수 동향 (최근 5영업일)"""
+    """종목별 외국인/기관/개인 순매수 동향 (최근 5영업일)
+    KIS API → 네이버 금융 차트 API(외국인 보유율 변화 기반 추정) 순으로 시도."""
+    # 1차: KIS API
     data = _get(
         "/uapi/domestic-stock/v1/quotations/inquire-investor",
         "FHKST01010900",
         {"fid_cond_mrkt_div_code": "J", "fid_input_iscd": stock_code},
     )
-    if not data:
-        return []
-    results = []
-    for item in data.get("output", [])[:5]:
-        d = item.get("stck_bsop_date", "")
-        if len(d) == 8:
-            d = f"{d[:4]}-{d[4:6]}-{d[6:]}"
-        results.append({
-            "날짜": d,
-            "개인": int(item.get("prsn_ntby_qty", 0) or 0),
-            "외국인": int(item.get("frgn_ntby_qty", 0) or 0),
-            "기관": int(item.get("orgn_ntby_qty", 0) or 0),
-        })
-    return results
+    if data:
+        results = []
+        for item in data.get("output", [])[:5]:
+            d = item.get("stck_bsop_date", "")
+            if len(d) == 8:
+                d = f"{d[:4]}-{d[4:6]}-{d[6:]}"
+            results.append({
+                "날짜": d,
+                "개인": int(item.get("prsn_ntby_qty", 0) or 0),
+                "외국인": int(item.get("frgn_ntby_qty", 0) or 0),
+                "기관": int(item.get("orgn_ntby_qty", 0) or 0),
+            })
+        return results
+
+    # 2차 폴백: 네이버 금융 차트 API — 외국인 보유율 변화로 순매수 추정
+    try:
+        import datetime as _dt2, requests as _req2
+        _today = _dt2.date.today()
+        _start = (_today - _dt2.timedelta(days=14)).strftime("%Y%m%d") + "000000"
+        _end = _today.strftime("%Y%m%d") + "235959"
+        _url = (
+            f"https://api.stock.naver.com/chart/domestic/item/{stock_code}/day"
+            f"?startDateTime={_start}&endDateTime={_end}"
+        )
+        _resp = _req2.get(_url, headers={
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+            "Referer": "https://finance.naver.com/",
+        }, timeout=4)
+        if _resp.status_code == 200:
+            _rows = _resp.json()
+            _rows = sorted(_rows, key=lambda x: x.get("localDate", ""))
+            # 발행주식수 조회 (FDR 캐시)
+            _shares_map = _get_kr_shares_map()
+            _total_shares = _shares_map.get(stock_code.zfill(6), 0)
+            results = []
+            for i in range(1, len(_rows)):
+                _prev_r = _rows[i - 1].get("foreignRetentionRate") or 0
+                _cur_r  = _rows[i].get("foreignRetentionRate") or 0
+                _rate_chg = float(_cur_r) - float(_prev_r)
+                _frgn = int(_rate_chg * _total_shares / 100) if _total_shares > 0 else 0
+                _d = str(_rows[i].get("localDate", ""))
+                if len(_d) == 8:
+                    _d = f"{_d[:4]}-{_d[4:6]}-{_d[6:]}"
+                results.append({
+                    "날짜": _d,
+                    "외국인": _frgn,
+                    "기관": 0,
+                    "개인": 0,
+                    "_estimated": True,  # 추정값 표시용 플래그
+                })
+            # 최신 5거래일만 반환
+            return list(reversed(results))[:5]
+    except Exception:
+        pass
+
+    return []
 
 
 @st.cache_data(ttl=60)

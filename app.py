@@ -4738,12 +4738,17 @@ def main():
                                 with st.spinner("수급 데이터 조회 중..."):
                                     investor_kr = get_kr_investor_trend(selected_code_kr)
                                 if investor_kr:
+                                    _is_estimated = investor_kr[0].get("_estimated", False)
+                                    if _is_estimated:
+                                        st.caption("⚠️ KIS API 미연동 — 외국인 보유율 변화 기반 추정값 (기관/개인 미제공)")
                                     df_inv = pd.DataFrame(investor_kr)
                                     fig_inv = go.Figure()
-                                    for _cn, _cc in [("외국인","#ff4b4b"),("기관","#2b7cff"),("개인","#888")]:
-                                        fig_inv.add_trace(go.Bar(
-                                            name=_cn, x=df_inv["날짜"], y=df_inv[_cn], marker_color=_cc
-                                        ))
+                                    _inv_cols = [("외국인","#ff4b4b"),("기관","#2b7cff"),("개인","#888")]
+                                    for _cn, _cc in _inv_cols:
+                                        if _cn in df_inv.columns:
+                                            fig_inv.add_trace(go.Bar(
+                                                name=_cn, x=df_inv["날짜"], y=df_inv[_cn], marker_color=_cc
+                                            ))
                                     _fc, _gc = _get_chart_colors()
                                     fig_inv.update_layout(
                                         barmode="group",
@@ -4772,7 +4777,7 @@ def main():
                                         _tc2.metric("기관 5일 순매수", f"{_total_i:+,}주",
                                                     delta_color="normal" if _total_i >= 0 else "inverse")
                                 else:
-                                    st.info("수급 데이터를 불러올 수 없습니다.")
+                                    st.info("수급 데이터를 불러올 수 없습니다. (KIS API 연동 필요)")
 
                             # ── 탭 3: AI 분석 ─────────────────────────────────
                             elif st.session_state.kr_right_tab == _rp_tabs[2]:
