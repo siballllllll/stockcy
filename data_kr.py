@@ -340,7 +340,7 @@ def get_kr_investor_trend(stock_code: str):
 
 @st.cache_data(ttl=60)
 def get_kr_market_index():
-    """KOSPI / KOSDAQ 지수 실시간 조회"""
+    """KOSPI / KOSDAQ 지수 실시간 조회 (KIS → yfinance 폴백)"""
     result = {}
     for name, code in [("KOSPI", "0001"), ("KOSDAQ", "1001")]:
         data = _get(
@@ -362,6 +362,23 @@ def get_kr_market_index():
                 "change": _chg,
                 "change_pct": _pct,
             }
+
+    # KIS 실패 시 yfinance 폴백 (^KS11=KOSPI, ^KQ11=KOSDAQ)
+    if len(result) < 2:
+        import yfinance as yf
+        for _idx_name, _yf_sym in [("KOSPI", "^KS11"), ("KOSDAQ", "^KQ11")]:
+            if _idx_name in result:
+                continue
+            try:
+                _fi = yf.Ticker(_yf_sym).fast_info
+                _price = _fi.get("lastPrice", 0) or 0
+                _prev = _fi.get("previousClose", 0) or 0
+                if _price > 0:
+                    _chg = round(_price - _prev, 2)
+                    _pct = round(_chg / _prev * 100, 2) if _prev > 0 else 0.0
+                    result[_idx_name] = {"index": _price, "change": _chg, "change_pct": _pct}
+            except Exception:
+                pass
     return result
 
 
@@ -911,28 +928,23 @@ def get_kr_volume_ranking():
                 })
             return results
 
-    # 2차 폴백: pykrx
+    # 2차 폴백: FinanceDataReader (거래량 상위)
     try:
-        from pykrx import stock as _pykrx
-        import datetime as _dt2
-        today = _dt2.date.today().strftime("%Y%m%d")
-        df_v = _pykrx.get_market_ohlcv_by_ticker(today, market="KOSPI")
-        if df_v.empty:
-            return []
-        df_v = df_v.sort_values("거래량", ascending=False).head(10)
+        import FinanceDataReader as fdr
+        _df_v = fdr.StockListing("KOSPI")
+        _df_v = _df_v.dropna(subset=["Volume", "Close"])
+        _df_v = _df_v[_df_v["Volume"] > 0]
+        _df_v = _df_v.sort_values("Volume", ascending=False).head(10)
         results = []
-        for code, row in df_v.iterrows():
-            name = _pykrx.get_market_ticker_name(code)
-            price = int(row.get("종가", 0))
-            open_p = int(row.get("시가", 0))
-            change_pct = round((price - open_p) / open_p * 100, 2) if open_p > 0 else 0.0
+        for _, _row in _df_v.iterrows():
+            _chg_pct = round(float(_row.get("ChagesRatio", 0) or 0), 2)
             results.append({
-                "종목코드": code,
-                "종목명": name,
-                "현재가": f"₩{price:,}",
-                "등락률(%)": change_pct,
-                "거래량": f"{int(row.get('거래량', 0)):,}주",
-                "상태": "상승 🔴" if change_pct > 0 else ("하락 🔵" if change_pct < 0 else "보합 ⚪"),
+                "종목코드": str(_row["Code"]).zfill(6),
+                "종목명": str(_row["Name"]),
+                "현재가": f"₩{int(_row['Close']):,}",
+                "등락률(%)": _chg_pct,
+                "거래량": f"{int(_row['Volume']):,}주",
+                "상태": "상승 🔴" if _chg_pct > 0 else ("하락 🔵" if _chg_pct < 0 else "보합 ⚪"),
             })
         return results
     except Exception:
@@ -963,7 +975,27 @@ def get_kr_change_ranking(market: str = "J") -> list:
         },
     )
     if not data:
-        return []
+        # KIS 실패 → FinanceDataReader 폴백
+        try:
+            import FinanceDataReader as fdr
+            _mkt_name = "KOSPI" if market == "J" else "KOSDAQ"
+            _df = fdr.StockListing(_mkt_name)
+            _df = _df.dropna(subset=["Close", "ChagesRatio"])
+            _df = _df[_df["Close"] > 0]
+            _df = _df.sort_values("ChagesRatio", ascending=False).head(20)
+            results = []
+            for _, _row in _df.iterrows():
+                results.append({
+                    "종목코드": str(_row["Code"]).zfill(6),
+                    "종목명": str(_row["Name"]),
+                    "현재가": int(_row["Close"]),
+                    "등락률(%)": round(float(_row["ChagesRatio"]), 2),
+                    "거래량": int(_row.get("Volume", 0) or 0),
+                    "시장": _mkt_name,
+                })
+            return results
+        except Exception:
+            return []
     results = []
     for item in data.get("output", [])[:20]:
         change_pct = float(item.get("prdy_ctrt", 0) or 0)
