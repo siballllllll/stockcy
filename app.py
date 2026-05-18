@@ -1669,7 +1669,7 @@ def _render_ci_tab_fragment():
                 label_visibility="collapsed",
             )
         with _ci_col_btn:
-            _ci_run = st.form_submit_button("🔍 분析", use_container_width=True, type="primary")
+            _ci_run = st.form_submit_button("🔍 분석", use_container_width=True, type="primary")
 
     # ── 최근 검색 드롭다운 (JS) ──────────────────────────────────────
     # innerHTML 내 이중따옴표가 onerror 속성을 깨뜨리므로 createElement로 DOM 직접 생성
@@ -1800,11 +1800,11 @@ def _render_ci_tab_fragment():
                 _SCENARIO_TASKS.pop(_ci_tid, None)
             break
 
-    # ── 분析 시작 ─────────────────────────────────────────────────────
+    # ── 분석 시작 ─────────────────────────────────────────────────────
     if _ci_triggered and _ci_kw:
         _sess_cache = st.session_state.get("_ci_result_cache", {})
         if _ci_kw in _sess_cache:
-            # 세션 캐시 히트 → 즉시 표시 (재분析 없음)
+            # 세션 캐시 히트 → 즉시 표시 (재분석 없음)
             st.session_state["_ci_result"]        = _sess_cache[_ci_kw]
             st.session_state["_ci_last_kw"]       = _ci_kw
             st.session_state["_ci_cache_checked"] = True
@@ -1837,7 +1837,7 @@ def _render_ci_tab_fragment():
             if _ci_gsh_hit:
                 st.rerun()
             else:
-                # 새 분析 시작
+                # 새 분석 시작
                 st.session_state.pop("_ci_result", None)
                 st.session_state.pop("_ci_dialog_suppress", None)
                 st.session_state["_ci_last_kw"]       = _ci_kw
@@ -1873,9 +1873,9 @@ def _render_ci_tab_fragment():
             f"<div style='background:#1a2a1a;border:1px solid #2d5a2d;border-radius:8px;"
             f"padding:16px 18px;margin:8px 0'>"
             f"<div style='font-size:1.05rem;font-weight:700;color:#4caf50;margin-bottom:6px'>"
-            f"🔄 분析 중...</div>"
+            f"🔄 분석 중...</div>"
             f"<div style='color:#ccc;font-size:0.9rem'>"
-            f"<b style='color:#fff'>'{_ci_running_kw}'</b> 이슈를 AI가 분析하고 있습니다.<br>"
+            f"<b style='color:#fff'>'{_ci_running_kw}'</b> 이슈를 AI가 분석하고 있습니다.<br>"
             f"<span style='color:#888;font-size:0.82rem'>"
             f"완료되면 이 창에 자동으로 결과가 표시됩니다. (최대 120초)</span>"
             f"</div></div>",
