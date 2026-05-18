@@ -3307,13 +3307,12 @@ def main():
         for k, v in _SCENARIO_TASKS.items()
         if k.startswith("_ci_")
     )
-    _ci_has_result = bool(st.session_state.get("_ci_result"))
     _open_dialog_flag = st.session_state.pop("_scenario_dialog_open", False)
     if _open_dialog_flag:
         # 사용자가 직접 버튼 눌러 열 때 suppress 초기화 (이전 닫기/삭제 잔재 제거)
         st.session_state.pop("_ci_dialog_suppress", None)
     if _open_dialog_flag or (
-        (_ci_any_running_now or _ci_has_result)
+        _ci_any_running_now
         and not st.session_state.get("_ci_dialog_suppress", False)
     ):
         show_market_scenarios()
