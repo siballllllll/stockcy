@@ -1180,6 +1180,7 @@ def _sc_goto_stock(ticker: str):
         st.session_state.market = "국내 주식 🇰🇷"
         st.session_state.kr_mode = "📊 일반 주식 검색"
         st.session_state.kr_selected_code = ticker
+        st.session_state.kr_selected_name = ""
     else:
         st.session_state.market = "미국 주식 🇺🇸"
         st.session_state.us_mode = "📊 일반 주식 검색"
@@ -1433,8 +1434,9 @@ def _render_stock_section(group: list, mkt: str, icon: str, dir_: str, clr: str,
                             f"</div>",
                             unsafe_allow_html=True,
                         )
+                import urllib.parse as _ulp_s
                 st.markdown(
-                    f"<a href='/?market={mkt}&code={_tk}' target='_blank' "
+                    f"<a href='/?market={mkt}&code={_tk}&name={_ulp_s.quote(_nm)}' target='_blank' "
                     f"style='display:block;text-align:center;padding:8px;border-radius:6px;"
                     f"background:#262730;color:#fafafa;text-decoration:none;font-size:0.9rem;"
                     f"border:1px solid #555;margin-top:6px;'>📊 종목 분석 보러가기</a>",
@@ -2996,6 +2998,7 @@ def main():
             st.session_state.market = "국내 주식 🇰🇷"
             st.session_state.kr_mode = "📊 일반 주식 검색"
             st.session_state.kr_selected_code = _q_code
+            st.session_state.kr_selected_name = _qp.get("name", "")
         elif _q_mkt == "US":
             st.session_state.market = "미국 주식 🇺🇸"
             st.session_state.us_mode = "📊 일반 주식 검색"
@@ -3650,7 +3653,7 @@ def main():
             # 세션 상태 초기화
             for _k, _v in [
                 ("kr_selected_code", "005930"),
-                ("kr_selected_name", "삼성전자"),
+                ("kr_selected_name", ""),
                 ("kr_selected_sector", "반도체"),
                 ("kr_sector_view", "list"),
                 ("kr_sector_detail_code", ""),
