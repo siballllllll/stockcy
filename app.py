@@ -3320,11 +3320,16 @@ def main():
         # 사용자가 직접 버튼 눌러 열 때 suppress 초기화
         st.session_state.pop("_ci_dialog_suppress", None)
     _trade_modal_pending = st.session_state.get("_modal_open", False)
-    if _open_dialog_flag or (
+    _scenario_dialog_will_open = _open_dialog_flag or (
         (_ci_any_running_now or _ci_has_result)
         and not st.session_state.get("_ci_dialog_suppress", False)
         and not _trade_modal_pending
-    ):
+    )
+    # 다이얼로그가 이번 리런에서 열리지 않으면 _dialog_open 플래그 해제
+    # → autorefresh 억제가 풀려 시나리오 완료 감지 및 초록 불빛 표시 가능
+    if not _scenario_dialog_will_open:
+        st.session_state.pop("_dialog_open", None)
+    if _scenario_dialog_will_open:
         show_market_scenarios()
 
     # ── ⚙️ 버튼 → Streamlit 기본 메뉴 열기 (JS로 햄버거 버튼 클릭) ──────
