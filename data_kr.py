@@ -401,6 +401,45 @@ def get_kr_investor_trend(stock_code: str):
     return []
 
 
+@st.cache_data(ttl=120, show_spinner=False)
+def get_kr_investor_rank_bulk(stock_list: tuple) -> list:
+    """거래량·등락률 상위 종목들의 오늘자 외국인·기관 순매수 집계 후 정렬.
+
+    stock_list: ((code, name), ...) 튜플 — 캐시 키로 활용
+    반환: [{'종목코드', '종목명', '외국인순매수', '기관순매수'}, ...]  합산 순매수 내림차순
+    """
+    import datetime as _dt3
+    _today_str = _dt3.date.today().strftime("%Y-%m-%d")
+
+    results = []
+    for code, name in stock_list[:12]:
+        try:
+            trend = get_kr_investor_trend(str(code))
+            if not trend:
+                continue
+            # 추정값(_estimated)이면 신뢰도 낮으므로 제외
+            if trend[0].get("_estimated"):
+                continue
+            # 오늘 또는 가장 최근 영업일 데이터
+            today_row = trend[0]
+            frgn = int(today_row.get("외국인", 0) or 0)
+            orgn = int(today_row.get("기관", 0) or 0)
+            if frgn == 0 and orgn == 0:
+                continue
+            results.append({
+                "종목코드": str(code),
+                "종목명": str(name),
+                "외국인순매수": frgn,
+                "기관순매수": orgn,
+            })
+        except Exception:
+            continue
+
+    # 외국인 + 기관 합산 순매수 기준 내림차순 정렬
+    results.sort(key=lambda x: x["외국인순매수"] + x["기관순매수"], reverse=True)
+    return results
+
+
 @st.cache_data(ttl=60)
 def get_kr_market_index():
     """KOSPI / KOSDAQ 지수 실시간 조회 (KIS → yfinance 폴백)"""

@@ -3764,8 +3764,22 @@ def main():
                             except Exception as _e_hs:
                                 status.warning(f"섹터 분석 중 일부 지연: {str(_e_hs)}")
                             
+                            status.write("💰 외국인·기관 수급 데이터 수집 중...")
+                            _inv_rank = []
+                            try:
+                                from data_kr import get_kr_investor_rank_bulk
+                                _top_stocks = tuple(
+                                    (str(s.get('종목코드', '')), str(s.get('종목명', '')))
+                                    for s in (_vol or []) + (_chg or [])
+                                    if s.get('종목코드')
+                                )[:15]
+                                if _top_stocks:
+                                    _inv_rank = get_kr_investor_rank_bulk(_top_stocks)
+                            except Exception as _e_inv:
+                                pass  # 수급 데이터 실패해도 AI 분석은 진행
+
                             status.write("🤖 AI 타점 및 매매 전략 생성 중 (약 30~50초)...")
-                            _picks = generate_realtime_picks(_mkt, _vol, _chg, hot_sectors=_hot_secs)
+                            _picks = generate_realtime_picks(_mkt, _vol, _chg, hot_sectors=_hot_secs, investor_rank=_inv_rank if _inv_rank else None)
                             
                             if "error" in _picks and "picks" not in _picks:
                                 status.update(label="❌ AI 분석 실패", state="error")
