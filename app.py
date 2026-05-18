@@ -8911,23 +8911,32 @@ def main():
                 avg_pct = sum(float(t.get("profit_pct", 0)) for t in history) / total
                 total_profit_sum = sum(float(t.get("profit", 0)) for t in history)
 
+                # USD → KRW 변환 (거래일 기준 환율)
+                from data import get_usdkrw_rate as _get_rate
+                _krw_profits = []
+                for _ht in history:
+                    _sd = (_ht.get("sell_date") or "")[:10]
+                    _rate = _get_rate(_sd) if _sd else 1300.0
+                    _krw_profits.append(float(_ht.get("profit", 0)) * _rate)
+                total_profit_krw = sum(_krw_profits)
+
                 st.markdown("### 📊 전체 성과 요약")
                 cs1, cs2, cs3, cs4 = st.columns(4)
                 cs1.metric("총 거래 수", f"{total}건")
                 cs2.metric("승률", f"{win_rate:.1f}%", f"{wins}승 {total - wins}패")
                 cs3.metric("평균 수익률", f"{avg_pct:.2f}%")
-                cs4.metric("누적 수익금", f"${total_profit_sum:,.2f}",
-                           delta_color="normal" if total_profit_sum >= 0 else "inverse")
+                cs4.metric("누적 수익금", f"₩{total_profit_krw:,.0f}",
+                           delta_color="normal" if total_profit_krw >= 0 else "inverse")
 
                 if len(history) >= 2:
-                    cumulative, x_pts, y_pts = 0.0, [], []
-                    for t in history:
-                        cumulative += float(t.get("profit", 0))
-                        x_pts.append(t.get("sell_date", ""))
-                        y_pts.append(round(cumulative, 2))
+                    cumulative_krw, x_pts, y_pts = 0.0, [], []
+                    for _ht, _kp in zip(history, _krw_profits):
+                        cumulative_krw += _kp
+                        x_pts.append(_ht.get("sell_date", ""))
+                        y_pts.append(round(cumulative_krw, 0))
 
-                    line_color = "#00c853" if cumulative >= 0 else "#ff4b4b"
-                    fill_color = "rgba(0,200,83,0.15)" if cumulative >= 0 else "rgba(255,75,75,0.15)"
+                    line_color = "#00c853" if cumulative_krw >= 0 else "#ff4b4b"
+                    fill_color = "rgba(0,200,83,0.15)" if cumulative_krw >= 0 else "rgba(255,75,75,0.15)"
                     fig = go.Figure()
                     fig.add_trace(go.Scatter(
                         x=x_pts, y=y_pts, mode="lines+markers",
@@ -8941,7 +8950,7 @@ def main():
                         paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
                         font=dict(color=_fc),
                         xaxis=dict(gridcolor=_gc),
-                        yaxis=dict(gridcolor=_gc, tickprefix="$"),
+                        yaxis=dict(gridcolor=_gc, tickprefix="₩", tickformat=",.0f"),
                         margin=dict(l=10, r=10, t=40, b=10)
                     )
                     st.plotly_chart(fig, use_container_width=True)

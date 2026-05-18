@@ -199,6 +199,21 @@ def get_us_market_session() -> dict:
         return {"session": "closed",  "label": "⛔ 장 마감",     "color": "#555",    "et_time": et_str}
 
 
+@st.cache_data(ttl=3600)
+def get_usdkrw_rate(date_str: str) -> float:
+    """특정 날짜(YYYY-MM-DD)의 USD/KRW 종가 환율 반환. 실패 시 1300.0 반환."""
+    try:
+        from datetime import datetime, timedelta
+        d = datetime.strptime(date_str[:10], "%Y-%m-%d")
+        end = (d + timedelta(days=5)).strftime("%Y-%m-%d")
+        hist = yf.Ticker("USDKRW=X").history(start=date_str[:10], end=end, interval="1d")
+        if not hist.empty:
+            return float(hist["Close"].iloc[0])
+    except Exception:
+        pass
+    return 1300.0
+
+
 @st.cache_data(ttl=60)
 def get_us_prices_bulk(tickers_tuple: tuple) -> dict:
     """섹터 패널용 미국 종목 일괄 시세 조회 (ticker → {price, change_pct})"""
