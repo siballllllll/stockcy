@@ -11,6 +11,30 @@ import time
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 
+def _fix_kr_stock_names(stocks: list) -> list:
+    """AI가 생성한 한국 종목 name을 실제 KRX 코드→이름 맵으로 교정."""
+    try:
+        from data_kr import get_kr_code_to_name_map
+        code_map = get_kr_code_to_name_map()
+    except Exception:
+        return stocks
+    for s in stocks:
+        tk = str(s.get("ticker", "")).strip()
+        if tk.isdigit() and len(tk) == 6 and tk in code_map:
+            s["name"] = code_map[tk]
+    return stocks
+
+
+def _fix_scenario_names(res: dict) -> dict:
+    """시나리오 결과 전체의 한국 종목명 교정."""
+    for issue in res.get("issues", [res]):  # issues 리스트 OR 단일 dict
+        for sc in issue.get("scenarios", []):
+            _fix_kr_stock_names(sc.get("rising_stocks", []))
+            _fix_kr_stock_names(sc.get("falling_stocks", []))
+            _fix_kr_stock_names(sc.get("theme_stocks", []))
+    return res
+
+
 def get_market_news(category="general"):
     """Yahoo Finance를 활용해 최신 시장 뉴스를 가져옵니다."""
     import yfinance as yf
@@ -331,7 +355,9 @@ def generate_market_scenarios() -> dict:
     )
     try:
         response = _call_gemini(prompt, use_search=True, temperature=0.6, timeout_sec=120)
-        return _parse_json_response(response)
+        res = _parse_json_response(response)
+        _fix_scenario_names(res)
+        return res
     except Exception as e:
         return {"error": _friendly_error(e), "issues": []}
 
@@ -438,6 +464,9 @@ def analyze_custom_issue(keyword: str) -> dict:
                         s["stop_loss"]   = "관망"
 
         for _sc in res.get("scenarios", []):
+            _fix_kr_stock_names(_sc.get("rising_stocks", []))
+            _fix_kr_stock_names(_sc.get("falling_stocks", []))
+            _fix_kr_stock_names(_sc.get("theme_stocks", []))
             _override_group(_sc.get("rising_stocks", []))
             _override_group(_sc.get("falling_stocks", []))
             _override_group(_sc.get("theme_stocks", []))
