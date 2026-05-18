@@ -1650,6 +1650,7 @@ def _render_custom_issue_result(res: dict, key_prefix: str):
 @st.fragment
 def _render_ci_tab_fragment():
     """커스텀 이슈 스나이퍼 탭 — fragment로 감싸 칩 클릭 시 dialog 유지."""
+    st.session_state["_ci_dialog_active"] = True  # 다이얼로그 유지 신호
     # ── 최근 검색어 히스토리 로드 (세션당 1회) ───────────────────────
     if "_ci_history_loaded" not in st.session_state:
         try:
@@ -3128,6 +3129,15 @@ def main():
             st.markdown("<div style='text-align:center;margin-top:-6px'><span class='scenario-ready-dot'></span></div>", unsafe_allow_html=True)
         elif _nav_task_status == "running":
             st.markdown("<div style='text-align:center;margin-top:-6px;font-size:0.65rem;color:#888'>분석 중…</div>", unsafe_allow_html=True)
+    # 커스텀 이슈 분析 중 표시
+    _ci_running_in_nav = any(
+        v.get("status") == "running"
+        for k, v in _SCENARIO_TASKS.items()
+        if k.startswith("_ci_")
+    )
+    if _ci_running_in_nav:
+        with _hn6:
+            st.markdown("<div style='text-align:center;margin-top:-2px;font-size:0.6rem;color:#ffd740'>🎯 분析 중</div>", unsafe_allow_html=True)
     with _hm1:
         if st.button("🇰🇷 국내", key="top_mkt_kr",
                      type="primary" if _is_kr_nav else "secondary",
@@ -3322,32 +3332,26 @@ def main():
     _ci_has_result  = bool(st.session_state.get("_ci_result"))
     _open_dialog_flag = st.session_state.pop("_scenario_dialog_open", False)
     if _open_dialog_flag:
-        # 사용자가 직접 버튼 눌러 열 때 suppress 초기화
         st.session_state.pop("_ci_dialog_suppress", None)
 
-    # 직전 리런에 다이얼로그가 열려 있었는지 추적
-    _dialog_was_open_last = st.session_state.pop("_scenario_dialog_was_open", False)
+    # fragment가 직전 리런에서 실행됐음을 신호로 삼아 다이얼로그 유지
+    # (X버튼으로 닫히면 fragment가 실행되지 않아 플래그가 없어짐 → 자동 닫힘)
+    _ci_dialog_active = st.session_state.pop("_ci_dialog_active", False)
 
     _trade_modal_pending = st.session_state.get("_modal_open", False)
+    _suppress = st.session_state.get("_ci_dialog_suppress", False)
     _scenario_dialog_will_open = _open_dialog_flag or (
-        _ci_any_running_now   # 분석 진행 중 / 방금 완료: 자동으로 열어 결과 표시
-        and not st.session_state.get("_ci_dialog_suppress", False)
+        (_ci_any_running_now or _ci_has_result or _ci_dialog_active)
+        and not _suppress
         and not _trade_modal_pending
     )
-
-    # X버튼으로 닫힌 경우 감지: 직전엔 열려 있었지만 이번엔 안 열리고
-    # 사용자가 직접 버튼을 누른 것도 아닐 때 → suppress 세팅
-    if _dialog_was_open_last and not _scenario_dialog_will_open and not _open_dialog_flag:
-        st.session_state["_ci_dialog_suppress"] = True
 
     # 다이얼로그가 이번 리런에서 열리지 않으면 _dialog_open 플래그 해제
     # → autorefresh 억제가 풀려 시나리오 완료 감지 및 초록 불빛 표시 가능
     if not _scenario_dialog_will_open:
         st.session_state.pop("_dialog_open", None)
     if _scenario_dialog_will_open:
-        st.session_state["_scenario_dialog_was_open"] = True
         show_market_scenarios()
-
     # ── ⚙️ 버튼 → Streamlit 기본 메뉴 열기 (JS로 햄버거 버튼 클릭) ──────
     if st.session_state.pop("_sc_open_native_menu", False):
         import streamlit.components.v1 as _cmp_menu
