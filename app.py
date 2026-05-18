@@ -3316,9 +3316,11 @@ def main():
     if _open_dialog_flag:
         # 사용자가 직접 버튼 눌러 열 때 suppress 초기화
         st.session_state.pop("_ci_dialog_suppress", None)
+    _trade_modal_pending = st.session_state.get("_modal_open", False)
     if _open_dialog_flag or (
         (_ci_any_running_now or _ci_has_result)
         and not st.session_state.get("_ci_dialog_suppress", False)
+        and not _trade_modal_pending
     ):
         show_market_scenarios()
 
