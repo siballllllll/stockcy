@@ -1672,6 +1672,7 @@ def _render_ci_tab_fragment():
             _ci_run = st.form_submit_button("🔍 분析", use_container_width=True, type="primary")
 
     # ── 최근 검색 드롭다운 (JS) ──────────────────────────────────────
+    # innerHTML 내 이중따옴표가 onerror 속성을 깨뜨리므로 createElement로 DOM 직접 생성
     _ci_history = st.session_state.get("_ci_history", [])
     import json as _json, time as _time
     _ci_hist_json = _json.dumps(_ci_history[:8], ensure_ascii=False)
@@ -1680,7 +1681,7 @@ def _render_ci_tab_fragment():
 <img src="data:text/plain,{_ci_ts}" onerror="(function(){{
   var hist = {_ci_hist_json};
   function build() {{
-    var inp = document.querySelector('input[aria-label=\\"이슈 키워드\\"]');
+    var inp = document.querySelector('[data-testid=stForm] input');
     if (!inp) return;
     var wrap = inp.closest('[data-testid=stTextInput]');
     if (!wrap) return;
@@ -1701,20 +1702,29 @@ def _render_ci_tab_fragment():
     hist.forEach(function(kw) {{
       var row = document.createElement('div');
       row.style.cssText = 'display:flex;align-items:center;padding:9px 14px;cursor:pointer;gap:10px;border-bottom:1px solid #22223a;transition:background 0.12s;';
-      row.innerHTML = '<span style="color:#555;font-size:0.78rem;flex-shrink:0;">🕐</span><span style="flex:1;color:#ccc;font-size:0.9rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + kw + '</span><span class="ci-dd-x" data-kw="' + kw.replace(/"/g,\\"&quot;\\") + '" style="color:#444;font-size:0.8rem;padding:2px 4px;border-radius:4px;flex-shrink:0;line-height:1;">✕</span>';
-      row.addEventListener('mouseenter', function(){{ this.style.background='rgba(80,80,180,0.18)'; }});
-      row.addEventListener('mouseleave', function(){{ this.style.background=''; }});
-      row.querySelector('.ci-dd-x').addEventListener('mouseenter', function(e){{ e.stopPropagation(); this.style.color='#e55'; }});
-      row.querySelector('.ci-dd-x').addEventListener('mouseleave', function(e){{ e.stopPropagation(); this.style.color='#444'; }});
+      var icon = document.createElement('span');
+      icon.style.cssText = 'color:#555;font-size:0.78rem;flex-shrink:0;';
+      icon.textContent = '🕐';
+      var txt = document.createElement('span');
+      txt.style.cssText = 'flex:1;color:#ccc;font-size:0.9rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
+      txt.textContent = kw;
+      var del = document.createElement('span');
+      del.style.cssText = 'color:#444;font-size:0.8rem;padding:2px 4px;border-radius:4px;flex-shrink:0;line-height:1;';
+      del.textContent = '✕';
+      del.dataset.kw = kw;
+      del.dataset.isDel = '1';
+      row.appendChild(icon);
+      row.appendChild(txt);
+      row.appendChild(del);
+      row.addEventListener('mouseenter', function() {{ this.style.background='rgba(80,80,180,0.18)'; }});
+      row.addEventListener('mouseleave', function() {{ this.style.background=''; }});
+      del.addEventListener('mouseenter', function(e) {{ e.stopPropagation(); this.style.color='#e55'; }});
+      del.addEventListener('mouseleave', function(e) {{ e.stopPropagation(); this.style.color='#444'; }});
       row.addEventListener('mousedown', function(e) {{
-        var xBtn = e.target.closest('.ci-dd-x');
         e.preventDefault();
         var setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype,'value').set;
-        if (xBtn) {{
-          setter.call(inp, '__DEL__:' + xBtn.dataset.kw);
-        }} else {{
-          setter.call(inp, kw);
-        }}
+        var isDel = e.target.dataset && e.target.dataset.isDel;
+        setter.call(inp, isDel ? 'CIDEL:' + e.target.dataset.kw : kw);
         inp.dispatchEvent(new Event('input', {{bubbles:true}}));
         dd.style.display = 'none';
         setTimeout(function() {{
@@ -1729,7 +1739,7 @@ def _render_ci_tab_fragment():
     if (!inp.dataset.ciDdEvt) {{
       inp.dataset.ciDdEvt = '1';
       inp.addEventListener('focus', function() {{ if(hist.length) dd.style.display='block'; }});
-      inp.addEventListener('blur',  function() {{ setTimeout(function(){{ dd.style.display='none'; }}, 180); }});
+      inp.addEventListener('blur',  function() {{ setTimeout(function(){{ dd.style.display='none'; }},180); }});
       inp.addEventListener('input', function() {{ dd.style.display = this.value ? 'none' : (hist.length ? 'block' : 'none'); }});
     }}
   }}
@@ -1749,9 +1759,9 @@ def _render_ci_tab_fragment():
     _ci_chip_kw   = st.session_state.pop("_ci_chip_kw", None)
     _ci_raw       = _ci_chip_kw or _ci_keyword.strip()
 
-    # 드롭다운 삭제 요청 처리 (__DEL__:키워드 prefix)
-    if _ci_run and _ci_raw.startswith("__DEL__:"):
-        _del_kw = _ci_raw[8:]
+    # 드롭다운 삭제 요청 처리 (CIDEL: prefix — 이중밑줄은 마크다운 bold로 깨짐)
+    if _ci_run and _ci_raw.startswith("CIDEL:"):
+        _del_kw = _ci_raw[6:]
         _cur_h  = st.session_state.get("_ci_history", [])
         _new_h  = [h for h in _cur_h if h != _del_kw]
         st.session_state["_ci_history"] = _new_h
@@ -1766,7 +1776,7 @@ def _render_ci_tab_fragment():
         st.rerun()
 
     _ci_kw        = _ci_raw
-    _ci_triggered = bool(_ci_chip_kw) or (_ci_run and bool(_ci_kw) and not _ci_kw.startswith("__DEL__:"))
+    _ci_triggered = bool(_ci_chip_kw) or (_ci_run and bool(_ci_kw) and not _ci_kw.startswith("CIDEL:"))
 
     # ── 백그라운드 완료 결과 세션 반영 ───────────────────────────────
     for _ci_tid in [k for k in list(_SCENARIO_TASKS) if k.startswith("_ci_")]:
