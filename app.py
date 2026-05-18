@@ -240,7 +240,9 @@ def _us_echarts_chart(ticker: str, interval: str = "5", height: int = 600, perio
         _min_iv = int(interval) if str(interval).isdigit() else 1
         _total = len(category_data)
         if _is_minute:
-            _view = max(7, 390 // _min_iv)   # 1거래일 분봉 수
+            # 실제 데이터의 일별 캔들 수로 계산 (prepost 포함 시 하루 ~960개)
+            _counts_per_day = df.groupby(df["datetime"].dt.date).size()
+            _view = max(7, int(_counts_per_day.max()))
             _label_interval = max(0, (120 // _min_iv) - 1)  # 2시간 간격 레이블
             _zoom_start = max(0, int((1 - _view / max(_total, 1)) * 100)) if _total > _view else 0
         else:
