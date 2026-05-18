@@ -1802,27 +1802,28 @@ def _render_ci_tab_fragment():
             st.session_state["_ci_history"]       = _new_hist[:8]
             st.rerun()
         else:
-            # GSheets 키워드별 캐시 확인 (세션 캐시 미스 시)
+            # GSheets 키워드별 캐시 확인 — 로딩 스피너 표시
             _ci_gsh_hit = False
-            try:
-                from db import load_ai_cache as _lci_kw
-                _ci_gsh = _lci_kw(f"ci_{_ci_kw[:40]}")
-                if _ci_gsh and _ci_gsh.get("result") and "error" not in _ci_gsh.get("result", {}):
-                    _ci_gsh_res = _ci_gsh["result"]
-                    st.session_state["_ci_result"]        = _ci_gsh_res
-                    st.session_state["_ci_last_kw"]       = _ci_kw
-                    st.session_state["_ci_cache_checked"] = True
-                    st.session_state.pop("_ci_dialog_suppress", None)
-                    _sc = st.session_state.get("_ci_result_cache", {})
-                    _sc[_ci_kw] = _ci_gsh_res
-                    if len(_sc) > 8:
-                        _sc.pop(next(iter(_sc)))
-                    st.session_state["_ci_result_cache"] = _sc
-                    _new_hist = [_ci_kw] + [h for h in _ci_history if h != _ci_kw]
-                    st.session_state["_ci_history"]       = _new_hist[:8]
-                    _ci_gsh_hit = True
-            except Exception:
-                pass
+            with st.spinner(f"'{_ci_kw}' 불러오는 중..."):
+                try:
+                    from db import load_ai_cache as _lci_kw
+                    _ci_gsh = _lci_kw(f"ci_{_ci_kw[:40]}")
+                    if _ci_gsh and _ci_gsh.get("result") and "error" not in _ci_gsh.get("result", {}):
+                        _ci_gsh_res = _ci_gsh["result"]
+                        st.session_state["_ci_result"]        = _ci_gsh_res
+                        st.session_state["_ci_last_kw"]       = _ci_kw
+                        st.session_state["_ci_cache_checked"] = True
+                        st.session_state.pop("_ci_dialog_suppress", None)
+                        _sc = st.session_state.get("_ci_result_cache", {})
+                        _sc[_ci_kw] = _ci_gsh_res
+                        if len(_sc) > 8:
+                            _sc.pop(next(iter(_sc)))
+                        st.session_state["_ci_result_cache"] = _sc
+                        _new_hist = [_ci_kw] + [h for h in _ci_history if h != _ci_kw]
+                        st.session_state["_ci_history"]       = _new_hist[:8]
+                        _ci_gsh_hit = True
+                except Exception:
+                    pass
             if _ci_gsh_hit:
                 st.rerun()
             else:
