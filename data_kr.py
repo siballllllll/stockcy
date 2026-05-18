@@ -440,6 +440,51 @@ def get_kr_investor_rank_bulk(stock_list: tuple) -> list:
     return results
 
 
+@st.cache_data(ttl=120, show_spinner=False)
+def get_kr_frgn_inst_rank(market: str = "J", top_n: int = 30) -> list:
+    """KIS 외국인·기관 순매수 상위 종목 순위 (1회 API 호출, IP 화이트리스트 필요).
+
+    market: "J"=KOSPI, "Q"=KOSDAQ
+    반환: [{'종목코드', '종목명', '외국인순매수', '기관순매수'}, ...]
+    IP 화이트리스트 미등록 등으로 실패 시 빈 리스트 반환.
+    """
+    data = _get(
+        "/uapi/domestic-stock/v1/ranking/foreign-institution-total",
+        "FHPST01710000",
+        {
+            "fid_cond_mrkt_div_code": market,
+            "fid_cond_scr_div_code": "20171",
+            "fid_input_iscd": "0000",
+            "fid_div_cls_code": "0",          # 0=외국인+기관 합산
+            "fid_rank_sort_cls_code": "0",    # 0=순매수 많은 순
+            "fid_etc_cls_code": "0",
+            "fid_trgt_cls_code": "111111111",
+            "fid_trgt_exls_cls_code": "000000",
+            "fid_input_price_1": "",
+            "fid_input_price_2": "",
+            "fid_vol_cnt": "",
+        },
+    )
+    if not data:
+        return []
+
+    results = []
+    for item in (data.get("output") or [])[:top_n]:
+        code = str(item.get("mksc_shrn_iscd") or item.get("stck_shrn_iscd") or "").strip()
+        name = str(item.get("hts_kor_isnm") or "").strip()
+        frgn = int(item.get("frgn_ntby_qty") or 0)
+        orgn = int(item.get("orgn_ntby_qty") or 0)
+        if not code or not name:
+            continue
+        results.append({
+            "종목코드": code,
+            "종목명": name,
+            "외국인순매수": frgn,
+            "기관순매수": orgn,
+        })
+    return results
+
+
 @st.cache_data(ttl=60)
 def get_kr_market_index():
     """KOSPI / KOSDAQ 지수 실시간 조회 (KIS → yfinance 폴백)"""

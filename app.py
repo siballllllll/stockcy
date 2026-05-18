@@ -3767,14 +3767,20 @@ def main():
                             status.write("💰 외국인·기관 수급 데이터 수집 중...")
                             _inv_rank = []
                             try:
-                                from data_kr import get_kr_investor_rank_bulk
-                                _top_stocks = tuple(
-                                    (str(s.get('종목코드', '')), str(s.get('종목명', '')))
-                                    for s in (_vol or []) + (_chg or [])
-                                    if s.get('종목코드')
-                                )[:15]
-                                if _top_stocks:
-                                    _inv_rank = get_kr_investor_rank_bulk(_top_stocks)
+                                from data_kr import get_kr_frgn_inst_rank, get_kr_investor_rank_bulk
+                                # 방법 2: KIS 수급 순위 API — KOSPI + KOSDAQ 합산 (IP 화이트리스트 필요)
+                                _r_kospi  = get_kr_frgn_inst_rank("J", 30)
+                                _r_kosdaq = get_kr_frgn_inst_rank("Q", 30)
+                                _inv_rank = _r_kospi + _r_kosdaq
+                                if not _inv_rank:
+                                    # 방법 1 폴백: 거래량·등락률 상위 종목 per-stock 조회
+                                    _top_stocks = tuple(
+                                        (str(s.get('종목코드', '')), str(s.get('종목명', '')))
+                                        for s in (_vol or []) + (_chg or [])
+                                        if s.get('종목코드')
+                                    )[:15]
+                                    if _top_stocks:
+                                        _inv_rank = get_kr_investor_rank_bulk(_top_stocks)
                             except Exception as _e_inv:
                                 pass  # 수급 데이터 실패해도 AI 분석은 진행
 
