@@ -1671,89 +1671,78 @@ def _render_ci_tab_fragment():
         with _ci_col_btn:
             _ci_run = st.form_submit_button("🔍 분석", use_container_width=True, type="primary")
 
-    # ── 최근 검색 드롭다운 (JS) ──────────────────────────────────────
-    # innerHTML 내 이중따옴표가 onerror 속성을 깨뜨리므로 createElement로 DOM 직접 생성
+    # ── 최근 검색 드롭다운 (st.components.v1.html — 공식 JS 실행 방법) ──
     _ci_history = st.session_state.get("_ci_history", [])
-    import json as _json, time as _time
+    import json as _json
+    import streamlit.components.v1 as _ci_cmp
     _ci_hist_json = _json.dumps(_ci_history[:8], ensure_ascii=False)
-    _ci_ts = int(_time.time() * 1000) % 9999999
-    st.markdown(f"""
-<img src="data:text/plain,{_ci_ts}" onerror="(function(){{
-  var hist = {_ci_hist_json};
-  function build() {{
-    var inp = document.querySelector('[data-testid=stForm] input');
-    if (!inp) return;
-    var wrap = inp.closest('[data-testid=stTextInput]');
-    if (!wrap) return;
-    var histStr = JSON.stringify(hist);
-    if (wrap.dataset.ciDdHist === histStr) return;
-    wrap.dataset.ciDdHist = histStr;
-    wrap.style.position = 'relative';
-    var old = document.getElementById('ci-search-dd');
-    if (old) old.remove();
-    if (!hist.length) return;
-    var dd = document.createElement('div');
-    dd.id = 'ci-search-dd';
-    dd.style.cssText = 'display:none;position:absolute;top:calc(100% + 3px);left:0;right:0;z-index:99999;background:#18182a;border:1px solid #3a3a6a;border-radius:10px;overflow:hidden;box-shadow:0 8px 28px rgba(0,0,0,0.75);';
-    var hdr = document.createElement('div');
-    hdr.style.cssText = 'padding:7px 14px 5px;font-size:0.7rem;color:#666;letter-spacing:0.06em;border-bottom:1px solid #2a2a40;';
-    hdr.textContent = '최근 검색';
+    _ci_cmp.html(f"""<script>
+(function(){{
+  var hist={_ci_hist_json};
+  var pdoc=window.parent.document;
+  if(!pdoc.getElementById('ci-dd-style')){{
+    var s=pdoc.createElement('style');s.id='ci-dd-style';
+    s.textContent='#ci-search-dd{{scrollbar-width:thin;scrollbar-color:#3a3a6a transparent}}#ci-search-dd::-webkit-scrollbar{{width:4px}}#ci-search-dd::-webkit-scrollbar-thumb{{background:#3a3a6a;border-radius:2px}}';
+    pdoc.head.appendChild(s);
+  }}
+  function build(){{
+    var inp=pdoc.querySelector('[data-testid=stForm] input');
+    if(!inp)return;
+    var wrap=inp.closest('[data-testid=stTextInput]');
+    if(!wrap)return;
+    var hs=JSON.stringify(hist);
+    if(wrap.dataset.ciDdHist===hs)return;
+    wrap.dataset.ciDdHist=hs;
+    wrap.style.position='relative';
+    var old=pdoc.getElementById('ci-search-dd');
+    if(old)old.remove();
+    if(!hist.length)return;
+    var dd=pdoc.createElement('div');
+    dd.id='ci-search-dd';
+    dd.style.cssText='display:none;position:absolute;top:calc(100% + 3px);left:0;right:0;z-index:99999;background:#18182a;border:1px solid #3a3a6a;border-radius:10px;overflow:hidden;box-shadow:0 8px 28px rgba(0,0,0,0.75);';
+    var hdr=pdoc.createElement('div');
+    hdr.style.cssText='padding:7px 14px 5px;font-size:0.7rem;color:#666;letter-spacing:0.06em;border-bottom:1px solid #2a2a40;';
+    hdr.textContent='최근 검색';
     dd.appendChild(hdr);
-    hist.forEach(function(kw) {{
-      var row = document.createElement('div');
-      row.style.cssText = 'display:flex;align-items:center;padding:9px 14px;cursor:pointer;gap:10px;border-bottom:1px solid #22223a;transition:background 0.12s;';
-      var icon = document.createElement('span');
-      icon.style.cssText = 'color:#555;font-size:0.78rem;flex-shrink:0;';
-      icon.textContent = '🕐';
-      var txt = document.createElement('span');
-      txt.style.cssText = 'flex:1;color:#ccc;font-size:0.9rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
-      txt.textContent = kw;
-      var del = document.createElement('span');
-      del.style.cssText = 'color:#444;font-size:0.8rem;padding:2px 4px;border-radius:4px;flex-shrink:0;line-height:1;';
-      del.textContent = '✕';
-      del.dataset.kw = kw;
-      del.dataset.isDel = '1';
-      row.appendChild(icon);
-      row.appendChild(txt);
-      row.appendChild(del);
-      row.addEventListener('mouseenter', function() {{ this.style.background='rgba(80,80,180,0.18)'; }});
-      row.addEventListener('mouseleave', function() {{ this.style.background=''; }});
-      del.addEventListener('mouseenter', function(e) {{ e.stopPropagation(); this.style.color='#e55'; }});
-      del.addEventListener('mouseleave', function(e) {{ e.stopPropagation(); this.style.color='#444'; }});
-      row.addEventListener('mousedown', function(e) {{
+    hist.forEach(function(kw){{
+      var row=pdoc.createElement('div');
+      row.style.cssText='display:flex;align-items:center;padding:9px 14px;cursor:pointer;gap:10px;border-bottom:1px solid #22223a;transition:background 0.12s;';
+      var icon=pdoc.createElement('span');icon.style.cssText='color:#555;font-size:0.78rem;flex-shrink:0;';icon.textContent='🕐';
+      var txt=pdoc.createElement('span');txt.style.cssText='flex:1;color:#ccc;font-size:0.9rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';txt.textContent=kw;
+      var del=pdoc.createElement('span');del.style.cssText='color:#444;font-size:0.8rem;padding:2px 4px;border-radius:4px;flex-shrink:0;line-height:1;';del.textContent='✕';del.dataset.kw=kw;del.dataset.isDel='1';
+      row.appendChild(icon);row.appendChild(txt);row.appendChild(del);
+      row.addEventListener('mouseenter',function(){{this.style.background='rgba(80,80,180,0.18)';}});
+      row.addEventListener('mouseleave',function(){{this.style.background='';}});
+      del.addEventListener('mouseenter',function(e){{e.stopPropagation();this.style.color='#e55';}});
+      del.addEventListener('mouseleave',function(e){{e.stopPropagation();this.style.color='#444';}});
+      row.addEventListener('mousedown',function(e){{
         e.preventDefault();
-        var setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype,'value').set;
-        var isDel = e.target.dataset && e.target.dataset.isDel;
-        setter.call(inp, isDel ? 'CIDEL:' + e.target.dataset.kw : kw);
-        inp.dispatchEvent(new Event('input', {{bubbles:true}}));
-        dd.style.display = 'none';
-        setTimeout(function() {{
-          var form = inp.closest('[data-testid=stForm]') || inp.closest('form');
-          var btn = form && (form.querySelector('button[kind=primaryFormSubmit]') || form.querySelector('button[type=submit]'));
-          if (btn) btn.click();
-        }}, 60);
+        var setter=Object.getOwnPropertyDescriptor(window.parent.HTMLInputElement.prototype,'value').set;
+        setter.call(inp,e.target.dataset&&e.target.dataset.isDel?'CIDEL:'+e.target.dataset.kw:kw);
+        inp.dispatchEvent(new Event('input',{{bubbles:true}}));
+        dd.style.display='none';
+        setTimeout(function(){{
+          var form=inp.closest('[data-testid=stForm]')||inp.closest('form');
+          var btn=form&&(form.querySelector('button[kind=primaryFormSubmit]')||form.querySelector('button[type=submit]'));
+          if(btn)btn.click();
+        }},60);
       }});
       dd.appendChild(row);
     }});
     wrap.appendChild(dd);
-    if (!inp.dataset.ciDdEvt) {{
-      inp.dataset.ciDdEvt = '1';
-      inp.addEventListener('focus', function() {{ if(hist.length) dd.style.display='block'; }});
-      inp.addEventListener('blur',  function() {{ setTimeout(function(){{ dd.style.display='none'; }},180); }});
-      inp.addEventListener('input', function() {{ dd.style.display = this.value ? 'none' : (hist.length ? 'block' : 'none'); }});
+    if(!inp.dataset.ciDdEvt){{
+      inp.dataset.ciDdEvt='1';
+      inp.addEventListener('focus',function(){{if(hist.length)dd.style.display='block';}});
+      inp.addEventListener('blur',function(){{setTimeout(function(){{dd.style.display='none';}},180);}});
+      inp.addEventListener('input',function(){{dd.style.display=this.value?'none':(hist.length?'block':'none');}});
     }}
   }}
   build();
-  if (!window._ciDdObs) {{
-    window._ciDdObs = new MutationObserver(build);
-    window._ciDdObs.observe(document.body, {{childList:true,subtree:true}});
-  }}
-}})();" style="display:none">
-<style>
-#ci-search-dd::-webkit-scrollbar{{width:4px}}
-#ci-search-dd::-webkit-scrollbar-thumb{{background:#3a3a6a;border-radius:2px}}
-</style>
-""", unsafe_allow_html=True)
+  if(window.parent._ciDdObs)window.parent._ciDdObs.disconnect();
+  window.parent._ciDdObs=new window.parent.MutationObserver(build);
+  window.parent._ciDdObs.observe(pdoc.body,{{childList:true,subtree:true}});
+}})();
+</script>""", height=0, scrolling=False)
 
     # ── 클릭 / 제출 처리 ─────────────────────────────────────────────
     _ci_chip_kw   = st.session_state.pop("_ci_chip_kw", None)
