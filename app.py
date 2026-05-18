@@ -1905,19 +1905,23 @@ def _render_ci_tab_fragment():
 
     # ── 결과 표시 ─────────────────────────────────────────────────────
     if _ci_stored:
-        _col_title, _col_del = st.columns([5, 1])
+        _col_title, _col_close, _col_del = st.columns([5, 1, 1])
         with _col_title:
             st.markdown(
                 f"<h4 style='margin:10px 0 4px;color:#ffd740'>"
                 f"📌 {_ci_stored.get('title', _ci_active_kw)}</h4>",
                 unsafe_allow_html=True,
             )
+        with _col_close:
+            if st.button("✕ 닫기", key="ci_close_result_btn", help="창 닫기", use_container_width=True):
+                st.session_state["_ci_dialog_suppress"] = True
+                st.rerun(scope="app")
         with _col_del:
-            if st.button("🗑️ 삭제", key="ci_delete_btn", help="결과를 삭제하고 창을 닫습니다"):
+            if st.button("🗑️ 삭제", key="ci_delete_btn", help="결과를 삭제하고 창을 닫습니다", use_container_width=True):
                 st.session_state.pop("_ci_result", None)
                 st.session_state.pop("_ci_last_kw", None)
                 st.session_state["_ci_cache_checked"] = False
-                st.session_state["_ci_dialog_suppress"] = True  # 결과 삭제 후 dialog 자동 재오픈 방지
+                st.session_state["_ci_dialog_suppress"] = True
                 try:
                     from db import delete_ai_cache
                     delete_ai_cache("custom_issue_latest")
@@ -3307,12 +3311,13 @@ def main():
         for k, v in _SCENARIO_TASKS.items()
         if k.startswith("_ci_")
     )
+    _ci_has_result  = bool(st.session_state.get("_ci_result"))
     _open_dialog_flag = st.session_state.pop("_scenario_dialog_open", False)
     if _open_dialog_flag:
-        # 사용자가 직접 버튼 눌러 열 때 suppress 초기화 (이전 닫기/삭제 잔재 제거)
+        # 사용자가 직접 버튼 눌러 열 때 suppress 초기화
         st.session_state.pop("_ci_dialog_suppress", None)
     if _open_dialog_flag or (
-        _ci_any_running_now
+        (_ci_any_running_now or _ci_has_result)
         and not st.session_state.get("_ci_dialog_suppress", False)
     ):
         show_market_scenarios()
