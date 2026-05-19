@@ -1,4 +1,4 @@
-﻿import streamlit as st
+import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
 from datetime import datetime, timedelta
@@ -1652,7 +1652,6 @@ def _render_custom_issue_result(res: dict, key_prefix: str):
 @st.fragment
 def _render_ci_tab_fragment():
     """커스텀 이슈 스나이퍼 탭 — fragment로 감싸 칩 클릭 시 dialog 유지."""
-    st.session_state["_ci_dialog_active"] = True  # 다이얼로그 유지 신호
     # ── 최근 검색어 히스토리 로드 (세션당 1회) ───────────────────────
     if "_ci_history_loaded" not in st.session_state:
         try:
@@ -1789,6 +1788,7 @@ def _render_ci_tab_fragment():
             except Exception:
                 pass
         threading.Thread(target=_dd_del_save, daemon=True).start()
+        st.session_state["_ci_force_reopen"] = True
         st.rerun()
 
     _ci_kw        = _ci_raw
@@ -1804,7 +1804,6 @@ def _render_ci_tab_fragment():
             st.session_state["_ci_result"]        = _res
             st.session_state["_ci_last_kw"]       = _kw_done
             st.session_state["_ci_cache_checked"] = True
-            st.session_state.pop("_ci_dialog_suppress", None)
             # 세션 캐시 저장 → 재클릭 시 즉시 복원
             if _res and "error" not in _res:
                 _sc = st.session_state.get("_ci_result_cache", {})
@@ -1824,7 +1823,6 @@ def _render_ci_tab_fragment():
             st.session_state["_ci_result"]        = _sess_cache[_ci_kw]
             st.session_state["_ci_last_kw"]       = _ci_kw
             st.session_state["_ci_cache_checked"] = True
-            st.session_state.pop("_ci_dialog_suppress", None)
             _new_hist = [_ci_kw] + [h for h in _ci_history if h != _ci_kw]
             st.session_state["_ci_history"]       = _new_hist[:8]
             st.rerun()
@@ -1840,7 +1838,6 @@ def _render_ci_tab_fragment():
                         st.session_state["_ci_result"]        = _ci_gsh_res
                         st.session_state["_ci_last_kw"]       = _ci_kw
                         st.session_state["_ci_cache_checked"] = True
-                        st.session_state.pop("_ci_dialog_suppress", None)
                         _sc = st.session_state.get("_ci_result_cache", {})
                         _sc[_ci_kw] = _ci_gsh_res
                         if len(_sc) > 8:
@@ -1869,7 +1866,6 @@ def _render_ci_tab_fragment():
                     unsafe_allow_html=True,
                 )
                 st.session_state.pop("_ci_result", None)
-                st.session_state.pop("_ci_dialog_suppress", None)
                 st.session_state["_ci_last_kw"]       = _ci_kw
                 st.session_state["_ci_cache_checked"] = False
                 _new_hist = [_ci_kw] + [h for h in _ci_history if h != _ci_kw]
@@ -1888,6 +1884,7 @@ def _render_ci_tab_fragment():
                 threading.Thread(
                     target=_run_custom_issue_bg, args=(_ci_new_tid, _ci_kw), daemon=True
                 ).start()
+                st.session_state["_ci_force_reopen"] = True
                 st.rerun()
     elif _ci_run and not _ci_keyword.strip():
         st.warning("이슈 키워드를 입력해주세요.")
@@ -1899,7 +1896,6 @@ def _render_ci_tab_fragment():
             key="ci_close_suppress",
             use_container_width=True,
         ):
-            st.session_state["_ci_dialog_suppress"] = True
             st.rerun(scope="app")
 
     # ── 결과 로드: 세션 → Google Sheets 캐시 (새로고침 후 복원) ────────
@@ -1937,14 +1933,12 @@ def _render_ci_tab_fragment():
             )
         with _col_close:
             if st.button("✕ 닫기", key="ci_close_result_btn", help="창 닫기", use_container_width=True):
-                st.session_state["_ci_dialog_suppress"] = True
                 st.rerun(scope="app")
         with _col_del:
             if st.button("🗑️ 삭제", key="ci_delete_btn", help="결과를 삭제하고 창을 닫습니다", use_container_width=True):
                 st.session_state.pop("_ci_result", None)
                 st.session_state.pop("_ci_last_kw", None)
                 st.session_state["_ci_cache_checked"] = False
-                st.session_state["_ci_dialog_suppress"] = True
                 try:
                     from db import delete_ai_cache
                     delete_ai_cache("custom_issue_latest")
@@ -1955,8 +1949,9 @@ def _render_ci_tab_fragment():
 
 
 
-@st.dialog("📈 이슈별 시장 시나리오", width="large")
+@st.dialog("🎯 AI 시나리오 시뮬레이터", width="large")
 def show_market_scenarios():
+    st.session_state["_dialog_body_ran"] = True
     _today = __import__("datetime").date.today().strftime("%Y-%m-%d")
     _cache_key = f"market_scenarios_{_today}"
 
@@ -2337,6 +2332,7 @@ def show_market_scenarios():
 
 @st.dialog("오늘의 데일리 브리핑 📝")
 def show_daily_briefing():
+    st.session_state["_dialog_body_ran"] = True
     with st.spinner("🧠 AI가 글로벌 실시간 뉴스를 분석하여 브리핑을 작성 중입니다..."):
         from ai_engine import generate_daily_briefing
         data = generate_daily_briefing()
@@ -3345,31 +3341,16 @@ def main():
 </script>""", height=0, scrolling=False)
 
     _ci_any_running_now = any(
-        v.get("status") in ("running", "done")   # done 포함: 결과를 fragment가 읽기 전에 dialog 닫히는 버그 방지
+        v.get("status") in ("running", "done")
         for k, v in _SCENARIO_TASKS.items()
         if k.startswith("_ci_")
     )
-    _ci_has_result  = bool(st.session_state.get("_ci_result"))
+    
     _open_dialog_flag = st.session_state.pop("_scenario_dialog_open", False)
-    if _open_dialog_flag:
-        st.session_state.pop("_ci_dialog_suppress", None)
-
-    # fragment가 직전 리런에서 실행됐음을 신호로 삼아 다이얼로그 유지
-    # (X버튼으로 닫히면 fragment가 실행되지 않아 플래그가 없어짐 → 자동 닫힘)
-    _ci_dialog_active = st.session_state.pop("_ci_dialog_active", False)
-
-    _trade_modal_pending = st.session_state.get("_modal_open", False)
-    _suppress = st.session_state.get("_ci_dialog_suppress", False)
-    _scenario_dialog_will_open = _open_dialog_flag or (
-        (_ci_any_running_now or _ci_has_result or _ci_dialog_active)
-        and not _suppress
-        and not _trade_modal_pending
-    )
-
-    # 다이얼로그가 이번 리런에서 열리지 않으면 _dialog_open 플래그 해제
-    # → autorefresh 억제가 풀려 시나리오 완료 감지 및 초록 불빛 표시 가능
-    if not _scenario_dialog_will_open:
-        st.session_state.pop("_dialog_open", None)
+    _force_reopen = st.session_state.pop("_ci_force_reopen", False)
+    
+    _scenario_dialog_will_open = _open_dialog_flag or _force_reopen
+    
     if _scenario_dialog_will_open:
         show_market_scenarios()
     # ── ⚙️ 버튼 → Streamlit 기본 메뉴 열기 (JS로 햄버거 버튼 클릭) ──────
@@ -9313,6 +9294,12 @@ def main():
         실제 투자에 대한 결정 및 책임은 전적으로 사용자 본인에게 있습니다.
     </div>
     """, unsafe_allow_html=True)
+
+
+    # 다이얼로그 네이티브 닫힘 감지:
+    if st.session_state.get("_dialog_open", False):
+        if not st.session_state.pop("_dialog_body_ran", False):
+            st.session_state["_dialog_open"] = False
 
 if __name__ == "__main__":
     main()
