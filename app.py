@@ -4451,18 +4451,48 @@ def main():
                         new_code = _cur_code
                         new_name = _cur_name
                         if _krx_map:
+                            if "kr_recent_search" not in st.session_state:
+                                try:
+                                    from db import load_ai_cache as _lac
+                                    _rs = _lac("kr_recent_search") or {"list": []}
+                                    st.session_state.kr_recent_search = _rs.get("list", [])
+                                except Exception:
+                                    st.session_state.kr_recent_search = []
+                            _recent = st.session_state.kr_recent_search
                             _all_opts = sorted(_krx_map.items(), key=lambda x: x[0])
-                            _opt_labels = [f"{n} ({i['code']})" for n, i in _all_opts]
-                            _opt_codes  = [i["code"] for _, i in _all_opts]
-                            _def_idx = next((i for i, c in enumerate(_opt_codes) if c == _cur_code), 0)
+                            
+                            _opt_labels = []
+                            _opt_codes = []
+                            
+                            if _recent:
+                                for r in _recent:
+                                    _opt_labels.append(f"🕒 {r['name']} ({r['code']})")
+                                    _opt_codes.append(r['code'])
+                                _opt_labels.append("─" * 20)
+                                _opt_codes.append("")
+
+                            for n, i in _all_opts:
+                                _opt_labels.append(f"{n} ({i['code']})")
+                                _opt_codes.append(i["code"])
+                                
+                            _def_idx = 0
+                            if _cur_code in _opt_codes:
+                                _def_idx = _opt_codes.index(_cur_code)
+
                             _sel_label = st.selectbox(
                                 "종목 검색 (이름·코드 입력하면 필터링)",
                                 _opt_labels,
                                 index=_def_idx,
                                 key="kr_stock_search",
                             )
-                            new_code = _opt_codes[_opt_labels.index(_sel_label)]
-                            new_name = _sel_label.split(" (")[0]
+                            
+                            _sel_idx = _opt_labels.index(_sel_label)
+                            if _opt_codes[_sel_idx] == "":
+                                new_code = _cur_code
+                                new_name = _cur_name
+                            else:
+                                new_code = _opt_codes[_sel_idx]
+                                new_name = _sel_label.replace("🕒 ", "").split(" (")[0]
                         else:
                             # FDR 맵 로딩 전: 인기 종목 + 6자리 코드 직접 입력
                             POPULAR_KR = {
@@ -4510,6 +4540,19 @@ def main():
                         if new_code != st.session_state.kr_selected_code:
                             st.session_state.kr_selected_code = new_code
                             st.session_state.kr_selected_name = new_name
+                            
+                            # 최근 검색어 업데이트
+                            _recent = st.session_state.get("kr_recent_search", [])
+                            _new_recent = [{"name": new_name, "code": new_code}] + [r for r in _recent if r.get("code") != new_code]
+                            _new_recent = _new_recent[:10]
+                            st.session_state.kr_recent_search = _new_recent
+                            try:
+                                import threading
+                                from db import save_ai_cache as _sac
+                                threading.Thread(target=_sac, args=("kr_recent_search", {"list": _new_recent}), kwargs={"ttl_hours": 24*30}, daemon=True).start()
+                            except Exception:
+                                pass
+                                
                             st.rerun()
 
                         # ── 우측 패널 탭 ──────────────────────────────────────
@@ -6234,48 +6277,52 @@ def main():
                                     except Exception:
                                         return "AI 분석을 불러올 수 없습니다."
 
+                                @st.fragment
+                                def _render_kr_subsector_card(sub_name, stocks, prices, code_locations, selected_sector):
+                                    avg_pct = _sub_avg_pct(stocks, prices)
+                                    pct_color = "#ff4b4b" if avg_pct > 0 else "#2b7cff" if avg_pct < 0 else "#888"
+                                    tok = f"_sub_open_{selected_sector}__{sub_name}"
+                                    if tok not in st.session_state:
+                                        st.session_state[tok] = False
+                                    is_open = st.session_state[tok]
+
+                                    with st.container(border=True):
+                                        h0, h1, h2, h3, h4 = st.columns([0.35, 2.8, 1.8, 1.4, 0.45])
+                                        tog_label = "▼" if is_open else "▶"
+                                        if h0.button(tog_label, key=f"tog_{sub_name}", use_container_width=True):
+                                            st.session_state[tok] = not is_open
+                                            st.rerun(scope="fragment")
+                                        
+                                        h1.markdown(
+                                            f"<span style='font-size:1.10rem;font-weight:600'>📌 {sub_name}</span>"
+                                            f"<span style='font-size:0.98rem;color:#888'>　{len(stocks)}개</span>",
+                                            unsafe_allow_html=True,
+                                        )
+                                        h3.markdown(
+                                            f"<span style='font-size:1.20rem;font-weight:700;color:{pct_color}'>{avg_pct:+.2f}%</span>",
+                                            unsafe_allow_html=True,
+                                        )
+                                        ai_key = f"_sub_ai_{selected_sector}__{sub_name}"
+                                        if h4.button("AI", key=f"ai_btn_{sub_name}", help="AI 섹터 분석"):
+                                            with st.spinner("AI 분석 중..."):
+                                                st.session_state[ai_key] = _sub_ai_summary(selected_sector, sub_name, avg_pct, stocks, prices)
+                                            st.rerun(scope="fragment")
+
+                                        if is_open:
+                                            if ai_key in st.session_state:
+                                                st.markdown(
+                                                    f"<div style='background:rgba(255,255,255,0.05);border-left:3px solid {pct_color};"
+                                                    f"border-radius:6px;padding:8px 12px;margin:4px 0 8px 0;"
+                                                    f"font-size:1.07rem;line-height:1.55;color:#ddd'>"
+                                                    f"{st.session_state[ai_key]}</div>",
+                                                    unsafe_allow_html=True,
+                                                )
+                                            st.markdown('<hr class="toss-divider" style="margin:4px 0 6px 0">', unsafe_allow_html=True)
+                                            _render_sector_stocks(sub_name, stocks, prices, code_locations, selected_sector)
+
                                 with st.container(height=600):
                                     for sub_name, stocks in subsectors.items():
-                                        avg_pct = _sub_avg_pct(stocks, prices)
-                                        pct_color = "#ff4b4b" if avg_pct > 0 else "#2b7cff" if avg_pct < 0 else "#888"
-                                        tok = f"_sub_open_{selected_sector}__{sub_name}"
-                                        if tok not in st.session_state:
-                                            st.session_state[tok] = False
-                                        is_open = st.session_state[tok]
-
-                                        with st.container(border=True):
-                                            # ── 헤더 행: 항상 표시 (접힌 상태에서도 색상 있는 평균 등락률 노출) ──
-                                            h0, h1, h2, h3, h4 = st.columns([0.35, 2.8, 1.8, 1.4, 0.45])
-                                            tog_label = "▼" if is_open else "▶"
-                                            if h0.button(tog_label, key=f"tog_{sub_name}", use_container_width=True):
-                                                st.session_state[tok] = not is_open
-                                                st.rerun()
-                                            h1.markdown(
-                                                f"<span style='font-size:1.10rem;font-weight:600'>📌 {sub_name}</span>"
-                                                f"<span style='font-size:0.98rem;color:#888'>　{len(stocks)}개</span>",
-                                                unsafe_allow_html=True,
-                                            )
-                                            # 현재가 컬럼(h2)은 비워둠
-                                            h3.markdown(
-                                                f"<span style='font-size:1.20rem;font-weight:700;color:{pct_color}'>{avg_pct:+.2f}%</span>",
-                                                unsafe_allow_html=True,
-                                            )
-                                            ai_key = f"_sub_ai_{selected_sector}__{sub_name}"
-                                            if h4.button("AI", key=f"ai_btn_{sub_name}", help="AI 섹터 분석"):
-                                                st.session_state[ai_key] = _sub_ai_summary(selected_sector, sub_name, avg_pct, stocks, prices)
-
-                                            # ── 펼쳐진 내용 ──
-                                            if is_open:
-                                                if ai_key in st.session_state:
-                                                    st.markdown(
-                                                        f"<div style='background:rgba(255,255,255,0.05);border-left:3px solid {pct_color};"
-                                                        f"border-radius:6px;padding:8px 12px;margin:4px 0 8px 0;"
-                                                        f"font-size:1.07rem;line-height:1.55;color:#ddd'>"
-                                                        f"{st.session_state[ai_key]}</div>",
-                                                        unsafe_allow_html=True,
-                                                    )
-                                                st.markdown('<hr class="toss-divider" style="margin:4px 0 6px 0">', unsafe_allow_html=True)
-                                                _render_sector_stocks(sub_name, stocks, prices, code_locations, selected_sector)
+                                        _render_kr_subsector_card(sub_name, stocks, prices, code_locations, selected_sector)
 
 
 
@@ -6989,20 +7036,60 @@ def main():
                                     if _lbl not in _us_all_stk:
                                         _us_all_stk[_lbl] = {"ticker": _s["ticker"], "exchange": _s.get("exchange", "NASDAQ")}
                         _us_opts    = sorted(_us_all_stk.keys())
-                        _us_def_lbl = next((l for l in _us_opts if f"({_us_ticker_cur})" in l), _us_opts[0] if _us_opts else "")
+                        
+                        if "us_recent_search" not in st.session_state:
+                            try:
+                                from db import load_ai_cache as _lac
+                                _rs = _lac("us_recent_search") or {"list": []}
+                                st.session_state.us_recent_search = _rs.get("list", [])
+                            except Exception:
+                                st.session_state.us_recent_search = []
+                        _recent_us = st.session_state.us_recent_search
+                        
+                        _opt_labels = []
+                        if _recent_us:
+                            for r in _recent_us:
+                                _opt_labels.append(f"🕒 {r['name']} ({r['ticker']})")
+                            _opt_labels.append("─" * 20)
+                        
+                        _opt_labels.extend(_us_opts)
+                        
+                        _us_def_lbl = next((l for l in _opt_labels if f"({_us_ticker_cur})" in l and not l.startswith("─")), _opt_labels[0] if _opt_labels else "")
 
                         _us_sel_lbl = st.selectbox(
                             "종목 검색 (이름·티커 입력하면 필터링)",
-                            _us_opts,
-                            index=_us_opts.index(_us_def_lbl) if _us_def_lbl in _us_opts else 0,
+                            _opt_labels,
+                            index=_opt_labels.index(_us_def_lbl) if _us_def_lbl in _opt_labels else 0,
                             key="us_stock_search",
                         )
-                        _new_ticker = _us_all_stk[_us_sel_lbl]["ticker"]
-                        _new_name   = _us_sel_lbl.split(" (")[0]
+                        
+                        if _us_sel_lbl.startswith("─"):
+                            _new_ticker = st.session_state.us_selected_ticker
+                            _new_name   = st.session_state.us_selected_name
+                        else:
+                            if _us_sel_lbl.startswith("🕒 "):
+                                _new_ticker = _us_sel_lbl.split(" (")[-1].replace(")", "")
+                                _new_name   = _us_sel_lbl.replace("🕒 ", "").split(" (")[0]
+                            else:
+                                _new_ticker = _us_all_stk[_us_sel_lbl]["ticker"]
+                                _new_name   = _us_sel_lbl.split(" (")[0]
                         
                         if _new_ticker != st.session_state.us_selected_ticker:
                             st.session_state.us_selected_ticker = _new_ticker
                             st.session_state.us_selected_name   = _new_name
+                            
+                            # 최근 검색어 업데이트
+                            _recent = st.session_state.get("us_recent_search", [])
+                            _new_recent = [{"name": _new_name, "ticker": _new_ticker}] + [r for r in _recent if r.get("ticker") != _new_ticker]
+                            _new_recent = _new_recent[:10]
+                            st.session_state.us_recent_search = _new_recent
+                            try:
+                                import threading
+                                from db import save_ai_cache as _sac
+                                threading.Thread(target=_sac, args=("us_recent_search", {"list": _new_recent}), kwargs={"ttl_hours": 24*30}, daemon=True).start()
+                            except Exception:
+                                pass
+                                
                             st.rerun()
 
                         _rp_tabs = ["📊 시세", "💰 수급", "🧠 AI 분석"]
@@ -8249,7 +8336,8 @@ def main():
                                         return "AI 분석을 불러올 수 없습니다."
 
                                 with st.container(height=600):
-                                    for us_sub_name, us_stocks in us_subsectors.items():
+                                    @st.fragment
+                                    def _render_us_subsector_card(us_sub_name, us_stocks, us_prices, us_ticker_locations, us_selected_sector):
                                         us_avg_pct   = _us_sub_avg_pct(us_stocks, us_prices)
                                         us_pct_color = "#00c853" if us_avg_pct > 0 else "#ff4b4b" if us_avg_pct < 0 else "#888"
                                         us_tok       = f"_us_sub_open_{us_selected_sector}__{us_sub_name}"
@@ -8265,7 +8353,7 @@ def main():
                                                 key=f"us_tog_{us_sub_name}", use_container_width=True,
                                             ):
                                                 st.session_state[us_tok] = not us_is_open
-                                                st.rerun()
+                                                st.rerun(scope="fragment")
                                             uh1.markdown(
                                                 f"<span style='font-size:1.10rem;font-weight:600'>📌 {us_sub_name}</span>"
                                                 f"<span style='font-size:0.98rem;color:#888'>　{len(us_stocks)}개</span>",
@@ -8277,9 +8365,11 @@ def main():
                                                 unsafe_allow_html=True,
                                             )
                                             if uh4.button("AI", key=f"us_ai_btn_{us_sub_name}", use_container_width=True):
-                                                st.session_state[us_ai_key] = _us_sub_ai_summary(
+                                                with st.spinner("AI 분석 중..."):
+                                                    st.session_state[us_ai_key] = _us_sub_ai_summary(
                                                     us_selected_sector, us_sub_name, us_avg_pct, us_stocks, us_prices
-                                                )
+                                                    )
+                                                st.rerun(scope="fragment")
 
                                             if us_is_open:
                                                 if us_ai_key in st.session_state:
@@ -8344,6 +8434,8 @@ def main():
                                                         st.session_state.us_sector_view            = "detail"
                                                         st.rerun()
 
+                                    for us_sub_name, us_stocks in us_subsectors.items():
+                                        _render_us_subsector_card(us_sub_name, us_stocks, us_prices, us_ticker_locations, us_selected_sector)
     with tab2:
         st.subheader("📊 성과 트래킹 보드")
 
