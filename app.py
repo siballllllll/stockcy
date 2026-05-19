@@ -4547,7 +4547,6 @@ def main():
                             _new_recent = _new_recent[:10]
                             st.session_state.kr_recent_search = _new_recent
                             try:
-                                import threading
                                 from db import save_ai_cache as _sac
                                 threading.Thread(target=_sac, args=("kr_recent_search", {"list": _new_recent}), kwargs={"ttl_hours": 24*30}, daemon=True).start()
                             except Exception:
@@ -7084,7 +7083,6 @@ def main():
                             _new_recent = _new_recent[:10]
                             st.session_state.us_recent_search = _new_recent
                             try:
-                                import threading
                                 from db import save_ai_cache as _sac
                                 threading.Thread(target=_sac, args=("us_recent_search", {"list": _new_recent}), kwargs={"ttl_hours": 24*30}, daemon=True).start()
                             except Exception:

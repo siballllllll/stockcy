@@ -75,7 +75,12 @@
       "Bash(git *)",
       "Bash(python -c \"import re; content=open\\('app.py',encoding='utf-8'\\).read\\(\\); matches=re.findall\\(r'unsafe_allow_html', content\\); print\\(len\\(matches\\)\\)\")",
       "Bash(python -c \"import ast; ast.parse\\(open\\('app.py', encoding='utf-8'\\).read\\(\\)\\); print\\('OK - 문법 오류 없음'\\)\")",
-      "Bash(python -c \"import ast; ast.parse\\(open\\('app.py', encoding='utf-8'\\).read\\(\\)\\); print\\('Syntax OK'\\)\")"
+      "Bash(python -c \"import ast; ast.parse\\(open\\('app.py', encoding='utf-8'\\).read\\(\\)\\); print\\('Syntax OK'\\)\")",
+      "Bash(python -)",
+      "Bash(python -c \"import ast, sys; ast.parse\\(open\\('app.py', encoding='utf-8'\\).read\\(\\)\\); print\\('OK'\\)\")",
+      "Bash(python -u -)",
+      "Bash(python scratch/patch_frag.py)",
+      "Bash(python -c \"import sys; [print\\(l, end=''\\) for l in sys.stdin]\")"
     ]
   }
 }
