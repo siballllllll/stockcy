@@ -1,4 +1,4 @@
-import streamlit as st
+﻿import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
 from datetime import datetime, timedelta
@@ -1749,6 +1749,28 @@ def _render_ci_tab_fragment():
 }})();
 </script>""", height=0, scrolling=False)
 
+    # ── 즉시 피드백 배너 (폼 바로 아래) ──────────────────────────────────
+    _ci_feedback_ph = st.empty()
+    _ci_bg_running = next(
+        (_tid[4:] for _tid, _tv in _SCENARIO_TASKS.items()
+         if _tid.startswith("_ci_") and _tv.get("status") == "running"),
+        None,
+    )
+    if _ci_bg_running and not st.session_state.get("_ci_result"):
+        _ci_feedback_ph.markdown(
+            f"<div style='background:rgba(30,60,30,0.55);border:1.5px solid #388e3c;"
+            f"border-radius:10px;padding:13px 18px;margin:8px 0;"
+            f"display:flex;align-items:center;gap:12px;'>"
+            f"<span style='font-size:1.4rem'>⏳</span>"
+            f"<div><div style='color:#66bb6a;font-weight:700;font-size:0.95rem'>"
+            f"잠시 대기해주세요. 분석 중입니다...</div>"
+            f"<div style='color:#aaa;font-size:0.82rem;margin-top:3px'>"
+            f"<b style='color:#eee'>'{_ci_bg_running}'</b> 키워드를 AI가 분석하고 있습니다. "
+            f"완료되면 자동으로 결과가 표시됩니다. <span style='color:#666'>(최대 120초)</span>"
+            f"</div></div></div>",
+            unsafe_allow_html=True,
+        )
+
     # ── 클릭 / 제출 처리 ─────────────────────────────────────────────
     _ci_chip_kw   = st.session_state.pop("_ci_chip_kw", None)
     _ci_raw       = _ci_chip_kw or _ci_keyword.strip()
@@ -1832,7 +1854,20 @@ def _render_ci_tab_fragment():
             if _ci_gsh_hit:
                 st.rerun()
             else:
-                # 새 분석 시작
+                # 새 분析 시작 — 즉시 피드백 표시
+                _ci_feedback_ph.markdown(
+                    f"<div style='background:rgba(30,60,30,0.55);border:1.5px solid #388e3c;"
+                    f"border-radius:10px;padding:13px 18px;margin:8px 0;"
+                    f"display:flex;align-items:center;gap:12px;'>"
+                    f"<span style='font-size:1.4rem'>⏳</span>"
+                    f"<div><div style='color:#66bb6a;font-weight:700;font-size:0.95rem'>"
+                    f"잠시 대기해주세요. 분석 중입니다...</div>"
+                    f"<div style='color:#aaa;font-size:0.82rem;margin-top:3px'>"
+                    f"<b style='color:#eee'>'{_ci_kw}'</b> 키워드를 AI가 분석하고 있습니다. "
+                    f"완료되면 자동으로 결과가 표시됩니다. <span style='color:#666'>(최대 120초)</span>"
+                    f"</div></div></div>",
+                    unsafe_allow_html=True,
+                )
                 st.session_state.pop("_ci_result", None)
                 st.session_state.pop("_ci_dialog_suppress", None)
                 st.session_state["_ci_last_kw"]       = _ci_kw
@@ -1857,32 +1892,15 @@ def _render_ci_tab_fragment():
     elif _ci_run and not _ci_keyword.strip():
         st.warning("이슈 키워드를 입력해주세요.")
 
-    # ── 진행 중 표시 ──────────────────────────────────────────────────
-    _ci_running_kw = next(
-        (_tid[4:] for _tid, _tv in _SCENARIO_TASKS.items()
-         if _tid.startswith("_ci_") and _tv.get("status") == "running"),
-        None
-    )
-    if _ci_running_kw:
-        st.markdown(
-            f"<div style='background:#1a2a1a;border:1px solid #2d5a2d;border-radius:8px;"
-            f"padding:16px 18px;margin:8px 0'>"
-            f"<div style='font-size:1.05rem;font-weight:700;color:#4caf50;margin-bottom:6px'>"
-            f"🔄 분석 중...</div>"
-            f"<div style='color:#ccc;font-size:0.9rem'>"
-            f"<b style='color:#fff'>'{_ci_running_kw}'</b> 이슈를 AI가 분석하고 있습니다.<br>"
-            f"<span style='color:#888;font-size:0.82rem'>"
-            f"완료되면 이 창에 자동으로 결과가 표시됩니다. (최대 120초)</span>"
-            f"</div></div>",
-            unsafe_allow_html=True,
-        )
+    # -- 닫기 버튼 (백그라운드 실행 중에만 표시) ----------------------------------------
+    if _ci_bg_running:
         if st.button(
             "✕ 닫기  (백그라운드에서 계속 실행됩니다)",
             key="ci_close_suppress",
             use_container_width=True,
         ):
             st.session_state["_ci_dialog_suppress"] = True
-            st.rerun(scope="app")   # 전체 앱 재실행으로 dialog 닫기
+            st.rerun(scope="app")
 
     # ── 결과 로드: 세션 → Google Sheets 캐시 (새로고침 후 복원) ────────
     _ci_stored    = st.session_state.get("_ci_result")
