@@ -11,7 +11,7 @@ def _kr():
         get_kr_investor_trend, get_kr_minute_chart,
         get_kr_daily_chart, get_kr_prices_bulk,
         get_kr_index_history, get_kr_stock_name_kis,
-        get_us_prices_bulk_kis,
+        get_us_prices_bulk_kis, get_kr_frgn_inst_rank,
     )
     return {
         "index":          get_kr_market_index,
@@ -19,6 +19,7 @@ def _kr():
         "volume_rank":    get_kr_volume_ranking,
         "change_rank":    get_kr_change_ranking,
         "investor":       get_kr_investor_trend,
+        "frgn_inst_rank": get_kr_frgn_inst_rank,
         "minute_chart":   get_kr_minute_chart,
         "daily_chart":    get_kr_daily_chart,
         "prices_bulk":    get_kr_prices_bulk,
@@ -28,14 +29,62 @@ def _kr():
     }
 
 
+def _parse_price(v) -> int:
+    """'₩299,500' → 299500, 또는 이미 int/float 이면 그대로."""
+    if isinstance(v, (int, float)):
+        return int(v)
+    s = str(v).replace("₩", "").replace(",", "").replace("주", "").strip()
+    try:
+        return int(float(s))
+    except Exception:
+        return 0
+
+
+def _normalize_ranking(records: list) -> list:
+    """거래량 상위 결과의 현재가·거래량 포맷 문자열을 숫자로 변환."""
+    out = []
+    for r in records:
+        out.append({
+            "종목코드":  str(r.get("종목코드", "")),
+            "종목명":    str(r.get("종목명", "")),
+            "현재가":    _parse_price(r.get("현재가", 0)),
+            "등락률(%)": float(r.get("등락률(%)", 0)),
+            "거래량":    _parse_price(r.get("거래량", 0)),
+            "시장":      str(r.get("시장", "")),
+        })
+    return out
+
+
+def _rename_chart_cols(df) -> list:
+    """DataFrame(datetime/open/high/low/close/volume) → ChartCandle JSON 형태."""
+    col_map = {
+        "datetime": "일자", "open": "시가", "high": "고가",
+        "low": "저가", "close": "종가", "volume": "거래량",
+    }
+    df = df.rename(columns=col_map)
+    if "일자" in df.columns:
+        df["일자"] = df["일자"].astype(str)
+    return df.to_dict(orient="records")
+
+
+def _period_int_to_str(n: int) -> str:
+    """정수 거래일수를 get_kr_daily_chart 기간 문자열로 변환."""
+    if n <= 5:   return "1w"
+    if n <= 22:  return "15d"
+    if n <= 35:  return "1mo"
+    if n <= 95:  return "3mo"
+    if n <= 185: return "6mo"
+    if n <= 370: return "1y"
+    return "2y"
+
+
 @router.get("/indices")
 def kr_indices():
     """KOSPI / KOSDAQ 현재 지수."""
     fns = _kr()
     try:
-        kospi  = fns["index"]("KOSPI")
-        kosdaq = fns["index"]("KOSDAQ")
-        return {"KOSPI": kospi, "KOSDAQ": kosdaq}
+        result = fns["index"]()   # returns {"KOSPI": {...}, "KOSDAQ": {...}}
+        return result or {}
     except Exception as e:
         return {"error": str(e)}
 
@@ -70,36 +119,38 @@ def kr_stock_name(code: str):
 
 
 @router.get("/volume-ranking")
-def kr_volume_ranking(market: str = Query("ALL", description="KOSPI | KOSDAQ | ALL")):
-    """거래량 상위 종목 랭킹."""
+def kr_volume_ranking(market: str = Query("ALL", description="KOSPI | KOSDAQ | ALL (현재 구현은 KOSPI 고정)")):
+    """거래량 상위 종목 랭킹 — get_kr_volume_ranking()은 인자 없음."""
     fns = _kr()
     try:
-        data = fns["volume_rank"](market)
-        return data or []
+        data = fns["volume_rank"]()   # 인자 없음
+        return _normalize_ranking(data or [])
     except Exception as e:
         return {"error": str(e)}
 
 
 @router.get("/change-ranking")
 def kr_change_ranking(
-    market: str  = Query("ALL"),
-    direction: str = Query("up", description="up | down"),
+    market: str = Query("ALL", description="KOSPI | KOSDAQ | ALL"),
 ):
-    """등락률 상위/하위 종목 랭킹."""
+    """등락률 상위 종목 랭킹."""
     fns = _kr()
+    # get_kr_change_ranking(market: str = "J") — J=KOSPI, Q=KOSDAQ
+    mkt_code = "Q" if market.upper() == "KOSDAQ" else "J"
     try:
-        data = fns["change_rank"](market, direction)
-        return data or []
+        data = fns["change_rank"](mkt_code)
+        return _normalize_ranking(data or [])
     except Exception as e:
         return {"error": str(e)}
 
 
 @router.get("/investor-trend")
 def kr_investor_trend(market: str = Query("KOSPI")):
-    """외국인·기관 순매수 동향."""
+    """외국인·기관 순매수 상위 종목 (시장 전체 기준)."""
     fns = _kr()
+    mkt_code = "Q" if market.upper() == "KOSDAQ" else "J"
     try:
-        data = fns["investor"](market)
+        data = fns["frgn_inst_rank"](mkt_code)   # get_kr_frgn_inst_rank
         return data or []
     except Exception as e:
         return {"error": str(e)}
@@ -120,13 +171,14 @@ def kr_minute_chart(code: str, interval: int = Query(5, description="분봉 단�
 
 @router.get("/chart/{code}/daily")
 def kr_daily_chart(code: str, period: int = Query(60, description="최근 N 거래일")):
-    """국내 종목 일봉 차트 데이터."""
+    """국내 종목 일봉 차트 데이터 (ChartCandle 형태)."""
     fns = _kr()
+    period_str = _period_int_to_str(period)
     try:
-        df = fns["daily_chart"](code, period)
-        if hasattr(df, "to_dict"):
-            return df.to_dict(orient="records")
-        return df or []
+        df = fns["daily_chart"](code, period_str)
+        if hasattr(df, "to_dict") and not df.empty:
+            return _rename_chart_cols(df)
+        return []
     except Exception as e:
         return {"error": str(e)}
 

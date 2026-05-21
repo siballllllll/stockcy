@@ -295,11 +295,10 @@ def load_favorites():
     try:
         ws = sh.worksheet("즐겨찾기")
         records = ws.get_all_records()
-        # 티커 0 누락 방지 (국내 종목 6자리)
+        # 티커 항상 문자열로, 국내 종목 6자리 0 패딩
         for r in records:
             t = str(r.get("티커", ""))
-            if t.isdigit() and len(t) < 6:
-                r["티커"] = t.zfill(6)
+            r["티커"] = t.zfill(6) if t.isdigit() and len(t) <= 6 else t
         return records, "성공"
     except gspread.WorksheetNotFound:
         return [], "즐겨찾기 목록이 비어있습니다."

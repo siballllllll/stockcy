@@ -360,13 +360,14 @@ async def sector_rotation():
             try:
                 from data_kr import (
                     get_kr_market_index, get_kr_volume_ranking,
-                    get_kr_change_ranking, get_kr_investor_trend,
+                    get_kr_change_ranking, get_kr_frgn_inst_rank,
                 )
-                kospi  = await asyncio.to_thread(get_kr_market_index, "KOSPI")
-                kosdaq = await asyncio.to_thread(get_kr_market_index, "KOSDAQ")
-                vol_r  = await asyncio.to_thread(get_kr_volume_ranking, "ALL")
-                chg_r  = await asyncio.to_thread(get_kr_change_ranking, "ALL", "up")
-                inv_r  = await asyncio.to_thread(get_kr_investor_trend, "KOSPI")
+                indices = await asyncio.to_thread(get_kr_market_index)
+                kospi  = indices.get("KOSPI", {})
+                kosdaq = indices.get("KOSDAQ", {})
+                vol_r  = await asyncio.to_thread(get_kr_volume_ranking)          # 인자 없음
+                chg_r  = await asyncio.to_thread(get_kr_change_ranking, "J")     # J=KOSPI
+                inv_r  = await asyncio.to_thread(get_kr_frgn_inst_rank, "J")
                 raw = (
                     f"KOSPI: {kospi}\nKOSDAQ: {kosdaq}\n"
                     f"거래량 상위: {(vol_r or [])[:10]}\n"
