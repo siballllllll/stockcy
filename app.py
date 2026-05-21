@@ -3220,6 +3220,7 @@ def main():
                 with _SCENARIO_LOCK:
                     _SCENARIO_TASKS[_nav_task_id] = {"status": "running", "result": None}
                 _cache_key_nav = f"market_scenarios_{_today_ck}"
+                import threading
                 _t = threading.Thread(target=_run_scenario_bg, args=(_nav_task_id, _cache_key_nav), daemon=True)
                 _t.start()
         if _nav_task_status == "done":
