@@ -43,6 +43,59 @@ def _fix_scenario_names(res: dict) -> dict:
     return res
 
 
+def _override_targets(res: dict) -> dict:
+    """시나리오 종목에 현재가 기반 매수타점/목표가/손절선 덮어쓰기."""
+    def _is_kr(tk):
+        return str(tk).strip().isdigit() and len(str(tk).strip()) == 6
+
+    def _process_group(stocks: list):
+        if not stocks:
+            return
+        kr_tks = tuple(str(s.get("ticker", "")).strip() for s in stocks if s.get("ticker") and _is_kr(s.get("ticker", "")))
+        us_tks = tuple(str(s.get("ticker", "")).strip() for s in stocks if s.get("ticker") and not _is_kr(s.get("ticker", "")))
+        kr_prices, us_prices = {}, {}
+        if kr_tks:
+            try:
+                from data_kr import get_kr_prices_bulk
+                kr_prices = get_kr_prices_bulk(kr_tks)
+            except Exception:
+                pass
+        if us_tks:
+            try:
+                from data import get_us_prices_bulk
+                us_prices = get_us_prices_bulk(us_tks)
+            except Exception:
+                pass
+        for s in stocks:
+            tk = str(s.get("ticker", "")).strip()
+            if not tk:
+                continue
+            is_kr = _is_kr(tk)
+            cp = float(((kr_prices if is_kr else us_prices).get(tk) or {}).get("price", 0) or 0)
+            rating = str(s.get("signal", ""))
+            if cp > 0:
+                if rating in ("추천", "매우 강력 추천"):
+                    if is_kr:
+                        s["buy_target"]  = f"{int(cp * 0.99):,}원 ~ {int(cp * 1.01):,}원"
+                        s["sell_target"] = f"{int(cp * 1.06):,}원 (+6%)"
+                        s["stop_loss"]   = f"{int(cp * 0.98):,}원 (-2%)"
+                    else:
+                        s["buy_target"]  = f"${cp * 0.99:.2f} ~ ${cp * 1.01:.2f}"
+                        s["sell_target"] = f"${cp * 1.06:.2f} (+6%)"
+                        s["stop_loss"]   = f"${cp * 0.98:.2f} (-2%)"
+                else:
+                    s["buy_target"]  = "관망 (진입 타점 없음)"
+                    s["sell_target"] = "관망"
+                    s["stop_loss"]   = "관망"
+
+    for issue in res.get("issues", [res]):
+        for sc in issue.get("scenarios", []):
+            _process_group(sc.get("rising_stocks", []))
+            _process_group(sc.get("falling_stocks", []))
+            _process_group(sc.get("theme_stocks", []))
+    return res
+
+
 def get_market_news(category="general"):
     """Yahoo Finance를 활용해 최신 시장 뉴스를 가져옵니다."""
     import yfinance as yf
@@ -365,6 +418,7 @@ def generate_market_scenarios() -> dict:
         response = _call_gemini(prompt, use_search=True, temperature=0.6, timeout_sec=120)
         res = _parse_json_response(response)
         _fix_scenario_names(res)
+        _override_targets(res)
         return res
     except Exception as e:
         return {"error": _friendly_error(e), "issues": []}
@@ -428,57 +482,8 @@ def analyze_custom_issue(keyword: str) -> dict:
         response = _call_gemini(prompt, use_search=True, temperature=0.6, timeout_sec=120)
         res = _parse_json_response(response)
 
-        def _is_kr(tk):
-            return str(tk).strip().isdigit() and len(str(tk).strip()) == 6
-
-        def _override_group(stocks):
-            kr_tks = tuple(str(s.get("ticker","")).strip() for s in stocks
-                           if s.get("ticker") and _is_kr(s.get("ticker","")))
-            us_tks = tuple(str(s.get("ticker","")).strip() for s in stocks
-                           if s.get("ticker") and not _is_kr(s.get("ticker","")))
-            kr_prices, us_prices = {}, {}
-            if kr_tks:
-                try:
-                    from data_kr import get_kr_prices_bulk
-                    kr_prices = get_kr_prices_bulk(kr_tks)
-                except Exception:
-                    pass
-            if us_tks:
-                try:
-                    from data import get_us_prices_bulk
-                    us_prices = get_us_prices_bulk(us_tks)
-                except Exception:
-                    pass
-            for s in stocks:
-                tk = str(s.get("ticker","")).strip()
-                if not tk:
-                    continue
-                is_kr = _is_kr(tk)
-                cp = float(((kr_prices if is_kr else us_prices).get(tk) or {}).get("price", 0) or 0)
-                rating = str(s.get("signal", ""))
-                if cp > 0:
-                    if rating in ("추천", "매우 강력 추천"):
-                        if is_kr:
-                            s["buy_target"]  = f"{int(cp*0.99):,}원 ~ {int(cp*1.01):,}원"
-                            s["sell_target"] = f"{int(cp*1.06):,}원 (+6%)"
-                            s["stop_loss"]   = f"{int(cp*0.98):,}원 (-2%)"
-                        else:
-                            s["buy_target"]  = f"${cp*0.99:.2f} ~ ${cp*1.01:.2f}"
-                            s["sell_target"] = f"${cp*1.06:.2f} (+6%)"
-                            s["stop_loss"]   = f"${cp*0.98:.2f} (-2%)"
-                    else:
-                        s["buy_target"]  = "관망 (진입 타점 없음)"
-                        s["sell_target"] = "관망"
-                        s["stop_loss"]   = "관망"
-
-        for _sc in res.get("scenarios", []):
-            _fix_kr_stock_names(_sc.get("rising_stocks", []))
-            _fix_kr_stock_names(_sc.get("falling_stocks", []))
-            _fix_kr_stock_names(_sc.get("theme_stocks", []))
-            _override_group(_sc.get("rising_stocks", []))
-            _override_group(_sc.get("falling_stocks", []))
-            _override_group(_sc.get("theme_stocks", []))
-
+        _fix_scenario_names(res)
+        _override_targets(res)
         return res
     except Exception as e:
         return {"error": _friendly_error(e), "title": keyword, "scenarios": []}

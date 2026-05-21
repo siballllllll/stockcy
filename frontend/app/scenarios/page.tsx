@@ -279,6 +279,7 @@ function ThemeStockRow({ stock, priceEntry, onClick }: {
           }}>
             {stock.type}
           </span>
+          {stock.signal && <SignalBadge signal={stock.signal} />}
         </div>
         {priceEntry && priceEntry.price > 0 && (
           <div style={{ textAlign: "right", flexShrink: 0, minWidth: "70px" }}>
@@ -291,6 +292,9 @@ function ThemeStockRow({ stock, priceEntry, onClick }: {
           </div>
         )}
       </div>
+      {stock.signal_reason && (
+        <div style={{ fontSize: "0.74rem", color: "var(--color-text)", fontWeight: 600 }}>{stock.signal_reason}</div>
+      )}
       {stock.historical_pattern && (
         <div style={{ fontSize: "0.74rem", color: "var(--color-accent)", fontWeight: 600 }}>
           과거 패턴: {stock.historical_pattern}
@@ -825,7 +829,7 @@ export default function ScenariosPage() {
     (async () => {
       try {
         const result = await readSSE(
-          "/api/ai/scenarios",
+          `/api/ai/scenarios?use_cache=${fetchTrigger === 0}`,
           "GET",
           undefined,
           (msg) => { if (!cancelled) setStatusMsg(msg); }
