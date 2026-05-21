@@ -59,7 +59,7 @@ class HotStockRequest(BaseModel):
 
 
 class RealtimePicksRequest(BaseModel):
-    market_data:   dict
+    market_data:   dict = {}
     volume_rank:   list = []
     change_rank:   list = []
     hot_sectors:   list = []
