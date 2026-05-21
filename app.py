@@ -4385,6 +4385,19 @@ def main():
                             
                             if st.session_state.kr_selected_name != _real_name:
                                 st.session_state.kr_selected_name = _real_name
+                                
+                            # 링크 진입 등 자동 진입 시에도 최근 검색어에 기록
+                            _recent_now = st.session_state.get("kr_recent_search", [])
+                            if not _recent_now or _recent_now[0].get("code") != selected_code_kr:
+                                _new_recent = [{"name": _real_name, "code": selected_code_kr}] + [r for r in _recent_now if r.get("code") != selected_code_kr]
+                                _new_recent = _new_recent[:10]
+                                st.session_state.kr_recent_search = _new_recent
+                                try:
+                                    from db import save_ai_cache as _sac
+                                    import threading
+                                    threading.Thread(target=_sac, args=("kr_recent_search", {"list": _new_recent}), kwargs={"ttl_hours": 24*30}, daemon=True).start()
+                                except Exception:
+                                    pass
                             
                             pct_color = "up-kr" if is_up else "down-kr" if is_dn else ""
                             _badges_html = _kr_stock_badges_html(price_kr)
