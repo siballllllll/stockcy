@@ -2896,6 +2896,10 @@ def show_favorites_center():
             
     st.markdown("---")
     
+    col_fav_title, col_fav_btn = st.columns([4, 1])
+    with col_fav_btn:
+        if st.button("🔄 최신 주가 갱신하기", use_container_width=True):
+            st.rerun()
     from db import load_favorites, remove_favorite
     favs, msg = load_favorites()
     
