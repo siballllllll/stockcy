@@ -418,7 +418,6 @@ def _us_echarts_chart(ticker: str, interval: str = "5", height: int = 600, perio
                         "silent": True,
                         "data": _mark_areas
                     },
-                    **({"markLine": _build_markline(markers)} if markers else {})
                 },
                 {"name": "MA5", "type": "line", "data": ma5, "smooth": True, "showSymbol": False, "lineStyle": {"width": 1, "color": "#f5c518"}},
                 {"name": "MA20", "type": "line", "data": ma20, "smooth": True, "showSymbol": False, "lineStyle": {"width": 1, "color": "#f06292"}},
@@ -430,10 +429,12 @@ def _us_echarts_chart(ticker: str, interval: str = "5", height: int = 600, perio
                     "itemStyle": {
                         "color": "#ff4b4b", "color0": "#2b7cff"
                     }
-                }
+                },
+                *(_build_marker_series(markers, category_data) if markers else [])
             ]
         }
-        st_echarts(options=options, height=f"500px", key=f"us_echart_{ticker}_{interval}_{period}")
+        _marker_hash = str(sorted(markers.items())) if markers else "none"
+        st_echarts(options=options, height=f"500px", key=f"us_echart_{ticker}_{interval}_{period}_{hash(_marker_hash) & 0xFFFF}")
 
 def _kr_echarts_chart(stock_code: str, interval: str = "1", height: int = 600, period: str = "150", markers: dict | None = None):
     """Apache ECharts 기반 국내 주식 차트 (캔들 + 거래량 분리)"""
