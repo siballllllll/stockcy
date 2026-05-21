@@ -16,7 +16,17 @@ import { StockModal } from "@/components/ui/StockModal";
 import type { StockInfo } from "@/components/ui/StockModal";
 import { useSSE } from "@/hooks/useSSE";
 
-// ── 즐겨찾기 행 ───────────────────────────────────────────────────────────────
+// ── 현황 안내 배지 ────────────────────────────────────────────────────────────
+function getStatusInfo(pct: number | null) {
+  if (pct === null) return null;
+  if (pct >= 5)  return { label: "🔴 급등",  color: "#ff6b6b", bg: "rgba(255,60,60,0.12)",   border: "rgba(255,60,60,0.35)" };
+  if (pct >= 2)  return { label: "🟢 상승",  color: "#4ade80", bg: "rgba(74,222,128,0.12)",   border: "rgba(74,222,128,0.35)" };
+  if (pct >= -2) return { label: "⚪ 관망",  color: "var(--color-muted)", bg: "rgba(150,150,150,0.10)", border: "rgba(150,150,150,0.25)" };
+  if (pct >= -5) return { label: "🟡 바닥권", color: "#facc15", bg: "rgba(250,204,21,0.12)",  border: "rgba(250,204,21,0.35)" };
+  return           { label: "🔵 급락",  color: "#60a5fa", bg: "rgba(96,165,250,0.12)",   border: "rgba(96,165,250,0.35)" };
+}
+
+// ── 즐겨찾기 카드 ─────────────────────────────────────────────────────────────
 function FavRow({ fav, price, onRemove, onAnalyze }: {
   fav: Favorite;
   price?: { price: number; change_pct: number } | null;
@@ -24,47 +34,78 @@ function FavRow({ fav, price, onRemove, onAnalyze }: {
   onAnalyze: (s: StockInfo) => void;
 }) {
   const router = useRouter();
-  const isKr = fav["시장"] === "국내";
-  const up   = (price?.change_pct ?? 0) > 0;
-  const down = (price?.change_pct ?? 0) < 0;
-  const color = up ? "var(--color-up)" : down ? "var(--color-down)" : "var(--color-flat)";
+  const isKr   = fav["시장"] === "국내";
+  const pct    = price?.change_pct ?? null;
+  const up     = (pct ?? 0) > 0;
+  const down   = (pct ?? 0) < 0;
+  const color  = up ? "var(--color-up)" : down ? "var(--color-down)" : "var(--color-flat)";
+  const status = getStatusInfo(pct);
 
   return (
-    <tr>
-      <td>
-        <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-          <Star size={13} style={{ color: "var(--color-warning)", fill: "var(--color-warning)" }} />
-          <span style={{ fontWeight: 500 }}>{fav["종목명"]}</span>
-          <span style={{ fontSize: "0.72rem", color: "var(--color-muted)" }}>({fav["티커"]})</span>
-        </div>
-      </td>
-      <td><Badge variant={isKr ? "info" : "success"}>{fav["시장"]}</Badge></td>
-      <td style={{ textAlign: "right", fontWeight: 600 }}>
-        {price
-          ? isKr ? `₩${price.price.toLocaleString()}` : `$${price.price.toFixed(2)}`
-          : <span className="skeleton" style={{ display: "inline-block", width: "60px", height: "1rem" }} />
-        }
-      </td>
-      <td style={{ textAlign: "right", color }}>
-        {price ? `${up ? "+" : ""}${price.change_pct.toFixed(2)}%` : "—"}
-      </td>
-      <td>
-        <div style={{ display: "flex", gap: "4px" }}>
-          <button className="stockcy-btn stockcy-btn-secondary" style={{ padding: "2px 8px", fontSize: "0.72rem" }} title="차트 보기"
-            onClick={() => router.push(`/search?q=${fav["티커"]}${isKr ? "" : "&market=US"}`)}>
-            <BarChart2 size={11} />
-          </button>
-          <button className="stockcy-btn stockcy-btn-secondary" style={{ padding: "2px 8px", fontSize: "0.72rem" }} title="AI 분석"
-            onClick={() => onAnalyze({ code: fav["티커"], name: fav["종목명"], market: fav["시장"] as "국내" | "미국" })}>
-            <Zap size={11} />
-          </button>
-          <button className="stockcy-btn stockcy-btn-secondary" style={{ padding: "2px 8px", fontSize: "0.72rem" }}
-            onClick={() => onRemove(fav["티커"])}>
-            <Trash2 size={11} />
-          </button>
-        </div>
-      </td>
-    </tr>
+    <div style={{
+      background: "var(--color-surface)",
+      border: "1px solid var(--color-border)",
+      borderRadius: "10px",
+      padding: "12px 14px",
+      display: "flex", flexDirection: "column", gap: "8px",
+    }}>
+      {/* 제목 행 */}
+      <div style={{ display: "flex", alignItems: "center", gap: "5px" }}>
+        <Star size={12} style={{ color: "var(--color-warning)", fill: "var(--color-warning)", flexShrink: 0 }} />
+        <span style={{ fontWeight: 700, fontSize: "0.9rem" }}>{fav["종목명"]}</span>
+        <span style={{ fontSize: "0.7rem", color: "var(--color-muted)" }}>({fav["티커"]})</span>
+      </div>
+
+      {/* 시세 + 현황 배지 */}
+      <div style={{ display: "flex", alignItems: "center", gap: "7px", flexWrap: "wrap" }}>
+        <Badge variant={isKr ? "info" : "success"}>{fav["시장"]}</Badge>
+        <span style={{ fontWeight: 700, fontSize: "0.88rem" }}>
+          {price
+            ? isKr ? `₩${price.price.toLocaleString()}` : `$${price.price.toFixed(2)}`
+            : <span style={{ color: "var(--color-muted)", fontWeight: 400, fontSize: "0.8rem" }}>로딩중...</span>
+          }
+        </span>
+        {price && (
+          <span style={{ color, fontSize: "0.8rem", fontWeight: 600 }}>
+            {up ? "+" : ""}{pct!.toFixed(2)}%
+          </span>
+        )}
+        {status && (
+          <span style={{
+            fontSize: "0.7rem", padding: "2px 8px", borderRadius: "99px",
+            background: status.bg, color: status.color, fontWeight: 700,
+            border: `1px solid ${status.border}`,
+          }}>
+            {status.label}
+          </span>
+        )}
+      </div>
+
+      {/* 버튼 행 */}
+      <div style={{ display: "flex", gap: "5px" }}>
+        <button
+          className="stockcy-btn stockcy-btn-secondary"
+          style={{ flex: 1, padding: "5px 4px", fontSize: "0.71rem", display: "flex", alignItems: "center", justifyContent: "center", gap: "3px" }}
+          onClick={() => router.push(`/search?q=${fav["티커"]}${isKr ? "&market=KR" : "&market=US"}`)}
+        >
+          <BarChart2 size={11} /> 차트보기
+        </button>
+        <button
+          className="stockcy-btn stockcy-btn-secondary"
+          style={{ flex: 1, padding: "5px 4px", fontSize: "0.71rem", display: "flex", alignItems: "center", justifyContent: "center", gap: "3px" }}
+          onClick={() => onAnalyze({ code: fav["티커"], name: fav["종목명"], market: fav["시장"] as "국내" | "미국" })}
+        >
+          <Zap size={11} /> AI분석
+        </button>
+        <button
+          className="stockcy-btn"
+          style={{ flex: 1, padding: "5px 4px", fontSize: "0.71rem", display: "flex", alignItems: "center", justifyContent: "center", gap: "3px", border: "1px solid rgba(255,60,60,0.35)", color: "var(--color-danger)", background: "rgba(255,60,60,0.06)" }}
+          onClick={() => { if (window.confirm(`${fav["종목명"]} 즐겨찾기에서 삭제할까요?`)) onRemove(fav["티커"]); }}
+        >
+          <Trash2 size={11} /> 삭제
+        </button>
+      </div>
+    </div>
   );
 }
 
@@ -451,11 +492,46 @@ function PortfolioTab() {
               <Loader2 className="animate-spin" size={16} /> {sellMsg}
             </div>
           )}
-          {sellStatus === "done" && (
-            <pre style={{ fontSize: "0.8rem", color: "var(--color-subtle)", whiteSpace: "pre-wrap", wordBreak: "break-word", background: "rgba(0,0,0,0.2)", padding: "12px", borderRadius: "6px" }}>
-              {sellResult}
-            </pre>
-          )}
+          {sellStatus === "done" && (() => {
+            let parsed: any = null;
+            try { parsed = JSON.parse(sellResult); } catch {}
+            if (!parsed) return (
+              <pre style={{ fontSize: "0.8rem", color: "var(--color-subtle)", whiteSpace: "pre-wrap", wordBreak: "break-word", background: "rgba(0,0,0,0.2)", padding: "12px", borderRadius: "6px" }}>{sellResult}</pre>
+            );
+            return (
+              <div style={{ display: "flex", flexDirection: "column", gap: "10px", fontSize: "0.84rem" }}>
+                {parsed.verdict && (
+                  <div style={{ padding: "8px 14px", background: "rgba(99,102,241,0.12)", border: "1px solid rgba(99,102,241,0.3)", borderRadius: "8px", fontWeight: 700, fontSize: "0.97rem" }}>
+                    📋 판단: {parsed.verdict}
+                  </div>
+                )}
+                {parsed.timing && (
+                  <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
+                    <div style={{ fontWeight: 600, fontSize: "0.73rem", color: "var(--color-muted)", textTransform: "uppercase", letterSpacing: "0.05em" }}>⏰ 매도 타이밍</div>
+                    <div style={{ lineHeight: 1.6, color: "var(--color-text)" }}>{parsed.timing}</div>
+                  </div>
+                )}
+                {parsed.target_exit && (
+                  <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
+                    <div style={{ fontWeight: 600, fontSize: "0.73rem", color: "var(--color-muted)", textTransform: "uppercase", letterSpacing: "0.05em" }}>🎯 목표 매도가</div>
+                    <div style={{ fontWeight: 600, color: "var(--color-text)" }}>{parsed.target_exit}</div>
+                  </div>
+                )}
+                {parsed.reason && (
+                  <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
+                    <div style={{ fontWeight: 600, fontSize: "0.73rem", color: "var(--color-muted)", textTransform: "uppercase", letterSpacing: "0.05em" }}>📊 분석 근거</div>
+                    <div style={{ whiteSpace: "pre-line", lineHeight: 1.65, color: "var(--color-subtle)" }}>{parsed.reason}</div>
+                  </div>
+                )}
+                {parsed.risk && (
+                  <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
+                    <div style={{ fontWeight: 600, fontSize: "0.73rem", color: "var(--color-muted)", textTransform: "uppercase", letterSpacing: "0.05em" }}>⚠️ 주요 리스크</div>
+                    <div style={{ lineHeight: 1.65, color: "var(--color-subtle)" }}>{parsed.risk}</div>
+                  </div>
+                )}
+              </div>
+            );
+          })()}
           {sellStatus === "error" && <StatusBox type="danger">{sellMsg}</StatusBox>}
         </div>
       )}
@@ -807,21 +883,11 @@ export default function FavoritesPage() {
             {isLoading ? <Skeleton height="150px" /> : !favs || favs.length === 0 ? (
               <StatusBox type="info">즐겨찾기에 등록된 종목이 없습니다.</StatusBox>
             ) : (
-              <table className="stockcy-table">
-                <thead>
-                  <tr>
-                    <th>종목명</th><th>시장</th>
-                    <th style={{ textAlign: "right" }}>현재가</th>
-                    <th style={{ textAlign: "right" }}>등락률</th>
-                    <th></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {favs.map((f) => (
-                    <FavRow key={f["티커"]} fav={f} price={priceMap[f["티커"]] ?? null} onRemove={handleRemove} onAnalyze={setSelectedStock} />
-                  ))}
-                </tbody>
-              </table>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))", gap: "10px" }}>
+                {favs.map((f) => (
+                  <FavRow key={f["티커"]} fav={f} price={priceMap[f["티커"]] ?? null} onRemove={handleRemove} onAnalyze={setSelectedStock} />
+                ))}
+              </div>
             )}
           </Card>
 
