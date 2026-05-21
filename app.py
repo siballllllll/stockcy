@@ -3088,7 +3088,47 @@ def main():
             _st_autorefresh(interval=600000, limit=None, key="stockcy_refresh")
     init_session_state()
     inject_custom_css()
-    
+
+    # ── 가격 알림 체크 (5분 간격, 텔레그램 전송) ────────────────────────
+    _alert_check_key = "_price_alert_last_check"
+    _alert_now = datetime.now()
+    _should_check_alerts = (
+        _alert_check_key not in st.session_state or
+        (_alert_now - st.session_state[_alert_check_key]).total_seconds() > 300
+    )
+    if _should_check_alerts:
+        st.session_state[_alert_check_key] = _alert_now
+        try:
+            from db import load_price_alerts, delete_price_alert
+            from telegram_bot import send_price_alert
+            _active_alerts = load_price_alerts()
+            for _al in _active_alerts:
+                try:
+                    _tp = float(_al["target_price"])
+                    if _tp <= 0:
+                        continue
+                    _cp = 0.0
+                    if _al["market"] == "국내":
+                        _pi = get_kr_stock_price(_al["ticker"])
+                        _cp = float(_pi.get("price", 0) or 0) if _pi else 0.0
+                    else:
+                        _ud = get_us_stock_detail(_al["ticker"])
+                        _cp = float(_ud.get("price", 0) or 0) if _ud else 0.0
+                    if _cp <= 0:
+                        continue
+                    _at = _al["alert_type"]
+                    _triggered = (
+                        (_at in ("상승돌파", "매수진입") and _cp >= _tp) or
+                        (_at == "하락돌파" and _cp <= _tp)
+                    )
+                    if _triggered:
+                        send_price_alert(_al["market"], _al["ticker"], _al["name"], _at, _cp, _tp)
+                        delete_price_alert(_al["ticker"], _at)
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
     # ── 무거운 데이터 맵 사전 로드 (세션 캐싱) ───────────────────────────
     # @st.cache_data(ttl=86400) 서버 공유 캐시 → 첫 로드 후 24h 즉시 반환
     if not st.session_state.get("kr_name_to_code"):
@@ -4709,6 +4749,40 @@ def main():
                                             f"</div>",
                                             unsafe_allow_html=True,
                                         )
+
+                                    # ── 가격 알림 설정 ────────────────────────────
+                                    with st.expander("🔔 가격 알림 설정", expanded=False):
+                                        from db import save_price_alert, load_price_alerts, delete_price_alert
+                                        from telegram_bot import is_configured as _tg_ok
+                                        if not _tg_ok():
+                                            st.info("텔레그램 미설정 — secrets.toml에 `[telegram]` 섹션을 추가하면 알림을 받을 수 있습니다.")
+                                        _al_list_kr = [a for a in load_price_alerts() if a["ticker"] == selected_code_kr]
+                                        if _al_list_kr:
+                                            st.caption("📌 활성 알림")
+                                            for _al_item in _al_list_kr:
+                                                _al_c1, _al_c2 = st.columns([4, 1])
+                                                _al_c1.markdown(f"**{_al_item['alert_type']}** &nbsp; ₩{int(_al_item['target_price']):,}")
+                                                if _al_c2.button("삭제", key=f"del_al_kr_{selected_code_kr}_{_al_item['alert_type']}"):
+                                                    delete_price_alert(selected_code_kr, _al_item["alert_type"])
+                                                    st.rerun()
+                                        _al_type_kr = st.selectbox(
+                                            "알림 유형",
+                                            ["상승돌파", "하락돌파", "매수진입"],
+                                            key=f"al_type_kr_{selected_code_kr}",
+                                            help="상승돌파: 현재가≥목표가 / 하락돌파: 현재가≤목표가 / 매수진입: 상승돌파와 동일",
+                                        )
+                                        _al_price_kr = st.number_input(
+                                            "목표가 (₩)", min_value=1,
+                                            value=int(price_kr["price"]),
+                                            step=100, key=f"al_price_kr_{selected_code_kr}",
+                                        )
+                                        if st.button("알림 설정", type="primary", use_container_width=True,
+                                                     key=f"al_set_kr_{selected_code_kr}"):
+                                            _ok, _msg = save_price_alert("국내", selected_code_kr, _real_name, _al_type_kr, _al_price_kr)
+                                            if _ok:
+                                                st.success(_msg)
+                                            else:
+                                                st.error(_msg)
 
                                 # ── 단기 / 중기 / 장기 추천 분석 ─────────────────
                                 _chg  = price_kr.get("change_pct", 0) or 0
@@ -7242,6 +7316,43 @@ def main():
                                             f"<span>최고 ${_uwh:,.2f}</span></div>",
                                             unsafe_allow_html=True,
                                         )
+
+                                    # ── 가격 알림 설정 ────────────────────────────
+                                    with st.expander("🔔 가격 알림 설정", expanded=False):
+                                        from db import save_price_alert, load_price_alerts, delete_price_alert
+                                        from telegram_bot import is_configured as _tg_ok
+                                        _us_tk = st.session_state.us_selected_ticker
+                                        if not _tg_ok():
+                                            st.info("텔레그램 미설정 — secrets.toml에 `[telegram]` 섹션을 추가하면 알림을 받을 수 있습니다.")
+                                        _al_list_us = [a for a in load_price_alerts() if a["ticker"] == _us_tk]
+                                        if _al_list_us:
+                                            st.caption("📌 활성 알림")
+                                            for _al_item in _al_list_us:
+                                                _al_c1, _al_c2 = st.columns([4, 1])
+                                                _al_c1.markdown(f"**{_al_item['alert_type']}** &nbsp; ${_al_item['target_price']:,.2f}")
+                                                if _al_c2.button("삭제", key=f"del_al_us_{_us_tk}_{_al_item['alert_type']}"):
+                                                    delete_price_alert(_us_tk, _al_item["alert_type"])
+                                                    st.rerun()
+                                        _al_type_us = st.selectbox(
+                                            "알림 유형",
+                                            ["상승돌파", "하락돌파", "매수진입"],
+                                            key=f"al_type_us_{_us_tk}",
+                                            help="상승돌파: 현재가≥목표가 / 하락돌파: 현재가≤목표가",
+                                        )
+                                        _al_price_us = st.number_input(
+                                            "목표가 ($)", min_value=0.01,
+                                            value=float(detail_us["price"]),
+                                            step=0.5, format="%.2f",
+                                            key=f"al_price_us_{_us_tk}",
+                                        )
+                                        if st.button("알림 설정", type="primary", use_container_width=True,
+                                                     key=f"al_set_us_{_us_tk}"):
+                                            _ok, _msg = save_price_alert("미국", _us_tk, detail_us["name"], _al_type_us, _al_price_us)
+                                            if _ok:
+                                                st.success(_msg)
+                                            else:
+                                                st.error(_msg)
+
                                 # ── 연장 거래 시간 (프리/애프터마켓) ──
                                 _pre_p  = detail_us.get("pre_price", 0) or 0
                                 _pre_c  = detail_us.get("pre_pct", 0) or 0
@@ -9283,6 +9394,26 @@ def main():
 
     with tab3:
         st.subheader("🔧 관리자")
+
+        st.markdown("### 🔔 텔레그램 알림")
+        from telegram_bot import is_configured as _tg_configured, send_message as _tg_send
+        if _tg_configured():
+            st.success("텔레그램 연결됨")
+            if st.button("📨 테스트 메시지 전송", key="tg_test_btn"):
+                _ok = _tg_send("✅ <b>스톡시 텔레그램 알림</b>\n연결 테스트 메시지입니다.")
+                if _ok:
+                    st.success("전송 성공!")
+                else:
+                    st.error("전송 실패 — bot_token / chat_id를 확인해주세요.")
+        else:
+            st.warning("텔레그램 미설정")
+            st.markdown(
+                "**설정 방법:**\n"
+                "1. [@BotFather](https://t.me/BotFather) 에서 봇 생성 → `bot_token` 복사\n"
+                "2. 봇과 대화 후 `https://api.telegram.org/bot<TOKEN>/getUpdates` 접속 → `chat.id` 확인\n"
+                "3. `secrets.toml`에 아래 추가:\n"
+            )
+            st.code("[telegram]\nbot_token = \"1234567890:AAFxxxxxx\"\nchat_id = \"123456789\"", language="toml")
 
         st.markdown("### ☁️ Google Sheets 연동")
         st.info("`secrets.toml`에 구글 시트 서비스 계정 정보(gspread 섹션)가 등록되어야 합니다.")

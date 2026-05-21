@@ -988,6 +988,85 @@ def save_stock_analysis_history(market: str, ticker: str, name: str, current_pri
         return False
 
 
+def save_price_alert(market: str, ticker: str, name: str,
+                     alert_type: str, target_price: float) -> tuple:
+    """가격 알림을 '알림설정' 탭에 저장합니다. 동일 ticker+alert_type은 덮어씁니다."""
+    sh, msg = _get_spreadsheet()
+    if not sh:
+        return False, msg
+    try:
+        headers = ["설정시간", "시장", "티커", "종목명", "알림유형", "목표가", "상태"]
+        ws = _get_or_create_worksheet(sh, "알림설정", headers)
+        existing = ws.get_all_records()
+        for i in range(len(existing) - 1, -1, -1):
+            r = existing[i]
+            if str(r.get("티커")) == str(ticker) and r.get("알림유형") == alert_type:
+                ws.delete_rows(i + 2)
+                break
+        ws.append_row([
+            datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            market, ticker, name, alert_type,
+            round(float(target_price), 4),
+            "활성",
+        ])
+        return True, f"[{name}] {alert_type} 알림이 설정되었습니다."
+    except Exception as e:
+        return False, f"알림 저장 오류: {e}"
+
+
+def load_price_alerts() -> list:
+    """'알림설정' 탭에서 활성 알림 목록을 반환합니다."""
+    sh, _ = _get_spreadsheet()
+    if not sh:
+        return []
+    try:
+        ws = sh.worksheet("알림설정")
+        records = ws.get_all_records()
+        result = []
+        for r in records:
+            if str(r.get("상태", "")) != "활성":
+                continue
+            ticker = str(r.get("티커", ""))
+            if ticker.isdigit() and len(ticker) < 6:
+                ticker = ticker.zfill(6)
+            try:
+                tp = float(str(r.get("목표가", 0)).replace(",", ""))
+            except (ValueError, TypeError):
+                tp = 0.0
+            result.append({
+                "market":     str(r.get("시장", "")),
+                "ticker":     ticker,
+                "name":       str(r.get("종목명", "")),
+                "alert_type": str(r.get("알림유형", "")),
+                "target_price": tp,
+            })
+        return result
+    except gspread.WorksheetNotFound:
+        return []
+    except Exception:
+        return []
+
+
+def delete_price_alert(ticker: str, alert_type: str) -> tuple:
+    """'알림설정' 탭에서 특정 알림을 삭제합니다."""
+    sh, msg = _get_spreadsheet()
+    if not sh:
+        return False, msg
+    try:
+        ws = sh.worksheet("알림설정")
+        records = ws.get_all_records()
+        for i in range(len(records) - 1, -1, -1):
+            r = records[i]
+            if str(r.get("티커")) == str(ticker) and r.get("알림유형") == alert_type:
+                ws.delete_rows(i + 2)
+                return True, "알림이 삭제되었습니다."
+        return False, "알림을 찾을 수 없습니다."
+    except gspread.WorksheetNotFound:
+        return False, "알림설정 탭이 없습니다."
+    except Exception as e:
+        return False, f"삭제 오류: {e}"
+
+
 def load_stock_analysis_history(ticker: str, limit: int = 10) -> list[dict]:
     """'종목분석이력' 탭에서 해당 티커의 최근 분석 기록을 반환합니다 (오래된→최신 순)."""
     sh, _ = _get_spreadsheet()
