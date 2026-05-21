@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import useSWR from "swr";
 import { Globe, TrendingUp, AlertTriangle, DollarSign, Loader2, ChevronDown, ChevronUp, RefreshCw, X } from "lucide-react";
@@ -16,6 +16,9 @@ interface StockEntry {
   valuation_note?: string;
   signal: string;
   signal_reason: string;
+  buy_target?: string;
+  sell_target?: string;
+  stop_loss?: string;
 }
 
 interface ThemeStock {
@@ -75,10 +78,12 @@ function isKrTicker(ticker: string) {
 }
 
 function signalColor(signal: string): string {
-  if (signal === "매우 강력 추천") return "var(--color-danger)";
-  if (signal === "추천")           return "var(--color-success)";
-  if (signal === "중간추천")       return "var(--color-warning)";
-  return "var(--color-primary)";
+  if (signal === "매우 강력 추천") return "#00c853";
+  if (signal === "추천")           return "#69f0ae";
+  if (signal === "중간추천")       return "#ffd740";
+  if (signal === "비추천")         return "#ff7043";
+  if (signal === "매우 비추천")    return "#f44336";
+  return "var(--color-muted)";
 }
 
 async function readSSE(
@@ -158,12 +163,22 @@ function MarketBadge({ ticker }: { ticker: string }) {
 }
 
 // ── 종목 카드 행 (상승/하락) ───────────────────────────────────────────────────
-function StockRow({ stock, onClick }: { stock: StockEntry; onClick: () => void }) {
+type PriceEntry = { price: number; change_pct: number };
+
+function StockRow({ stock, priceEntry, onClick }: {
+  stock: StockEntry;
+  priceEntry?: PriceEntry | null;
+  onClick: () => void;
+}) {
+  const isKr = isKrTicker(stock.ticker);
+  const up   = (priceEntry?.change_pct ?? 0) >= 0;
+  const hasTargets = stock.buy_target || stock.sell_target || stock.stop_loss;
+
   return (
     <div
       onClick={onClick}
       style={{
-        display: "flex", flexDirection: "column", gap: "4px",
+        display: "flex", flexDirection: "column", gap: "5px",
         padding: "10px 12px",
         background: "rgba(0,0,0,0.2)",
         borderRadius: "6px",
@@ -174,30 +189,73 @@ function StockRow({ stock, onClick }: { stock: StockEntry; onClick: () => void }
       onMouseEnter={e => (e.currentTarget.style.borderColor = "var(--color-accent)")}
       onMouseLeave={e => (e.currentTarget.style.borderColor = "var(--color-border)")}
     >
-      <div style={{ display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap" }}>
-        <span style={{ fontWeight: 700, fontSize: "0.9rem" }}>{stock.name}</span>
-        <span style={{ fontSize: "0.72rem", color: "var(--color-muted)" }}>({stock.ticker})</span>
-        <MarketBadge ticker={stock.ticker} />
-        <SignalBadge signal={stock.signal} />
+      {/* 종목명 + 배지 + 현재가 */}
+      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: "6px" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "5px", flexWrap: "wrap", flex: 1 }}>
+          <span style={{ fontWeight: 700, fontSize: "0.88rem" }}>{stock.name}</span>
+          <span style={{ fontSize: "0.7rem", color: "var(--color-muted)" }}>({stock.ticker})</span>
+          <MarketBadge ticker={stock.ticker} />
+          {stock.signal && <SignalBadge signal={stock.signal} />}
+        </div>
+        {/* 현재가 */}
+        {priceEntry && priceEntry.price > 0 && (
+          <div style={{ textAlign: "right", flexShrink: 0, minWidth: "70px" }}>
+            <div style={{ fontWeight: 700, fontSize: "0.8rem", color: "var(--color-text)" }}>
+              {isKr ? `₩${priceEntry.price.toLocaleString()}` : `$${priceEntry.price.toFixed(2)}`}
+            </div>
+            <div style={{ fontSize: "0.72rem", fontWeight: 700, color: up ? "var(--color-danger)" : "var(--color-primary)" }}>
+              {up ? "▲" : "▼"} {Math.abs(priceEntry.change_pct).toFixed(2)}%
+            </div>
+          </div>
+        )}
       </div>
+
       {stock.signal_reason && (
-        <div style={{ fontSize: "0.78rem", color: "var(--color-text)", fontWeight: 600 }}>{stock.signal_reason}</div>
+        <div style={{ fontSize: "0.76rem", color: "var(--color-text)", fontWeight: 600 }}>{stock.signal_reason}</div>
       )}
-      <div style={{ fontSize: "0.75rem", color: "var(--color-muted)" }}>{stock.reason}</div>
+      <div style={{ fontSize: "0.74rem", color: "var(--color-muted)", lineHeight: 1.4 }}>{stock.reason}</div>
       {stock.valuation_note && (
-        <div style={{ fontSize: "0.72rem", color: "var(--color-muted)", fontStyle: "italic" }}>{stock.valuation_note}</div>
+        <div style={{ fontSize: "0.71rem", color: "var(--color-muted)", fontStyle: "italic" }}>{stock.valuation_note}</div>
+      )}
+
+      {/* 매수타점 / 목표가 / 손절선 */}
+      {hasTargets && (
+        <div style={{
+          display: "flex", gap: "8px", flexWrap: "wrap", marginTop: "2px",
+          background: "rgba(0,0,0,0.25)", borderRadius: "5px", padding: "6px 8px",
+          fontSize: "0.72rem",
+        }}
+          onClick={e => e.stopPropagation()}
+        >
+          {stock.buy_target && (
+            <span>💰 매수 <strong style={{ color: "#69f0ae" }}>{stock.buy_target}</strong></span>
+          )}
+          {stock.sell_target && (
+            <span>🎯 목표 <strong style={{ color: "#ff6b6b" }}>{stock.sell_target}</strong></span>
+          )}
+          {stock.stop_loss && (
+            <span>🛡️ 손절 <strong style={{ color: "#60a5fa" }}>{stock.stop_loss}</strong></span>
+          )}
+        </div>
       )}
     </div>
   );
 }
 
 // ── 테마주 카드 ───────────────────────────────────────────────────────────────
-function ThemeStockRow({ stock, onClick }: { stock: ThemeStock; onClick: () => void }) {
+function ThemeStockRow({ stock, priceEntry, onClick }: {
+  stock: ThemeStock;
+  priceEntry?: PriceEntry | null;
+  onClick: () => void;
+}) {
+  const isKr = isKrTicker(stock.ticker);
+  const up   = (priceEntry?.change_pct ?? 0) >= 0;
+
   return (
     <div
       onClick={onClick}
       style={{
-        display: "flex", flexDirection: "column", gap: "4px",
+        display: "flex", flexDirection: "column", gap: "5px",
         padding: "10px 12px",
         background: "rgba(0,0,0,0.2)",
         borderRadius: "6px",
@@ -208,25 +266,37 @@ function ThemeStockRow({ stock, onClick }: { stock: ThemeStock; onClick: () => v
       onMouseEnter={e => (e.currentTarget.style.borderColor = "var(--color-accent)")}
       onMouseLeave={e => (e.currentTarget.style.borderColor = "var(--color-border)")}
     >
-      <div style={{ display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap" }}>
-        <span style={{ fontWeight: 700, fontSize: "0.9rem" }}>{stock.name}</span>
-        <span style={{ fontSize: "0.72rem", color: "var(--color-muted)" }}>({stock.ticker})</span>
-        <MarketBadge ticker={stock.ticker} />
-        <span style={{
-          display: "inline-block", padding: "1px 7px", borderRadius: "10px", fontSize: "0.7rem", fontWeight: 700,
-          background: stock.type === "직접관련주" ? "rgba(255,180,50,0.15)" : "rgba(180,100,255,0.15)",
-          border: stock.type === "직접관련주" ? "1px solid var(--color-warning)" : "1px solid rgba(180,100,255,0.6)",
-          color: stock.type === "직접관련주" ? "var(--color-warning)" : "#c084fc",
-        }}>
-          {stock.type}
-        </span>
+      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: "6px" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "5px", flexWrap: "wrap", flex: 1 }}>
+          <span style={{ fontWeight: 700, fontSize: "0.88rem" }}>{stock.name}</span>
+          <span style={{ fontSize: "0.7rem", color: "var(--color-muted)" }}>({stock.ticker})</span>
+          <MarketBadge ticker={stock.ticker} />
+          <span style={{
+            display: "inline-block", padding: "1px 7px", borderRadius: "10px", fontSize: "0.7rem", fontWeight: 700,
+            background: stock.type === "직접관련주" ? "rgba(255,180,50,0.15)" : "rgba(180,100,255,0.15)",
+            border: stock.type === "직접관련주" ? "1px solid var(--color-warning)" : "1px solid rgba(180,100,255,0.6)",
+            color: stock.type === "직접관련주" ? "var(--color-warning)" : "#c084fc",
+          }}>
+            {stock.type}
+          </span>
+        </div>
+        {priceEntry && priceEntry.price > 0 && (
+          <div style={{ textAlign: "right", flexShrink: 0, minWidth: "70px" }}>
+            <div style={{ fontWeight: 700, fontSize: "0.8rem", color: "var(--color-text)" }}>
+              {isKr ? `₩${priceEntry.price.toLocaleString()}` : `$${priceEntry.price.toFixed(2)}`}
+            </div>
+            <div style={{ fontSize: "0.72rem", fontWeight: 700, color: up ? "var(--color-danger)" : "var(--color-primary)" }}>
+              {up ? "▲" : "▼"} {Math.abs(priceEntry.change_pct).toFixed(2)}%
+            </div>
+          </div>
+        )}
       </div>
       {stock.historical_pattern && (
-        <div style={{ fontSize: "0.75rem", color: "var(--color-accent)", fontWeight: 600 }}>
+        <div style={{ fontSize: "0.74rem", color: "var(--color-accent)", fontWeight: 600 }}>
           과거 패턴: {stock.historical_pattern}
         </div>
       )}
-      <div style={{ fontSize: "0.75rem", color: "var(--color-muted)" }}>{stock.reason}</div>
+      <div style={{ fontSize: "0.74rem", color: "var(--color-muted)", lineHeight: 1.4 }}>{stock.reason}</div>
     </div>
   );
 }
@@ -391,6 +461,53 @@ function ScenarioContent({ scenario, issueTitle }: { scenario: Scenario; issueTi
   const usFalling  = scenario.falling_stocks?.filter(s => !isKrTicker(s.ticker))?? [];
   const themeStocks = scenario.theme_stocks ?? [];
 
+  // ── 실시간 현재가 조회 ─────────────────────────────────────────────────────
+  const allStocks = useMemo(() => [
+    ...(scenario.rising_stocks ?? []),
+    ...(scenario.falling_stocks ?? []),
+    ...(scenario.theme_stocks ?? []),
+  ], [scenario]);
+
+  const krTickers = useMemo(() =>
+    [...new Set(allStocks.map(s => s.ticker).filter(t => isKrTicker(t)))],
+    [allStocks]
+  );
+  const usTickers = useMemo(() =>
+    [...new Set(allStocks.map(s => s.ticker).filter(t => !isKrTicker(t)))],
+    [allStocks]
+  );
+
+  const { data: krPrices } = useSWR(
+    krTickers.length > 0 ? `sc-kr-prices-${krTickers.join(",")}` : null,
+    async () => {
+      const map: Record<string, PriceEntry> = {};
+      await Promise.all(krTickers.map(async (code) => {
+        try {
+          const d = await api.kr.stockPrice(code) as any;
+          if (d?.price) map[code] = { price: d.price, change_pct: d.change_pct ?? 0 };
+        } catch {}
+      }));
+      return map;
+    },
+    { revalidateOnFocus: false }
+  );
+
+  const { data: usPrices } = useSWR(
+    usTickers.length > 0 ? `sc-us-prices-${usTickers.join(",")}` : null,
+    async () => {
+      const arr = await api.us.stocks(usTickers) as any[];
+      const map: Record<string, PriceEntry> = {};
+      for (const s of (arr ?? [])) {
+        const ticker = s["심볼"] ?? s.ticker ?? "";
+        if (ticker) map[ticker] = { price: s["현재가($)"] ?? 0, change_pct: s["등락률(%)"] ?? 0 };
+      }
+      return map;
+    },
+    { revalidateOnFocus: false }
+  );
+
+  const priceMap: Record<string, PriceEntry> = { ...(krPrices ?? {}), ...(usPrices ?? {}) };
+
   const fetchDetail = async () => {
     setDetailStatus("loading");
     setDetailMsg("상세 분석 중...");
@@ -467,12 +584,14 @@ function ScenarioContent({ scenario, issueTitle }: { scenario: Scenario; issueTi
       {/* 상승 예상 종목 */}
       {(krRising.length > 0 || usRising.length > 0) && (
         <div>
-          <SectionHeader title="상승 예상 종목" count={(scenario.rising_stocks ?? []).length} />
+          <SectionHeader title="🟢 상승 수혜주" count={(scenario.rising_stocks ?? []).length} />
           {krRising.length > 0 && (
             <div style={{ marginBottom: "8px" }}>
               <div style={{ fontSize: "0.72rem", color: "var(--color-muted)", fontWeight: 700, marginBottom: "4px" }}>🇰🇷 국내</div>
               <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
-                {krRising.map((s, i) => <StockRow key={i} stock={s} onClick={() => navigate(s.ticker)} />)}
+                {krRising.map((s, i) => (
+                  <StockRow key={i} stock={s} priceEntry={priceMap[s.ticker]} onClick={() => navigate(s.ticker)} />
+                ))}
               </div>
             </div>
           )}
@@ -480,7 +599,9 @@ function ScenarioContent({ scenario, issueTitle }: { scenario: Scenario; issueTi
             <div>
               <div style={{ fontSize: "0.72rem", color: "var(--color-muted)", fontWeight: 700, marginBottom: "4px" }}>🇺🇸 미국</div>
               <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
-                {usRising.map((s, i) => <StockRow key={i} stock={s} onClick={() => navigate(s.ticker)} />)}
+                {usRising.map((s, i) => (
+                  <StockRow key={i} stock={s} priceEntry={priceMap[s.ticker]} onClick={() => navigate(s.ticker)} />
+                ))}
               </div>
             </div>
           )}
@@ -490,12 +611,14 @@ function ScenarioContent({ scenario, issueTitle }: { scenario: Scenario; issueTi
       {/* 하락 예상 종목 */}
       {(krFalling.length > 0 || usFalling.length > 0) && (
         <div>
-          <SectionHeader title="하락 예상 종목" count={(scenario.falling_stocks ?? []).length} />
+          <SectionHeader title="🔴 하락 위험주" count={(scenario.falling_stocks ?? []).length} />
           {krFalling.length > 0 && (
             <div style={{ marginBottom: "8px" }}>
               <div style={{ fontSize: "0.72rem", color: "var(--color-muted)", fontWeight: 700, marginBottom: "4px" }}>🇰🇷 국내</div>
               <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
-                {krFalling.map((s, i) => <StockRow key={i} stock={s} onClick={() => navigate(s.ticker)} />)}
+                {krFalling.map((s, i) => (
+                  <StockRow key={i} stock={s} priceEntry={priceMap[s.ticker]} onClick={() => navigate(s.ticker)} />
+                ))}
               </div>
             </div>
           )}
@@ -503,7 +626,9 @@ function ScenarioContent({ scenario, issueTitle }: { scenario: Scenario; issueTi
             <div>
               <div style={{ fontSize: "0.72rem", color: "var(--color-muted)", fontWeight: 700, marginBottom: "4px" }}>🇺🇸 미국</div>
               <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
-                {usFalling.map((s, i) => <StockRow key={i} stock={s} onClick={() => navigate(s.ticker)} />)}
+                {usFalling.map((s, i) => (
+                  <StockRow key={i} stock={s} priceEntry={priceMap[s.ticker]} onClick={() => navigate(s.ticker)} />
+                ))}
               </div>
             </div>
           )}
@@ -513,9 +638,11 @@ function ScenarioContent({ scenario, issueTitle }: { scenario: Scenario; issueTi
       {/* 테마주 */}
       {themeStocks.length > 0 && (
         <div>
-          <SectionHeader title="테마주" count={themeStocks.length} />
+          <SectionHeader title="🔥 테마 연동주" count={themeStocks.length} />
           <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
-            {themeStocks.map((s, i) => <ThemeStockRow key={i} stock={s} onClick={() => navigate(s.ticker)} />)}
+            {themeStocks.map((s, i) => (
+              <ThemeStockRow key={i} stock={s} priceEntry={priceMap[s.ticker]} onClick={() => navigate(s.ticker)} />
+            ))}
           </div>
         </div>
       )}
