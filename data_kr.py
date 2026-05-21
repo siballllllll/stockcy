@@ -544,6 +544,7 @@ def _kis_minute_chart_raw(stock_code: str) -> pd.DataFrame:
             "/uapi/domestic-stock/v1/quotations/inquire-time-itemchartprice",
             "FHKST03010200",
             {
+                "FID_COND_MRKT_DIV_CODE": "J",
                 "FID_ETC_CLS_CODE": "",
                 "FID_INPUT_ISCD": stock_code,
                 "FID_INPUT_HOUR_1": _query_time,
