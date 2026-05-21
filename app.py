@@ -4267,13 +4267,32 @@ def main():
                             )
                             st.markdown(_card_html, unsafe_allow_html=True)
 
+                            # 타점 보드 인라인 차트 (매수·목표·손절 마커 포함)
+                            _pb_markers = {
+                                "buy":  float(_entry) if _entry > 0 else None,
+                                "sell": float(_target) if _target > 0 else None,
+                                "stop": float(_stop) if _stop > 0 else None,
+                            }
+                            _pb_chart_m = _pb_markers if any(v and v > 0 for v in _pb_markers.values()) else None
+                            _pb_chart_code = _pick.get("code", "")
+                            if _pb_chart_code:
+                                _kr_echarts_chart(_pb_chart_code, interval="5", height=340, markers=_pb_chart_m)
+
                             _pk_btn_c1, _pk_btn_c2 = st.columns(2)
                             with _pk_btn_c1:
                                 if st.button("상세 분석 →", key=f"pk_detail_{_pick.get('code',_sel_idx)}",
                                              use_container_width=True):
-                                    st.session_state.kr_selected_code = _pick.get("code", "005930")
+                                    _nav_code = _pick.get("code", "005930")
+                                    st.session_state.kr_selected_code = _nav_code
                                     st.session_state.kr_selected_name = _pick.get("name", "")
                                     st.session_state.kr_mode = "📊 일반 주식 검색"
+                                    # 타점 데이터로 마커 미리 세팅 (기존 AI 분석 결과가 없을 때만)
+                                    if not st.session_state.get(f"kr_report_{_nav_code}"):
+                                        st.session_state[f"kr_report_{_nav_code}"] = {
+                                            "buy_target": str(int(_entry)) if _entry > 0 else "",
+                                            "sell_target": str(int(_target)) if _target > 0 else "",
+                                            "stop_loss": str(int(_stop)) if _stop > 0 else "",
+                                        }
                                     st.rerun()
                             with _pk_btn_c2:
                                 if st.button("🔗 테마 연동", key=f"pk_theme_{_pick.get('code',_sel_idx)}",
@@ -4414,7 +4433,14 @@ def main():
                             else:
                                 st.markdown(f"{_real_dtv_name} ({_dtv_code})")
 
-                            _kr_echarts_chart(_dtv_code, interval="5", height=600)
+                            _dtv_rep = st.session_state.get(f"kr_report_{_dtv_code}", {})
+                            _dtv_raw_m = {
+                                "buy":  _parse_price_str(_dtv_rep.get("buy_target")),
+                                "sell": _parse_price_str(_dtv_rep.get("sell_target")),
+                                "stop": _parse_price_str(_dtv_rep.get("stop_loss")),
+                            }
+                            _dtv_chart_m = _dtv_raw_m if any(v and v > 0 for v in _dtv_raw_m.values()) else None
+                            _kr_echarts_chart(_dtv_code, interval="5", height=600, markers=_dtv_chart_m)
 
                         else:
                             # 섹터 목록 뷰 → KOSPI/KOSDAQ Toss 스타일 라인 차트
