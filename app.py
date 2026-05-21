@@ -2838,6 +2838,8 @@ def show_favorites_center():
             st.session_state._daily_brief_running = True
             _SCENARIO_TASKS["_daily_brief"] = {"status": "running", "msg": "🚀 준비 중..."}
             import threading
+            from streamlit.runtime.scriptrunner import add_script_run_ctx
+            
             def _run_brief():
                 try:
                     def _update(msg):
@@ -2848,7 +2850,9 @@ def show_favorites_center():
                 except Exception as e:
                     _SCENARIO_TASKS["_daily_brief"] = {"status": "error", "result": {"success": False, "msg": str(e)}}
             
-            threading.Thread(target=_run_brief, daemon=True).start()
+            t = threading.Thread(target=_run_brief, daemon=True)
+            add_script_run_ctx(t)
+            t.start()
             st.toast("💌 AI가 리포트 작성을 시작했습니다!", icon="⏳")
             
     if st.session_state.get("_daily_brief_running"):
