@@ -1,9 +1,10 @@
 "use client";
 import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
-import { Target, Filter, TrendingUp, AlertCircle, Clock, Activity, Loader2 } from "lucide-react";
+import { Target, Filter, TrendingUp, AlertCircle, Clock, Activity, Loader2, RefreshCw } from "lucide-react";
 import { connectSSE } from "@/lib/api";
 import { useMarket } from "@/lib/market-context";
+import { useAnalysisReady } from "@/lib/analysis-ready-context";
 
 export default function PicksPage() {
   const router = useRouter();
@@ -15,13 +16,14 @@ export default function PicksPage() {
   const [statusMsg, setStatusMsg] = useState("시장 데이터를 수집 중입니다...");
   const [data, setData] = useState<{ market_comment?: string; picks: any[] }>({ picks: [] });
 
+  const { setReady } = useAnalysisReady();
   const prevMarket = useRef(market);
 
   useEffect(() => {
-    // 시장이 바뀌면 초기화 후 재분석
     if (prevMarket.current !== market) {
       prevMarket.current = market;
       setData({ picks: [] });
+      setReady("picks", false);
     }
 
     let unmounted = false;
@@ -39,13 +41,17 @@ export default function PicksPage() {
         } else if (evt.status === "done") {
           setData(evt.result as any);
           setLoading(false);
+          setReady("picks", true);
         } else if (evt.status === "error") {
           setStatusMsg(`오류 발생: ${evt.message}`);
           setLoading(false);
         }
       },
       { method: "POST", body: {} }
-    ).catch(() => {
+    ).then(() => {
+      // 스트림이 done 이벤트 없이 끝난 경우 fallback
+      if (!unmounted) setLoading(false);
+    }).catch(() => {
       if (!unmounted) {
         setStatusMsg("서버 연결 실패");
         setLoading(false);

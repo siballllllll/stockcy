@@ -177,9 +177,12 @@ function AddPortfolioForm({ onAdded }: { onAdded: () => void }) {
 function PortfolioTab() {
   const { data: portfolio, isLoading, mutate } = useSWR<any[]>("/api/portfolio", () => api.portfolio.loadPortfolio() as Promise<any[]>);
 
-  // KR/US 종목 분류
-  const krTickers = (portfolio ?? []).filter(p => String(p.ticker).match(/^\d{6}$/)).map(p => p.ticker);
-  const usTickers = (portfolio ?? []).filter(p => !String(p.ticker).match(/^\d{6}$/)).map(p => p.ticker);
+  // KR/US 종목 분류 (1~6자리 숫자 = KR, 6자리로 패딩)
+  const isKrCode  = (t: string) => /^\d{1,6}$/.test(String(t));
+  const padKr     = (t: string) => String(t).padStart(6, "0");
+  const krItems   = (portfolio ?? []).filter(p => isKrCode(p.ticker));
+  const krTickers = krItems.map(p => padKr(p.ticker));
+  const usTickers = (portfolio ?? []).filter(p => !isKrCode(p.ticker)).map(p => p.ticker);
 
   // KR 현재가
   const { data: krPrices } = useSWR(
@@ -188,8 +191,9 @@ function PortfolioTab() {
       const map: Record<string, number> = {};
       await Promise.all(krTickers.map(async (code) => {
         try {
-          const d = await api.kr.stockPrice(code) as any;
-          if (d?.price) map[code] = d.price;
+          const paddedCode = String(code).padStart(6, "0");
+          const d = await api.kr.stockPrice(paddedCode) as any;
+          if (d?.price) map[paddedCode] = d.price;
         } catch {}
       }));
       return map;
@@ -214,14 +218,15 @@ function PortfolioTab() {
 
   const enriched = useMemo(() => {
     return (portfolio ?? []).map(p => {
-      const isUs = !String(p.ticker).match(/^\d{6}$/);
+      const isUs = !isKrCode(p.ticker);
+      const normalTicker = isUs ? p.ticker : padKr(p.ticker);
       const livePriceMap = isUs ? (usPrices ?? {}) : (krPrices ?? {});
-      const currentPrice = livePriceMap[p.ticker] ?? p.buy_price ?? 0;
+      const currentPrice = livePriceMap[normalTicker] ?? livePriceMap[p.ticker] ?? p.buy_price ?? 0;
       const cost = (p.buy_price ?? 0) * (p.quantity ?? 0);
       const value = currentPrice * (p.quantity ?? 0);
       const profit = value - cost;
       const profitPct = cost > 0 ? (profit / cost) * 100 : 0;
-      return { ...p, isUs, currentPrice, cost, value, profit, profitPct };
+      return { ...p, isUs, normalTicker, currentPrice, cost, value, profit, profitPct };
     });
   }, [portfolio, krPrices, usPrices]);
 
@@ -367,7 +372,10 @@ function PortfolioTab() {
               <div key={i} style={{ borderBottom: "1px solid rgba(255,255,255,0.04)" }}>
                 <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr 0.7fr 1fr 0.8fr 1.2fr auto", gap: "6px", padding: "10px 12px", alignItems: "center", fontSize: "0.85rem" }}>
                   <div style={{ fontWeight: 600 }}>
-                    {p.name} <span style={{ fontSize: "0.72rem", color: "var(--color-muted)" }}>({p.ticker})</span>
+                    {p.name || p.normalTicker || p.ticker}
+                    <span style={{ fontSize: "0.72rem", color: "var(--color-muted)", marginLeft: "4px" }}>
+                      ({p.normalTicker || p.ticker})
+                    </span>
                     {p.isUs && <span style={{ marginLeft: "4px", fontSize: "0.65rem", padding: "1px 5px", background: "rgba(50,200,100,0.15)", border: "1px solid rgba(50,200,100,0.3)", borderRadius: "3px", color: "var(--color-success)" }}>US</span>}
                   </div>
                   <div style={{ textAlign: "right" }}>{buyStr}</div>

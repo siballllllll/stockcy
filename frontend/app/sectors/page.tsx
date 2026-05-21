@@ -117,11 +117,60 @@ export default function SectorsPage() {
       {/* ── 전체 섹터 탐색 ─────────────────────────────────────────────────── */}
       {activeTab === "explore" && (
         <div>
-          <div style={{ fontSize: "0.9rem", color: "var(--color-muted)", marginBottom: "1rem" }}>
+          {/* HOT / 관심 섹터 박스 (KR only, 캐시 or AI 결과) */}
+          {isKR && (() => {
+            const targetData = sectorData || cachedHotSectors;
+            const sectors: any[] = targetData?.sectors ?? [];
+            const hot  = sectors.filter((s: any) => (s.score ?? 0) >= 8);
+            const star = sectors.filter((s: any) => (s.score ?? 0) >= 5 && (s.score ?? 0) < 8);
+            if (sectors.length === 0) return null;
+            return (
+              <div style={{ display: "flex", flexDirection: "column", gap: "12px", marginBottom: "1.5rem" }}>
+                {hot.length > 0 && (
+                  <>
+                    <div style={{ fontSize: "0.95rem", fontWeight: 800, color: "var(--color-danger)", display: "flex", alignItems: "center", gap: "6px" }}>
+                      <Flame size={16} /> 🔥 HOT 섹터
+                    </div>
+                    {hot.map((sec: any, i: number) => (
+                      <div key={i} className="stockcy-card hover-highlight" onClick={() => { setSelectedMainSector(sec.name); setExpandedSubSectors({}); }} style={{ padding: "12px 16px", border: "1px solid rgba(255,60,60,0.35)", background: "rgba(255,60,60,0.04)", cursor: "pointer" }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "4px" }}>
+                          <span>🔥</span>
+                          <span style={{ fontWeight: 800 }}>{sec.name}</span>
+                          <span style={{ fontSize: "0.8rem", fontWeight: 700, color: "var(--color-warning)" }}>[{sec.score}점]</span>
+                          {sec.strength && <span style={{ marginLeft: "auto", fontSize: "0.7rem", padding: "1px 7px", borderRadius: "8px", background: "rgba(255,60,60,0.15)", border: "1px solid rgba(255,60,60,0.35)", color: "var(--color-danger)" }}>{sec.strength}</span>}
+                        </div>
+                        {sec.reason && <div style={{ fontSize: "0.78rem", color: "var(--color-muted)", lineHeight: 1.5 }}>{String(sec.reason).slice(0, 100)}{String(sec.reason).length > 100 ? "…" : ""}</div>}
+                      </div>
+                    ))}
+                  </>
+                )}
+                {star.length > 0 && (
+                  <>
+                    <div style={{ fontSize: "0.95rem", fontWeight: 800, color: "var(--color-warning)", display: "flex", alignItems: "center", gap: "6px" }}>
+                      ⭐ 관심 섹터
+                    </div>
+                    {star.map((sec: any, i: number) => (
+                      <div key={i} className="stockcy-card hover-highlight" onClick={() => { setSelectedMainSector(sec.name); setExpandedSubSectors({}); }} style={{ padding: "12px 16px", border: "1px solid rgba(255,180,50,0.25)", background: "rgba(255,180,50,0.03)", cursor: "pointer" }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "4px" }}>
+                          <span>⭐</span>
+                          <span style={{ fontWeight: 700 }}>{sec.name}</span>
+                          <span style={{ fontSize: "0.8rem", fontWeight: 700, color: "var(--color-warning)" }}>[{sec.score}점]</span>
+                        </div>
+                        {sec.reason && <div style={{ fontSize: "0.78rem", color: "var(--color-muted)", lineHeight: 1.5 }}>{String(sec.reason).slice(0, 100)}{String(sec.reason).length > 100 ? "…" : ""}</div>}
+                      </div>
+                    ))}
+                  </>
+                )}
+                <div style={{ height: "1px", background: "var(--color-border)" }} />
+              </div>
+            );
+          })()}
+
+          <div style={{ fontSize: "0.9rem", color: "var(--color-muted)", marginBottom: "0.75rem" }}>
             섹터를 클릭해 종목을 탐색하세요{isKR ? " · 🔥 = 오늘의 이슈 섹터" : ""}
           </div>
 
-          <div style={{ marginBottom: "0.5rem", fontWeight: 700 }}>섹터 선택</div>
+          <div style={{ marginBottom: "0.5rem", fontWeight: 700 }}>섹터 선택 (직접 선택)</div>
           <select
             value={activeMain}
             onChange={(e) => { setSelectedMainSector(e.target.value); setExpandedSubSectors({}); }}

@@ -65,14 +65,42 @@ export default function SearchPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [activeTab, setActiveTab] = useState("시세");
   const [currentCode, setCurrentCode] = useState<string>(isKR ? "005930" : "AAPL");
-  const [chartType, setChartType] = useState<string>("daily");
+  const [chartType, setChartType]     = useState<string>("daily");
+  const [chartPeriod, setChartPeriod] = useState<string>("1Y");
   const [minuteInterval, setMinuteInterval] = useState<number>(5);
+
+  // 기간 옵션: 차트 타입별 (분봉은 기간 없음)
+  const PERIOD_OPTIONS: Record<string, string[]> = {
+    daily:   ["1Y", "3Y", "5Y"],
+    weekly:  ["2Y", "5Y", "10Y"],
+    monthly: ["5Y", "10Y", "MAX"],
+    minute:  [],
+  };
+  // KR: 기간 → 일봉 개수
+  const KR_PERIOD_DAYS: Record<string, Record<string, number>> = {
+    daily:   { "1Y": 250, "3Y": 750, "5Y": 1250 },
+    weekly:  { "2Y": 104, "5Y": 260, "10Y": 520 },
+    monthly: { "5Y": 60, "10Y": 120, "MAX": 600 },
+  };
+  // US: 기간 → yfinance period
+  const US_PERIOD: Record<string, Record<string, string>> = {
+    daily:   { "1Y": "1y", "3Y": "5y", "5Y": "5y" },
+    weekly:  { "2Y": "2y", "5Y": "5y", "10Y": "10y" },
+    monthly: { "5Y": "5y", "10Y": "10y", "MAX": "max" },
+  };
   const [showDropdown, setShowDropdown] = useState(false);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [aiResult, setAiResult] = useState<any>(null);
   const [aiStatus, setAiStatus] = useState<"idle" | "loading" | "done" | "error">("idle");
   const [aiAnalysisTab, setAiAnalysisTab] = useState<"short" | "entry" | "mid" | "long">("short");
   const [aiMsg, setAiMsg] = useState("");
+
+  // 차트 타입 변경 시 유효한 기간으로 리셋
+  useEffect(() => {
+    const opts = PERIOD_OPTIONS[chartType] ?? [];
+    if (opts.length > 0 && !opts.includes(chartPeriod)) setChartPeriod(opts[0]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chartType]);
 
   // 시장 전환 시 기본값 리셋
   const prevMarketRef = useRef<string | null>(null);
@@ -81,6 +109,7 @@ export default function SearchPage() {
       setCurrentCode(market === "KR" ? "005930" : "AAPL");
       setActiveTab("시세");
       setChartType("daily");
+      setChartPeriod("1Y");
       setAiStatus("idle");
       setAiResult(null);
     }
@@ -112,12 +141,12 @@ export default function SearchPage() {
     { revalidateOnFocus: false }
   );
   const { data: krChartRaw } = useSWR(
-    isKR ? `/api/kr/chart/${currentCode}/${chartType}/${minuteInterval}` : null,
+    isKR ? `/api/kr/chart/${currentCode}/${chartType}/${minuteInterval}/${chartPeriod}` : null,
     () => {
       if (chartType === "minute") return api.kr.minuteChart(currentCode, minuteInterval);
-      if (chartType === "weekly")  return api.kr.dailyChart(currentCode, 600, "W");
-      if (chartType === "monthly") return api.kr.dailyChart(currentCode, 600, "M");
-      return api.kr.dailyChart(currentCode, 600, "D");
+      const days = KR_PERIOD_DAYS[chartType]?.[chartPeriod] ?? 600;
+      const unit = chartType === "weekly" ? "W" : chartType === "monthly" ? "M" : "D";
+      return api.kr.dailyChart(currentCode, days, unit);
     }
   );
   const { data: invData, isLoading: invLoading } = useSWR(
@@ -134,12 +163,12 @@ export default function SearchPage() {
   );
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { data: usChartRaw } = useSWR<any>(
-    !isKR ? `/api/us/chart/${currentCode}/${chartType}/${minuteInterval}` : null,
+    !isKR ? `/api/us/chart/${currentCode}/${chartType}/${minuteInterval}/${chartPeriod}` : null,
     () => {
-      if (chartType === "minute")  return api.us.minuteChart(currentCode, minuteInterval);
-      if (chartType === "weekly")  return api.us.chart(currentCode, "2y",  "1wk");
-      if (chartType === "monthly") return api.us.chart(currentCode, "5y",  "1mo");
-      return api.us.chart(currentCode, "1y", "1d");
+      if (chartType === "minute") return api.us.minuteChart(currentCode, minuteInterval);
+      const period   = US_PERIOD[chartType]?.[chartPeriod] ?? "1y";
+      const interval = chartType === "weekly" ? "1wk" : chartType === "monthly" ? "1mo" : "1d";
+      return api.us.chart(currentCode, period, interval);
     }
   );
 
@@ -159,10 +188,11 @@ export default function SearchPage() {
     ? (nameData?.name || stockData?.name || currentCode)
     : (stockData?.name || currentCode);
 
-  const w52High = isKR ? (stockData?.["52주최고가"] || price || 1) : (stockData?.w52_high || price || 1);
-  const w52Low  = isKR ? (stockData?.["52주최저가"] || 1)          : (stockData?.w52_low  || 1);
-  const per = parseFloat(String(isKR ? (stockData?.PER || "20") : (stockData?.per || "20")).replace(",", "")) || 20;
-  const pbr = parseFloat(String(isKR ? (stockData?.PBR || "1.5") : (stockData?.pbr || "1.5")).replace(",", "")) || 1.5;
+  // KR 필드명 통합 (구 API: 52주최고가/PER, 신 API: w52_high/per 모두 지원)
+  const w52High = stockData?.w52_high || stockData?.["52주최고가"] || price || 1;
+  const w52Low  = stockData?.w52_low  || stockData?.["52주최저가"] || 1;
+  const per = parseFloat(String(stockData?.per || stockData?.PER || 0).replace(",", "")) || 0;
+  const pbr = parseFloat(String(stockData?.pbr || stockData?.PBR || 0).replace(",", "")) || 0;
 
   // 차트 데이터 파싱
   const chartData = useMemo(() => {
@@ -435,7 +465,7 @@ export default function SearchPage() {
               </div>
             )}
 
-            <div style={{ marginTop: "1rem", display: "flex", gap: "10px" }}>
+            <div style={{ marginTop: "1rem", display: "flex", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
               <select
                 className="stockcy-input"
                 value={chartType}
@@ -462,6 +492,25 @@ export default function SearchPage() {
                   <option value={60}>60분</option>
                 </select>
               )}
+
+              {/* 기간 선택 (분봉 제외) */}
+              {chartType !== "minute" && (PERIOD_OPTIONS[chartType] ?? []).map(p => (
+                <button
+                  key={p}
+                  onClick={() => setChartPeriod(p)}
+                  style={{
+                    padding: "4px 10px", fontSize: "0.8rem", fontWeight: 700,
+                    borderRadius: "4px", border: "1px solid",
+                    borderColor: chartPeriod === p ? "var(--color-accent)" : "rgba(255,255,255,0.15)",
+                    background:  chartPeriod === p ? "rgba(255,255,255,0.1)" : "transparent",
+                    color: chartPeriod === p ? "var(--color-text)" : "rgba(255,255,255,0.4)",
+                    cursor: "pointer",
+                    transition: "0.15s",
+                  }}
+                >
+                  {p}
+                </button>
+              ))}
             </div>
 
             <div style={{ marginTop: "1.5rem" }}>

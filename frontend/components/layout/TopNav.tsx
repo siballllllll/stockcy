@@ -5,19 +5,21 @@ import { usePathname } from "next/navigation";
 import { BarChart2, TrendingUp, GitBranch, Star, Layers } from "lucide-react";
 import { BriefingModal } from "@/components/ui/BriefingModal";
 import { useMarket } from "@/lib/market-context";
+import { useAnalysisReady } from "@/lib/analysis-ready-context";
 
 const TABS = [
-  { href: "/picks",     label: "🎯 AI 타점 보드",    icon: <TrendingUp size={15} /> },
-  { href: "/search",    label: "📊 종목 종합 검색",  icon: <BarChart2 size={15} /> },
-  { href: "/sectors",   label: "🔥 이슈 섹터 탐색",  icon: <GitBranch size={15} /> },
-  { href: "/favorites", label: "⭐ 즐겨찾기",        icon: <Star size={15} /> },
-  { href: "/scenarios", label: "📈 시나리오",         icon: <Layers size={15} /> },
+  { href: "/picks",     label: "🎯 AI 타점 보드",    icon: <TrendingUp size={15} />, readyKey: "picks"     as const },
+  { href: "/search",    label: "📊 종목 종합 검색",  icon: <BarChart2 size={15} />,  readyKey: null },
+  { href: "/sectors",   label: "🔥 이슈 섹터 탐색",  icon: <GitBranch size={15} />,  readyKey: null },
+  { href: "/favorites", label: "⭐ 즐겨찾기",        icon: <Star size={15} />,       readyKey: null },
+  { href: "/scenarios", label: "📈 시나리오",         icon: <Layers size={15} />,     readyKey: "scenarios" as const },
 ];
 
 export function TopNav() {
   const pathname = usePathname();
   const [briefingOpen, setBriefingOpen] = useState(false);
   const { market, setMarket } = useMarket();
+  const { ready } = useAnalysisReady();
 
   return (
     <>
@@ -62,6 +64,7 @@ export function TopNav() {
         <nav style={{ display: "flex", flex: 1 }}>
           {TABS.map((tab) => {
             const active = pathname.startsWith(tab.href);
+            const isReady = tab.readyKey ? ready[tab.readyKey] : false;
             return (
               <Link
                 key={tab.href}
@@ -78,10 +81,19 @@ export function TopNav() {
                   textDecoration: "none",
                   transition:     "color 0.15s, border-color 0.15s",
                   whiteSpace:     "nowrap",
+                  position:       "relative",
                 }}
               >
                 {tab.icon}
                 {tab.label}
+                {isReady && !active && (
+                  <span style={{
+                    width: "7px", height: "7px", borderRadius: "50%",
+                    background: "#22c55e",
+                    animation: "blink-green 1.2s ease-in-out infinite",
+                    flexShrink: 0,
+                  }} />
+                )}
               </Link>
             );
           })}

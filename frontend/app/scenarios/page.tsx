@@ -2,8 +2,9 @@
 import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import useSWR from "swr";
-import { Globe, TrendingUp, AlertTriangle, DollarSign, Loader2, ChevronDown, ChevronUp, RefreshCw } from "lucide-react";
+import { Globe, TrendingUp, AlertTriangle, DollarSign, Loader2, ChevronDown, ChevronUp, RefreshCw, X } from "lucide-react";
 import { api } from "@/lib/api";
+import { useAnalysisReady } from "@/lib/analysis-ready-context";
 
 const BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
@@ -417,7 +418,7 @@ function ScenarioContent({ scenario, issueTitle }: { scenario: Scenario; issueTi
 
   const navigate = (ticker: string) => {
     if (isKrTicker(ticker)) {
-      router.push(`/search?q=${ticker}`);
+      router.push(`/search?q=${ticker}&market=KR`);
     } else {
       router.push(`/search?q=${ticker}&market=US`);
     }
@@ -656,6 +657,8 @@ function classifyIssueRegion(issue: Issue): "글로벌" | "국내" | "이머징�
 
 // ── 메인 페이지 ───────────────────────────────────────────────────────────────
 export default function ScenariosPage() {
+  const { setReady } = useAnalysisReady();
+
   const [loading, setLoading]     = useState(true);
   const [statusMsg, setStatusMsg] = useState("AI 모델에 연결 중...");
   const [issues, setIssues]       = useState<Issue[]>([]);
@@ -664,11 +667,22 @@ export default function ScenariosPage() {
   const [regionFilter, setRegionFilter] = useState<RegionFilter>("전체");
   const [fetchTrigger, setFetchTrigger] = useState(0);
 
-  // 커스텀 이슈
+  // 커스텀 이슈 (localStorage 영속)
+  const CUSTOM_KEY   = "stockcy_custom_issues";
+  const RECENT_KEY   = "stockcy_recent_searches";
   const [customKeyword, setCustomKeyword] = useState("");
   const [customLoading, setCustomLoading] = useState(false);
-  const [customIssues, setCustomIssues]   = useState<Array<Issue & { isCustom: true }>>([]);
   const [customError, setCustomError]     = useState("");
+  const [showRecent, setShowRecent]       = useState(false);
+
+  const [customIssues, setCustomIssues] = useState<Array<Issue & { isCustom: true; keyword: string }>>(() => {
+    if (typeof window === "undefined") return [];
+    try { return JSON.parse(localStorage.getItem(CUSTOM_KEY) ?? "[]"); } catch { return []; }
+  });
+  const [recentSearches, setRecentSearches] = useState<string[]>(() => {
+    if (typeof window === "undefined") return [];
+    try { return JSON.parse(localStorage.getItem(RECENT_KEY) ?? "[]"); } catch { return []; }
+  });
 
   const { data: us } = useSWR("us-indices", () => api.us.indices() as Promise<any>, { refreshInterval: 60000 });
 
@@ -680,6 +694,7 @@ export default function ScenariosPage() {
     setStatusMsg("AI 모델에 연결 중...");
     setIssues([]);
     setIssueIdx(0);
+    setReady("scenarios", false);
     (async () => {
       try {
         const result = await readSSE(
@@ -691,6 +706,7 @@ export default function ScenariosPage() {
         if (!cancelled) {
           setIssues(result?.issues ?? []);
           setLoading(false);
+          setReady("scenarios", true);
         }
       } catch (e) {
         if (!cancelled) {
@@ -707,19 +723,30 @@ export default function ScenariosPage() {
     setFetchTrigger(n => n + 1);
   };
 
-  const handleCustomSearch = async () => {
-    if (!customKeyword.trim()) return;
+  const handleCustomSearch = async (kw?: string) => {
+    const keyword = (kw ?? customKeyword).trim();
+    if (!keyword) return;
     setCustomLoading(true);
     setCustomError("");
-    const newIdx = customIssues.length; // 추가될 인덱스 미리 캡처
+    setShowRecent(false);
+
+    // 최근 검색어 저장 (최대 10개)
+    const newRecent = [keyword, ...recentSearches.filter(k => k !== keyword)].slice(0, 10);
+    setRecentSearches(newRecent);
+    localStorage.setItem(RECENT_KEY, JSON.stringify(newRecent));
+
+    const newIdx = customIssues.length >= 6 ? 5 : customIssues.length;
     try {
       const result = await readSSE(
         "/api/ai/scenarios/custom",
         "POST",
-        { keyword: customKeyword.trim() },
+        { keyword },
         () => {}
       );
-      setCustomIssues(prev => [...prev, { ...(result as Issue), isCustom: true }]);
+      const newIssue = { ...(result as Issue), isCustom: true as const, keyword };
+      const updated = [...customIssues, newIssue].slice(-6); // FIFO max 6
+      setCustomIssues(updated);
+      localStorage.setItem(CUSTOM_KEY, JSON.stringify(updated));
       setRegionFilter("커스텀");
       setIssueIdx(newIdx);
       setCustomKeyword("");
@@ -728,6 +755,13 @@ export default function ScenariosPage() {
     } finally {
       setCustomLoading(false);
     }
+  };
+
+  const handleDeleteCustomIssue = (idx: number) => {
+    const updated = customIssues.filter((_, i) => i !== idx);
+    setCustomIssues(updated);
+    localStorage.setItem(CUSTOM_KEY, JSON.stringify(updated));
+    setIssueIdx(prev => (prev >= idx ? Math.max(0, prev - 1) : prev));
   };
 
   const filteredIssues: Array<Issue & { isCustom?: boolean }> = regionFilter === "커스텀"
@@ -821,6 +855,87 @@ export default function ScenariosPage() {
             </div>
           </div>
 
+          {/* 커스텀 이슈 검색 */}
+          <div className="stockcy-card" style={{ padding: "12px", display: "flex", flexDirection: "column", gap: "8px" }}>
+            <div style={{ fontSize: "0.82rem", fontWeight: 800, color: "var(--color-muted)" }}>커스텀 이슈 검색</div>
+            <div style={{ position: "relative" }}>
+              <input
+                className="stockcy-input"
+                placeholder="키워드 (예: 반도체 관세)"
+                value={customKeyword}
+                onChange={e => setCustomKeyword(e.target.value)}
+                onFocus={() => setShowRecent(true)}
+                onBlur={() => setTimeout(() => setShowRecent(false), 150)}
+                onKeyDown={e => e.key === "Enter" && handleCustomSearch()}
+                style={{ fontSize: "0.82rem", width: "100%", boxSizing: "border-box" }}
+              />
+              {/* 최근 검색어 드롭다운 */}
+              {showRecent && recentSearches.length > 0 && (
+                <div style={{
+                  position: "absolute", top: "100%", left: 0, right: 0, zIndex: 50,
+                  background: "var(--color-card)", border: "1px solid var(--color-border)",
+                  borderRadius: "6px", marginTop: "4px", overflow: "hidden",
+                }}>
+                  <div style={{ padding: "6px 10px", fontSize: "0.7rem", color: "var(--color-muted)", fontWeight: 700, borderBottom: "1px solid var(--color-border)" }}>
+                    최근 검색어
+                  </div>
+                  {recentSearches.map((kw, i) => (
+                    <div
+                      key={i}
+                      onMouseDown={() => { setCustomKeyword(kw); handleCustomSearch(kw); }}
+                      style={{ padding: "6px 10px", fontSize: "0.8rem", cursor: "pointer", color: "var(--color-text)" }}
+                      className="hover-highlight"
+                    >
+                      {kw}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+            <button
+              className="stockcy-btn stockcy-btn-primary"
+              onClick={() => handleCustomSearch()}
+              disabled={customLoading || !customKeyword.trim()}
+              style={{ width: "100%", padding: "8px", fontWeight: 700, fontSize: "0.82rem", display: "flex", alignItems: "center", justifyContent: "center", gap: "6px" }}
+            >
+              {customLoading ? <><Loader2 className="animate-spin" size={14} /> 분석중...</> : "분석하기"}
+            </button>
+            {customError && <div style={{ fontSize: "0.75rem", color: "var(--color-danger)" }}>{customError}</div>}
+
+            {/* 저장된 커스텀 이슈 목록 */}
+            {customIssues.length > 0 && (
+              <div style={{ display: "flex", flexDirection: "column", gap: "4px", marginTop: "4px" }}>
+                <div style={{ fontSize: "0.72rem", color: "var(--color-muted)", fontWeight: 700 }}>저장된 이슈 ({customIssues.length}/6)</div>
+                {customIssues.map((issue, i) => (
+                  <div
+                    key={i}
+                    style={{ display: "flex", alignItems: "center", gap: "4px" }}
+                  >
+                    <button
+                      onClick={() => { setRegionFilter("커스텀"); setIssueIdx(i); }}
+                      style={{
+                        flex: 1, textAlign: "left", padding: "4px 8px", fontSize: "0.75rem",
+                        borderRadius: "4px", border: "1px solid var(--color-border)",
+                        background: "transparent", color: "var(--color-text)", cursor: "pointer",
+                        overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                      }}
+                      title={issue.title}
+                    >
+                      {issue.keyword || issue.title.slice(0, 16)}
+                    </button>
+                    <button
+                      onClick={() => handleDeleteCustomIssue(i)}
+                      style={{ flexShrink: 0, padding: "4px", background: "transparent", border: "none", cursor: "pointer", color: "var(--color-muted)" }}
+                      title="삭제"
+                    >
+                      <X size={12} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
         </div>
 
         {/* ── 우측: 메인 콘텐츠 ── */}
@@ -883,7 +998,7 @@ export default function ScenariosPage() {
                   />
                   <button
                     className="stockcy-btn stockcy-btn-primary"
-                    onClick={handleCustomSearch}
+                    onClick={() => handleCustomSearch()}
                     disabled={customLoading || !customKeyword.trim()}
                     style={{ padding: "8px 16px", fontWeight: 700, fontSize: "0.82rem", flexShrink: 0, display: "flex", alignItems: "center", gap: "6px" }}
                   >
@@ -905,24 +1020,34 @@ export default function ScenariosPage() {
                 <>
                   <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", marginBottom: "1.25rem", borderBottom: "1px solid var(--color-border)", paddingBottom: "10px" }}>
                     {filteredIssues.map((issue, idx) => (
-                      <button
-                        key={idx}
-                        onClick={() => setIssueIdx(idx)}
-                        style={{
-                          padding: "4px 12px", fontSize: "0.78rem", fontWeight: 600, borderRadius: "4px",
-                          border: "1px solid",
-                          borderColor: clampedIdx === idx ? "var(--color-accent)" : "var(--color-border)",
-                          background: clampedIdx === idx ? "rgba(255,255,255,0.08)" : "transparent",
-                          color: clampedIdx === idx ? "var(--color-text)" : "var(--color-muted)",
-                          cursor: "pointer",
-                          transition: "0.15s",
-                        }}
-                      >
-                        {(issue as any).isCustom
-                          ? `Custom ${idx + 1}: ${String(issue.title).slice(0, 14)}${issue.title.length > 14 ? "…" : ""}`
-                          : `Issue ${idx + 1}: ${String(issue.title).slice(0, 16)}${issue.title.length > 16 ? "…" : ""}`
-                        }
-                      </button>
+                      <div key={idx} style={{ display: "flex", alignItems: "center", gap: "2px" }}>
+                        <button
+                          onClick={() => setIssueIdx(idx)}
+                          style={{
+                            padding: "4px 12px", fontSize: "0.78rem", fontWeight: 600, borderRadius: "4px",
+                            border: "1px solid",
+                            borderColor: clampedIdx === idx ? "var(--color-accent)" : "var(--color-border)",
+                            background: clampedIdx === idx ? "rgba(255,255,255,0.08)" : "transparent",
+                            color: clampedIdx === idx ? "var(--color-text)" : "var(--color-muted)",
+                            cursor: "pointer",
+                            transition: "0.15s",
+                          }}
+                        >
+                          {(issue as any).isCustom
+                            ? `Custom ${idx + 1}: ${String(issue.title).slice(0, 14)}${issue.title.length > 14 ? "…" : ""}`
+                            : `Issue ${idx + 1}: ${String(issue.title).slice(0, 16)}${issue.title.length > 16 ? "…" : ""}`
+                          }
+                        </button>
+                        {(issue as any).isCustom && (
+                          <button
+                            onClick={() => handleDeleteCustomIssue(customIssues.findIndex(ci => ci === issue))}
+                            style={{ padding: "2px", background: "transparent", border: "none", cursor: "pointer", color: "var(--color-muted)", flexShrink: 0 }}
+                            title="삭제"
+                          >
+                            <X size={11} />
+                          </button>
+                        )}
+                      </div>
                     ))}
                   </div>
 
