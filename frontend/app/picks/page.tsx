@@ -12,35 +12,34 @@ export default function PicksPage() {
   const isKR = market === "KR";
 
   const [filter, setFilter] = useState("전체");
-  const [loading, setLoading] = useState(true);
-  const [statusMsg, setStatusMsg] = useState("시장 데이터를 수집 중입니다...");
-  const [data, setData] = useState<{ market_comment?: string; picks: any[] }>({ picks: [] });
+  const [loading, setLoading] = useState(false);
+  const [statusMsg, setStatusMsg] = useState("");
+  const [data, setData] = useState<{ market_comment?: string; market_condition?: string; picks: any[] }>({ picks: [] });
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
   const { setReady } = useAnalysisReady();
   const prevMarket = useRef(market);
+  const unmountedRef = useRef(false);
 
-  useEffect(() => {
-    if (prevMarket.current !== market) {
-      prevMarket.current = market;
-      setData({ picks: [] });
-      setReady("picks", false);
-    }
-
-    let unmounted = false;
+  const startAnalysis = (mkt: string) => {
+    if (loading) return;
+    unmountedRef.current = false;
+    const kr = mkt === "KR";
     setLoading(true);
-    setStatusMsg(isKR ? "AI 분석 엔진 가동 중..." : "🇺🇸 US AI 분석 엔진 가동 중...");
+    setStatusMsg(kr ? "AI 분석 엔진 가동 중..." : "🇺🇸 US AI 분석 엔진 가동 중...");
 
-    const endpoint = isKR ? "/api/ai/realtime-picks-kr" : "/api/ai/realtime-picks-us";
+    const endpoint = kr ? "/api/ai/realtime-picks-kr" : "/api/ai/realtime-picks-us";
 
     connectSSE(
       endpoint,
       (evt) => {
-        if (unmounted) return;
+        if (unmountedRef.current) return;
         if (evt.status === "running") {
           setStatusMsg(evt.message || "분석 중...");
         } else if (evt.status === "done") {
           setData(evt.result as any);
           setLoading(false);
+          setLastUpdated(new Date());
           setReady("picks", true);
         } else if (evt.status === "error") {
           setStatusMsg(`오류 발생: ${evt.message}`);
@@ -49,19 +48,35 @@ export default function PicksPage() {
       },
       { method: "POST", body: {} }
     ).then(() => {
-      // 스트림이 done 이벤트 없이 끝난 경우 fallback
-      if (!unmounted) setLoading(false);
+      if (!unmountedRef.current) setLoading(false);
     }).catch(() => {
-      if (!unmounted) {
+      if (!unmountedRef.current) {
         setStatusMsg("서버 연결 실패");
         setLoading(false);
       }
     });
+  };
 
-    return () => { unmounted = true; };
+  // 시장 전환 시에만 자동 리셋 (재분석은 수동)
+  useEffect(() => {
+    if (prevMarket.current !== market) {
+      prevMarket.current = market;
+      unmountedRef.current = true;
+      setData({ picks: [] });
+      setLastUpdated(null);
+      setReady("picks", false);
+    }
+    return () => { unmountedRef.current = true; };
   }, [market]);
 
   const picks = data.picks || [];
+
+  // 통계 계산
+  const urgentCount = picks.filter((p: any) => p.urgency?.includes("즉시")).length;
+  const swingCount  = picks.filter((p: any) => p.horizon?.includes("스윙")).length;
+  const timeLabel   = lastUpdated
+    ? lastUpdated.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" })
+    : "—";
 
   const filteredPicks = picks.filter((p: any) => {
     if (filter === "전체") return true;
@@ -85,14 +100,28 @@ export default function PicksPage() {
             {isKR
               ? "AI가 당일 주도 테마와 수급을 융합하여 5~10% 단타 구간을 찾아냅니다."
               : "AI가 US 시장 거래량·급등 패턴을 분석하여 스캘핑 타점을 찾아냅니다."}
+            {data.market_condition && (
+              <span style={{ color: "var(--color-accent)", marginLeft: "8px" }}>[{data.market_condition}]</span>
+            )}
             {data.market_comment && (
-              <span style={{ color: "var(--color-accent)", marginLeft: "8px" }}>[{data.market_comment}]</span>
+              <span style={{ color: "var(--color-muted)", marginLeft: "4px" }}>{data.market_comment}</span>
             )}
           </div>
         </div>
 
-        {/* 필터 버튼 */}
-        <div style={{ display: "flex", gap: "6px" }}>
+        {/* 우측 컨트롤 */}
+        <div style={{ display: "flex", gap: "6px", alignItems: "center" }}>
+          {/* 새로고침 버튼 */}
+          <button
+            onClick={() => startAnalysis(market)}
+            disabled={loading}
+            className="stockcy-btn stockcy-btn-primary"
+            style={{ display: "flex", alignItems: "center", gap: "5px", padding: "6px 14px", fontSize: "0.85rem" }}
+          >
+            <RefreshCw size={14} className={loading ? "animate-spin" : ""} />
+            {loading ? "분석 중..." : picks.length > 0 ? "재분석" : "AI 분석 시작"}
+          </button>
+          {/* 필터 버튼 */}
           {["전체", "극단타", "단기스윙"].map(f => (
             <button
               key={f}
@@ -119,10 +148,10 @@ export default function PicksPage() {
       {/* 요약 통계 패널 */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: "10px", marginBottom: "0.5rem" }}>
         {[
-          { label: "신규 포착",      val: `${picks.length}건`,  icon: <AlertCircle size={16} color="var(--color-danger)" /> },
-          { label: "과열 주의",      val: "—",                  icon: <TrendingUp  size={16} color="var(--color-warning)" /> },
-          { label: "단기 돌파",      val: "—",                  icon: <Target      size={16} color="var(--color-success)" /> },
-          { label: "마지막 업데이트", val: "방금",               icon: <Clock       size={16} color="var(--color-muted)" /> },
+          { label: "신규 포착",       val: picks.length > 0 ? `${picks.length}건` : "—", icon: <AlertCircle size={16} color="var(--color-danger)" /> },
+          { label: "즉시진입 긴급",   val: urgentCount > 0 ? `${urgentCount}건` : "—",   icon: <TrendingUp  size={16} color="var(--color-warning)" /> },
+          { label: "단기 스윙",       val: swingCount > 0  ? `${swingCount}건`  : "—",   icon: <Target      size={16} color="var(--color-success)" /> },
+          { label: "업데이트",        val: timeLabel,                                      icon: <Clock       size={16} color="var(--color-muted)" /> },
         ].map((stat, i) => (
           <div key={i} style={{ background: "rgba(255,255,255,0.02)", border: "1px solid var(--color-border)", padding: "10px", borderRadius: "6px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
             <div style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "0.8rem", color: "var(--color-muted)" }}>
@@ -138,6 +167,15 @@ export default function PicksPage() {
         <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "4rem 0", gap: "1rem" }}>
           <Loader2 className="animate-spin" size={40} color="var(--color-danger)" />
           <div style={{ color: "var(--color-muted)", fontWeight: 600 }}>{statusMsg}</div>
+          <div style={{ fontSize: "0.8rem", color: "var(--color-subtle)" }}>KR: 약 1~2분 소요 (핫 섹터 AI 분석 + 타점 AI 선정)</div>
+        </div>
+      ) : picks.length === 0 ? (
+        <div style={{ padding: "4rem 0", textAlign: "center", color: "var(--color-muted)", display: "flex", flexDirection: "column", alignItems: "center", gap: "1rem" }}>
+          <Target size={48} style={{ opacity: 0.3 }} />
+          <div>위 &apos;AI 분석 시작&apos; 버튼을 눌러 오늘의 타점을 분석하세요.</div>
+          <div style={{ fontSize: "0.8rem", color: "var(--color-subtle)" }}>
+            {isKR ? "거래량·수급·핫 섹터 종합 AI 분석 → 3종목 타점 선정" : "US 거래량·모멘텀 분석 → 타점 선정"}
+          </div>
         </div>
       ) : filteredPicks.length === 0 ? (
         <div style={{ padding: "4rem 0", textAlign: "center", color: "var(--color-muted)" }}>
