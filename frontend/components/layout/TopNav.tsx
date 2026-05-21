@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { BarChart2, TrendingUp, GitBranch, Star, Layers } from "lucide-react";
 import { BriefingModal } from "@/components/ui/BriefingModal";
+import { useMarket } from "@/lib/market-context";
 
 const TABS = [
   { href: "/picks",     label: "🎯 AI 타점 보드",    icon: <TrendingUp size={15} /> },
@@ -16,6 +17,7 @@ const TABS = [
 export function TopNav() {
   const pathname = usePathname();
   const [briefingOpen, setBriefingOpen] = useState(false);
+  const { market, setMarket } = useMarket();
 
   return (
     <>
@@ -97,18 +99,24 @@ export function TopNav() {
           
           {/* 시장 토글 버튼 */}
           <div style={{ display: "flex", background: "var(--color-bg)", borderRadius: "6px", padding: "2px", border: "1px solid var(--color-border)" }}>
-            <button 
-              style={{ 
+            <button
+              onClick={() => setMarket("KR")}
+              style={{
                 padding: "2px 10px", fontSize: "0.8rem", borderRadius: "4px", border: "none", cursor: "pointer",
-                background: "var(--color-accent)", color: "white", fontWeight: 600
+                background: market === "KR" ? "var(--color-accent)" : "transparent",
+                color: market === "KR" ? "white" : "var(--color-muted)", fontWeight: 600,
+                transition: "0.15s",
               }}
             >
               🇰🇷 국내
             </button>
-            <button 
-              style={{ 
+            <button
+              onClick={() => setMarket("US")}
+              style={{
                 padding: "2px 10px", fontSize: "0.8rem", borderRadius: "4px", border: "none", cursor: "pointer",
-                background: "transparent", color: "var(--color-muted)", fontWeight: 500
+                background: market === "US" ? "var(--color-accent)" : "transparent",
+                color: market === "US" ? "white" : "var(--color-muted)", fontWeight: 600,
+                transition: "0.15s",
               }}
             >
               🇺🇸 미국

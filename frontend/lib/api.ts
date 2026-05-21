@@ -25,6 +25,8 @@ export const api = {
     stockDetail: (ticker: string, exch = "NASDAQ") =>
                                                req(`/api/us/stocks/${ticker}?exchange=${exch}`),
     sectorMap:   ()                         => req("/api/us/sector-map"),
+    chart:       (ticker: string, period = "1y", interval = "1d") =>
+                                               req(`/api/us/chart/${ticker}?period=${period}&interval=${interval}`),
   },
 
   // ── 국내 시장 ──────────────────────────────────────────────────────────────

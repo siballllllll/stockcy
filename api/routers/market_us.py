@@ -49,6 +49,33 @@ def us_stock_detail(ticker: str, exchange: str = Query("NASDAQ")):
     return result or {}
 
 
+@router.get("/chart/{ticker}")
+def us_chart(
+    ticker: str,
+    period: str = Query("1y", description="yfinance period: 1d,5d,1mo,3mo,6mo,1y,2y,5y"),
+    interval: str = Query("1d", description="yfinance interval: 1d,1wk,1mo"),
+):
+    """미국 주식 OHLCV 차트 데이터 (yfinance 기반)."""
+    try:
+        import yfinance as yf
+        df = yf.Ticker(ticker.upper()).history(period=period, interval=interval, auto_adjust=True)
+        if df is None or df.empty:
+            return []
+        records = []
+        for dt, row in df.iterrows():
+            records.append({
+                "일자":  str(dt)[:10],
+                "시가":  round(float(row.Open),  2),
+                "고가":  round(float(row.High),  2),
+                "저가":  round(float(row.Low),   2),
+                "종가":  round(float(row.Close), 2),
+                "거래량": int(row.Volume),
+            })
+        return records
+    except Exception:
+        return []
+
+
 @router.get("/sector-map")
 def us_sector_map():
     """미국 섹터 맵 (섹터 → 세부섹터 → 종목 목록)."""
