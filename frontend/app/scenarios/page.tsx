@@ -2,7 +2,7 @@
 import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import useSWR from "swr";
-import { Globe, TrendingUp, AlertTriangle, DollarSign, Loader2, ChevronDown, ChevronUp } from "lucide-react";
+import { Globe, TrendingUp, AlertTriangle, DollarSign, Loader2, ChevronDown, ChevronUp, RefreshCw } from "lucide-react";
 import { api } from "@/lib/api";
 
 const BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
@@ -638,7 +638,7 @@ function IssuePanel({ issue }: { issue: Issue }) {
 }
 
 // ── 지역 분류 헬퍼 ────────────────────────────────────────────────────────────
-type RegionFilter = "전체" | "글로벌" | "국내" | "이머징마켓";
+type RegionFilter = "전체" | "글로벌" | "국내" | "이머징마켓" | "커스텀";
 
 function classifyIssueRegion(issue: Issue): "글로벌" | "국내" | "이머징마켓" | "mixed" {
   const cat = (issue.category ?? "").toLowerCase();
@@ -662,22 +662,24 @@ export default function ScenariosPage() {
   const [issueIdx, setIssueIdx]   = useState(0);
   const [loadError, setLoadError] = useState("");
   const [regionFilter, setRegionFilter] = useState<RegionFilter>("전체");
+  const [fetchTrigger, setFetchTrigger] = useState(0);
 
   // 커스텀 이슈
-  const [customKeyword, setCustomKeyword]   = useState("");
-  const [customLoading, setCustomLoading]   = useState(false);
-  const [customIssue, setCustomIssue]       = useState<Issue | null>(null);
-  const [customError, setCustomError]       = useState("");
+  const [customKeyword, setCustomKeyword] = useState("");
+  const [customLoading, setCustomLoading] = useState(false);
+  const [customIssues, setCustomIssues]   = useState<Array<Issue & { isCustom: true }>>([]);
+  const [customError, setCustomError]     = useState("");
 
   const { data: us } = useSWR("us-indices", () => api.us.indices() as Promise<any>, { refreshInterval: 60000 });
 
-  const hasFetched = useRef(false);
-
+  // fetchTrigger가 바뀔 때마다 재호출
   useEffect(() => {
-    if (hasFetched.current) return;
-    hasFetched.current = true;
-
     let cancelled = false;
+    setLoading(true);
+    setLoadError("");
+    setStatusMsg("AI 모델에 연결 중...");
+    setIssues([]);
+    setIssueIdx(0);
     (async () => {
       try {
         const result = await readSSE(
@@ -687,8 +689,7 @@ export default function ScenariosPage() {
           (msg) => { if (!cancelled) setStatusMsg(msg); }
         );
         if (!cancelled) {
-          const fetchedIssues: Issue[] = result?.issues ?? [];
-          setIssues(fetchedIssues);
+          setIssues(result?.issues ?? []);
           setLoading(false);
         }
       } catch (e) {
@@ -699,13 +700,18 @@ export default function ScenariosPage() {
       }
     })();
     return () => { cancelled = true; };
-  }, []);
+  }, [fetchTrigger]);
+
+  const handleRefresh = () => {
+    setRegionFilter("전체");
+    setFetchTrigger(n => n + 1);
+  };
 
   const handleCustomSearch = async () => {
     if (!customKeyword.trim()) return;
     setCustomLoading(true);
     setCustomError("");
-    setCustomIssue(null);
+    const newIdx = customIssues.length; // 추가될 인덱스 미리 캡처
     try {
       const result = await readSSE(
         "/api/ai/scenarios/custom",
@@ -713,9 +719,10 @@ export default function ScenariosPage() {
         { keyword: customKeyword.trim() },
         () => {}
       );
-      setCustomIssue(result as Issue);
-      // switch to custom tab
-      setIssueIdx(issues.length); // custom is always last
+      setCustomIssues(prev => [...prev, { ...(result as Issue), isCustom: true }]);
+      setRegionFilter("커스텀");
+      setIssueIdx(newIdx);
+      setCustomKeyword("");
     } catch (e) {
       setCustomError(String(e));
     } finally {
@@ -723,35 +730,44 @@ export default function ScenariosPage() {
     }
   };
 
-  const allIssues: Array<Issue & { isCustom?: boolean }> = [
-    ...issues,
-    ...(customIssue ? [{ ...customIssue, isCustom: true }] : []),
-  ];
+  const filteredIssues: Array<Issue & { isCustom?: boolean }> = regionFilter === "커스텀"
+    ? customIssues
+    : regionFilter === "전체"
+      ? issues
+      : issues.filter(issue => {
+          const region = classifyIssueRegion(issue);
+          if (regionFilter === "글로벌")    return region === "글로벌"  || region === "mixed";
+          if (regionFilter === "국내")      return region === "국내"    || region === "mixed";
+          if (regionFilter === "이머징마켓") return region === "이머징마켓";
+          return true;
+        });
 
-  const filteredIssues = regionFilter === "전체"
-    ? allIssues
-    : allIssues.filter(issue => {
-        const region = classifyIssueRegion(issue);
-        if (regionFilter === "글로벌")    return region === "글로벌"  || region === "mixed";
-        if (regionFilter === "국내")      return region === "국내"    || region === "mixed";
-        if (regionFilter === "이머징마켓") return region === "이머징마켓";
-        return true;
-      });
-
-  const clampedIdx   = issueIdx < filteredIssues.length ? issueIdx : 0;
-  const activeIssue  = filteredIssues[clampedIdx] ?? filteredIssues[0];
+  const clampedIdx  = issueIdx < filteredIssues.length ? issueIdx : 0;
+  const activeIssue = filteredIssues[clampedIdx] ?? filteredIssues[0];
 
   return (
     <div style={{ width: "100%", margin: "0 auto", display: "flex", flexDirection: "column", gap: "1rem" }}>
 
       {/* 헤더 */}
-      <div style={{ borderBottom: "1px solid rgba(255,255,255,0.05)", paddingBottom: "1rem" }}>
-        <h1 style={{ fontSize: "1.4rem", fontWeight: 800, margin: "0 0 4px 0", display: "flex", alignItems: "center", gap: "8px" }}>
-          <Globe color="var(--color-accent)" size={22} /> 매크로 시나리오 분석
-        </h1>
-        <div style={{ fontSize: "0.82rem", color: "var(--color-muted)" }}>
-          글로벌 주요 이슈에 대한 A/B 시나리오와 투자 전략을 AI가 분석합니다.
+      <div style={{ borderBottom: "1px solid rgba(255,255,255,0.05)", paddingBottom: "1rem", display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+        <div>
+          <h1 style={{ fontSize: "1.4rem", fontWeight: 800, margin: "0 0 4px 0", display: "flex", alignItems: "center", gap: "8px" }}>
+            <Globe color="var(--color-accent)" size={22} /> 매크로 시나리오 분석
+          </h1>
+          <div style={{ fontSize: "0.82rem", color: "var(--color-muted)" }}>
+            글로벌 주요 이슈에 대한 A/B 시나리오와 투자 전략을 AI가 분석합니다.
+          </div>
         </div>
+        <button
+          onClick={handleRefresh}
+          disabled={loading}
+          className="stockcy-btn stockcy-btn-secondary"
+          style={{ display: "flex", alignItems: "center", gap: "6px", padding: "6px 14px", fontSize: "0.82rem", fontWeight: 700, flexShrink: 0 }}
+          title="시나리오 새로고침"
+        >
+          {loading ? <Loader2 className="animate-spin" size={15} /> : <RefreshCw size={15} />}
+          새로고침
+        </button>
       </div>
 
       {/* 2단 레이아웃 */}
@@ -805,27 +821,6 @@ export default function ScenariosPage() {
             </div>
           </div>
 
-          {/* 커스텀 이슈 검색 */}
-          <div className="stockcy-card" style={{ padding: "12px", display: "flex", flexDirection: "column", gap: "8px" }}>
-            <div style={{ fontSize: "0.82rem", fontWeight: 800, color: "var(--color-muted)" }}>커스텀 이슈 검색</div>
-            <input
-              className="stockcy-input"
-              placeholder="키워드 (예: 반도체 관세)"
-              value={customKeyword}
-              onChange={(e) => setCustomKeyword(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && handleCustomSearch()}
-              style={{ fontSize: "0.82rem" }}
-            />
-            <button
-              className="stockcy-btn stockcy-btn-primary"
-              onClick={handleCustomSearch}
-              disabled={customLoading || !customKeyword.trim()}
-              style={{ width: "100%", padding: "8px", fontWeight: 700, fontSize: "0.82rem" }}
-            >
-              {customLoading ? <><Loader2 className="animate-spin" size={14} /> 분석중...</> : "분석하기"}
-            </button>
-            {customError && <div style={{ fontSize: "0.75rem", color: "var(--color-danger)" }}>{customError}</div>}
-          </div>
         </div>
 
         {/* ── 우측: 메인 콘텐츠 ── */}
@@ -838,20 +833,21 @@ export default function ScenariosPage() {
             </div>
           ) : loadError ? (
             <div style={{ color: "var(--color-danger)", textAlign: "center", padding: "2rem" }}>{loadError}</div>
-          ) : allIssues.length === 0 ? (
+          ) : issues.length === 0 ? (
             <div style={{ color: "var(--color-muted)", textAlign: "center", padding: "2rem" }}>
               시나리오 데이터를 불러오지 못했습니다.
             </div>
           ) : (
             <>
               {/* 지역 필터 탭 */}
-              <div style={{ display: "flex", gap: "4px", marginBottom: "12px" }}>
-                {(["전체", "글로벌", "국내", "이머징마켓"] as RegionFilter[]).map(r => {
+              <div style={{ display: "flex", gap: "4px", flexWrap: "wrap", marginBottom: "12px" }}>
+                {(["전체", "글로벌", "국내", "이머징마켓", "커스텀"] as RegionFilter[]).map(r => {
                   const labels: Record<RegionFilter, string> = {
-                    "전체":    "전체",
-                    "글로벌":  "🌍 글로벌 (미국)",
-                    "국내":    "🇰🇷 국내",
+                    "전체":      "전체",
+                    "글로벌":    "🌍 글로벌 (미국)",
+                    "국내":      "🇰🇷 국내",
                     "이머징마켓": "🌏 이머징마켓",
+                    "커스텀":    `🔍 커스텀${customIssues.length > 0 ? ` (${customIssues.length})` : ""}`,
                   };
                   const active = regionFilter === r;
                   return (
@@ -861,9 +857,9 @@ export default function ScenariosPage() {
                       style={{
                         padding: "5px 12px", fontSize: "0.78rem", fontWeight: 700, borderRadius: "6px",
                         border: "1px solid",
-                        borderColor: active ? "var(--color-accent)" : "var(--color-border)",
-                        background: active ? "rgba(255,255,255,0.1)" : "transparent",
-                        color: active ? "var(--color-text)" : "var(--color-muted)",
+                        borderColor: active ? (r === "커스텀" ? "var(--color-warning)" : "var(--color-accent)") : "var(--color-border)",
+                        background: active ? (r === "커스텀" ? "rgba(255,180,50,0.12)" : "rgba(255,255,255,0.1)") : "transparent",
+                        color: active ? (r === "커스텀" ? "var(--color-warning)" : "var(--color-text)") : "var(--color-muted)",
                         cursor: "pointer",
                         transition: "0.15s",
                       }}
@@ -874,10 +870,36 @@ export default function ScenariosPage() {
                 })}
               </div>
 
+              {/* 커스텀 탭: 검색 UI */}
+              {regionFilter === "커스텀" && (
+                <div style={{ display: "flex", gap: "8px", alignItems: "center", marginBottom: "12px", padding: "10px 12px", background: "rgba(255,180,50,0.06)", border: "1px solid rgba(255,180,50,0.2)", borderRadius: "8px" }}>
+                  <input
+                    className="stockcy-input"
+                    placeholder="키워드 입력 (예: 반도체 관세, 금리 동결)"
+                    value={customKeyword}
+                    onChange={e => setCustomKeyword(e.target.value)}
+                    onKeyDown={e => e.key === "Enter" && handleCustomSearch()}
+                    style={{ flex: 1, fontSize: "0.85rem" }}
+                  />
+                  <button
+                    className="stockcy-btn stockcy-btn-primary"
+                    onClick={handleCustomSearch}
+                    disabled={customLoading || !customKeyword.trim()}
+                    style={{ padding: "8px 16px", fontWeight: 700, fontSize: "0.82rem", flexShrink: 0, display: "flex", alignItems: "center", gap: "6px" }}
+                  >
+                    {customLoading ? <><Loader2 className="animate-spin" size={14} /> 분석중...</> : "분석하기"}
+                  </button>
+                  {customError && <div style={{ fontSize: "0.75rem", color: "var(--color-danger)", flexShrink: 0 }}>{customError}</div>}
+                </div>
+              )}
+
               {/* 이슈 탭 */}
               {filteredIssues.length === 0 ? (
                 <div style={{ color: "var(--color-muted)", fontSize: "0.85rem", padding: "2rem", textAlign: "center" }}>
-                  해당 지역의 이슈가 없습니다.
+                  {regionFilter === "커스텀"
+                    ? "위 검색창에 키워드를 입력하고 분석하기를 눌러보세요."
+                    : "해당 지역의 이슈가 없습니다."
+                  }
                 </div>
               ) : (
                 <>
@@ -897,7 +919,7 @@ export default function ScenariosPage() {
                         }}
                       >
                         {(issue as any).isCustom
-                          ? `Custom: ${String(issue.title).slice(0, 18)}${issue.title.length > 18 ? "…" : ""}`
+                          ? `Custom ${idx + 1}: ${String(issue.title).slice(0, 14)}${issue.title.length > 14 ? "…" : ""}`
                           : `Issue ${idx + 1}: ${String(issue.title).slice(0, 16)}${issue.title.length > 16 ? "…" : ""}`
                         }
                       </button>

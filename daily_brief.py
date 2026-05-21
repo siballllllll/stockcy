@@ -64,7 +64,8 @@ def send_daily_brief_to_telegram(favorites: list, status_callback=None) -> dict:
         # AI 엔진 호출 (구글 검색 활성화하여 최신 뉴스 반영)
         _update_status("🤖 구글 검색으로 최신 거시경제 뉴스를 반영하여 포트폴리오 맞춤 리포트를 작성 중입니다... (가장 오래 걸림)")
         from ai_engine import _call_gemini
-        brief_text = _call_gemini(prompt, use_search=True, temperature=0.7)
+        _resp = _call_gemini(prompt, use_search=True, temperature=0.7)
+        brief_text = _resp.text if _resp else None
         if not brief_text or "Error" in brief_text:
             return {"success": False, "msg": "AI 브리핑 생성에 실패했습니다."}
 
