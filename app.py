@@ -2835,25 +2835,30 @@ def show_favorites_center():
     col1, col2 = st.columns([3, 1])
     with col2:
         if st.button("💌 오늘의 장 마감 AI 리포트 받기", use_container_width=True, type="primary"):
-            st.session_state._daily_brief_running = True
-            _SCENARIO_TASKS["_daily_brief"] = {"status": "running", "msg": "🚀 준비 중..."}
-            import threading
-            from streamlit.runtime.scriptrunner import add_script_run_ctx
-            
-            def _run_brief():
-                try:
-                    def _update(msg):
-                        _SCENARIO_TASKS["_daily_brief"] = {"status": "running", "msg": msg}
-                    from daily_brief import send_daily_brief_to_telegram
-                    res = send_daily_brief_to_telegram(status_callback=_update)
-                    _SCENARIO_TASKS["_daily_brief"] = {"status": "done", "result": res}
-                except Exception as e:
-                    _SCENARIO_TASKS["_daily_brief"] = {"status": "error", "result": {"success": False, "msg": str(e)}}
-            
-            t = threading.Thread(target=_run_brief, daemon=True)
-            add_script_run_ctx(t)
-            t.start()
-            st.toast("💌 AI가 리포트 작성을 시작했습니다!", icon="⏳")
+            from db import load_favorites
+            _favs, _msg = load_favorites()
+            if not _favs:
+                st.error("⭐ 아직 등록된 즐겨찾기 종목이 없습니다. 별표 아이콘을 눌러 추가해주세요.")
+            else:
+                st.session_state._daily_brief_running = True
+                _SCENARIO_TASKS["_daily_brief"] = {"status": "running", "msg": "🚀 준비 중..."}
+                import threading
+                from streamlit.runtime.scriptrunner import add_script_run_ctx
+                
+                def _run_brief(favs_list):
+                    try:
+                        def _update(msg):
+                            _SCENARIO_TASKS["_daily_brief"] = {"status": "running", "msg": msg}
+                        from daily_brief import send_daily_brief_to_telegram
+                        res = send_daily_brief_to_telegram(favorites=favs_list, status_callback=_update)
+                        _SCENARIO_TASKS["_daily_brief"] = {"status": "done", "result": res}
+                    except Exception as e:
+                        _SCENARIO_TASKS["_daily_brief"] = {"status": "error", "result": {"success": False, "msg": str(e)}}
+                
+                t = threading.Thread(target=_run_brief, args=(_favs,), daemon=True)
+                add_script_run_ctx(t)
+                t.start()
+                st.toast("💌 AI가 리포트 작성을 시작했습니다!", icon="⏳")
             
     if st.session_state.get("_daily_brief_running"):
         _task = _SCENARIO_TASKS.get("_daily_brief", {})

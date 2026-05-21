@@ -1,7 +1,7 @@
 import traceback
 import logging
 
-def send_daily_brief_to_telegram(status_callback=None) -> dict:
+def send_daily_brief_to_telegram(favorites: list, status_callback=None) -> dict:
     """
     유저의 즐겨찾기 종목을 바탕으로 AI 매크로 브리핑을 생성하여 텔레그램으로 전송합니다.
     (UI에서 백그라운드 스레드로 실행됨)
@@ -11,9 +11,6 @@ def send_daily_brief_to_telegram(status_callback=None) -> dict:
             status_callback(msg)
 
     try:
-        from db import load_favorites
-        _update_status("⭐ 즐겨찾기 포트폴리오 정보를 가져오는 중...")
-        favorites, _ = load_favorites()
         if not favorites:
             return {"success": False, "msg": "⭐ 즐겨찾기에 등록된 종목이 없습니다."}
 
