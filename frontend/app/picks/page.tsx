@@ -6,6 +6,9 @@ import { connectSSE } from "@/lib/api";
 import { useMarket } from "@/lib/market-context";
 import { useAnalysisReady } from "@/lib/analysis-ready-context";
 
+const picksKey = (mkt: string) => `stockcy_picks_${mkt.toLowerCase()}`;
+const picksTsKey = (mkt: string) => `stockcy_picks_${mkt.toLowerCase()}_ts`;
+
 export default function PicksPage() {
   const router = useRouter();
   const { market } = useMarket();
@@ -20,6 +23,28 @@ export default function PicksPage() {
   const { setReady } = useAnalysisReady();
   const prevMarket = useRef(market);
   const unmountedRef = useRef(false);
+
+  // localStorage에서 현재 시장 데이터 로드
+  const loadFromStorage = (mkt: string) => {
+    try {
+      const saved = localStorage.getItem(picksKey(mkt));
+      const ts    = localStorage.getItem(picksTsKey(mkt));
+      if (saved) {
+        setData(JSON.parse(saved));
+        setLastUpdated(ts ? new Date(ts) : null);
+        return true;
+      }
+    } catch {}
+    setData({ picks: [] });
+    setLastUpdated(null);
+    return false;
+  };
+
+  // 마운트 시 캐시 로드
+  useEffect(() => {
+    loadFromStorage(market);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const startAnalysis = (mkt: string) => {
     if (loading) return;
@@ -37,10 +62,17 @@ export default function PicksPage() {
         if (evt.status === "running") {
           setStatusMsg(evt.message || "분석 중...");
         } else if (evt.status === "done") {
-          setData(evt.result as any);
+          const result = evt.result as any;
+          setData(result);
+          const now = new Date();
+          setLastUpdated(now);
           setLoading(false);
-          setLastUpdated(new Date());
           setReady("picks", true);
+          // localStorage 저장
+          try {
+            localStorage.setItem(picksKey(mkt), JSON.stringify(result));
+            localStorage.setItem(picksTsKey(mkt), now.toISOString());
+          } catch {}
         } else if (evt.status === "error") {
           setStatusMsg(`오류 발생: ${evt.message}`);
           setLoading(false);
@@ -57,16 +89,17 @@ export default function PicksPage() {
     });
   };
 
-  // 시장 전환 시에만 자동 리셋 (재분석은 수동)
+  // 시장 전환 시 해당 시장 캐시 로드
   useEffect(() => {
     if (prevMarket.current !== market) {
       prevMarket.current = market;
       unmountedRef.current = true;
-      setData({ picks: [] });
-      setLastUpdated(null);
+      setLoading(false);
       setReady("picks", false);
+      loadFromStorage(market);
     }
     return () => { unmountedRef.current = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [market]);
 
   const picks = data.picks || [];
@@ -74,8 +107,13 @@ export default function PicksPage() {
   // 통계 계산
   const urgentCount = picks.filter((p: any) => p.urgency?.includes("즉시")).length;
   const swingCount  = picks.filter((p: any) => p.horizon?.includes("스윙")).length;
-  const timeLabel   = lastUpdated
-    ? lastUpdated.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" })
+  const timeLabel = lastUpdated
+    ? (() => {
+        const isToday = lastUpdated.toDateString() === new Date().toDateString();
+        return isToday
+          ? lastUpdated.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" })
+          : lastUpdated.toLocaleString("ko-KR", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
+      })()
     : "—";
 
   const filteredPicks = picks.filter((p: any) => {
