@@ -48,30 +48,39 @@ def _override_targets(res: dict) -> dict:
     def _is_kr(tk):
         return str(tk).strip().isdigit() and len(str(tk).strip()) == 6
 
+    def _get_price(tk: str, is_kr: bool) -> float:
+        try:
+            if is_kr:
+                from data_kr import get_kr_stock_price
+                d = get_kr_stock_price(tk)
+                price = float((d or {}).get("price", 0) or 0)
+                if price > 0:
+                    return price
+                # KIS API 실패 시 yfinance 백업
+                import yfinance as yf
+                for suffix in (".KS", ".KQ"):
+                    try:
+                        fi = yf.Ticker(tk + suffix).fast_info
+                        p = float(fi.get("regularMarketPrice", 0) or fi.get("lastPrice", 0) or 0)
+                        if p > 0:
+                            return p
+                    except Exception:
+                        pass
+                return 0.0
+            else:
+                import yfinance as yf
+                fi = yf.Ticker(tk).fast_info
+                return round(float(fi.get("regularMarketPrice", 0) or fi.get("lastPrice", 0) or 0), 2)
+        except Exception:
+            return 0.0
+
     def _process_group(stocks: list):
-        if not stocks:
-            return
-        kr_tks = tuple(str(s.get("ticker", "")).strip() for s in stocks if s.get("ticker") and _is_kr(s.get("ticker", "")))
-        us_tks = tuple(str(s.get("ticker", "")).strip() for s in stocks if s.get("ticker") and not _is_kr(s.get("ticker", "")))
-        kr_prices, us_prices = {}, {}
-        if kr_tks:
-            try:
-                from data_kr import get_kr_prices_bulk
-                kr_prices = get_kr_prices_bulk(kr_tks)
-            except Exception:
-                pass
-        if us_tks:
-            try:
-                from data import get_us_prices_bulk
-                us_prices = get_us_prices_bulk(us_tks)
-            except Exception:
-                pass
         for s in stocks:
             tk = str(s.get("ticker", "")).strip()
             if not tk:
                 continue
             is_kr = _is_kr(tk)
-            cp = float(((kr_prices if is_kr else us_prices).get(tk) or {}).get("price", 0) or 0)
+            cp = _get_price(tk, is_kr)
             rating = str(s.get("signal", ""))
             if cp > 0:
                 if rating in ("추천", "매우 강력 추천"):
@@ -83,6 +92,16 @@ def _override_targets(res: dict) -> dict:
                         s["buy_target"]  = f"${cp * 0.99:.2f} ~ ${cp * 1.01:.2f}"
                         s["sell_target"] = f"${cp * 1.06:.2f} (+6%)"
                         s["stop_loss"]   = f"${cp * 0.98:.2f} (-2%)"
+                else:
+                    s["buy_target"]  = "관망 (진입 타점 없음)"
+                    s["sell_target"] = "관망"
+                    s["stop_loss"]   = "관망"
+            else:
+                # 가격 조회 실패
+                if rating in ("추천", "매우 강력 추천"):
+                    s["buy_target"]  = "시세 조회 중 (잠시 후 새로고침)"
+                    s["sell_target"] = "시세 조회 중"
+                    s["stop_loss"]   = "시세 조회 중"
                 else:
                     s["buy_target"]  = "관망 (진입 타점 없음)"
                     s["sell_target"] = "관망"

@@ -160,10 +160,16 @@ async def market_scenarios(use_cache: bool = Query(True)):
     CACHE_KEY = "market_scenarios_latest"
 
     async def _gen():
+        from ai_engine import _override_targets
         # 캐시 확인
         if use_cache:
             cached = await asyncio.to_thread(load_ai_cache, CACHE_KEY)
             if cached and "error" not in cached:
+                # 캐시 데이터에도 타점 재계산 (구버전 캐시 호환)
+                try:
+                    await asyncio.to_thread(_override_targets, cached)
+                except Exception:
+                    pass
                 yield _sse({"status": "done", "result": cached, "from_cache": True})
                 return
 

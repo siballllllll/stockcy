@@ -28,6 +28,7 @@ export const api = {
     sectorMap:   ()                         => req("/api/us/sector-map"),
     chart:       (ticker: string, period = "1y", interval = "1d") =>
                                                req(`/api/us/chart/${ticker}?period=${period}&interval=${interval}`),
+    exchangeRate: ()                        => req<{ rate: number; symbol: string; fallback: boolean }>("/api/us/exchange-rate"),
     minuteChart: (ticker: string, iv = 5) => {
       const period = iv <= 5 ? "1d" : iv <= 30 ? "5d" : "1mo";
       return req(`/api/us/chart/${ticker}?period=${period}&interval=${iv}m`);

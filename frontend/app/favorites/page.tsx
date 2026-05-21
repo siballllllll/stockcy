@@ -267,6 +267,14 @@ function PortfolioTab() {
     { refreshInterval: 60000 }
   );
 
+  // USD/KRW 환율
+  const { data: fxData } = useSWR(
+    usTickers.length > 0 ? "usd-krw-rate" : null,
+    () => api.us.exchangeRate(),
+    { refreshInterval: 300000 }  // 5분마다 갱신
+  );
+  const usdKrw = fxData?.rate ?? 1350;
+
   const enriched = useMemo(() => {
     return (portfolio ?? []).map(p => {
       const isUs = !isKrCode(p.ticker);
@@ -277,13 +285,17 @@ function PortfolioTab() {
       const value = currentPrice * (p.quantity ?? 0);
       const profit = value - cost;
       const profitPct = cost > 0 ? (profit / cost) * 100 : 0;
-      return { ...p, isUs, normalTicker, currentPrice, cost, value, profit, profitPct };
+      // KRW 환산 (US 종목만)
+      const costKrw  = isUs ? cost  * usdKrw : cost;
+      const valueKrw = isUs ? value * usdKrw : value;
+      return { ...p, isUs, normalTicker, currentPrice, cost, value, profit, profitPct, costKrw, valueKrw };
     });
-  }, [portfolio, krPrices, usPrices]);
+  }, [portfolio, krPrices, usPrices, usdKrw]);
 
-  const totalCost   = enriched.reduce((s, p) => s + p.cost, 0);
-  const totalValue  = enriched.reduce((s, p) => s + p.value, 0);
-  const totalProfit = totalValue - totalCost;
+  const totalCostKrw   = enriched.reduce((s, p) => s + p.costKrw, 0);
+  const totalValueKrw  = enriched.reduce((s, p) => s + p.valueKrw, 0);
+  const totalProfitKrw = totalValueKrw - totalCostKrw;
+  const hasUsItems     = enriched.some(p => p.isUs);
 
   // 편집 상태
   const [editTicker, setEditTicker] = useState<string | null>(null);
@@ -386,17 +398,24 @@ function PortfolioTab() {
 
       {/* 총 손익 요약 */}
       {enriched.length > 0 && (
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "10px" }}>
-          {[
-            { label: "총 매수금액",  val: `₩${Math.round(totalCost).toLocaleString()}` },
-            { label: "총 평가금액",  val: `₩${Math.round(totalValue).toLocaleString()}`,  color: totalValue >= totalCost ? "var(--color-danger)" : "var(--color-primary)" },
-            { label: "총 손익",      val: `${totalProfit >= 0 ? "+" : ""}₩${Math.round(totalProfit).toLocaleString()} (${totalCost > 0 ? ((totalProfit/totalCost)*100).toFixed(2) : "0"}%)`, color: totalProfit >= 0 ? "var(--color-danger)" : "var(--color-primary)" },
-          ].map(({ label, val, color }) => (
-            <div key={label} style={{ background: "var(--color-surface)", border: "1px solid var(--color-border)", borderRadius: "8px", padding: "12px", textAlign: "center" }}>
-              <div style={{ fontSize: "0.75rem", color: "var(--color-muted)", marginBottom: "4px" }}>{label}</div>
-              <div style={{ fontWeight: 800, fontSize: "0.95rem", color: color ?? "var(--color-text)" }}>{val}</div>
+        <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+          {hasUsItems && (
+            <div style={{ fontSize: "0.72rem", color: "var(--color-muted)", textAlign: "right" }}>
+              USD/KRW: {usdKrw.toLocaleString()}원{fxData?.fallback ? " (기본값)" : ""}
             </div>
-          ))}
+          )}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "10px" }}>
+            {[
+              { label: "총 매수금액",  val: `₩${Math.round(totalCostKrw).toLocaleString()}` },
+              { label: "총 평가금액",  val: `₩${Math.round(totalValueKrw).toLocaleString()}`,  color: totalValueKrw >= totalCostKrw ? "var(--color-danger)" : "var(--color-primary)" },
+              { label: "총 손익",      val: `${totalProfitKrw >= 0 ? "+" : ""}₩${Math.round(totalProfitKrw).toLocaleString()} (${totalCostKrw > 0 ? ((totalProfitKrw/totalCostKrw)*100).toFixed(2) : "0"}%)`, color: totalProfitKrw >= 0 ? "var(--color-danger)" : "var(--color-primary)" },
+            ].map(({ label, val, color }) => (
+              <div key={label} style={{ background: "var(--color-surface)", border: "1px solid var(--color-border)", borderRadius: "8px", padding: "12px", textAlign: "center" }}>
+                <div style={{ fontSize: "0.75rem", color: "var(--color-muted)", marginBottom: "4px" }}>{label}</div>
+                <div style={{ fontWeight: 800, fontSize: "0.95rem", color: color ?? "var(--color-text)" }}>{val}</div>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 
@@ -428,6 +447,9 @@ function PortfolioTab() {
             const profitStr = p.isUs
               ? `${p.profit >= 0 ? "+" : ""}$${p.profit.toFixed(2)}`
               : `${p.profit >= 0 ? "+" : ""}₩${Math.round(p.profit).toLocaleString()}`;
+            const profitKrwHint = p.isUs && p.profit !== 0
+              ? `≈${p.profit >= 0 ? "+" : ""}₩${Math.round(p.profit * usdKrw).toLocaleString()}`
+              : null;
 
             return (
               <div key={i} style={{ borderBottom: "1px solid rgba(255,255,255,0.04)" }}>
@@ -444,7 +466,12 @@ function PortfolioTab() {
                     {p.currentPrice > 0 ? priceStr : <span style={{ color: "var(--color-muted)" }}>로딩중...</span>}
                   </div>
                   <div style={{ textAlign: "right" }}>{Number(p.quantity ?? 0).toLocaleString()}주</div>
-                  <div style={{ textAlign: "right", color, fontWeight: 600 }}>{profitStr}</div>
+                  <div style={{ textAlign: "right", color, fontWeight: 600 }}>
+                    {profitStr}
+                    {profitKrwHint && (
+                      <div style={{ fontSize: "0.68rem", color: "var(--color-muted)", fontWeight: 400 }}>{profitKrwHint}</div>
+                    )}
+                  </div>
                   <div style={{ textAlign: "right", color, fontWeight: 700 }}>
                     {p.profitPct >= 0 ? "+" : ""}{p.profitPct.toFixed(2)}%
                   </div>

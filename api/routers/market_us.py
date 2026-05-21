@@ -99,6 +99,24 @@ def us_chart(
         return []
 
 
+@router.get("/exchange-rate")
+def us_exchange_rate():
+    """USD/KRW 실시간 환율 (yfinance USDKRW=X)."""
+    try:
+        import yfinance as yf
+        fi = yf.Ticker("USDKRW=X").fast_info
+        rate = float(fi.get("regularMarketPrice", 0) or fi.get("lastPrice", 0) or 0)
+        if rate <= 0:
+            hist = yf.Ticker("USDKRW=X").history(period="2d")
+            if not hist.empty:
+                rate = float(hist["Close"].iloc[-1])
+        if rate > 0:
+            return {"rate": round(rate, 2), "symbol": "USDKRW", "fallback": False}
+    except Exception:
+        pass
+    return {"rate": 1350.0, "symbol": "USDKRW", "fallback": True}
+
+
 @router.get("/sector-map")
 def us_sector_map():
     """미국 섹터 맵 (섹터 → 세부섹터 → 종목 목록)."""
