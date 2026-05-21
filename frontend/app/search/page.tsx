@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect, useRef, useMemo } from "react";
+import { useState, useEffect, useRef, useMemo, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import useSWR from "swr";
 import { api } from "@/lib/api";
@@ -176,7 +176,7 @@ function getChosung(str: string) {
   return res;
 }
 
-export default function SearchPage() {
+function SearchPageInner() {
   const { market, setMarket } = useMarket();
   const isKR = market === "KR";
   const currSymbol = isKR ? "₩" : "$";
@@ -952,5 +952,13 @@ export default function SearchPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function SearchPage() {
+  return (
+    <Suspense fallback={<div style={{ padding: "2rem", textAlign: "center", color: "var(--color-muted)" }}>로딩 중...</div>}>
+      <SearchPageInner />
+    </Suspense>
   );
 }
