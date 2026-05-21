@@ -2863,11 +2863,19 @@ def show_favorites_center():
         elif _status in ["done", "error"]:
             st.session_state._daily_brief_running = False
             res = _task.get("result", {})
-            if res.get("success"):
-                st.success(res.get("msg", "발송 성공!"))
-            else:
-                st.error(res.get("msg", "발송 실패!"))
+            st.session_state._daily_brief_last_result = res
             _SCENARIO_TASKS.pop("_daily_brief", None)
+            st.rerun()
+            
+    _last_res = st.session_state.get("_daily_brief_last_result")
+    if _last_res:
+        if _last_res.get("success"):
+            st.success(_last_res.get("msg", "발송 성공!"))
+        else:
+            st.error(f"⚠️ 발송 실패: {_last_res.get('msg', '알 수 없는 오류')}")
+        if st.button("알림 닫기", key="close_daily_brief_res"):
+            st.session_state.pop("_daily_brief_last_result", None)
+            st.rerun()
             
     st.markdown("---")
     
