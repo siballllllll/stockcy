@@ -2863,24 +2863,35 @@ def show_favorites_center():
     if st.session_state.get("_daily_brief_running"):
         _task = _SCENARIO_TASKS.get("_daily_brief", {})
         _status = _task.get("status", "")
+        _msg = _task.get("msg", "")
+        _res = _task.get("result", {})
+        
+        # 안전장치: 전역 변수가 모종의 이유로 텅 비었어도 session_state에 백업된 값 사용
+        if _status:
+            st.session_state._daily_brief_backup_status = _status
+            st.session_state._daily_brief_backup_msg = _msg
+            st.session_state._daily_brief_backup_res = _res
+        else:
+            _status = st.session_state.get("_daily_brief_backup_status", "running")
+            _msg = st.session_state.get("_daily_brief_backup_msg", "작업이 길어지고 있습니다. 잠시만 대기해주세요...")
+            _res = st.session_state.get("_daily_brief_backup_res", {})
         
         if _status == "running":
-            _current_msg = _task.get("msg", "🤖 AI가 작업을 준비하고 있습니다...")
-            st.info(f"⏳ **진행 중:** {_current_msg}")
+            st.info(f"⏳ **진행 중:** {_msg}")
             from streamlit_autorefresh import st_autorefresh as _st_autorefresh
             _st_autorefresh(interval=1500, limit=None, key="daily_brief_progress")
         elif _status in ["done", "error"]:
             # 상태 표시
-            res = _task.get("result", {})
-            if res.get("success"):
-                st.success(res.get("msg", "발송 성공!"))
+            if _res.get("success"):
+                st.success(_res.get("msg", "발송 성공!"))
             else:
-                st.error(f"⚠️ 발송 실패: {res.get('msg', '알 수 없는 오류')}")
+                st.error(f"⚠️ 발송 실패: {_res.get('msg', '알 수 없는 오류')}")
             
             # 사용자가 확인 후 닫을 수 있게 처리
             if st.button("알림 닫기", key="close_daily_brief_res"):
                 st.session_state._daily_brief_running = False
                 _SCENARIO_TASKS.pop("_daily_brief", None)
+                st.session_state.pop("_daily_brief_backup_status", None)
                 st.rerun()
             
     st.markdown("---")
