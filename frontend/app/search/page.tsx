@@ -5,6 +5,7 @@ import useSWR from "swr";
 import { api } from "@/lib/api";
 import { Search, Star, Briefcase, Bell, BarChart2, DollarSign, Activity, Loader2 } from "lucide-react";
 import Chart from "@/components/Chart";
+import ReactMarkdown from "react-markdown";
 
 // 한글 초성 추출 유틸리티
 const CHOSUNG = ["ㄱ", "ㄲ", "ㄴ", "ㄷ", "ㄸ", "ㄹ", "ㅁ", "ㅂ", "ㅃ", "ㅅ", "ㅆ", "ㅇ", "ㅈ", "ㅉ", "ㅊ", "ㅋ", "ㅌ", "ㅍ", "ㅎ"];
@@ -30,6 +31,11 @@ export default function SearchPage() {
   const [chartType, setChartType] = useState<string>("daily"); // "minute" | "daily" | "weekly" | "monthly"
   const [minuteInterval, setMinuteInterval] = useState<number>(5); // 1, 5, 15, 30
   const [showDropdown, setShowDropdown] = useState(false);
+  const [aiAnalysisTab, setAiAnalysisTab] = useState<"short" | "entry" | "mid" | "long">("short");
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const [aiResult, setAiResult] = useState<any>(null);
+  const [aiStatus, setAiStatus] = useState<"idle" | "loading" | "done" | "error">("idle");
+  const [aiMsg, setAiMsg] = useState("");
 
   // 데이터 Fetching (API 연동)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -142,9 +148,97 @@ export default function SearchPage() {
   const color = isUp ? "var(--color-danger)" : isDown ? "var(--color-primary)" : "var(--color-text)";
   const changeStr = isUp ? "▲" : isDown ? "▼" : "━";
 
-  // 가상의 타점 상태 로직 (백엔드 AI 분석 결과 모방)
-  const isGoodBuy = change > 0 && change < 5; // 적당한 상승
-  const isOverHeated = change >= 5; // 단기 과열
+  // ── 타점 보드 판정 (원본 app.py 로직 1:1 복원) ──────────────────────────────
+  const bandPos = (() => {
+    const hi = stockData?.['52주최고가'] || price || 1;
+    const lo = stockData?.['52주최저가'] || 1;
+    if (hi <= lo) return 50;
+    return Math.round(((price - lo) / (hi - lo)) * 100);
+  })();
+  const per = parseFloat(String(stockData?.PER || "20").replace(",", "")) || 20;
+  const pbr = parseFloat(String(stockData?.PBR || "1.5").replace(",", "")) || 1.5;
+
+  const etBoard = (() => {
+    const c = change;
+    if (Math.abs(c) < 0.5) return { label: "⚪ 극단타 불가",      color: "#888",    desc: "변동 없음 — 거래비용 감안 시 손익 기대 불가" };
+    if (c >= 5)             return { label: "🟢 극단타 적극 대응", color: "#00c853", desc: `강 모멘텀 ${c > 0 ? "+" : ""}${c.toFixed(2)}% — 눌림목 분봉 지지 확인 후 진입` };
+    if (c >= 3)             return { label: "🟢 극단타 관심",      color: "#00c853", desc: `상승 ${c > 0 ? "+" : ""}${c.toFixed(2)}% — 직전 분봉 고점 돌파 시 추격` };
+    if (c >= 1)             return { label: "🟡 극단타 관망",      color: "#ffd600", desc: `소폭 ${c > 0 ? "+" : ""}${c.toFixed(2)}% — 변동성 부족, 돌파 신호 대기` };
+    if (c <= -5)            return { label: "🔵 반등 노림",        color: "#2b7cff", desc: `급락 ${c.toFixed(2)}% — 분봉 반등 캔들+거래량 폭발 확인 후` };
+    if (c <= -1)            return { label: "🔴 극단타 자제",      color: "#ff4b4b", desc: `하락 ${c.toFixed(2)}% — 추세 꺾임, 섣부른 반매수 위험` };
+    return                         { label: "🟡 극단타 관망",      color: "#ffd600", desc: `등락 ${c.toFixed(2)}% — 방향 미확정, 분봉 패턴 확인 필요` };
+  })();
+
+  const stBoard = (() => {
+    const c = change;
+    if (Math.abs(c) < 0.1) return { label: "⚪ 관망",           color: "#888",    desc: `등락 미미(${c.toFixed(2)}%) — 장 마감·거래 없음 상태 가능` };
+    if (c >= 5)             return { label: "🟢 강력 단기 추천", color: "#00c853", desc: `강한 모멘텀 ${c > 0 ? "+" : ""}${c.toFixed(2)}% — 눌림목 진입 권장` };
+    if (c >= 3)             return { label: "🟢 단기 추천",      color: "#00c853", desc: `상승세 ${c > 0 ? "+" : ""}${c.toFixed(2)}% — 손절: 당일 저점` };
+    if (c >= 1)             return { label: "🟡 단기 관망",      color: "#ffd600", desc: `소폭 상승 ${c > 0 ? "+" : ""}${c.toFixed(2)}% — 3% 돌파 확인 후 진입` };
+    if (c <= -5)            return { label: "🔵 반등 관찰",      color: "#2b7cff", desc: `급락 ${c.toFixed(2)}% — 지지선·거래량 확인 필수` };
+    if (c <= -2)            return { label: "🔴 단기 비추천",    color: "#ff4b4b", desc: `하락세 ${c.toFixed(2)}% — 추가 하락 가능` };
+    return                         { label: "🔴 단기 비추천",    color: "#ff4b4b", desc: `등락 ${c.toFixed(2)}% — 수수료 감안 시 실익 없음` };
+  })();
+
+  const mtBoard = (() => {
+    if (bandPos <= 30) return { label: "🟢 중기 매수 관심", color: "#00c853", desc: `52주 저점 근처(${bandPos}%) — 중기 분할 매수 고려` };
+    if (bandPos >= 80) return { label: "🔴 중기 고평가",   color: "#ff4b4b", desc: `52주 고점 근처(${bandPos}%) — 신규 진입 부담` };
+    if (pbr < 1)       return { label: "🟢 중기 저평가",   color: "#00c853", desc: `PBR ${pbr.toFixed(2)} (자산가치 이하) — 중기 가치투자 유리` };
+    return                    { label: "🟡 중기 중립",     color: "#ffd600", desc: `52주 중간대(${bandPos}%) — 방향성 확인 후 대응` };
+  })();
+
+  const ltBoard = (() => {
+    if (per <= 0)  return { label: "🟡 장기 중립", color: "#ffd600", desc: `PER 음수(적자) — 수익성 개선 추이 확인 필요` };
+    if (per < 10)  return { label: "🟢 장기 저평가", color: "#00c853", desc: `PER ${per.toFixed(1)} — 업종 대비 저평가, 장기 보유 유리` };
+    if (per < 20)  return { label: "🟢 장기 적정",   color: "#00c853", desc: `PER ${per.toFixed(1)} — 적정 밸류에이션` };
+    if (per < 40)  return { label: "🟡 장기 중립",   color: "#ffd600", desc: `PER ${per.toFixed(1)} — 성장 프리미엄 반영, 모니터링 필요` };
+    return                { label: "🔴 장기 고평가", color: "#ff4b4b", desc: `PER ${per.toFixed(1)} — 고평가 구간, 장기 진입 신중` };
+  })();
+
+  // AI 분석 실행
+  const runAiAnalysis = async () => {
+    setAiStatus("loading");
+    setAiResult(null);
+    setAiMsg("분석을 준비중입니다...");
+    try {
+      const payload = {
+        code: currentCode,
+        name: nameData?.name || stockData?.name || currentCode,
+        price_data: stockData || {},
+        investor_data: [],
+      };
+      const BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+      const res = await fetch(`${BASE}/api/ai/kr-stock-report`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (!res.body) throw new Error("No body");
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const parts = buffer.split("\n\n");
+        buffer = parts.pop() ?? "";
+        for (const part of parts) {
+          const line = part.trim();
+          if (!line.startsWith("data:")) continue;
+          try {
+            const parsed = JSON.parse(line.slice(5).trim());
+            if (parsed.status === "running") setAiMsg(parsed.message ?? aiMsg);
+            else if (parsed.status === "done") { setAiResult(parsed.result); setAiStatus("done"); }
+            else if (parsed.status === "error") { setAiMsg(`❌ ${parsed.message}`); setAiStatus("error"); }
+          } catch {}
+        }
+      }
+    } catch (err: any) {
+      setAiMsg(`❌ 오류: ${err.message}`);
+      setAiStatus("error");
+    }
+  };
   
   return (
     <div style={{ width: "100%", margin: "0 auto" }}>
@@ -423,52 +517,21 @@ export default function SearchPage() {
               </div>
 
               {/* =====================================
-                  미니 타점 보드 (4구획)
+                  타점 보드 (4구획) — 원본 로직
               ===================================== */}
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: "6px", marginTop: "auto" }}>
-                {/* 극단타 */}
-                <div style={{ background: "rgba(255,255,255,0.03)", border: `1px solid ${isOverHeated ? "var(--color-warning)" : "var(--color-success)"}`, borderRadius: "6px", padding: "8px" }}>
-                  <div style={{ fontSize: "0.75rem", color: "var(--color-muted)", marginBottom: "2px" }}>극단타</div>
-                  <div style={{ fontWeight: 700, fontSize: "0.8rem", color: isOverHeated ? "var(--color-warning)" : "var(--color-success)", marginBottom: "4px" }}>
-                    {isOverHeated ? "🟡 단기 과열 주의" : "🟢 극단타 적극 대응"}
+                {[
+                  { title: "극단타", board: etBoard },
+                  { title: "단기",   board: stBoard },
+                  { title: "중기",   board: mtBoard },
+                  { title: "장기",   board: ltBoard },
+                ].map(({ title, board }) => (
+                  <div key={title} style={{ background: "rgba(255,255,255,0.03)", border: `1px solid ${board.color}`, borderRadius: "6px", padding: "8px" }}>
+                    <div style={{ fontSize: "0.75rem", color: "var(--color-muted)", marginBottom: "2px" }}>{title}</div>
+                    <div style={{ fontWeight: 700, fontSize: "0.78rem", color: board.color, marginBottom: "4px" }}>{board.label}</div>
+                    <div style={{ fontSize: "0.68rem", color: "var(--color-subtle)", lineHeight: 1.3 }}>{board.desc}</div>
                   </div>
-                  <div style={{ fontSize: "0.7rem", color: "var(--color-subtle)", lineHeight: 1.3 }}>
-                    {isOverHeated ? "차익 매물 출회 가능성." : "모멘텀 확보. 매수 유효."}
-                  </div>
-                </div>
-                
-                {/* 단기 */}
-                <div style={{ background: "rgba(255,255,255,0.03)", border: `1px solid ${isGoodBuy ? "var(--color-success)" : "var(--color-danger)"}`, borderRadius: "6px", padding: "8px" }}>
-                  <div style={{ fontSize: "0.75rem", color: "var(--color-muted)", marginBottom: "2px" }}>단기</div>
-                  <div style={{ fontWeight: 700, fontSize: "0.8rem", color: isGoodBuy ? "var(--color-success)" : "var(--color-danger)", marginBottom: "4px" }}>
-                    {isGoodBuy ? "🟢 강력 단기 추천" : "🔴 추격 매수 자제"}
-                  </div>
-                  <div style={{ fontSize: "0.7rem", color: "var(--color-subtle)", lineHeight: 1.3 }}>
-                    {isGoodBuy ? "추세 상방 전환 확인." : "하방 압력. 지지선 확인."}
-                  </div>
-                </div>
-
-                {/* 중기 */}
-                <div style={{ background: "rgba(255,255,255,0.03)", border: "1px solid var(--color-danger)", borderRadius: "6px", padding: "8px" }}>
-                  <div style={{ fontSize: "0.75rem", color: "var(--color-muted)", marginBottom: "2px" }}>중기</div>
-                  <div style={{ fontWeight: 700, fontSize: "0.8rem", color: "var(--color-danger)", marginBottom: "4px" }}>
-                    🔴 중기 고평가
-                  </div>
-                  <div style={{ fontSize: "0.7rem", color: "var(--color-subtle)", lineHeight: 1.3 }}>
-                    고점 근접. 진입 부담.
-                  </div>
-                </div>
-
-                {/* 장기 */}
-                <div style={{ background: "rgba(255,255,255,0.03)", border: "1px solid var(--color-danger)", borderRadius: "6px", padding: "8px" }}>
-                  <div style={{ fontSize: "0.75rem", color: "var(--color-muted)", marginBottom: "2px" }}>장기</div>
-                  <div style={{ fontWeight: 700, fontSize: "0.8rem", color: "var(--color-danger)", marginBottom: "4px" }}>
-                    🔴 장기 고평가
-                  </div>
-                  <div style={{ fontSize: "0.7rem", color: "var(--color-subtle)", lineHeight: 1.3 }}>
-                    PER/PBR 밴드 최상단.
-                  </div>
-                </div>
+                ))}
               </div>
             </div>
           )}
@@ -517,76 +580,105 @@ export default function SearchPage() {
           )}
 
           {activeTab === "AI 분석" && (
-            <div className="stockcy-card" style={{ flex: 1, display: "flex", flexDirection: "column", padding: "1.5rem" }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem" }}>
+            <div className="stockcy-card" style={{ flex: 1, display: "flex", flexDirection: "column", padding: "1.5rem", gap: "1rem" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                 <h3 style={{ fontSize: "1.1rem", fontWeight: 700, margin: 0 }}>🧠 AI 심층 리포트 및 타점 분석</h3>
-                <button 
-                  onClick={async () => {
-                    const statusDiv = document.getElementById("ai-status");
-                    const contentDiv = document.getElementById("ai-content");
-                    if (statusDiv) statusDiv.innerText = "분석을 준비중입니다...";
-                    if (contentDiv) contentDiv.innerHTML = "";
-                    
-                    try {
-                      const payload = {
-                        code: currentCode,
-                        name: nameData?.name || stockData?.name || currentCode,
-                        price_data: stockData || {},
-                        investor_data: []
-                      };
-                      
-                      const res = await fetch((process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000") + "/api/ai/kr-stock-report", {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify(payload)
-                      });
-                      
-                      if (!res.body) throw new Error("No body");
-                      const reader = res.body.getReader();
-                      const decoder = new TextDecoder();
-                      let resultMd = "";
-                      
-                      while (true) {
-                        const { value, done } = await reader.read();
-                        if (done) break;
-                        const chunk = decoder.decode(value);
-                        const lines = chunk.split("\n");
-                        
-                        for (const line of lines) {
-                          if (line.startsWith("data: ")) {
-                            try {
-                              const parsed = JSON.parse(line.slice(6));
-                              if (parsed.status === "running") {
-                                if (statusDiv) statusDiv.innerHTML = `<span class="animate-pulse">⏳ ${parsed.message}</span>`;
-                              } else if (parsed.status === "done") {
-                                if (statusDiv) statusDiv.innerHTML = "<span style='color:var(--color-success)'>✅ 분석 완료</span>";
-                                resultMd = parsed.result?.report || JSON.stringify(parsed.result);
-                                if (contentDiv) contentDiv.innerHTML = `<pre style="white-space: pre-wrap; font-family: inherit; line-height: 1.6; font-size: 0.95rem;">${resultMd}</pre>`;
-                              } else if (parsed.status === "error") {
-                                if (statusDiv) statusDiv.innerHTML = `<span style='color:var(--color-primary)'>❌ 에러: ${parsed.message}</span>`;
-                              }
-                            } catch(e) {}
-                          }
-                        }
-                      }
-                    } catch (err: any) {
-                      if (statusDiv) statusDiv.innerText = `오류가 발생했습니다: ${err.message}`;
-                    }
-                  }}
+                <button
+                  onClick={runAiAnalysis}
+                  disabled={aiStatus === "loading"}
                   className="stockcy-btn-primary"
                   style={{ padding: "8px 16px", borderRadius: "6px", fontSize: "0.9rem", fontWeight: 600, display: "flex", gap: "6px", alignItems: "center" }}
                 >
-                  <Activity size={16} /> 분석 실행
+                  {aiStatus === "loading" ? <><Loader2 size={15} className="animate-spin" /> 분석 중...</> : <><Activity size={15} /> 분석 실행</>}
                 </button>
               </div>
-              
-              <div id="ai-status" style={{ fontSize: "0.9rem", color: "var(--color-warning)", fontWeight: 600, marginBottom: "1rem" }}>
-                상단의 '분석 실행' 버튼을 눌러주세요. (약 30~50초 소요)
-              </div>
-              
-              <div id="ai-content" style={{ padding: "1.5rem", background: "rgba(0,0,0,0.2)", borderRadius: "8px", minHeight: "200px" }}>
-                <div style={{ color: "var(--color-muted)", textAlign: "center", marginTop: "3rem" }}>AI 리포트가 이곳에 표시됩니다.</div>
-              </div>
+
+              {aiStatus === "idle" && (
+                <div style={{ color: "var(--color-muted)", textAlign: "center", padding: "3rem 0", fontSize: "0.9rem" }}>
+                  '분석 실행' 버튼을 눌러주세요. (약 30~50초 소요)
+                </div>
+              )}
+
+              {aiStatus === "loading" && (
+                <div style={{ textAlign: "center", padding: "3rem 0" }}>
+                  <Loader2 size={36} className="animate-spin" color="var(--color-accent)" style={{ margin: "0 auto 1rem" }} />
+                  <div style={{ color: "var(--color-warning)", fontWeight: 600 }}>{aiMsg}</div>
+                </div>
+              )}
+
+              {aiStatus === "error" && (
+                <div style={{ color: "var(--color-danger)", padding: "1rem", textAlign: "center" }}>{aiMsg}</div>
+              )}
+
+              {aiStatus === "done" && aiResult && (
+                <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
+                  {/* 등급 헤더 */}
+                  <div style={{ display: "flex", gap: "10px", alignItems: "center", flexWrap: "wrap" }}>
+                    <span style={{ fontWeight: 800, fontSize: "1rem", padding: "4px 12px", borderRadius: "6px", background: aiResult.rating?.includes("강력") ? "rgba(0,200,83,0.15)" : aiResult.rating?.includes("추천") ? "rgba(0,200,83,0.1)" : "rgba(255,75,75,0.1)", color: aiResult.rating?.includes("추천") ? "#00c853" : "#ff4b4b", border: `1px solid ${aiResult.rating?.includes("추천") ? "#00c853" : "#ff4b4b"}` }}>
+                      {aiResult.rating || "분석 중"}
+                    </span>
+                    {aiResult.verified_name && aiResult.ticker_mismatch && (
+                      <span style={{ fontSize: "0.8rem", color: "var(--color-warning)" }}>⚠️ 실제 종목: {aiResult.verified_name}</span>
+                    )}
+                  </div>
+
+                  {/* 매수/목표/손절 타점 */}
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "8px" }}>
+                    {[
+                      { label: "매수 타점", val: aiResult.buy_target, color: "var(--color-success)" },
+                      { label: "목표가",   val: aiResult.sell_target, color: "var(--color-danger)" },
+                      { label: "손절가",   val: aiResult.stop_loss,   color: "var(--color-primary)" },
+                    ].map(({ label, val, color }) => (
+                      <div key={label} style={{ background: "rgba(255,255,255,0.03)", border: `1px solid ${color}`, borderRadius: "6px", padding: "10px", textAlign: "center" }}>
+                        <div style={{ fontSize: "0.75rem", color: "var(--color-muted)", marginBottom: "4px" }}>{label}</div>
+                        <div style={{ fontWeight: 700, fontSize: "0.85rem", color }}>{val || "-"}</div>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* 분석 탭 (단기전망/매수전략/중기전망/장기분석) */}
+                  <div style={{ display: "flex", gap: "6px", borderBottom: "1px solid var(--color-border)", paddingBottom: "4px" }}>
+                    {([
+                      { id: "short", label: "📊 단기 전망" },
+                      { id: "entry", label: "📅 매수 전략" },
+                      { id: "mid",   label: "📆 중기 전망" },
+                      { id: "long",  label: "🗓 장기 분석" },
+                    ] as const).map(({ id, label }) => (
+                      <button
+                        key={id}
+                        onClick={() => setAiAnalysisTab(id)}
+                        style={{ padding: "4px 10px", borderRadius: "4px", border: "none", cursor: "pointer", fontSize: "0.8rem", fontWeight: 600, background: aiAnalysisTab === id ? "rgba(255,255,255,0.1)" : "transparent", color: aiAnalysisTab === id ? "var(--color-text)" : "var(--color-muted)", borderBottom: aiAnalysisTab === id ? "2px solid var(--color-accent)" : "2px solid transparent" }}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+
+                  <div style={{ padding: "0.75rem", background: "rgba(0,0,0,0.2)", borderRadius: "6px", fontSize: "0.88rem", lineHeight: 1.7, maxHeight: "320px", overflowY: "auto" }}>
+                    {aiAnalysisTab === "short" && (
+                      <div>
+                        <div style={{ color: "var(--color-muted)", marginBottom: "0.5rem", fontSize: "0.8rem" }}>단기 예상 변동: <strong style={{ color: "var(--color-text)" }}>{aiResult.short_term_view_pct}</strong> → <strong style={{ color: "var(--color-text)" }}>{aiResult.short_term_view_price}</strong></div>
+                        <ReactMarkdown>{aiResult.short_term_view_reason || aiResult.key_issues || ""}</ReactMarkdown>
+                      </div>
+                    )}
+                    {aiAnalysisTab === "entry" && (
+                      <ReactMarkdown>{aiResult.analysis || aiResult.세력분석 || ""}</ReactMarkdown>
+                    )}
+                    {aiAnalysisTab === "mid" && (
+                      <div>
+                        <div style={{ color: "var(--color-muted)", marginBottom: "0.5rem", fontSize: "0.8rem" }}>중기 예상: <strong style={{ color: "var(--color-text)" }}>{aiResult.mid_term_view_price}</strong></div>
+                        <ReactMarkdown>{aiResult.mid_term_view_condition || ""}</ReactMarkdown>
+                      </div>
+                    )}
+                    {aiAnalysisTab === "long" && (
+                      <div>
+                        <div style={{ color: "var(--color-muted)", marginBottom: "0.5rem", fontSize: "0.8rem" }}>장기 등급: <strong style={{ color: "var(--color-text)" }}>{aiResult.long_term_rating}</strong> | 목표: <strong style={{ color: "var(--color-text)" }}>{aiResult.long_term_target}</strong> | 기간: <strong style={{ color: "var(--color-text)" }}>{aiResult.long_term_period}</strong></div>
+                        <ReactMarkdown>{aiResult.long_term_analysis || ""}</ReactMarkdown>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
