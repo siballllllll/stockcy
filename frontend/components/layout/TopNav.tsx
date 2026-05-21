@@ -6,8 +6,9 @@ import { BarChart2, TrendingUp, GitBranch, Star } from "lucide-react";
 const TABS = [
   { href: "/macro",     label: "매크로 분석",   icon: <BarChart2  size={15} /> },
   { href: "/leading",   label: "주도주 분석",   icon: <TrendingUp size={15} /> },
-  { href: "/scenarios", label: "시나리오 분석", icon: <GitBranch  size={15} /> },
-  { href: "/favorites", label: "즐겨찾기",      icon: <Star       size={15} /> },
+  { href: "/sectors",   label: "섹터 로테이션", icon: <GitBranch  size={15} /> },
+  { href: "/scenarios", label: "시나리오",       icon: <GitBranch  size={15} /> },
+  { href: "/favorites", label: "즐겨찾기",       icon: <Star       size={15} /> },
 ];
 
 export function TopNav() {
@@ -79,6 +80,37 @@ export function TopNav() {
             );
           })}
         </nav>
+        {/* 우측 유틸리티 영역 */}
+        <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", marginLeft: "auto", paddingLeft: "1rem" }}>
+          {/* 브리핑 버튼 (팝업 오픈용) */}
+          <button 
+            className="stockcy-btn stockcy-btn-primary" 
+            style={{ padding: "4px 12px", fontSize: "0.8rem", fontWeight: 600 }}
+            onClick={() => alert("브리핑 모달 오픈!")}
+          >
+            📰 브리핑
+          </button>
+          
+          {/* 시장 토글 버튼 */}
+          <div style={{ display: "flex", background: "var(--color-bg)", borderRadius: "6px", padding: "2px", border: "1px solid var(--color-border)" }}>
+            <button 
+              style={{ 
+                padding: "2px 10px", fontSize: "0.8rem", borderRadius: "4px", border: "none", cursor: "pointer",
+                background: "var(--color-accent)", color: "white", fontWeight: 600
+              }}
+            >
+              🇰🇷 국내
+            </button>
+            <button 
+              style={{ 
+                padding: "2px 10px", fontSize: "0.8rem", borderRadius: "4px", border: "none", cursor: "pointer",
+                background: "transparent", color: "var(--color-muted)", fontWeight: 500
+              }}
+            >
+              🇺🇸 미국
+            </button>
+          </div>
+        </div>
       </div>
     </header>
   );
