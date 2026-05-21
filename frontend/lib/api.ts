@@ -74,7 +74,14 @@ export const api = {
     removeFavorite: (ticker: string)         => req(`/api/favorites/${ticker}`, { method: "DELETE" }),
     checkFavorite:  (ticker: string)         => req(`/api/favorites/${ticker}/check`),
     loadTrades:    ()                        => req("/api/trades"),
+    saveTrade:     (trade: Record<string, unknown>) => req("/api/trades", { method: "POST", body: JSON.stringify({ trade }) }),
+    deleteTrade:   (ticker: string, sellDate: string) =>
+                     req("/api/trades", { method: "DELETE", body: JSON.stringify({ ticker, sell_date: sellDate }) }),
     loadAlerts:    ()                        => req("/api/alerts"),
+    saveAlert:     (market: string, ticker: string, name: string, alertType: string, targetPrice: number) =>
+                     req("/api/alerts", { method: "POST", body: JSON.stringify({ market, ticker, name, alert_type: alertType, target_price: targetPrice }) }),
+    deleteAlert:   (ticker: string, alertType: string) =>
+                     req("/api/alerts", { method: "DELETE", body: JSON.stringify({ ticker, alert_type: alertType }) }),
   },
 
   // ── 시스템 ────────────────────────────────────────────────────────────────
