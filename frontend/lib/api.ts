@@ -1,0 +1,109 @@
+/**
+ * Stockcy API 클라이언트
+ * 모든 백엔드(FastAPI) 호출은 이 파일을 통해 이루어집니다.
+ */
+
+const BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+
+async function req<T>(path: string, opts?: RequestInit): Promise<T> {
+  const res = await fetch(`${BASE}${path}`, {
+    headers: { "Content-Type": "application/json" },
+    ...opts,
+  });
+  if (!res.ok) throw new Error(`API ${path} → ${res.status}`);
+  return res.json() as Promise<T>;
+}
+
+// ── 미국 시장 ─────────────────────────────────────────────────────────────────
+export const api = {
+  us: {
+    indices:     ()                         => req("/api/us/indices"),
+    session:     ()                         => req("/api/us/session"),
+    stocks:      (tickers: string[])        => req(`/api/us/stocks?tickers=${tickers.join(",")}`),
+    stockDetail: (ticker: string, exch = "NASDAQ") =>
+                                               req(`/api/us/stocks/${ticker}?exchange=${exch}`),
+    sectorMap:   ()                         => req("/api/us/sector-map"),
+  },
+
+  // ── 국내 시장 ──────────────────────────────────────────────────────────────
+  kr: {
+    indices:        ()                       => req("/api/kr/indices"),
+    stockPrice:     (code: string)           => req(`/api/kr/stocks/${code}`),
+    volumeRanking:  (market = "ALL")         => req(`/api/kr/volume-ranking?market=${market}`),
+    changeRanking:  (market = "ALL", dir = "up") =>
+                                                req(`/api/kr/change-ranking?market=${market}&direction=${dir}`),
+    investorTrend:  (market = "KOSPI")       => req(`/api/kr/investor-trend?market=${market}`),
+    minuteChart:    (code: string, iv = 5)   => req(`/api/kr/chart/${code}/minute?interval=${iv}`),
+    dailyChart:     (code: string, p = 60)   => req(`/api/kr/chart/${code}/daily?period=${p}`),
+    stocksBulk:     (codes: string[])        => req(`/api/kr/stocks-bulk?codes=${codes.join(",")}`),
+    sectorMap:      ()                       => req("/api/kr/sector-map"),
+    hotSectors:     ()                       => req("/api/kr/hot-sectors"),
+  },
+
+  // ── 포트폴리오·즐겨찾기 ───────────────────────────────────────────────────
+  portfolio: {
+    loadPortfolio: ()                        => req("/api/portfolio"),
+    loadAi:        ()                        => req("/api/portfolio/ai"),
+    loadFavorites: ()                        => req("/api/favorites"),
+    addFavorite: (marketType: string, ticker: string, name: string) =>
+      req("/api/favorites", {
+        method: "POST",
+        body: JSON.stringify({ market_type: marketType, ticker, name }),
+      }),
+    removeFavorite: (ticker: string)         => req(`/api/favorites/${ticker}`, { method: "DELETE" }),
+    checkFavorite:  (ticker: string)         => req(`/api/favorites/${ticker}/check`),
+    loadTrades:    ()                        => req("/api/trades"),
+    loadAlerts:    ()                        => req("/api/alerts"),
+  },
+
+  // ── 시스템 ────────────────────────────────────────────────────────────────
+  system: {
+    health:       ()                         => req("/api/health"),
+    configStatus: ()                         => req("/api/config-status"),
+  },
+};
+
+// ── SSE 연결 유틸 ─────────────────────────────────────────────────────────────
+/**
+ * SSE 스트림에 연결하고 각 이벤트를 콜백으로 전달합니다.
+ * POST body가 있으면 fetch + ReadableStream 방식으로 처리합니다.
+ */
+export async function connectSSE<T>(
+  path: string,
+  onEvent: (evt: { status: string; message?: string; result?: T; from_cache?: boolean }) => void,
+  options?: { method?: "GET" | "POST"; body?: object }
+): Promise<void> {
+  const method = options?.method ?? "GET";
+  const res = await fetch(`${BASE}${path}`, {
+    method,
+    headers: { "Content-Type": "application/json" },
+    body: options?.body ? JSON.stringify(options.body) : undefined,
+  });
+
+  if (!res.body) throw new Error("SSE: no response body");
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+
+    // SSE 메시지는 "data: {...}\n\n" 형태
+    const parts = buffer.split("\n\n");
+    buffer = parts.pop() ?? "";   // 마지막 미완성 청크는 보관
+
+    for (const part of parts) {
+      const line = part.trim();
+      if (!line.startsWith("data:")) continue;
+      try {
+        const payload = JSON.parse(line.slice(5).trim());
+        onEvent(payload);
+      } catch {
+        // 파싱 실패 무시
+      }
+    }
+  }
+}

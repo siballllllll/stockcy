@@ -1,4 +1,5 @@
 # data_kr v4
+import os
 import requests
 import streamlit as st
 import pandas as pd
@@ -14,8 +15,8 @@ def get_kis_token():
             f"{KIS_BASE}/oauth2/tokenP",
             json={
                 "grant_type": "client_credentials",
-                "appkey": st.secrets["kis"]["app_key"],
-                "appsecret": st.secrets["kis"]["app_secret"],
+                "appkey": os.getenv("KIS_APP_KEY", ""),
+                "appsecret": os.getenv("KIS_APP_SECRET", ""),
             },
             timeout=10,
         )
@@ -30,8 +31,8 @@ def _headers(tr_id: str) -> dict:
     return {
         "content-type": "application/json; charset=utf-8",
         "authorization": f"Bearer {token}",
-        "appkey": st.secrets["kis"]["app_key"],
-        "appsecret": st.secrets["kis"]["app_secret"],
+        "appkey": os.getenv("KIS_APP_KEY", ""),
+        "appsecret": os.getenv("KIS_APP_SECRET", ""),
         "tr_id": tr_id,
         "custtype": "P",
     }
@@ -201,8 +202,8 @@ def get_kr_stock_name_kis(stock_code: str) -> tuple:
             headers={
                 "content-type": "application/json; charset=utf-8",
                 "authorization": f"Bearer {token}",
-                "appkey": st.secrets["kis"]["app_key"],
-                "appsecret": st.secrets["kis"]["app_secret"],
+                "appkey": os.getenv("KIS_APP_KEY", ""),
+                "appsecret": os.getenv("KIS_APP_SECRET", ""),
                 "tr_id": "FHKST01010100",
                 "custtype": "P",
             },

@@ -1,0 +1,176 @@
+@import "tailwindcss";
+
+/* ── Stockcy 다크 테마 색상 팔레트 ─────────────────────────────────── */
+@theme {
+  /* 배경 계층 */
+  --color-surface:    #0e1117;   /* 최상위 배경 (Streamlit 다크 모드 기본) */
+  --color-card:       #1a1d24;   /* 카드/위젯 배경 */
+  --color-elevated:   #262730;   /* 호버/강조 배경 */
+  --color-border:     #3d4148;   /* 구분선 */
+
+  /* 텍스트 */
+  --color-text:       #fafafa;   /* 기본 텍스트 */
+  --color-muted:      #a3a8b0;   /* 보조 텍스트 */
+  --color-subtle:     #6b7280;   /* 희미한 텍스트 */
+
+  /* 브랜드/액션 */
+  --color-accent:     #ff4b4b;   /* Streamlit 레드 (기본 액센트) */
+  --color-accent-dim: #c93333;   /* 액센트 호버 */
+
+  /* 상태 색상 */
+  --color-success:    #21c354;
+  --color-info:       #1c83e1;
+  --color-warning:    #ffa421;
+  --color-danger:     #ff4b4b;
+
+  /* 주가 등락 */
+  --color-up:         #00c853;   /* 상승 */
+  --color-down:       #ff1744;   /* 하락 */
+  --color-flat:       #a3a8b0;   /* 보합 */
+
+  /* 폰트 */
+  --font-sans: "Pretendard", "Apple SD Gothic Neo", "Noto Sans KR",
+               ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", "Fira Code", ui-monospace, monospace;
+}
+
+/* ── 전역 기본값 ─────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; }
+
+html, body {
+  height: 100%;
+  background-color: var(--color-surface);
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* 스크롤바 스타일 (Webkit) */
+::-webkit-scrollbar          { width: 6px; height: 6px; }
+::-webkit-scrollbar-track    { background: var(--color-surface); }
+::-webkit-scrollbar-thumb    { background: var(--color-border); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--color-muted); }
+
+/* ── 공통 유틸리티 클래스 ───────────────────────────────────────── */
+
+/* 카드 */
+.stockcy-card {
+  background-color: var(--color-card);
+  border: 1px solid var(--color-border);
+  border-radius: 0.5rem;
+  padding: 1rem;
+}
+
+/* 구분선 */
+.stockcy-divider {
+  border-top: 1px solid var(--color-border);
+  margin: 0.75rem 0;
+}
+
+/* 알림 박스 공통 */
+.stockcy-box {
+  border-radius: 0.375rem;
+  padding: 0.625rem 0.875rem;
+  font-size: 0.875rem;
+  border-left-width: 3px;
+}
+.stockcy-box-info    { background: #1c2d3f; border-color: var(--color-info);    color: #7ec8f7; }
+.stockcy-box-success { background: #1a2e20; border-color: var(--color-success); color: #6fe08d; }
+.stockcy-box-warning { background: #2e2415; border-color: var(--color-warning); color: #ffc55a; }
+.stockcy-box-danger  { background: #2e1a1a; border-color: var(--color-danger);  color: #ff9090; }
+
+/* 탭 활성화 스타일 */
+.tab-active {
+  color: var(--color-text);
+  border-bottom: 2px solid var(--color-accent);
+}
+.tab-inactive {
+  color: var(--color-muted);
+  border-bottom: 2px solid transparent;
+}
+
+/* 가격 등락 색상 */
+.price-up   { color: var(--color-up); }
+.price-down { color: var(--color-down); }
+.price-flat { color: var(--color-flat); }
+
+/* 입력 공통 */
+.stockcy-input {
+  background-color: var(--color-elevated);
+  border: 1px solid var(--color-border);
+  border-radius: 0.375rem;
+  color: var(--color-text);
+  padding: 0.5rem 0.75rem;
+  font-size: 0.875rem;
+  width: 100%;
+  outline: none;
+  transition: border-color 0.15s;
+}
+.stockcy-input:focus {
+  border-color: var(--color-accent);
+}
+
+/* 버튼 공통 */
+.stockcy-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.45rem 0.875rem;
+  border-radius: 0.375rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 0.15s, opacity 0.15s;
+  border: none;
+  outline: none;
+}
+.stockcy-btn-primary {
+  background-color: var(--color-accent);
+  color: white;
+}
+.stockcy-btn-primary:hover { background-color: var(--color-accent-dim); }
+.stockcy-btn-secondary {
+  background-color: var(--color-elevated);
+  color: var(--color-text);
+  border: 1px solid var(--color-border);
+}
+.stockcy-btn-secondary:hover { background-color: var(--color-border); }
+.stockcy-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* 테이블 */
+.stockcy-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+.stockcy-table th {
+  text-align: left;
+  padding: 0.5rem 0.75rem;
+  color: var(--color-muted);
+  font-weight: 500;
+  border-bottom: 1px solid var(--color-border);
+  white-space: nowrap;
+}
+.stockcy-table td {
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid rgba(61,65,72,0.4);
+  vertical-align: middle;
+}
+.stockcy-table tr:hover td { background-color: var(--color-elevated); }
+.stockcy-table tr:last-child td { border-bottom: none; }
+
+/* 로딩 애니메이션 */
+@keyframes spin { to { transform: rotate(360deg); } }
+@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: .4; } }
+@keyframes shimmer {
+  0%   { background-position: -200% 0; }
+  100% { background-position:  200% 0; }
+}
+.animate-spin    { animation: spin    0.8s linear infinite; }
+.animate-pulse   { animation: pulse   1.5s ease-in-out infinite; }
+.skeleton {
+  background: linear-gradient(90deg,
+    var(--color-card) 25%,
+    var(--color-elevated) 50%,
+    var(--color-card) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.4s ease-in-out infinite;
+  border-radius: 0.25rem;
+}

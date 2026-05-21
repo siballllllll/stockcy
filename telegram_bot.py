@@ -1,14 +1,13 @@
+import os
 import requests
-import streamlit as st
 
 
 def _get_credentials() -> tuple[str, str] | tuple[None, None]:
-    try:
-        token = st.secrets["telegram"]["bot_token"]
-        chat_id = str(st.secrets["telegram"]["chat_id"])
+    token = os.getenv("TELEGRAM_BOT_TOKEN", "")
+    chat_id = os.getenv("TELEGRAM_CHAT_ID", "")
+    if token and chat_id:
         return token, chat_id
-    except Exception:
-        return None, None
+    return None, None
 
 
 def send_message(text: str) -> bool:
@@ -57,6 +56,6 @@ def send_price_alert(market: str, ticker: str, name: str,
 
 
 def is_configured() -> bool:
-    """secrets에 텔레그램 설정이 있는지 확인합니다."""
+    """환경변수에 텔레그램 설정이 있는지 확인합니다."""
     token, _ = _get_credentials()
     return token is not None

@@ -2,6 +2,7 @@ from google import genai
 from google.genai import types
 import streamlit as st
 import requests
+import os
 import urllib3
 import json
 import re
@@ -190,7 +191,7 @@ def _call_gemini(prompt, use_search=False, temperature=0.7, response_mime_type=N
     if _QUOTA_EXHAUSTED:
         raise Exception("QUOTA_EXHAUSTED: 오늘의 Gemini API 무료 할당량이 소진되었습니다. 내일 자정(한국 기준) 초기화됩니다.")
 
-    api_key = st.secrets["gemini"]["api_key"]
+    api_key = os.getenv("GEMINI_API_KEY", "")
     client = genai.Client(api_key=api_key)
 
     config_kwargs = {"temperature": temperature}

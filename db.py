@@ -1,3 +1,5 @@
+import os
+import json as _json
 import gspread
 import streamlit as st
 import pandas as pd
@@ -7,10 +9,8 @@ from datetime import datetime, timedelta
 def get_gsheet_client():
     """Google Sheets 클라이언트를 초기화하고 캐싱합니다."""
     try:
-        if "credentials" in st.secrets["gspread"]:
-            creds_dict = dict(st.secrets["gspread"]["credentials"])
-        else:
-            creds_dict = dict(st.secrets["gspread"])
+        creds_json = os.getenv("GSPREAD_CREDENTIALS", "")
+        creds_dict = _json.loads(creds_json) if creds_json else {}
 
         if "private_key" in creds_dict:
             creds_dict["private_key"] = creds_dict["private_key"].replace("\\n", "\n")
@@ -23,14 +23,12 @@ def get_gsheet_client():
 def _get_spreadsheet():
     gc = get_gsheet_client()
     if not gc:
-        return None, "구글 시트 인증 실패. secrets.toml의 gspread 설정을 확인해주세요."
+        return None, "구글 시트 인증 실패. .env의 GSPREAD_CREDENTIALS 설정을 확인해주세요."
     try:
-        # secrets에 spreadsheet_id가 있으면 직접 지정 (빠르고 안정적)
-        try:
-            sheet_id = st.secrets["gspread"]["spreadsheet_id"]
+        # 환경변수에 spreadsheet_id가 있으면 직접 지정 (빠르고 안정적)
+        sheet_id = os.getenv("GSPREAD_SPREADSHEET_ID", "")
+        if sheet_id:
             return gc.open_by_key(sheet_id), "성공"
-        except KeyError:
-            pass
         # fallback: 공유된 첫 번째 시트 사용
         spreadsheets = gc.openall()
         if not spreadsheets:
