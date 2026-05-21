@@ -114,6 +114,65 @@ function RecommendBadge({ pct }: { pct: number }) {
   return                      <Badge variant="danger">⚠️ 물타기 필요</Badge>;
 }
 
+// ── 보유 종목 추가 폼 ─────────────────────────────────────────────────────────
+function AddPortfolioForm({ onAdded }: { onAdded: () => void }) {
+  const [market, setMarket] = useState<"국내" | "미국">("미국");
+  const [ticker, setTicker] = useState("");
+  const [name,   setName]   = useState("");
+  const [price,  setPrice]  = useState("");
+  const [qty,    setQty]    = useState("");
+  const [msg,    setMsg]    = useState<{ type: "success" | "danger"; text: string } | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  const handleAdd = async () => {
+    if (!ticker.trim() || !name.trim() || !price || !qty) return;
+    setLoading(true);
+    try {
+      const currentList = await api.portfolio.loadPortfolio() as any[];
+      const updatedList = [...(currentList ?? []), {
+        ticker: ticker.trim().toUpperCase(),
+        name: name.trim(),
+        buy_price: Number(price),
+        quantity: Number(qty),
+        rating: "-",
+      }];
+      const res = await fetch(`${BASE_URL}/api/portfolio`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ portfolio_list: updatedList }),
+      });
+      if (!res.ok) throw new Error(`서버 오류: ${res.status}`);
+      setMsg({ type: "success", text: `${name.trim()} (${ticker.trim().toUpperCase()}) 추가 완료` });
+      setTicker(""); setName(""); setPrice(""); setQty("");
+      onAdded();
+    } catch (e) {
+      setMsg({ type: "danger", text: String(e) });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div style={{ background: "var(--color-surface)", border: "1px solid var(--color-border)", borderRadius: "8px", padding: "1rem", marginBottom: "1rem", display: "flex", flexDirection: "column", gap: "0.5rem" }}>
+      <div style={{ fontWeight: 700, fontSize: "0.9rem", marginBottom: "0.25rem" }}>+ 보유 종목 추가</div>
+      <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", alignItems: "center" }}>
+        <select className="stockcy-input" style={{ width: "80px", flexShrink: 0 }} value={market} onChange={(e) => setMarket(e.target.value as "국내" | "미국")}>
+          <option value="국내">국내</option>
+          <option value="미국">미국</option>
+        </select>
+        <input className="stockcy-input" placeholder="티커 (예: 005930, NVDA)" value={ticker} onChange={(e) => setTicker(e.target.value)} style={{ flex: 1, minWidth: "120px" }} />
+        <input className="stockcy-input" placeholder="종목명" value={name} onChange={(e) => setName(e.target.value)} style={{ flex: 1, minWidth: "100px" }} />
+        <input className="stockcy-input" type="number" placeholder="매수가" value={price} onChange={(e) => setPrice(e.target.value)} style={{ width: "100px" }} />
+        <input className="stockcy-input" type="number" placeholder="수량" value={qty} onChange={(e) => setQty(e.target.value)} style={{ width: "80px" }} />
+        <button className="stockcy-btn stockcy-btn-primary" onClick={handleAdd} disabled={loading || !ticker || !name || !price || !qty}>
+          <Plus size={14} /> 추가
+        </button>
+      </div>
+      {msg && <StatusBox type={msg.type}>{msg.text}</StatusBox>}
+    </div>
+  );
+}
+
 // ── 보유 종목 탭 ──────────────────────────────────────────────────────────────
 function PortfolioTab() {
   const { data: portfolio, isLoading, mutate } = useSWR<any[]>("/api/portfolio", () => api.portfolio.loadPortfolio() as Promise<any[]>);
@@ -256,6 +315,9 @@ function PortfolioTab() {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
+      {/* 종목 추가 폼 */}
+      <AddPortfolioForm onAdded={() => mutate()} />
+
       {/* 총 손익 요약 */}
       {enriched.length > 0 && (
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "10px" }}>
