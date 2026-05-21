@@ -3239,20 +3239,7 @@ def main():
         st.session_state.get("_ai_running", False) or
         st.session_state.get("_dialog_open", False)
     )
-    if _HAVE_AUTOREFRESH and not _suppress_refresh:
-        _today_ck_rf = __import__("datetime").date.today().strftime("%Y-%m-%d")
-        _rf_task_id  = f"scenario_market_scenarios_{_today_ck_rf}"
-        _rf_status   = _SCENARIO_TASKS.get(_rf_task_id, {}).get("status")
-        _ci_any_running = any(
-            v.get("status") == "running"
-            for k, v in _SCENARIO_TASKS.items()
-            if k.startswith("_ci_")
-        )
-        if _rf_status == "running" or _ci_any_running:
-            # 시나리오/커스텀 이슈 완료 감지용 짧은 폴링
-            _st_autorefresh(interval=3000, limit=None, key="stockcy_scenario_poll")
-        else:
-            _st_autorefresh(interval=600000, limit=None, key="stockcy_refresh")
+    # 전역 자동 새로고침(Global Autorefresh) 제거 - 사용자 UX 저해 요인
     init_session_state()
     inject_custom_css()
 
