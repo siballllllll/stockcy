@@ -4,7 +4,7 @@ import { useSearchParams } from "next/navigation";
 import useSWR from "swr";
 import { api } from "@/lib/api";
 import { useMarket } from "@/lib/market-context";
-import { Search, Star, Briefcase, Bell, BarChart2, DollarSign, Activity, Loader2 } from "lucide-react";
+import { Search, Star, Briefcase, Bell, BarChart2, DollarSign, Activity, Loader2, PlusCircle, X } from "lucide-react";
 import Chart from "@/components/Chart";
 import ReactMarkdown from "react-markdown";
 
@@ -38,6 +38,126 @@ function FavButton({ ticker, name, market }: { ticker: string; name: string; mar
       <Star size={14} color={isFav ? "var(--color-warning)" : "var(--color-muted)"} fill={isFav ? "var(--color-warning)" : "none"} />
       {isFav ? "즐겨찾기 해제" : "즐겨찾기 추가"}
     </button>
+  );
+}
+
+const BASE_URL_SEARCH = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+
+// 보유종목 추가 버튼 (검색 페이지에서 직접 추가)
+function PortfolioAddButton({
+  ticker, name, market, currentPrice,
+}: { ticker: string; name: string; market: string; currentPrice: number }) {
+  const [open, setOpen]       = useState(false);
+  const [buyPrice, setBuyPrice] = useState("");
+  const [qty, setQty]         = useState("");
+  const [loading, setLoading] = useState(false);
+  const [msg, setMsg]         = useState<{ type: "success" | "error"; text: string } | null>(null);
+
+  // ticker가 바뀌면 초기화
+  const prevTicker = useRef(ticker);
+  if (prevTicker.current !== ticker) {
+    prevTicker.current = ticker;
+    if (open) { setOpen(false); setMsg(null); }
+  }
+
+  const handleAdd = async () => {
+    const bp = Number(buyPrice) || currentPrice;
+    const q  = Number(qty);
+    if (!q || q <= 0) return;
+    setLoading(true);
+    setMsg(null);
+    try {
+      const current = await api.portfolio.loadPortfolio() as any[];
+      const padded  = market === "국내" ? String(ticker).padStart(6, "0") : ticker;
+      const updated = [...(current ?? []), { ticker: padded, name: name || padded, buy_price: bp, quantity: q }];
+      await fetch(`${BASE_URL_SEARCH}/api/portfolio`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ portfolio_list: updated }),
+      });
+      setMsg({ type: "success", text: `${name} 보유종목 추가 완료 (${q}주 @ ${market === "국내" ? "₩" : "$"}${bp.toLocaleString()})` });
+      setQty(""); setOpen(false);
+    } catch {
+      setMsg({ type: "error", text: "추가 실패. 다시 시도해 주세요." });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div style={{ flex: 1, position: "relative" }}>
+      <button
+        onClick={() => { setOpen(v => !v); setMsg(null); }}
+        className="stockcy-btn"
+        style={{ width: "100%", padding: "8px", fontSize: "0.95rem", display: "flex", justifyContent: "center", alignItems: "center", gap: "6px", background: open ? "rgba(80,200,80,0.1)" : "var(--color-elevated)", border: `1px solid ${open ? "var(--color-success)" : "var(--color-border)"}` }}
+      >
+        <PlusCircle size={14} color={open ? "var(--color-success)" : "var(--color-muted)"} />
+        보유종목 추가
+      </button>
+
+      {open && (
+        <div style={{
+          position: "absolute", top: "calc(100% + 6px)", left: 0, right: 0, zIndex: 30,
+          background: "var(--color-card)", border: "1px solid var(--color-success)",
+          borderRadius: "8px", padding: "12px", boxShadow: "0 8px 24px rgba(0,0,0,0.4)",
+          display: "flex", flexDirection: "column", gap: "8px",
+        }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <span style={{ fontSize: "0.82rem", fontWeight: 700, color: "var(--color-text)" }}>
+              {name} ({ticker}) 보유종목 추가
+            </span>
+            <button onClick={() => setOpen(false)} style={{ background: "transparent", border: "none", cursor: "pointer", color: "var(--color-muted)", padding: "2px" }}>
+              <X size={14} />
+            </button>
+          </div>
+          <div style={{ display: "flex", gap: "6px" }}>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: "0.72rem", color: "var(--color-muted)", marginBottom: "3px" }}>평단가</div>
+              <input
+                className="stockcy-input"
+                type="number"
+                placeholder={String(currentPrice || "")}
+                value={buyPrice}
+                onChange={e => setBuyPrice(e.target.value)}
+                style={{ width: "100%", fontSize: "0.85rem", boxSizing: "border-box" }}
+              />
+            </div>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: "0.72rem", color: "var(--color-muted)", marginBottom: "3px" }}>수량 (주)</div>
+              <input
+                className="stockcy-input"
+                type="number"
+                placeholder="0"
+                value={qty}
+                onChange={e => setQty(e.target.value)}
+                onKeyDown={e => e.key === "Enter" && handleAdd()}
+                style={{ width: "100%", fontSize: "0.85rem", boxSizing: "border-box" }}
+              />
+            </div>
+          </div>
+          <button
+            className="stockcy-btn stockcy-btn-primary"
+            onClick={handleAdd}
+            disabled={loading || !qty || Number(qty) <= 0}
+            style={{ width: "100%", padding: "7px", fontWeight: 700, fontSize: "0.85rem", display: "flex", alignItems: "center", justifyContent: "center", gap: "6px" }}
+          >
+            {loading ? <><Loader2 className="animate-spin" size={13} /> 추가 중...</> : "추가하기"}
+          </button>
+          {msg && (
+            <div style={{ fontSize: "0.75rem", color: msg.type === "success" ? "var(--color-success)" : "var(--color-danger)", textAlign: "center" }}>
+              {msg.text}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* 추가 완료 메시지 (팝업 닫힌 후) */}
+      {!open && msg?.type === "success" && (
+        <div style={{ fontSize: "0.72rem", color: "var(--color-success)", marginTop: "3px", textAlign: "center" }}>
+          ✓ {msg.text}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -597,8 +717,14 @@ export default function SearchPage() {
           {/* ── 시세 탭 ─────────────────────────────────────────────────── */}
           {activeTab === "시세" && (
             <div className="stockcy-card" style={{ flex: 1, display: "flex", flexDirection: "column", gap: "1.2rem", padding: "1.5rem" }}>
-              <div style={{ display: "flex", gap: "10px" }}>
+              <div style={{ display: "flex", gap: "8px" }}>
                 <FavButton ticker={currentCode} name={stockName} market={isKR ? "국내" : "미국"} />
+                <PortfolioAddButton
+                  ticker={currentCode}
+                  name={stockName}
+                  market={isKR ? "국내" : "미국"}
+                  currentPrice={price}
+                />
               </div>
 
               <div>

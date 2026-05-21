@@ -316,6 +316,16 @@ function PortfolioTab() {
     mutate();
   };
 
+  const handleDeleteEntry = async (ticker: string) => {
+    const updated = (portfolio ?? []).filter((item: any) => item.ticker !== ticker);
+    await fetch(`${BASE_URL}/api/portfolio`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ portfolio_list: updated }),
+    }).catch(() => {});
+    mutate();
+  };
+
   if (isLoading) return <Skeleton height="200px" />;
 
   return (
@@ -388,13 +398,21 @@ function PortfolioTab() {
                     {p.profitPct >= 0 ? "+" : ""}{p.profitPct.toFixed(2)}%
                   </div>
                   <div style={{ textAlign: "center" }}><RecommendBadge pct={p.profitPct} /></div>
-                  <div style={{ display: "flex", gap: "4px" }}>
+                  <div style={{ display: "flex", gap: "4px", flexWrap: "wrap" }}>
                     <button className="stockcy-btn stockcy-btn-secondary" style={{ padding: "2px 6px", fontSize: "0.7rem" }} title="AI 매도 타이밍" onClick={() => openSellAnalysis(p)}>
                       AI
                     </button>
                     <button className="stockcy-btn stockcy-btn-secondary" style={{ padding: "2px 6px", fontSize: "0.7rem" }} title="편집"
                       onClick={() => { setEditTicker(isEditing ? null : p.ticker); setEditPrice(String(p.buy_price)); setEditQty(String(p.quantity)); }}>
                       ✏️
+                    </button>
+                    <button
+                      className="stockcy-btn"
+                      style={{ padding: "2px 6px", fontSize: "0.7rem", border: "1px solid rgba(255,60,60,0.35)", color: "var(--color-danger)", background: "rgba(255,60,60,0.06)" }}
+                      title="삭제"
+                      onClick={() => { if (window.confirm(`${p.name || p.ticker} 보유종목에서 삭제할까요?`)) handleDeleteEntry(p.ticker); }}
+                    >
+                      <Trash2 size={11} />
                     </button>
                   </div>
                 </div>
