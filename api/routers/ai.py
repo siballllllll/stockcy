@@ -385,6 +385,104 @@ async def realtime_picks_kr(req: RealtimePicksRequest):
     return _sse_response(_gen())
 
 
+# ── 미국 실시간 픽 (거래량+등락률 종합) ──────────────────────────────────────
+
+@router.post("/realtime-picks-us")
+async def realtime_picks_us(req: RealtimePicksRequest):
+    """테마·수급 기반 미국 실시간 픽 3종목 (SSE)."""
+    from ai_engine import generate_us_realtime_picks
+
+    async def _gen():
+        yield _sse({"status": "running", "message": "🇺🇸 US 실시간 시장 데이터 수집 중..."})
+        try:
+            mkt_data = req.market_data
+            vol_rank = req.volume_rank
+            chg_rank = req.change_rank
+
+            if not mkt_data or not vol_rank:
+                yield _sse({"status": "running", "message": "📊 미국 지수 데이터 수집 중..."})
+                try:
+                    from data import get_us_market_indices
+                    indices = await asyncio.to_thread(get_us_market_indices)
+                    mkt_data = {
+                        "S&P500": indices.get("S&P 500", {}),
+                        "NASDAQ": indices.get("NASDAQ",  {}),
+                        "DOW":    indices.get("DOW",     {}),
+                    }
+                except Exception:
+                    mkt_data = {}
+
+                yield _sse({"status": "running", "message": "📈 US 종목 실시간 데이터 수집 중 (약 20초)..."})
+                try:
+                    import yfinance as yf
+                    from sectors_us import US_SECTOR_MAP
+
+                    # 섹터당 상위 2종목씩 수집 (~50개)
+                    tickers: list[str] = []
+                    for sector_stocks in US_SECTOR_MAP.values():
+                        for sub_stocks in sector_stocks.values():
+                            for s in sub_stocks[:2]:
+                                if s["ticker"] not in tickers:
+                                    tickers.append(s["ticker"])
+                    tickers = tickers[:50]
+
+                    # yfinance 배치 다운로드 (2일치로 등락률 계산)
+                    def _batch_fetch():
+                        return yf.download(
+                            tickers, period="2d", interval="1d",
+                            progress=False, auto_adjust=True
+                        )
+
+                    raw = await asyncio.to_thread(_batch_fetch)
+                    stock_list: list[dict] = []
+
+                    if not raw.empty:
+                        close_df  = raw["Close"]
+                        volume_df = raw["Volume"]
+                        # 단일 티커면 Series → DataFrame 변환
+                        if hasattr(close_df, "values") and close_df.ndim == 1:
+                            close_df  = close_df.to_frame(name=tickers[0])
+                            volume_df = volume_df.to_frame(name=tickers[0])
+
+                        for t in tickers:
+                            try:
+                                closes = close_df[t].dropna()
+                                vols   = volume_df[t].dropna()
+                                if len(closes) < 2:
+                                    continue
+                                curr = float(closes.iloc[-1])
+                                prev = float(closes.iloc[-2])
+                                vol  = int(vols.iloc[-1]) if not vols.empty else 0
+                                chg  = round((curr - prev) / prev * 100, 2) if prev > 0 else 0
+                                stock_list.append({
+                                    "티커":      t,
+                                    "현재가($)": round(curr, 2),
+                                    "등락률(%)": chg,
+                                    "거래량":    vol,
+                                })
+                            except Exception:
+                                continue
+
+                    chg_rank = sorted(stock_list, key=lambda x: x["등락률(%)"], reverse=True)
+                    vol_rank = sorted(stock_list, key=lambda x: x["거래량"],    reverse=True)
+                except Exception as e:
+                    yield _sse({"status": "running", "message": f"⚠️ 종목 데이터 수집 지연: {e}"})
+                    vol_rank, chg_rank = [], []
+
+            yield _sse({"status": "running", "message": "🤖 AI 미국 타점 분석 중 (약 30~50초)..."})
+            result = await asyncio.to_thread(
+                generate_us_realtime_picks,
+                mkt_data,
+                vol_rank,
+                chg_rank,
+            )
+            yield _sse({"status": "done", "result": result})
+        except Exception as e:
+            yield _sse({"status": "error", "message": str(e)})
+
+    return _sse_response(_gen())
+
+
 # ── 섹터 로테이션 분석 ────────────────────────────────────────────────────────
 
 @router.get("/sector-rotation")

@@ -239,13 +239,15 @@ function SubSectorStockRow({ stock, market }: { stock: any; market: "KR" | "US" 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { data: krData } = useSWR<any>(
     isKR && stock.code ? `/api/kr/stocks/${stock.code}` : null,
-    () => api.kr.stockPrice(stock.code)
+    () => api.kr.stockPrice(stock.code),
+    { refreshInterval: 30000 }
   );
   // US: stock.ticker 기준
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { data: usData } = useSWR<any>(
     !isKR && stock.ticker ? `/api/us/stocks/${stock.ticker}` : null,
-    () => api.us.stockDetail(stock.ticker)
+    () => api.us.stockDetail(stock.ticker),
+    { refreshInterval: 30000 }
   );
 
   const data = isKR ? krData : usData;

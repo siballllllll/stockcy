@@ -4,7 +4,9 @@ import { useRouter } from "next/navigation";
 import useSWR from "swr";
 import { api } from "@/lib/api";
 import type { Favorite, KrStock, UsStock } from "@/lib/types";
-import { Star, RefreshCw, Send, Trash2, Plus, Zap, BarChart2, Bell, TrendingUp, BookOpen } from "lucide-react";
+import { Star, RefreshCw, Send, Trash2, Plus, Zap, BarChart2, Bell, TrendingUp, BookOpen, Loader2 } from "lucide-react";
+
+const BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 import { Card } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
 import { StatusBox } from "@/components/ui/StatusBox";
@@ -103,14 +105,26 @@ function AddFavoriteForm({ onAdded }: { onAdded: () => void }) {
   );
 }
 
+// ── 추천 상태 뱃지 ────────────────────────────────────────────────────────────
+function RecommendBadge({ pct }: { pct: number }) {
+  if (pct >= 10)       return <Badge variant="danger">🔴 수익실현 대기</Badge>;
+  if (pct >= 3)        return <Badge variant="success">🟢 보유 유지</Badge>;
+  if (pct >= -3)       return <Badge variant="info">🔵 보유 유지</Badge>;
+  if (pct >= -10)      return <Badge variant="warning">🟡 추가매수 검토</Badge>;
+  return                      <Badge variant="danger">⚠️ 물타기 필요</Badge>;
+}
+
 // ── 보유 종목 탭 ──────────────────────────────────────────────────────────────
 function PortfolioTab() {
   const { data: portfolio, isLoading, mutate } = useSWR<any[]>("/api/portfolio", () => api.portfolio.loadPortfolio() as Promise<any[]>);
 
-  // KR 종목 현재가 일괄 로드
+  // KR/US 종목 분류
   const krTickers = (portfolio ?? []).filter(p => String(p.ticker).match(/^\d{6}$/)).map(p => p.ticker);
+  const usTickers = (portfolio ?? []).filter(p => !String(p.ticker).match(/^\d{6}$/)).map(p => p.ticker);
+
+  // KR 현재가
   const { data: krPrices } = useSWR(
-    krTickers.length > 0 ? `kr-portfolio-prices-${krTickers.join(",")}` : null,
+    krTickers.length > 0 ? `kr-port-prices-${krTickers.join(",")}` : null,
     async () => {
       const map: Record<string, number> = {};
       await Promise.all(krTickers.map(async (code) => {
@@ -124,20 +138,119 @@ function PortfolioTab() {
     { refreshInterval: 60000 }
   );
 
+  // US 현재가
+  const { data: usPrices } = useSWR(
+    usTickers.length > 0 ? `us-port-prices-${usTickers.join(",")}` : null,
+    async () => {
+      const arr = await api.us.stocks(usTickers) as any[];
+      const map: Record<string, number> = {};
+      for (const s of (arr ?? [])) {
+        const ticker = s["심볼"] ?? s.ticker ?? "";
+        if (ticker) map[ticker] = s["현재가($)"] ?? s.price ?? 0;
+      }
+      return map;
+    },
+    { refreshInterval: 60000 }
+  );
+
   const enriched = useMemo(() => {
     return (portfolio ?? []).map(p => {
-      const currentPrice = (krPrices ?? {})[p.ticker] ?? p.buy_price;
-      const cost = p.buy_price * p.quantity;
-      const value = currentPrice * p.quantity;
+      const isUs = !String(p.ticker).match(/^\d{6}$/);
+      const livePriceMap = isUs ? (usPrices ?? {}) : (krPrices ?? {});
+      const currentPrice = livePriceMap[p.ticker] ?? p.buy_price ?? 0;
+      const cost = (p.buy_price ?? 0) * (p.quantity ?? 0);
+      const value = currentPrice * (p.quantity ?? 0);
       const profit = value - cost;
       const profitPct = cost > 0 ? (profit / cost) * 100 : 0;
-      return { ...p, currentPrice, cost, value, profit, profitPct };
+      return { ...p, isUs, currentPrice, cost, value, profit, profitPct };
     });
-  }, [portfolio, krPrices]);
+  }, [portfolio, krPrices, usPrices]);
 
   const totalCost   = enriched.reduce((s, p) => s + p.cost, 0);
   const totalValue  = enriched.reduce((s, p) => s + p.value, 0);
   const totalProfit = totalValue - totalCost;
+
+  // 편집 상태
+  const [editTicker, setEditTicker] = useState<string | null>(null);
+  const [editPrice,  setEditPrice]  = useState<string>("");
+  const [editQty,    setEditQty]    = useState<string>("");
+
+  // AI 매도 타이밍 패널
+  const [sellTarget, setSellTarget] = useState<any | null>(null);
+  const [sellResult, setSellResult] = useState<string>("");
+  const [sellStatus, setSellStatus] = useState<"idle" | "loading" | "done" | "error">("idle");
+  const [sellMsg,    setSellMsg]    = useState("");
+
+  const openSellAnalysis = async (p: any) => {
+    setSellTarget(p);
+    setSellResult("");
+    setSellStatus("loading");
+    setSellMsg("AI 매도 타이밍 분석 중...");
+    try {
+      const res = await fetch(`${BASE_URL}/api/ai/sell-timing`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ticker: p.ticker, name: p.name,
+          avg_price: p.buy_price, current_price: p.currentPrice,
+          market: p.isUs ? "US" : "KR",
+        }),
+      });
+      if (!res.body) throw new Error("no body");
+      const reader = res.body.getReader();
+      const dec = new TextDecoder();
+      let buf = "";
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += dec.decode(value, { stream: true });
+        const parts = buf.split("\n\n");
+        buf = parts.pop() ?? "";
+        for (const part of parts) {
+          if (!part.startsWith("data:")) continue;
+          try {
+            const d = JSON.parse(part.slice(5).trim());
+            if (d.status === "running") setSellMsg(d.message ?? "분석 중...");
+            if (d.status === "done")    { setSellResult(JSON.stringify(d.result, null, 2)); setSellStatus("done"); }
+            if (d.status === "error")   { setSellMsg(d.message ?? "오류"); setSellStatus("error"); }
+          } catch {}
+        }
+      }
+    } catch (e) {
+      setSellMsg(String(e));
+      setSellStatus("error");
+    }
+  };
+
+  const handleSellRecord = async (p: any, sellPrice: number) => {
+    const qty = Number(p.quantity ?? 0);
+    const bp  = Number(p.buy_price ?? 0);
+    const profit = (sellPrice - bp) * qty;
+    const profitPct = bp > 0 ? ((sellPrice - bp) / bp) * 100 : 0;
+    await api.portfolio.saveTrade({
+      ticker: p.ticker, name: p.name, quantity: qty,
+      buy_price: bp, sell_price: sellPrice,
+      profit, profit_pct: profitPct,
+      result: profit >= 0 ? "수익" : "손실",
+      sell_date: new Date().toISOString().slice(0, 19),
+    });
+    mutate();
+  };
+
+  const handleUpdateEntry = async (p: any) => {
+    const newBuy = Number(editPrice) || p.buy_price;
+    const newQty = Number(editQty)   || p.quantity;
+    const updated = (portfolio ?? []).map((item: any) =>
+      item.ticker === p.ticker ? { ...item, buy_price: newBuy, quantity: newQty } : item
+    );
+    await fetch(`${BASE_URL}/api/portfolio`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ portfolio_list: updated }),
+    }).catch(() => {});
+    setEditTicker(null);
+    mutate();
+  };
 
   if (isLoading) return <Skeleton height="200px" />;
 
@@ -147,9 +260,9 @@ function PortfolioTab() {
       {enriched.length > 0 && (
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "10px" }}>
           {[
-            { label: "총 매수금액", val: `₩${Math.round(totalCost).toLocaleString()}` },
-            { label: "총 평가금액", val: `₩${Math.round(totalValue).toLocaleString()}`, color: totalValue >= totalCost ? "var(--color-danger)" : "var(--color-primary)" },
-            { label: "총 손익",    val: `${totalProfit >= 0 ? "+" : ""}₩${Math.round(totalProfit).toLocaleString()} (${totalProfit >= 0 ? "+" : ""}${totalCost > 0 ? ((totalProfit/totalCost)*100).toFixed(2) : "0"}%)`, color: totalProfit >= 0 ? "var(--color-danger)" : "var(--color-primary)" },
+            { label: "총 매수금액",  val: `₩${Math.round(totalCost).toLocaleString()}` },
+            { label: "총 평가금액",  val: `₩${Math.round(totalValue).toLocaleString()}`,  color: totalValue >= totalCost ? "var(--color-danger)" : "var(--color-primary)" },
+            { label: "총 손익",      val: `${totalProfit >= 0 ? "+" : ""}₩${Math.round(totalProfit).toLocaleString()} (${totalCost > 0 ? ((totalProfit/totalCost)*100).toFixed(2) : "0"}%)`, color: totalProfit >= 0 ? "var(--color-danger)" : "var(--color-primary)" },
           ].map(({ label, val, color }) => (
             <div key={label} style={{ background: "var(--color-surface)", border: "1px solid var(--color-border)", borderRadius: "8px", padding: "12px", textAlign: "center" }}>
               <div style={{ fontSize: "0.75rem", color: "var(--color-muted)", marginBottom: "4px" }}>{label}</div>
@@ -160,42 +273,138 @@ function PortfolioTab() {
       )}
 
       {!portfolio || portfolio.length === 0 ? (
-        <StatusBox type="info">보유 종목이 없습니다. AI 타점 보드에서 종목을 추가해보세요.</StatusBox>
+        <StatusBox type="info">보유 종목이 없습니다.</StatusBox>
       ) : (
-        <table className="stockcy-table">
-          <thead>
-            <tr>
-              <th>종목명</th>
-              <th style={{ textAlign: "right" }}>매수가</th>
-              <th style={{ textAlign: "right" }}>현재가</th>
-              <th style={{ textAlign: "right" }}>수량</th>
-              <th style={{ textAlign: "right" }}>손익</th>
-              <th style={{ textAlign: "right" }}>손익률</th>
-              <th>등급</th>
-            </tr>
-          </thead>
-          <tbody>
-            {enriched.map((p, i) => {
-              const color = p.profitPct >= 0 ? "var(--color-danger)" : "var(--color-primary)";
-              return (
-                <tr key={i}>
-                  <td style={{ fontWeight: 600 }}>{p.name} <span style={{ fontSize: "0.75rem", color: "var(--color-muted)" }}>({p.ticker})</span></td>
-                  <td style={{ textAlign: "right" }}>₩{Number(p.buy_price).toLocaleString()}</td>
-                  <td style={{ textAlign: "right" }}>₩{Number(p.currentPrice).toLocaleString()}</td>
-                  <td style={{ textAlign: "right" }}>{Number(p.quantity).toLocaleString()}주</td>
-                  <td style={{ textAlign: "right", color, fontWeight: 600 }}>
-                    {p.profit >= 0 ? "+" : ""}₩{Math.round(p.profit).toLocaleString()}
-                  </td>
-                  <td style={{ textAlign: "right", color, fontWeight: 700 }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: "0" }}>
+          {/* 헤더 행 */}
+          <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr 0.7fr 1fr 0.8fr 1.2fr auto", gap: "6px", padding: "8px 12px", fontSize: "0.75rem", color: "var(--color-muted)", fontWeight: 600, borderBottom: "1px solid var(--color-border)" }}>
+            <div>종목명</div>
+            <div style={{ textAlign: "right" }}>평단가</div>
+            <div style={{ textAlign: "right" }}>현재가</div>
+            <div style={{ textAlign: "right" }}>수량</div>
+            <div style={{ textAlign: "right" }}>손익</div>
+            <div style={{ textAlign: "right" }}>손익률</div>
+            <div style={{ textAlign: "center" }}>추천 상태</div>
+            <div style={{ textAlign: "center" }}>액션</div>
+          </div>
+
+          {enriched.map((p, i) => {
+            const isEditing = editTicker === p.ticker;
+            const color = p.profitPct >= 0 ? "var(--color-danger)" : "var(--color-primary)";
+            const priceStr = p.isUs
+              ? `$${Number(p.currentPrice).toFixed(2)}`
+              : `₩${Number(p.currentPrice).toLocaleString()}`;
+            const buyStr = p.isUs
+              ? `$${Number(p.buy_price).toFixed(2)}`
+              : `₩${Number(p.buy_price).toLocaleString()}`;
+            const profitStr = p.isUs
+              ? `${p.profit >= 0 ? "+" : ""}$${p.profit.toFixed(2)}`
+              : `${p.profit >= 0 ? "+" : ""}₩${Math.round(p.profit).toLocaleString()}`;
+
+            return (
+              <div key={i} style={{ borderBottom: "1px solid rgba(255,255,255,0.04)" }}>
+                <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr 0.7fr 1fr 0.8fr 1.2fr auto", gap: "6px", padding: "10px 12px", alignItems: "center", fontSize: "0.85rem" }}>
+                  <div style={{ fontWeight: 600 }}>
+                    {p.name} <span style={{ fontSize: "0.72rem", color: "var(--color-muted)" }}>({p.ticker})</span>
+                    {p.isUs && <span style={{ marginLeft: "4px", fontSize: "0.65rem", padding: "1px 5px", background: "rgba(50,200,100,0.15)", border: "1px solid rgba(50,200,100,0.3)", borderRadius: "3px", color: "var(--color-success)" }}>US</span>}
+                  </div>
+                  <div style={{ textAlign: "right" }}>{buyStr}</div>
+                  <div style={{ textAlign: "right", fontWeight: 600 }}>
+                    {p.currentPrice > 0 ? priceStr : <span style={{ color: "var(--color-muted)" }}>로딩중...</span>}
+                  </div>
+                  <div style={{ textAlign: "right" }}>{Number(p.quantity ?? 0).toLocaleString()}주</div>
+                  <div style={{ textAlign: "right", color, fontWeight: 600 }}>{profitStr}</div>
+                  <div style={{ textAlign: "right", color, fontWeight: 700 }}>
                     {p.profitPct >= 0 ? "+" : ""}{p.profitPct.toFixed(2)}%
-                  </td>
-                  <td><Badge variant="info">{p.rating || "-"}</Badge></td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+                  </div>
+                  <div style={{ textAlign: "center" }}><RecommendBadge pct={p.profitPct} /></div>
+                  <div style={{ display: "flex", gap: "4px" }}>
+                    <button className="stockcy-btn stockcy-btn-secondary" style={{ padding: "2px 6px", fontSize: "0.7rem" }} title="AI 매도 타이밍" onClick={() => openSellAnalysis(p)}>
+                      AI
+                    </button>
+                    <button className="stockcy-btn stockcy-btn-secondary" style={{ padding: "2px 6px", fontSize: "0.7rem" }} title="편집"
+                      onClick={() => { setEditTicker(isEditing ? null : p.ticker); setEditPrice(String(p.buy_price)); setEditQty(String(p.quantity)); }}>
+                      ✏️
+                    </button>
+                  </div>
+                </div>
+
+                {/* 인라인 편집 폼 */}
+                {isEditing && (
+                  <div style={{ background: "rgba(0,0,0,0.3)", padding: "10px 12px", display: "flex", gap: "0.5rem", alignItems: "center", flexWrap: "wrap" }}>
+                    <label style={{ fontSize: "0.8rem", color: "var(--color-muted)" }}>평단가</label>
+                    <input className="stockcy-input" type="number" value={editPrice} onChange={e => setEditPrice(e.target.value)} style={{ width: "100px" }} />
+                    <label style={{ fontSize: "0.8rem", color: "var(--color-muted)" }}>수량</label>
+                    <input className="stockcy-input" type="number" value={editQty} onChange={e => setEditQty(e.target.value)} style={{ width: "80px" }} />
+                    <button className="stockcy-btn stockcy-btn-primary" style={{ padding: "4px 10px", fontSize: "0.8rem" }} onClick={() => handleUpdateEntry(p)}>저장</button>
+                    <div style={{ marginLeft: "auto" }}>
+                      <SellButton p={p} onSell={handleSellRecord} />
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
       )}
+
+      {/* AI 매도 타이밍 결과 패널 */}
+      {sellTarget && (
+        <div style={{ background: "var(--color-surface)", border: "1px solid var(--color-accent)", borderRadius: "8px", padding: "1rem" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.75rem" }}>
+            <div style={{ fontWeight: 700, fontSize: "0.95rem" }}>
+              🤖 {sellTarget.name} AI 매도 타이밍 분석
+              <span style={{ fontSize: "0.75rem", color: "var(--color-muted)", marginLeft: "8px" }}>평단 {sellTarget.isUs ? `$${sellTarget.buy_price}` : `₩${Number(sellTarget.buy_price).toLocaleString()}`}</span>
+            </div>
+            <button className="stockcy-btn stockcy-btn-secondary" style={{ padding: "2px 8px", fontSize: "0.75rem" }} onClick={() => setSellTarget(null)}>✕</button>
+          </div>
+          {sellStatus === "loading" && (
+            <div style={{ display: "flex", alignItems: "center", gap: "8px", color: "var(--color-muted)", fontSize: "0.85rem" }}>
+              <Loader2 className="animate-spin" size={16} /> {sellMsg}
+            </div>
+          )}
+          {sellStatus === "done" && (
+            <pre style={{ fontSize: "0.8rem", color: "var(--color-subtle)", whiteSpace: "pre-wrap", wordBreak: "break-word", background: "rgba(0,0,0,0.2)", padding: "12px", borderRadius: "6px" }}>
+              {sellResult}
+            </pre>
+          )}
+          {sellStatus === "error" && <StatusBox type="danger">{sellMsg}</StatusBox>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── 매도 버튼 (인라인 폼) ──────────────────────────────────────────────────────
+function SellButton({ p, onSell }: { p: any; onSell: (p: any, price: number) => Promise<void> }) {
+  const [open, setOpen] = useState(false);
+  const [price, setPrice] = useState(String(p.currentPrice || p.buy_price || ""));
+  const [saving, setSaving] = useState(false);
+
+  const handleSell = async () => {
+    const sp = Number(price);
+    if (!sp) return;
+    setSaving(true);
+    await onSell(p, sp);
+    setSaving(false);
+    setOpen(false);
+  };
+
+  if (!open) {
+    return (
+      <button className="stockcy-btn" style={{ padding: "4px 10px", fontSize: "0.8rem", background: "rgba(255,60,60,0.15)", border: "1px solid var(--color-danger)", color: "var(--color-danger)" }} onClick={() => setOpen(true)}>
+        📤 매도
+      </button>
+    );
+  }
+  return (
+    <div style={{ display: "flex", gap: "6px", alignItems: "center" }}>
+      <span style={{ fontSize: "0.8rem", color: "var(--color-muted)" }}>매도가</span>
+      <input className="stockcy-input" type="number" value={price} onChange={e => setPrice(e.target.value)} style={{ width: "100px" }} />
+      <button className="stockcy-btn stockcy-btn-primary" style={{ padding: "4px 8px", fontSize: "0.8rem" }} onClick={handleSell} disabled={saving}>
+        {saving ? "저장중..." : "확정"}
+      </button>
+      <button className="stockcy-btn stockcy-btn-secondary" style={{ padding: "4px 8px", fontSize: "0.8rem" }} onClick={() => setOpen(false)}>취소</button>
     </div>
   );
 }

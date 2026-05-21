@@ -8,6 +8,39 @@ import { Search, Star, Briefcase, Bell, BarChart2, DollarSign, Activity, Loader2
 import Chart from "@/components/Chart";
 import ReactMarkdown from "react-markdown";
 
+// 즐겨찾기 버튼 (검색 페이지에서 즉시 추가/제거)
+function FavButton({ ticker, name, market }: { ticker: string; name: string; market: string }) {
+  const { data: checkData, mutate } = useSWR(
+    ticker ? `/api/favorites/${ticker}/check` : null,
+    () => api.portfolio.checkFavorite(ticker) as Promise<{ is_favorite: boolean }>
+  );
+  const [loading, setLoading] = useState(false);
+  const isFav = checkData?.is_favorite ?? false;
+
+  const toggle = async () => {
+    setLoading(true);
+    if (isFav) {
+      await api.portfolio.removeFavorite(ticker).catch(() => {});
+    } else {
+      await api.portfolio.addFavorite(market, ticker, name || ticker).catch(() => {});
+    }
+    mutate();
+    setLoading(false);
+  };
+
+  return (
+    <button
+      onClick={toggle}
+      disabled={loading || !ticker}
+      className="stockcy-btn"
+      style={{ flex: 1, padding: "8px", fontSize: "0.95rem", display: "flex", justifyContent: "center", gap: "6px", background: isFav ? "rgba(255,180,0,0.1)" : "var(--color-elevated)", border: `1px solid ${isFav ? "var(--color-warning)" : "var(--color-border)"}` }}
+    >
+      <Star size={14} color={isFav ? "var(--color-warning)" : "var(--color-muted)"} fill={isFav ? "var(--color-warning)" : "none"} />
+      {isFav ? "즐겨찾기 해제" : "즐겨찾기 추가"}
+    </button>
+  );
+}
+
 // 한글 초성 추출 유틸리티
 const CHOSUNG = ["ㄱ", "ㄲ", "ㄴ", "ㄷ", "ㄸ", "ㄹ", "ㅁ", "ㅂ", "ㅃ", "ㅅ", "ㅆ", "ㅇ", "ㅈ", "ㅉ", "ㅊ", "ㅋ", "ㅌ", "ㅍ", "ㅎ"];
 function getChosung(str: string) {
@@ -58,7 +91,8 @@ export default function SearchPage() {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { data: krStockData, isLoading: krLoading } = useSWR<any>(
     isKR ? `/api/kr/stocks/${currentCode}` : null,
-    () => api.kr.stockPrice(currentCode)
+    () => api.kr.stockPrice(currentCode),
+    { refreshInterval: 30000 }
   );
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { data: nameData } = useSWR<any>(
@@ -95,12 +129,14 @@ export default function SearchPage() {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { data: usStockData, isLoading: usLoading } = useSWR<any>(
     !isKR ? `/api/us/stocks/${currentCode}` : null,
-    () => api.us.stockDetail(currentCode)
+    () => api.us.stockDetail(currentCode),
+    { refreshInterval: 30000 }
   );
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { data: usChartRaw } = useSWR<any>(
-    !isKR ? `/api/us/chart/${currentCode}/${chartType}` : null,
+    !isKR ? `/api/us/chart/${currentCode}/${chartType}/${minuteInterval}` : null,
     () => {
+      if (chartType === "minute")  return api.us.minuteChart(currentCode, minuteInterval);
       if (chartType === "weekly")  return api.us.chart(currentCode, "2y",  "1wk");
       if (chartType === "monthly") return api.us.chart(currentCode, "5y",  "1mo");
       return api.us.chart(currentCode, "1y", "1d");
@@ -318,6 +354,45 @@ export default function SearchPage() {
   // 탭 목록 (수급은 KR 전용)
   const ANALYSIS_TABS = isKR ? ["시세", "수급", "AI 분석"] : ["시세", "AI 분석"];
 
+  // AI 분석 (US)
+  const runUsAiAnalysis = async () => {
+    setAiStatus("loading");
+    setAiResult(null);
+    setAiMsg("US 종목 분석 중...");
+    try {
+      const BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+      const res = await fetch(`${BASE}/api/ai/stock-report`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ticker: currentCode, current_price: price, change_pct: change }),
+      });
+      if (!res.body) throw new Error("No body");
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const parts = buffer.split("\n\n");
+        buffer = parts.pop() ?? "";
+        for (const part of parts) {
+          const line = part.trim();
+          if (!line.startsWith("data:")) continue;
+          try {
+            const parsed = JSON.parse(line.slice(5).trim());
+            if (parsed.status === "running") setAiMsg(parsed.message ?? aiMsg);
+            else if (parsed.status === "done") { setAiResult(parsed.result); setAiStatus("done"); }
+            else if (parsed.status === "error") { setAiMsg(`❌ ${parsed.message}`); setAiStatus("error"); }
+          } catch {}
+        }
+      }
+    } catch (err: any) {
+      setAiMsg(`❌ 오류: ${err.message}`);
+      setAiStatus("error");
+    }
+  };
+
   return (
     <div style={{ width: "100%", margin: "0 auto" }}>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "2rem" }}>
@@ -367,13 +442,13 @@ export default function SearchPage() {
                 onChange={(e) => setChartType(e.target.value)}
                 style={{ width: "100px", padding: "6px 10px", fontSize: "0.9rem", background: "var(--color-surface-hover)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: "4px", color: "#fff" }}
               >
-                {isKR && <option value="minute">분봉</option>}
+                <option value="minute">분봉</option>
                 <option value="daily">일봉</option>
                 <option value="weekly">주봉</option>
                 <option value="monthly">월봉</option>
               </select>
 
-              {isKR && chartType === "minute" && (
+              {chartType === "minute" && (
                 <select
                   className="stockcy-input"
                   value={minuteInterval}
@@ -474,12 +549,7 @@ export default function SearchPage() {
           {activeTab === "시세" && (
             <div className="stockcy-card" style={{ flex: 1, display: "flex", flexDirection: "column", gap: "1.2rem", padding: "1.5rem" }}>
               <div style={{ display: "flex", gap: "10px" }}>
-                <button className="stockcy-btn" style={{ flex: 1, padding: "8px", fontSize: "0.95rem", display: "flex", justifyContent: "center", gap: "6px", background: "var(--color-elevated)", border: "1px solid var(--color-border)" }}>
-                  <Star size={14} color="var(--color-warning)" /> 즐겨찾기
-                </button>
-                <button className="stockcy-btn" style={{ flex: 1, padding: "6px", fontSize: "0.85rem", display: "flex", justifyContent: "center", gap: "6px", background: "var(--color-elevated)", border: "1px solid var(--color-border)" }}>
-                  <Briefcase size={14} color="var(--color-danger)" /> 포트폴리오
-                </button>
+                <FavButton ticker={currentCode} name={stockName} market={isKR ? "국내" : "미국"} />
               </div>
 
               <div>
@@ -610,42 +680,34 @@ export default function SearchPage() {
             <div className="stockcy-card" style={{ flex: 1, display: "flex", flexDirection: "column", padding: "1.5rem", gap: "1rem" }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                 <h3 style={{ fontSize: "1.1rem", fontWeight: 700, margin: 0 }}>🧠 AI 심층 리포트 및 타점 분석</h3>
-                {isKR && (
-                  <button
-                    onClick={runAiAnalysis}
-                    disabled={aiStatus === "loading"}
-                    className="stockcy-btn-primary"
-                    style={{ padding: "8px 16px", borderRadius: "6px", fontSize: "0.9rem", fontWeight: 600, display: "flex", gap: "6px", alignItems: "center" }}
-                  >
-                    {aiStatus === "loading" ? <><Loader2 size={15} className="animate-spin" /> 분석 중...</> : <><Activity size={15} /> 분석 실행</>}
-                  </button>
-                )}
+                <button
+                  onClick={isKR ? runAiAnalysis : runUsAiAnalysis}
+                  disabled={aiStatus === "loading"}
+                  className="stockcy-btn-primary"
+                  style={{ padding: "8px 16px", borderRadius: "6px", fontSize: "0.9rem", fontWeight: 600, display: "flex", gap: "6px", alignItems: "center" }}
+                >
+                  {aiStatus === "loading" ? <><Loader2 size={15} className="animate-spin" /> 분석 중...</> : <><Activity size={15} /> 분석 실행</>}
+                </button>
               </div>
 
-              {!isKR && (
-                <div style={{ color: "var(--color-muted)", textAlign: "center", padding: "3rem 0", fontSize: "0.9rem" }}>
-                  🔧 미국 주식 AI 분석은 준비 중입니다.
-                </div>
-              )}
-
-              {isKR && aiStatus === "idle" && (
+              {aiStatus === "idle" && (
                 <div style={{ color: "var(--color-muted)", textAlign: "center", padding: "3rem 0", fontSize: "0.9rem" }}>
                   '분석 실행' 버튼을 눌러주세요. (약 30~50초 소요)
                 </div>
               )}
 
-              {isKR && aiStatus === "loading" && (
+              {aiStatus === "loading" && (
                 <div style={{ textAlign: "center", padding: "3rem 0" }}>
                   <Loader2 size={36} className="animate-spin" color="var(--color-accent)" style={{ margin: "0 auto 1rem" }} />
                   <div style={{ color: "var(--color-warning)", fontWeight: 600 }}>{aiMsg}</div>
                 </div>
               )}
 
-              {isKR && aiStatus === "error" && (
+              {aiStatus === "error" && (
                 <div style={{ color: "var(--color-danger)", padding: "1rem", textAlign: "center" }}>{aiMsg}</div>
               )}
 
-              {isKR && aiStatus === "done" && aiResult && (
+              {aiStatus === "done" && aiResult && (
                 <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
                   <div style={{ display: "flex", gap: "10px", alignItems: "center", flexWrap: "wrap" }}>
                     <span style={{ fontWeight: 800, fontSize: "1rem", padding: "4px 12px", borderRadius: "6px", background: aiResult.rating?.includes("추천") ? "rgba(0,200,83,0.15)" : "rgba(255,75,75,0.1)", color: aiResult.rating?.includes("추천") ? "#00c853" : "#ff4b4b", border: `1px solid ${aiResult.rating?.includes("추천") ? "#00c853" : "#ff4b4b"}` }}>

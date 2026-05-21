@@ -41,8 +41,9 @@ export default function ScenariosPage() {
     return () => { unmounted = true; };
   }, []);
 
-  // 최상단 이슈 1개를 메인 리포트로 사용
-  const mainIssue = scenarios?.issues?.[0];
+  const issues: any[] = scenarios?.issues ?? [];
+  const [issueIdx, setIssueIdx] = useState(0);
+  const mainIssue = issues[issueIdx];
 
   return (
     <div style={{ width: "100%", margin: "0 auto", display: "flex", flexDirection: "column", gap: "1rem" }}>
@@ -157,10 +158,31 @@ export default function ScenariosPage() {
             <div style={{ color: "var(--color-muted)", textAlign: "center", marginTop: "2rem" }}>시나리오 데이터를 불러오지 못했습니다.</div>
           ) : (
             <>
+              {/* 이슈 탭 선택 (최대 6개) */}
+              {issues.length > 1 && (
+                <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", marginBottom: "0.5rem" }}>
+                  {issues.map((issue: any, idx: number) => (
+                    <button
+                      key={idx}
+                      onClick={() => setIssueIdx(idx)}
+                      style={{
+                        padding: "4px 10px", fontSize: "0.78rem", fontWeight: 600, borderRadius: "4px",
+                        border: "1px solid", cursor: "pointer",
+                        borderColor: issueIdx === idx ? "var(--color-accent)" : "var(--color-border)",
+                        background: issueIdx === idx ? "rgba(255,255,255,0.08)" : "transparent",
+                        color: issueIdx === idx ? "var(--color-text)" : "var(--color-muted)",
+                      }}
+                    >
+                      Issue {idx + 1}: {String(issue.title ?? "").slice(0, 20)}{String(issue.title ?? "").length > 20 ? "…" : ""}
+                    </button>
+                  ))}
+                </div>
+              )}
+
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "1rem" }}>
                 <div>
                   <span style={{ fontSize: "0.8rem", color: "var(--color-accent)", fontWeight: 700, padding: "4px 8px", background: "rgba(255,255,255,0.05)", borderRadius: "4px", marginBottom: "8px", display: "inline-block" }}>
-                    Daily Macro Issue
+                    Daily Macro Issue #{issueIdx + 1}
                   </span>
                   <h2 style={{ fontSize: "1.4rem", fontWeight: 800, margin: 0 }}>
                     {mainIssue.title}

@@ -28,6 +28,10 @@ export const api = {
     sectorMap:   ()                         => req("/api/us/sector-map"),
     chart:       (ticker: string, period = "1y", interval = "1d") =>
                                                req(`/api/us/chart/${ticker}?period=${period}&interval=${interval}`),
+    minuteChart: (ticker: string, iv = 5) => {
+      const period = iv <= 5 ? "1d" : iv <= 30 ? "5d" : "1mo";
+      return req(`/api/us/chart/${ticker}?period=${period}&interval=${iv}m`);
+    },
   },
 
   // ── 국내 시장 ──────────────────────────────────────────────────────────────
@@ -59,6 +63,20 @@ export const api = {
       method: "POST",
       body: JSON.stringify(body),
     }),
+    realtimePicksUs: (body: any = {})        => req("/api/ai/realtime-picks-us", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+    usStockReport: (ticker: string, currentPrice: number, changePct: number) =>
+      req("/api/ai/stock-report", {
+        method: "POST",
+        body: JSON.stringify({ ticker, current_price: currentPrice, change_pct: changePct }),
+      }),
+    sellTiming: (ticker: string, name: string, avgPrice: number, currentPrice: number, market: string) =>
+      req("/api/ai/sell-timing", {
+        method: "POST",
+        body: JSON.stringify({ ticker, name, avg_price: avgPrice, current_price: currentPrice, market }),
+      }),
   },
 
   // ── 포트폴리오·즐겨찾기 ───────────────────────────────────────────────────

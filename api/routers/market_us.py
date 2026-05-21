@@ -68,18 +68,26 @@ def us_stock_detail(ticker: str, exchange: str = Query("NASDAQ")):
 def us_chart(
     ticker: str,
     period: str = Query("1y", description="yfinance period: 1d,5d,1mo,3mo,6mo,1y,2y,5y"),
-    interval: str = Query("1d", description="yfinance interval: 1d,1wk,1mo"),
+    interval: str = Query("1d", description="yfinance interval: 1m,5m,15m,30m,60m,1d,1wk,1mo"),
 ):
-    """미국 주식 OHLCV 차트 데이터 (yfinance 기반)."""
+    """미국 주식 OHLCV 차트 데이터 (yfinance 기반). 분봉 포함."""
     try:
         import yfinance as yf
+        is_minute = interval.endswith("m") and interval != "1mo"
         df = yf.Ticker(ticker.upper()).history(period=period, interval=interval, auto_adjust=True)
         if df is None or df.empty:
             return []
         records = []
         for dt, row in df.iterrows():
+            # 분봉은 전체 datetime, 일봉 이상은 날짜만
+            if is_minute:
+                import pandas as pd
+                ts = pd.Timestamp(dt)
+                time_str = ts.strftime("%Y-%m-%d %H:%M:%S")
+            else:
+                time_str = str(dt)[:10]
             records.append({
-                "일자":  str(dt)[:10],
+                "일자":  time_str,
                 "시가":  round(float(row.Open),  2),
                 "고가":  round(float(row.High),  2),
                 "저가":  round(float(row.Low),   2),
