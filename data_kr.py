@@ -110,33 +110,7 @@ def get_kr_name_to_code_map() -> dict:
     """
     result: dict = {}
 
-    # 0차: 번들된 정적 JSON (네트워크 불필요, 최우선)
-    try:
-        import json, os
-        _static = os.path.join(os.path.dirname(__file__), "kr_stocks_static.json")
-        with open(_static, "r", encoding="utf-8") as f:
-            result = json.load(f)
-        if result:
-            return result
-    except Exception:
-        pass
-
-    # 1차: FinanceDataReader (해외 서버에서도 동작)
-    try:
-        import FinanceDataReader as fdr
-        for market, suffix in [("KOSPI", ".KS"), ("KOSDAQ", ".KQ")]:
-            df = fdr.StockListing(market)
-            for _, row in df.iterrows():
-                name = str(row.get("Name", "")).strip()
-                code = str(row.get("Code", "")).strip()
-                if name and code and len(code) == 6 and code.isdigit():
-                    result[name] = {"code": code, "suffix": suffix}
-        if result:
-            return result
-    except Exception:
-        pass
-
-    # 2차: pykrx
+    # 1차: pykrx (가장 정확)
     try:
         from pykrx import stock as _pykrx
         import datetime
@@ -152,7 +126,22 @@ def get_kr_name_to_code_map() -> dict:
     except Exception:
         pass
 
-    # 3차: KRX 공개 API (해외 IP 차단 가능성 있음)
+    # 2차: FinanceDataReader
+    try:
+        import FinanceDataReader as fdr
+        for market, suffix in [("KOSPI", ".KS"), ("KOSDAQ", ".KQ")]:
+            df = fdr.StockListing(market)
+            for _, row in df.iterrows():
+                name = str(row.get("Name", "")).strip()
+                code = str(row.get("Code", "")).strip()
+                if name and code and len(code) == 6 and code.isdigit():
+                    result[name] = {"code": code, "suffix": suffix}
+        if result:
+            return result
+    except Exception:
+        pass
+
+    # 3차: KRX 공개 API
     try:
         for mkt_id, suffix in [("STK", ".KS"), ("KSQ", ".KQ")]:
             resp = requests.post(
@@ -183,7 +172,18 @@ def get_kr_name_to_code_map() -> dict:
     except Exception:
         pass
 
-    raise RuntimeError("전종목 맵 로딩 실패 (FDR·pykrx·KRX 모두 실패)")
+    # 4차: 번들된 정적 JSON (네트워크 불필요, 최후의 보루)
+    try:
+        import json, os
+        _static = os.path.join(os.path.dirname(__file__), "kr_stocks_static.json")
+        with open(_static, "r", encoding="utf-8") as f:
+            result = json.load(f)
+        if result:
+            return result
+    except Exception:
+        pass
+
+    raise RuntimeError("전종목 맵 로딩 실패 (FDR·pykrx·KRX·정적JSON 모두 실패)")
 
 @st.cache_data(ttl=86400)
 def get_kr_code_to_name_map() -> dict:
