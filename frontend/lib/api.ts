@@ -49,6 +49,7 @@ export const api = {
     stocksBulk:     (codes: string[])        => req(`/api/kr/stocks-bulk?codes=${codes.join(",")}`),
     sectorMap:      ()                       => req("/api/kr/sector-map"),
     hotSectors:     ()                       => req("/api/kr/hot-sectors"),
+    todayMarket:    ()                       => req("/api/kr/today-market"),
     stockInvestorTrendByCode: (code: string) => req(`/api/kr/stocks/${code}/investor-trend`),
   },
 

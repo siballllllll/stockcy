@@ -253,3 +253,15 @@ async def kr_hot_sectors():
         return result or []
     except Exception as e:
         return {"error": str(e)}
+
+
+@router.get("/today-market")
+async def kr_today_market():
+    """오늘의 시장 요약 + 급등 종목 분석 (analyze_today_market)."""
+    import asyncio
+    from ai_engine import analyze_today_market
+    try:
+        result = await asyncio.to_thread(analyze_today_market)
+        return result or {}
+    except Exception as e:
+        return {"error": str(e)}
