@@ -197,7 +197,40 @@ def _tv_chart(symbol: str, interval: str = "D", height: int = 660) -> None:
         unsafe_allow_html=True,
     )
 
-def _us_echarts_chart(ticker: str, interval: str = "5", height: int = 600, period: str = "3mo"):
+def _parse_price_str(s) -> "float | None":
+    """'₩52,000', '$150.5', '52000 ~ 54000' 등 → 첫 번째 숫자 추출 (파싱 실패 시 None)."""
+    import re
+    if not s or str(s).strip() in ("-", "", "None", "nan", "N/A"):
+        return None
+    s = str(s).replace("₩", "").replace("$", "").replace(",", "").strip()
+    m = re.search(r"\d+(?:\.\d+)?", s)
+    return float(m.group()) if m else None
+
+
+def _build_markline(markers: dict) -> dict:
+    """ECharts markLine spec: {buy, sell, stop} 각 가격을 수평 점선으로 표시."""
+    data = []
+    for key, label, color in [
+        ("buy",  "매수", "#00c853"),
+        ("sell", "목표", "#ff4b4b"),
+        ("stop", "손절", "#2b7cff"),
+    ]:
+        val = markers.get(key)
+        if val and val > 0:
+            data.append({
+                "yAxis": val, "name": label,
+                "label": {
+                    "show": True, "position": "insideEndTop",
+                    "formatter": f"{label} {{c}}", "color": color,
+                    "fontSize": 11, "backgroundColor": "rgba(0,0,0,0.6)",
+                    "padding": [2, 5], "borderRadius": 3
+                },
+                "lineStyle": {"color": color, "type": "dashed", "width": 1.5}
+            })
+    return {"symbol": ["none", "none"], "data": data, "animation": False}
+
+
+def _us_echarts_chart(ticker: str, interval: str = "5", height: int = 600, period: str = "3mo", markers: dict | None = None):
     """Apache ECharts 기반 미국 주식 차트 (yfinance 데이터 활용)"""
     from streamlit_echarts import st_echarts
     import pandas as pd
@@ -373,7 +406,8 @@ def _us_echarts_chart(ticker: str, interval: str = "5", height: int = 600, perio
                     "markArea": {
                         "silent": True,
                         "data": _mark_areas
-                    }
+                    },
+                    **({"markLine": _build_markline(markers)} if markers else {})
                 },
                 {"name": "MA5", "type": "line", "data": ma5, "smooth": True, "showSymbol": False, "lineStyle": {"width": 1, "color": "#f5c518"}},
                 {"name": "MA20", "type": "line", "data": ma20, "smooth": True, "showSymbol": False, "lineStyle": {"width": 1, "color": "#f06292"}},
@@ -390,7 +424,7 @@ def _us_echarts_chart(ticker: str, interval: str = "5", height: int = 600, perio
         }
         st_echarts(options=options, height=f"500px", key=f"us_echart_{ticker}_{interval}_{period}")
 
-def _kr_echarts_chart(stock_code: str, interval: str = "1", height: int = 600, period: str = "150"):
+def _kr_echarts_chart(stock_code: str, interval: str = "1", height: int = 600, period: str = "150", markers: dict | None = None):
     """Apache ECharts 기반 국내 주식 차트 (캔들 + 거래량 분리)"""
     from streamlit_echarts import st_echarts
     import pandas as pd
@@ -505,7 +539,8 @@ def _kr_echarts_chart(stock_code: str, interval: str = "1", height: int = 600, p
                     "itemStyle": {
                         "color": "#ff4b4b", "color0": "#2b7cff",
                         "borderColor": "#ff4b4b", "borderColor0": "#2b7cff"
-                    }
+                    },
+                    **({"markLine": _build_markline(markers)} if markers else {})
                 },
                 {"name": "MA5", "type": "line", "data": ma5, "smooth": True, "showSymbol": False, "lineStyle": {"width": 1, "color": "#f5c518"}},
                 {"name": "MA20", "type": "line", "data": ma20, "smooth": True, "showSymbol": False, "lineStyle": {"width": 1, "color": "#f06292"}},
@@ -1996,7 +2031,7 @@ def show_market_scenarios():
     _today = __import__("datetime").date.today().strftime("%Y-%m-%d")
     _cache_key = f"market_scenarios_{_today}"
 
-    _tab_auto, _tab_custom = st.tabs(["🤖 AI 자동 시나리오", "🎯 커스텀 이슈 스나이퍼"])
+    _tab_auto, _tab_custom, _tab_macro = st.tabs(["🤖 AI 자동 시나리오", "🎯 커스텀 이슈 스나이퍼", "🌍 매크로 분석"])
 
     # ── 탭 2: 커스텀 이슈 스나이퍼 ──────────────────────────────────────
     with _tab_custom:
@@ -2369,6 +2404,60 @@ def show_market_scenarios():
                                                     f"<span style='color:#5c9bd6'>촉매: {_ls.get('catalyst','')}</span></div>",
                                                     unsafe_allow_html=True)
 
+    # ── 탭 3: 매크로 분석 ────────────────────────────────────────────────
+    with _tab_macro:
+        _mc1, _mc2 = st.columns([6, 2])
+        with _mc1:
+            st.caption("글로벌 RSS 뉴스를 실시간 수집하여 현재 시장 매크로 사이클과 수혜 섹터를 진단합니다.")
+        with _mc2:
+            _do_macro = st.button("🔄 분석 시작", key="btn_macro_dialog", use_container_width=True, type="primary")
+
+        _macro_ss_key = "_macro_phase_result"
+        if _do_macro:
+            st.session_state.pop(_macro_ss_key, None)
+            with st.spinner("뉴스 수집 + AI 매크로 분석 중... (30~60초)"):
+                from ai_engine import generate_macro_phase_analysis
+                st.session_state[_macro_ss_key] = generate_macro_phase_analysis()
+
+        _mr = st.session_state.get(_macro_ss_key)
+        if _mr:
+            if "error" in _mr:
+                st.error(f"분석 오류: {_mr['error']}")
+            else:
+                st.markdown(
+                    f"<div style='background:linear-gradient(90deg,rgba(255,152,0,0.15),rgba(255,193,7,0.08));"
+                    f"border:1.5px solid rgba(255,152,0,0.5);border-radius:10px;padding:12px 16px;margin:8px 0'>"
+                    f"<span style='font-size:0.82rem;color:#f9a825;font-weight:700'>📍 현재 시장 사이클</span><br>"
+                    f"<span style='font-size:1.05rem;font-weight:700;color:#fff'>{_mr.get('macro_phase','')}</span>"
+                    f"</div>",
+                    unsafe_allow_html=True,
+                )
+                if _mr.get("key_insight"):
+                    st.markdown("**💡 핵심 시사점**")
+                    for _ln in str(_mr["key_insight"]).splitlines():
+                        _ln = _ln.strip("- •").strip()
+                        if _ln:
+                            st.markdown(f"- {_ln}")
+                if _mr.get("bullish_sectors"):
+                    st.markdown("**🚀 수혜 섹터**")
+                    _sec_chips = " ".join(
+                        f"<span style='background:rgba(0,200,83,0.18);border:1px solid rgba(0,200,83,0.4);"
+                        f"border-radius:20px;padding:3px 12px;font-size:0.92rem;font-weight:600;"
+                        f"color:#00c853;margin:2px;display:inline-block'>{_s}</span>"
+                        for _s in _mr["bullish_sectors"]
+                    )
+                    st.markdown(_sec_chips, unsafe_allow_html=True)
+                if _mr.get("action_point"):
+                    st.markdown(
+                        f"<div style='background:rgba(33,150,243,0.12);border-left:4px solid #2196f3;"
+                        f"border-radius:0 8px 8px 0;padding:10px 14px;margin:10px 0'>"
+                        f"<span style='font-size:0.82rem;color:#90caf9;font-weight:700'>⚡ 투자 스탠스</span><br>"
+                        f"<span style='font-size:0.97rem;color:#e3f2fd'>{_mr.get('action_point','')}</span>"
+                        f"</div>",
+                        unsafe_allow_html=True,
+                    )
+        else:
+            st.info("위 '분석 시작' 버튼을 눌러 최신 매크로 사이클을 진단하세요.")
 
 
 @st.dialog("오늘의 데일리 브리핑 📝")
@@ -3939,12 +4028,28 @@ def main():
                                 st.info("추천 종목이 없습니다.")
                             else:
                                 _sel = st.session_state.get("kr_selected_pick_idx", 0)
+                                # ── 스크리너 필터 ──────────────────────
+                                with st.expander("🔍 필터", expanded=False):
+                                    _scr_min_chg = st.slider("최소 등락률 (%)", -15.0, 30.0, 0.0, 0.5, key="kr_scr_chg")
+                                    _scr_min_sig = st.select_slider(
+                                        "신호 강도",
+                                        options=["전체", "약", "중", "강", "매우강"],
+                                        value="전체", key="kr_scr_sig"
+                                    )
+                                _sig_map = {"전체": 0, "약": 1, "중": 2, "강": 3, "매우강": 4}
+                                _scr_sig_min = _sig_map.get(st.session_state.get("kr_scr_sig", "전체"), 0)
+                                _filtered_picks = [
+                                    p for p in _res["picks"]
+                                    if float(p.get("change_pct", 0) or 0) >= st.session_state.get("kr_scr_chg", 0.0)
+                                    and p.get("_signal", {}).get("signal_score", 5) >= _scr_sig_min
+                                ]
                                 st.markdown(
                                     f"<div style='font-size:1.1rem;color:#666;margin-bottom:4px'>"
-                                    f"총 {len(_res['picks'])}개 종목 — 클릭하여 상세 확인</div>",
+                                    f"{'필터 결과 ' if _filtered_picks != _res['picks'] else '총 '}"
+                                    f"{len(_filtered_picks)}개 종목 — 클릭하여 상세 확인</div>",
                                     unsafe_allow_html=True,
                                 )
-                                for _ci, _pick in enumerate(_res["picks"]):
+                                for _ci, _pick in enumerate(_filtered_picks):
                                     _cpct2   = float(_pick.get("change_pct", 0) or 0)
                                     _entry2  = _pick.get("entry", 0)
                                     _target2 = _pick.get("target", 0)
@@ -4494,7 +4599,13 @@ def main():
                         _tab_chart, _tab_box = st.tabs(["📊 차트", "📦 박스권·수급 분석"])
                         with _tab_chart:
                             st.caption("ℹ️ 이동평균선 안내: 🟡5일(단기) | 💗20일(생명) | 🟢60일(수급) | 🔵120일(경기)")
-                            _kr_echarts_chart(selected_code_kr, interval=st.session_state.kr_chart_type, height=500, period=_kr_period)
+                            _kr_rep_c = st.session_state.get(f"kr_report_{selected_code_kr}", {})
+                            _kr_chart_m = {
+                                "buy":  _parse_price_str(_kr_rep_c.get("buy_target")),
+                                "sell": _parse_price_str(_kr_rep_c.get("sell_target")),
+                                "stop": _parse_price_str(_kr_rep_c.get("stop_loss")),
+                            } if any(_kr_rep_c.get(k) for k in ("buy_target", "sell_target", "stop_loss")) else None
+                            _kr_echarts_chart(selected_code_kr, interval=st.session_state.kr_chart_type, height=500, period=_kr_period, markers=_kr_chart_m)
                         with _tab_box:
                             _kr_box_key = f"kr_box_result_{selected_code_kr}"
                             st.markdown(
@@ -5019,6 +5130,18 @@ def main():
                                                     "국내", selected_code_kr, price_kr["name"],
                                                     price_kr.get("price", ""), kr_rep
                                                 )
+                                            except Exception:
+                                                pass
+
+                                            # 타점 도달 자동 알림 설정 (목표가 · 손절가)
+                                            try:
+                                                from db import save_price_alert
+                                                _ata_sell = _parse_price_str(kr_rep.get("sell_target"))
+                                                _ata_stop = _parse_price_str(kr_rep.get("stop_loss"))
+                                                if _ata_sell and _ata_sell > 0:
+                                                    save_price_alert("국내", selected_code_kr, price_kr["name"], "목표가(AI)", _ata_sell)
+                                                if _ata_stop and _ata_stop > 0:
+                                                    save_price_alert("국내", selected_code_kr, price_kr["name"], "손절가(AI)", _ata_stop)
                                             except Exception:
                                                 pass
 
@@ -7094,7 +7217,13 @@ def main():
                         _utab_chart, _utab_box = st.tabs(["📊 차트", "📦 박스권·수급 분석"])
                         with _utab_chart:
                             st.caption("ℹ️ 이동평균선 안내: 🟡5일(단기) | 💗20일(생명) | 🟢60일(수급) | 🔵120일(경기)")
-                            _us_echarts_chart(_us_ticker_cur, interval=_us_iv_cur, height=500, period=_us_period)
+                            _us_rep_c = st.session_state.get(f"report_{_us_ticker_cur}", {})
+                            _us_chart_m = {
+                                "buy":  _parse_price_str(_us_rep_c.get("buy_target")),
+                                "sell": _parse_price_str(_us_rep_c.get("sell_target")),
+                                "stop": _parse_price_str(_us_rep_c.get("stop_loss")),
+                            } if any(_us_rep_c.get(k) for k in ("buy_target", "sell_target", "stop_loss")) else None
+                            _us_echarts_chart(_us_ticker_cur, interval=_us_iv_cur, height=500, period=_us_period, markers=_us_chart_m)
                         with _utab_box:
                             _us_box_key = f"us_box_result_{_us_ticker_cur}"
                             st.markdown(
@@ -7651,6 +7780,19 @@ def main():
                                                     detail_us.get("name", _us_ticker_cur),
                                                     _cur_p, _rep_j
                                                 )
+                                            except Exception:
+                                                pass
+
+                                            # 타점 도달 자동 알림 설정 (목표가 · 손절가)
+                                            try:
+                                                from db import save_price_alert
+                                                _ata_sell = _parse_price_str(_rep_j.get("sell_target"))
+                                                _ata_stop = _parse_price_str(_rep_j.get("stop_loss"))
+                                                _us_name_ata = detail_us.get("name", _us_ticker_cur)
+                                                if _ata_sell and _ata_sell > 0:
+                                                    save_price_alert("미국", _us_ticker_cur, _us_name_ata, "목표가(AI)", _ata_sell)
+                                                if _ata_stop and _ata_stop > 0:
+                                                    save_price_alert("미국", _us_ticker_cur, _us_name_ata, "손절가(AI)", _ata_stop)
                                             except Exception:
                                                 pass
 
