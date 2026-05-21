@@ -16,20 +16,30 @@ import { StockModal } from "@/components/ui/StockModal";
 import type { StockInfo } from "@/components/ui/StockModal";
 import { useSSE } from "@/hooks/useSSE";
 
-// ── 현황 안내 배지 ────────────────────────────────────────────────────────────
-function getStatusInfo(pct: number | null) {
+// ── 투자 가이드 배지 (Streamlit 원본 로직 동일) ─────────────────────────────
+function getStatusInfo(pct: number | null, price?: number, w52High?: number, w52Low?: number) {
   if (pct === null) return null;
-  if (pct >= 5)  return { label: "🔴 급등",  color: "#ff6b6b", bg: "rgba(255,60,60,0.12)",   border: "rgba(255,60,60,0.35)" };
-  if (pct >= 2)  return { label: "🟢 상승",  color: "#4ade80", bg: "rgba(74,222,128,0.12)",   border: "rgba(74,222,128,0.35)" };
-  if (pct >= -2) return { label: "⚪ 관망",  color: "var(--color-muted)", bg: "rgba(150,150,150,0.10)", border: "rgba(150,150,150,0.25)" };
-  if (pct >= -5) return { label: "🟡 바닥권", color: "#facc15", bg: "rgba(250,204,21,0.12)",  border: "rgba(250,204,21,0.35)" };
-  return           { label: "🔵 급락",  color: "#60a5fa", bg: "rgba(96,165,250,0.12)",   border: "rgba(96,165,250,0.35)" };
+
+  // 52주 범위 내 현재가 위치 (0~100%)
+  let posPct = 50;
+  if (w52High && w52Low && w52High > w52Low && price) {
+    posPct = ((price - w52Low) / (w52High - w52Low)) * 100;
+  }
+  const has52 = !!(w52High && w52Low && w52High > w52Low);
+
+  if (pct >= 5)            return { label: "🔥 급등 중 (추격 신중)",   color: "#ff4b4b", bg: "rgba(255,75,75,0.12)",   border: "rgba(255,75,75,0.4)"   };
+  if (pct <= -5)           return { label: "🔵 과매도 (반등 확인)",    color: "#2b7cff", bg: "rgba(43,124,255,0.12)",  border: "rgba(43,124,255,0.4)"  };
+  if (has52 && posPct <= 15) return { label: "💎 바닥권 (매수 매력)",  color: "#00c853", bg: "rgba(0,200,83,0.12)",    border: "rgba(0,200,83,0.4)"    };
+  if (has52 && posPct >= 85) return { label: "⚠️ 고점권 (돌파 체크)", color: "#ff9800", bg: "rgba(255,152,0,0.12)",   border: "rgba(255,152,0,0.4)"   };
+  if (pct >= 2)            return { label: "🟢 상승세 유지",           color: "#4ade80", bg: "rgba(74,222,128,0.12)",  border: "rgba(74,222,128,0.4)"  };
+  if (pct <= -2)           return { label: "🔴 약세 흐름",             color: "#ff6b6b", bg: "rgba(255,107,107,0.12)", border: "rgba(255,107,107,0.4)" };
+  return                          { label: "⚪ 관망",                  color: "#888",    bg: "rgba(150,150,150,0.10)", border: "rgba(150,150,150,0.3)" };
 }
 
 // ── 즐겨찾기 카드 ─────────────────────────────────────────────────────────────
 function FavRow({ fav, price, onRemove, onAnalyze }: {
   fav: Favorite;
-  price?: { price: number; change_pct: number } | null;
+  price?: { price: number; change_pct: number; w52_high?: number; w52_low?: number } | null;
   onRemove: (ticker: string) => void;
   onAnalyze: (s: StockInfo) => void;
 }) {
@@ -39,7 +49,7 @@ function FavRow({ fav, price, onRemove, onAnalyze }: {
   const up     = (pct ?? 0) > 0;
   const down   = (pct ?? 0) < 0;
   const color  = up ? "var(--color-up)" : down ? "var(--color-down)" : "var(--color-flat)";
-  const status = getStatusInfo(pct);
+  const status = getStatusInfo(pct, price?.price, price?.w52_high, price?.w52_low);
 
   return (
     <div style={{
@@ -809,14 +819,16 @@ export default function FavoritesPage() {
   const krTickers = (favs ?? []).filter(f => f["시장"] === "국내").map(f => f["티커"]);
   const usTickers = (favs ?? []).filter(f => f["시장"] === "미국").map(f => f["티커"]);
 
+  type PriceEntry = { price: number; change_pct: number; w52_high?: number; w52_low?: number };
+
   const { data: krPriceMap } = useSWR(
     krTickers.length > 0 ? `kr-fav-prices-${krTickers.join(",")}` : null,
     async () => {
-      const map: Record<string, { price: number; change_pct: number }> = {};
+      const map: Record<string, PriceEntry> = {};
       await Promise.all(krTickers.map(async (code) => {
         try {
           const d = await api.kr.stockPrice(code) as KrStock;
-          if (d?.price) map[code] = { price: d.price, change_pct: d.change_pct };
+          if (d?.price) map[code] = { price: d.price, change_pct: d.change_pct, w52_high: d.w52_high, w52_low: d.w52_low };
         } catch {}
       }));
       return map;
@@ -828,14 +840,14 @@ export default function FavoritesPage() {
     usTickers.length > 0 ? `us-fav-prices-${usTickers.join(",")}` : null,
     async () => {
       const arr = await api.us.stocks(usTickers) as UsStock[];
-      const map: Record<string, { price: number; change_pct: number }> = {};
+      const map: Record<string, PriceEntry> = {};
       for (const s of (arr ?? [])) map[s["심볼"]] = { price: s["현재가($)"], change_pct: s["등락률(%)"] };
       return map;
     },
     { refreshInterval: 60000 }
   );
 
-  const priceMap: Record<string, { price: number; change_pct: number }> = { ...(krPriceMap ?? {}), ...(usPriceMap ?? {}) };
+  const priceMap: Record<string, PriceEntry> = { ...(krPriceMap ?? {}), ...(usPriceMap ?? {}) };
 
   const handleRemove = async (ticker: string) => {
     await api.portfolio.removeFavorite(ticker);
