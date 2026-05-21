@@ -2865,21 +2865,18 @@ def show_favorites_center():
             from streamlit_autorefresh import st_autorefresh as _st_autorefresh
             _st_autorefresh(interval=1500, limit=None, key="daily_brief_progress")
         elif _status in ["done", "error"]:
-            st.session_state._daily_brief_running = False
+            # 상태 표시
             res = _task.get("result", {})
-            st.session_state._daily_brief_last_result = res
-            _SCENARIO_TASKS.pop("_daily_brief", None)
-            st.rerun()
+            if res.get("success"):
+                st.success(res.get("msg", "발송 성공!"))
+            else:
+                st.error(f"⚠️ 발송 실패: {res.get('msg', '알 수 없는 오류')}")
             
-    _last_res = st.session_state.get("_daily_brief_last_result")
-    if _last_res:
-        if _last_res.get("success"):
-            st.success(_last_res.get("msg", "발송 성공!"))
-        else:
-            st.error(f"⚠️ 발송 실패: {_last_res.get('msg', '알 수 없는 오류')}")
-        if st.button("알림 닫기", key="close_daily_brief_res"):
-            st.session_state.pop("_daily_brief_last_result", None)
-            st.rerun()
+            # 사용자가 확인 후 닫을 수 있게 처리
+            if st.button("알림 닫기", key="close_daily_brief_res"):
+                st.session_state._daily_brief_running = False
+                _SCENARIO_TASKS.pop("_daily_brief", None)
+                st.rerun()
             
     st.markdown("---")
     
