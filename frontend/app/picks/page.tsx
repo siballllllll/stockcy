@@ -192,21 +192,60 @@ export default function PicksPage() {
                   </span>
                 </div>
 
-                {/* 타점 정보 (US 전용) */}
-                {!isKR && (pick.entry || pick.target || pick.stop) && (
+                {/* 타점 정보 */}
+                {(pick.entry || pick.target || pick.stop) && (
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "6px", fontSize: "0.78rem" }}>
                     <div style={{ textAlign: "center", background: "rgba(0,255,0,0.05)", padding: "4px", borderRadius: "4px" }}>
-                      <div style={{ color: "var(--color-muted)" }}>진입</div>
-                      <div style={{ fontWeight: 700, color: "var(--color-success)" }}>${pick.entry?.toFixed(2) || "—"}</div>
+                      <div style={{ color: "var(--color-muted)" }}>매수 타점</div>
+                      <div style={{ fontWeight: 700, color: "var(--color-success)" }}>
+                        {isKR ? (pick.entry ? `₩${Number(pick.entry).toLocaleString()}` : "—") : (pick.entry ? `$${Number(pick.entry).toFixed(2)}` : "—")}
+                      </div>
                     </div>
                     <div style={{ textAlign: "center", background: "rgba(255,200,0,0.05)", padding: "4px", borderRadius: "4px" }}>
-                      <div style={{ color: "var(--color-muted)" }}>목표</div>
-                      <div style={{ fontWeight: 700, color: "var(--color-warning)" }}>${pick.target?.toFixed(2) || "—"}</div>
+                      <div style={{ color: "var(--color-muted)" }}>목표가</div>
+                      <div style={{ fontWeight: 700, color: "var(--color-warning)" }}>
+                        {isKR ? (pick.target ? `₩${Number(pick.target).toLocaleString()}` : "—") : (pick.target ? `$${Number(pick.target).toFixed(2)}` : "—")}
+                      </div>
                     </div>
                     <div style={{ textAlign: "center", background: "rgba(255,0,0,0.05)", padding: "4px", borderRadius: "4px" }}>
-                      <div style={{ color: "var(--color-muted)" }}>손절</div>
-                      <div style={{ fontWeight: 700, color: "var(--color-danger)" }}>${pick.stop?.toFixed(2) || "—"}</div>
+                      <div style={{ color: "var(--color-muted)" }}>손절가</div>
+                      <div style={{ fontWeight: 700, color: "var(--color-danger)" }}>
+                        {isKR ? (pick.stop ? `₩${Number(pick.stop).toLocaleString()}` : "—") : (pick.stop ? `$${Number(pick.stop).toFixed(2)}` : "—")}
+                      </div>
                     </div>
+                  </div>
+                )}
+
+                {/* KR 전용 추가 정보 */}
+                {isKR && (pick.position || pick.theme_stage || pick.leader_name) && (
+                  <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", fontSize: "0.73rem" }}>
+                    {pick.position && (
+                      <span style={{ padding: "2px 7px", borderRadius: "4px", background: "rgba(255,200,0,0.1)", border: "1px solid rgba(255,200,0,0.3)", color: "#ffd740" }}>
+                        {pick.position}
+                      </span>
+                    )}
+                    {pick.theme_stage && (
+                      <span style={{ padding: "2px 7px", borderRadius: "4px", background: "rgba(100,200,100,0.1)", border: "1px solid rgba(100,200,100,0.3)", color: "#69f0ae" }}>
+                        {pick.theme_stage}
+                      </span>
+                    )}
+                    {pick.leader_name && (
+                      <span style={{ padding: "2px 7px", borderRadius: "4px", background: "rgba(200,100,255,0.1)", border: "1px solid rgba(200,100,255,0.3)", color: "#ce93d8" }}>
+                        대장: {pick.leader_name}
+                      </span>
+                    )}
+                    {pick.supply_signal && (
+                      <span style={{ padding: "2px 7px", borderRadius: "4px", background: "rgba(100,180,255,0.1)", border: "1px solid rgba(100,180,255,0.3)", color: "#60a5fa" }}>
+                        {pick.supply_signal}
+                      </span>
+                    )}
+                  </div>
+                )}
+
+                {/* KR 테마 연동 */}
+                {isKR && pick.theme_linkage && (
+                  <div style={{ fontSize: "0.76rem", color: "#8ecdf7", background: "rgba(100,180,255,0.05)", border: "1px solid rgba(100,180,255,0.15)", borderRadius: "4px", padding: "5px 8px", lineHeight: 1.5 }}>
+                    🔗 {pick.theme_linkage}
                   </div>
                 )}
 
