@@ -1,13 +1,18 @@
 import traceback
 import logging
 
-def send_daily_brief_to_telegram() -> dict:
+def send_daily_brief_to_telegram(status_callback=None) -> dict:
     """
     유저의 즐겨찾기 종목을 바탕으로 AI 매크로 브리핑을 생성하여 텔레그램으로 전송합니다.
     (UI에서 백그라운드 스레드로 실행됨)
     """
+    def _update_status(msg):
+        if status_callback:
+            status_callback(msg)
+
     try:
         from db import get_favorites
+        _update_status("⭐ 즐겨찾기 포트폴리오 정보를 가져오는 중...")
         favorites = get_favorites()
         if not favorites:
             return {"success": False, "msg": "⭐ 즐겨찾기에 등록된 종목이 없습니다."}
@@ -21,6 +26,7 @@ def send_daily_brief_to_telegram() -> dict:
             
             if market == "국내 주식 🇰🇷":
                 try:
+                    _update_status(f"📊 국내 주식 시세 수집 중... ({name})")
                     from data_kr import get_kr_stock_price
                     price_data = get_kr_stock_price(code)
                     if price_data:
@@ -29,6 +35,7 @@ def send_daily_brief_to_telegram() -> dict:
                     pass
             else:
                 try:
+                    _update_status(f"📈 미국 주식 시세 수집 중... ({name})")
                     from data import get_us_stock_detail
                     us_data = get_us_stock_detail(code)
                     if us_data:
@@ -58,6 +65,7 @@ def send_daily_brief_to_telegram() -> dict:
 """
         
         # AI 엔진 호출 (구글 검색 활성화하여 최신 뉴스 반영)
+        _update_status("🤖 구글 검색으로 최신 거시경제 뉴스를 반영하여 포트폴리오 맞춤 리포트를 작성 중입니다... (가장 오래 걸림)")
         from ai_engine import _call_gemini
         brief_text = _call_gemini(prompt, use_search=True, temperature=0.7)
         if not brief_text or "Error" in brief_text:
@@ -72,6 +80,7 @@ def send_daily_brief_to_telegram() -> dict:
         final_msg = header + brief_text
 
         # 텔레그램은 기본적으로 HTML이나 Markdown을 파싱하는데 오류가 잘 나므로 일반 텍스트 전송
+        _update_status("💌 작성 완료! 텔레그램으로 브리핑을 발송합니다...")
         sent = send_message(final_msg)
         if sent:
             return {"success": True, "msg": "💌 장 마감 AI 리포트가 텔레그램으로 발송되었습니다!"}

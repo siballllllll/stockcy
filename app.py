@@ -2836,29 +2836,38 @@ def show_favorites_center():
     with col2:
         if st.button("💌 오늘의 장 마감 AI 리포트 받기", use_container_width=True, type="primary"):
             st.session_state._daily_brief_running = True
+            _SCENARIO_TASKS["_daily_brief"] = {"status": "running", "msg": "🚀 준비 중..."}
             import threading
             def _run_brief():
                 try:
+                    def _update(msg):
+                        _SCENARIO_TASKS["_daily_brief"] = {"status": "running", "msg": msg}
                     from daily_brief import send_daily_brief_to_telegram
-                    res = send_daily_brief_to_telegram()
-                    st.session_state._daily_brief_result = res
+                    res = send_daily_brief_to_telegram(status_callback=_update)
+                    _SCENARIO_TASKS["_daily_brief"] = {"status": "done", "result": res}
                 except Exception as e:
-                    st.session_state._daily_brief_result = {"success": False, "msg": str(e)}
-                finally:
-                    st.session_state._daily_brief_running = False
+                    _SCENARIO_TASKS["_daily_brief"] = {"status": "error", "result": {"success": False, "msg": str(e)}}
             
             threading.Thread(target=_run_brief, daemon=True).start()
-            st.toast("💌 AI가 리포트를 작성하고 있습니다. 약 1~2분 뒤 텔레그램으로 전송됩니다!", icon="⏳")
+            st.toast("💌 AI가 리포트 작성을 시작했습니다!", icon="⏳")
             
     if st.session_state.get("_daily_brief_running"):
-        st.info("🤖 AI가 회원님의 즐겨찾기 포트폴리오를 기반으로 시장을 분석하고 있습니다... (텔레그램을 확인해주세요!)")
-    
-    res = st.session_state.pop("_daily_brief_result", None)
-    if res:
-        if res.get("success"):
-            st.success(res.get("msg", "발송 성공!"))
-        else:
-            st.error(res.get("msg", "발송 실패!"))
+        _task = _SCENARIO_TASKS.get("_daily_brief", {})
+        _status = _task.get("status", "")
+        
+        if _status == "running":
+            _current_msg = _task.get("msg", "🤖 AI가 작업을 준비하고 있습니다...")
+            st.info(f"⏳ **진행 중:** {_current_msg}")
+            from streamlit_autorefresh import st_autorefresh as _st_autorefresh
+            _st_autorefresh(interval=1500, limit=None, key="daily_brief_progress")
+        elif _status in ["done", "error"]:
+            st.session_state._daily_brief_running = False
+            res = _task.get("result", {})
+            if res.get("success"):
+                st.success(res.get("msg", "발송 성공!"))
+            else:
+                st.error(res.get("msg", "발송 실패!"))
+            _SCENARIO_TASKS.pop("_daily_brief", None)
             
     st.markdown("---")
     
