@@ -207,9 +207,10 @@ def _parse_price_str(s) -> "float | None":
     return float(m.group()) if m else None
 
 
-def _build_markline(markers: dict) -> dict:
-    """ECharts markLine spec: {buy, sell, stop} 각 가격을 수평 점선으로 표시."""
-    data = []
+def _build_marker_series(markers: dict, category_data: list) -> list:
+    """markLine 대신 수평 line 시리즈로 가격 마커를 표시 (ECharts 호환성 보장)."""
+    series = []
+    n = len(category_data)
     for key, label, color in [
         ("buy",  "매수", "#00c853"),
         ("sell", "목표", "#ff4b4b"),
@@ -217,16 +218,27 @@ def _build_markline(markers: dict) -> dict:
     ]:
         val = markers.get(key)
         if val and val > 0:
-            data.append({
-                "yAxis": val, "name": label,
-                "label": {
-                    "show": True, "position": "end",
-                    "formatter": f"{label} {{c}}", "color": color,
+            series.append({
+                "name": f"__marker_{key}",
+                "type": "line",
+                "data": [round(float(val), 2)] * n,
+                "showSymbol": False,
+                "symbol": "none",
+                "lineStyle": {"color": color, "type": "dashed", "width": 1.5, "opacity": 0.9},
+                "itemStyle": {"color": color},
+                "z": 10,
+                "endLabel": {
+                    "show": True,
+                    "formatter": f"{label} {int(val):,}",
+                    "color": color,
                     "fontSize": 11,
+                    "fontWeight": "bold",
+                    "distance": 4,
                 },
-                "lineStyle": {"color": color, "type": "dashed", "width": 1.5}
+                "emphasis": {"disabled": True},
+                "legendHoverLink": False,
             })
-    return {"symbol": ["none", "none"], "data": data, "animation": False}
+    return series
 
 
 def _us_echarts_chart(ticker: str, interval: str = "5", height: int = 600, period: str = "3mo", markers: dict | None = None):
@@ -539,7 +551,6 @@ def _kr_echarts_chart(stock_code: str, interval: str = "1", height: int = 600, p
                         "color": "#ff4b4b", "color0": "#2b7cff",
                         "borderColor": "#ff4b4b", "borderColor0": "#2b7cff"
                     },
-                    **({"markLine": _build_markline(markers)} if markers else {})
                 },
                 {"name": "MA5", "type": "line", "data": ma5, "smooth": True, "showSymbol": False, "lineStyle": {"width": 1, "color": "#f5c518"}},
                 {"name": "MA20", "type": "line", "data": ma20, "smooth": True, "showSymbol": False, "lineStyle": {"width": 1, "color": "#f06292"}},
@@ -551,10 +562,12 @@ def _kr_echarts_chart(stock_code: str, interval: str = "1", height: int = 600, p
                     "itemStyle": {
                         "color": "#ff4b4b", "color0": "#2b7cff"
                     }
-                }
+                },
+                *(_build_marker_series(markers, category_data) if markers else [])
             ]
         }
-        st_echarts(options=options, height=f"500px", key=f"kr_echart_{stock_code}_{interval}_{period}")
+        _marker_hash = str(sorted(markers.items())) if markers else "none"
+        st_echarts(options=options, height=f"500px", key=f"kr_echart_{stock_code}_{interval}_{period}_{hash(_marker_hash) & 0xFFFF}")
 
 
 
