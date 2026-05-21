@@ -48,12 +48,10 @@ function FavRow({ fav, price, onRemove, onAnalyze }: {
       </td>
       <td>
         <div style={{ display: "flex", gap: "4px" }}>
-          {isKr && (
-            <button className="stockcy-btn stockcy-btn-secondary" style={{ padding: "2px 8px", fontSize: "0.72rem" }} title="차트 보기"
-              onClick={() => router.push(`/search?q=${fav["티커"]}`)}>
-              <BarChart2 size={11} />
-            </button>
-          )}
+          <button className="stockcy-btn stockcy-btn-secondary" style={{ padding: "2px 8px", fontSize: "0.72rem" }} title="차트 보기"
+            onClick={() => router.push(`/search?q=${fav["티커"]}${isKr ? "" : "&market=US"}`)}>
+            <BarChart2 size={11} />
+          </button>
           <button className="stockcy-btn stockcy-btn-secondary" style={{ padding: "2px 8px", fontSize: "0.72rem" }} title="AI 분석"
             onClick={() => onAnalyze({ code: fav["티커"], name: fav["종목명"], market: fav["시장"] as "국내" | "미국" })}>
             <Zap size={11} />

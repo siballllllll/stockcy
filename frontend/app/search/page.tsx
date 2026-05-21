@@ -24,7 +24,7 @@ function getChosung(str: string) {
 }
 
 export default function SearchPage() {
-  const { market } = useMarket();
+  const { market, setMarket } = useMarket();
   const isKR = market === "KR";
   const currSymbol = isKR ? "₩" : "$";
 
@@ -176,6 +176,9 @@ export default function SearchPage() {
 
   useEffect(() => {
     const q = searchParams.get("q");
+    const m = searchParams.get("market");
+    if (m === "US" && market !== "US") setMarket("US");
+    if (m === "KR" && market !== "KR") setMarket("KR");
     if (q) performSearch(q);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams]);
