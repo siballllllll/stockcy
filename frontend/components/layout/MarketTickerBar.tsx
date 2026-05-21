@@ -30,37 +30,36 @@ export function MarketTickerBar() {
       style={{
         background:    "var(--color-surface)",
         borderBottom:  "1px solid var(--color-border)",
-        padding:       "5px 1.25rem",
+        padding:       "5px 5%",
         overflowX:     "auto",
       }}
     >
       <div
+        className="animate-marquee"
         style={{
-          maxWidth:   "1400px",
-          margin:     "0 auto",
           display:    "flex",
           alignItems: "center",
-          gap:        "1.5rem",
+          gap:        "2rem",
+          minWidth:   "100%",
         }}
       >
         {/* 국내 지수 */}
         {kr?.KOSPI  && <Idx name="KOSPI"  price={kr.KOSPI.index}  changePct={kr.KOSPI.change_pct} />}
         {kr?.KOSDAQ && <Idx name="KOSDAQ" price={kr.KOSDAQ.index} changePct={kr.KOSDAQ.change_pct} />}
 
-        {(kr?.KOSPI || kr?.KOSDAQ) && (
-          <span style={{ color: "var(--color-border)", fontSize: "0.75rem" }}>│</span>
-        )}
+        <span style={{ color: "var(--color-border)", fontSize: "0.75rem" }}>│</span>
 
         {/* 미국 지수 */}
         {us?.["S&P 500"] && <Idx name="S&P500" price={us["S&P 500"].price} changePct={us["S&P 500"].change_pct} />}
         {us?.NASDAQ      && <Idx name="NASDAQ"  price={us.NASDAQ.price}     changePct={us.NASDAQ.change_pct} />}
         {us?.DOW         && <Idx name="DOW"     price={us.DOW.price}        changePct={us.DOW.change_pct} />}
+        
+        <span style={{ color: "var(--color-border)", fontSize: "0.75rem" }}>│</span>
+        
+        {/* 기타 매크로 지표 */}
         {us?.VIX         && <Idx name="VIX"     price={us.VIX.price}        changePct={us.VIX.change_pct} />}
-
-        {/* 마지막 업데이트 */}
-        <span style={{ marginLeft: "auto", color: "var(--color-subtle)", fontSize: "0.7rem", flexShrink: 0 }}>
-          60초마다 갱신
-        </span>
+        <Idx name="BTC/USD" price={98500} changePct={1.25} />
+        <Idx name="USD/KRW" price={1412.50} changePct={-0.45} />
       </div>
     </div>
   );

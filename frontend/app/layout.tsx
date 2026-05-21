@@ -17,10 +17,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <main
           style={{
             flex:       1,
-            maxWidth:   "1400px",
             width:      "100%",
             margin:     "0 auto",
-            padding:    "1.25rem",
+            padding:    "1.5rem 5%", // 양옆에 5% 여백을 주어 꽉 막힌 느낌 해소
           }}
         >
           {children}

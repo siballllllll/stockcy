@@ -332,13 +332,51 @@ async def realtime_picks_kr(req: RealtimePicksRequest):
     async def _gen():
         yield _sse({"status": "running", "message": "🔥 국내 실시간 AI 픽 분석 중..."})
         try:
+            mkt_data = req.market_data
+            vol_rank = req.volume_rank
+            chg_rank = req.change_rank
+            hot_secs = req.hot_sectors
+            inv_rank = req.investor_rank
+
+            # 클라이언트가 빈 데이터만 보낸 경우 백엔드에서 직접 수집
+            if not mkt_data or not vol_rank:
+                yield _sse({"status": "running", "message": "📊 실시간 시장 데이터 수집 중..."})
+                try:
+                    from data_kr import (
+                        get_kr_market_index, get_kr_volume_ranking,
+                        get_kr_change_ranking, get_kr_frgn_inst_rank
+                    )
+                    from ai_engine import analyze_kr_hot_sectors
+                    mkt_data = await asyncio.to_thread(get_kr_market_index) or {}
+                    vol_rank = await asyncio.to_thread(get_kr_volume_ranking) or []
+                    
+                    chg_j = await asyncio.to_thread(get_kr_change_ranking, "J") or []
+                    chg_q = await asyncio.to_thread(get_kr_change_ranking, "Q") or []
+                    chg_rank = chg_j + chg_q
+                    
+                    yield _sse({"status": "running", "message": "🔥 핫 섹터 발굴 및 수급 분석 중..."})
+                    try:
+                        hs_res = await asyncio.to_thread(analyze_kr_hot_sectors)
+                        if isinstance(hs_res, dict):
+                            hot_secs = hs_res.get("sectors", [])
+                    except Exception: pass
+                    
+                    try:
+                        inv_j = await asyncio.to_thread(get_kr_frgn_inst_rank, "J", 30) or []
+                        inv_q = await asyncio.to_thread(get_kr_frgn_inst_rank, "Q", 30) or []
+                        inv_rank = inv_j + inv_q
+                    except Exception: pass
+                except Exception as e:
+                    yield _sse({"status": "running", "message": f"⚠️ 데이터 수집 지연: {str(e)}"})
+
+            yield _sse({"status": "running", "message": "🤖 AI 타점 및 매매 전략 생성 중 (약 30~50초)..."})
             result = await asyncio.to_thread(
                 generate_realtime_picks,
-                req.market_data,
-                req.volume_rank,
-                req.change_rank,
-                req.hot_sectors or None,
-                req.investor_rank or None,
+                mkt_data,
+                vol_rank,
+                chg_rank,
+                hot_secs or None,
+                inv_rank or None,
             )
             yield _sse({"status": "done", "result": result})
         except Exception as e:

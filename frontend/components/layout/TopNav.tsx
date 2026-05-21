@@ -1,20 +1,23 @@
 "use client";
+import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { BarChart2, TrendingUp, GitBranch, Star } from "lucide-react";
+import { BriefingModal } from "@/components/ui/BriefingModal";
 
 const TABS = [
-  { href: "/macro",     label: "매크로 분석",   icon: <BarChart2  size={15} /> },
-  { href: "/leading",   label: "주도주 분석",   icon: <TrendingUp size={15} /> },
-  { href: "/sectors",   label: "섹터 로테이션", icon: <GitBranch  size={15} /> },
-  { href: "/scenarios", label: "시나리오",       icon: <GitBranch  size={15} /> },
-  { href: "/favorites", label: "즐겨찾기",       icon: <Star       size={15} /> },
+  { href: "/picks",     label: "🎯 AI 타점 보드",    icon: <TrendingUp size={15} /> },
+  { href: "/search",    label: "📊 종목 종합 검색",  icon: <BarChart2 size={15} /> },
+  { href: "/sectors",   label: "🔥 이슈 섹터 탐색",  icon: <GitBranch size={15} /> },
+  { href: "/favorites", label: "⭐ 즐겨찾기",        icon: <Star size={15} /> },
 ];
 
 export function TopNav() {
   const pathname = usePathname();
+  const [briefingOpen, setBriefingOpen] = useState(false);
 
   return (
+    <>
     <header
       style={{
         position:        "sticky",
@@ -27,9 +30,9 @@ export function TopNav() {
       {/* 브랜드 + 탭 행 */}
       <div
         style={{
-          maxWidth:   "1400px",
+          width:      "100%",
           margin:     "0 auto",
-          padding:    "0 1.25rem",
+          padding:    "0 5%",
           display:    "flex",
           alignItems: "stretch",
           height:     "52px",
@@ -65,10 +68,10 @@ export function TopNav() {
                   alignItems:     "center",
                   gap:            "0.375rem",
                   padding:        "0 1rem",
-                  fontSize:       "0.875rem",
-                  fontWeight:     active ? 600 : 400,
+                  fontSize:       "0.9rem",
+                  fontWeight:     active ? 700 : 500,
                   color:          active ? "var(--color-text)" : "var(--color-muted)",
-                  borderBottom:   active ? "2px solid var(--color-accent)" : "2px solid transparent",
+                  borderBottom:   active ? "3px solid var(--color-danger)" : "3px solid transparent",
                   textDecoration: "none",
                   transition:     "color 0.15s, border-color 0.15s",
                   whiteSpace:     "nowrap",
@@ -86,7 +89,7 @@ export function TopNav() {
           <button 
             className="stockcy-btn stockcy-btn-primary" 
             style={{ padding: "4px 12px", fontSize: "0.8rem", fontWeight: 600 }}
-            onClick={() => alert("브리핑 모달 오픈!")}
+            onClick={() => setBriefingOpen(true)}
           >
             📰 브리핑
           </button>
@@ -113,5 +116,8 @@ export function TopNav() {
         </div>
       </div>
     </header>
+
+    {briefingOpen && <BriefingModal onClose={() => setBriefingOpen(false)} />}
+    </>
   );
 }

@@ -163,6 +163,19 @@ html, body {
   0%   { background-position: -200% 0; }
   100% { background-position:  200% 0; }
 }
+
+@keyframes marquee {
+  0%   { transform: translateX(100%); }
+  100% { transform: translateX(-100%); }
+}
+.animate-marquee {
+  display: inline-block;
+  white-space: nowrap;
+  animation: marquee 30s linear infinite;
+}
+.animate-marquee:hover {
+  animation-play-state: paused;
+}
 .animate-spin    { animation: spin    0.8s linear infinite; }
 .animate-pulse   { animation: pulse   1.5s ease-in-out infinite; }
 .skeleton {

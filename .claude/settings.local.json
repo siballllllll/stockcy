@@ -88,7 +88,30 @@
       "PowerShell(Get-ChildItem \"C:\\\\Users\\\\user\\\\.gemini\\\\스톡시\" -Directory -Name | Where-Object { $_ -notmatch \"^venv$|^\\\\.git$|^__pycache__$|^node_modules$\" })",
       "PowerShell(npm *)",
       "Bash(npx tsc *)",
-      "Bash(python -c \"import sys,json; p=json.load\\(sys.stdin\\); print\\('\\\\n'.join\\(sorted\\(p.get\\('dependencies',{}\\).keys\\(\\)\\)\\)\\)\")"
+      "Bash(python -c \"import sys,json; p=json.load\\(sys.stdin\\); print\\('\\\\n'.join\\(sorted\\(p.get\\('dependencies',{}\\).keys\\(\\)\\)\\)\\)\")",
+      "Bash(python -c \"import dotenv; print\\('dotenv ok'\\)\")",
+      "Bash(venv\\\\Scripts\\\\python.exe -c \"import dotenv; print\\('ok'\\)\")",
+      "PowerShell(Receive-Job *)",
+      "PowerShell(Invoke-RestMethod -Uri \"http://localhost:8000/api/health\" -Method Get | ConvertTo-Json)",
+      "PowerShell(npm run *)",
+      "PowerShell(Invoke-RestMethod -Uri \"http://localhost:8000/api/config-status\" | ConvertTo-Json)",
+      "PowerShell(Invoke-RestMethod -Uri \"http://localhost:8000/api/us/indices\" | ConvertTo-Json -Depth 4)",
+      "PowerShell(Invoke-RestMethod -Uri \"http://localhost:8000/api/kr/indices\" | ConvertTo-Json -Depth 3)",
+      "PowerShell(Invoke-RestMethod -Uri \"http://localhost:8000/api/favorites\" | ConvertTo-Json -Depth 3)",
+      "PowerShell(Start-Sleep -Seconds 3; Invoke-RestMethod -Uri \"http://localhost:8000/api/kr/indices\" | ConvertTo-Json -Depth 3)",
+      "PowerShell(Invoke-RestMethod -Uri \"http://localhost:8000/api/favorites\" | Select-Object -ExpandProperty data | Select-Object -First 5 | ConvertTo-Json)",
+      "PowerShell(Invoke-RestMethod -Uri \"http://localhost:8000/api/kr/stocks/005930\" | ConvertTo-Json)",
+      "PowerShell(Invoke-RestMethod -Uri \"http://localhost:8000/api/us/stocks?tickers=AMD,IONQ\" | ConvertTo-Json | Select-Object -First 50)",
+      "PowerShell(Invoke-RestMethod -Uri \"http://localhost:8000/api/kr/volume-ranking?market=ALL\" | Select-Object -First 3 | ConvertTo-Json)",
+      "PowerShell(Invoke-RestMethod -Uri \"http://localhost:8000/api/kr/investor-trend?market=KOSPI\" | Select-Object -First 3 | ConvertTo-Json)",
+      "PowerShell(Start-Sleep -Seconds 3; Invoke-RestMethod -Uri \"http://localhost:8000/api/kr/volume-ranking\" | Select-Object -First 3 | ConvertTo-Json)",
+      "PowerShell(Start-Process \"http://localhost:3000\")",
+      "PowerShell(Get-Job *)",
+      "PowerShell(Invoke-WebRequest -Uri \"http://localhost:3000\" -UseBasicParsing | Select-Object -ExpandProperty StatusCode)",
+      "PowerShell(Invoke-WebRequest -Uri \"http://localhost:3000\" -UseBasicParsing | Select-Object StatusCode, @{N=\"Preview\"; E={$_.Content.Substring\\(0, [Math]::Min\\(200, $_.Content.Length\\)\\)}})",
+      "PowerShell($r = Invoke-WebRequest -Uri \"http://localhost:3000\" -UseBasicParsing; Write-Host \"Status: $\\($r.StatusCode\\)\"; Write-Host \"Length: $\\($r.Content.Length\\)\")",
+      "PowerShell(Start-Process \"http://localhost:3000/macro\")",
+      "Bash(wc -l app.py ai_engine.py data_kr.py)"
     ]
   }
 }

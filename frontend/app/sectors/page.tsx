@@ -1,6 +1,7 @@
 "use client";
 import { useState, useMemo, useEffect } from "react";
 import useSWR from "swr";
+import { useRouter } from "next/navigation";
 import { api } from "@/lib/api";
 import { Activity, Flame, ChevronRight, ChevronDown, Bot } from "lucide-react";
 
@@ -12,7 +13,8 @@ export default function SectorsPage() {
   const [sectorData, setSectorData] = useState<any>(null);
 
   // ── 2. 전체 섹터 백과사전 데이터 ──
-  const { data: sectorMap } = useSWR("/api/kr/sector-map", () => api.kr.sectorMap());
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data: sectorMap } = useSWR<any>("/api/kr/sector-map", () => api.kr.sectorMap());
   
   // 캐시된 핫섹터 (불꽃 효과용)
   const { data: cachedHotSectors } = useSWR("/api/kr/hot-sectors", () => api.kr.hotSectors(), {
@@ -233,19 +235,25 @@ export default function SectorsPage() {
 
 // 개별 종목 행 컴포넌트 (가격과 등락률을 SWR로 비동기 로드)
 function SubSectorStockRow({ stock }: { stock: any }) {
+  const router = useRouter();
   // 실제로는 useSWR(`/api/kr/stocks/${stock.code}`) 을 호출하여 실시간 가격을 가져와야 함.
   // 여기서는 UI 틀을 먼저 맞춤.
-  const { data } = useSWR(`/api/kr/stocks/${stock.code}`, () => api.kr.stockPrice(stock.code));
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data } = useSWR<any>(`/api/kr/stocks/${stock.code}`, () => api.kr.stockPrice(stock.code));
 
-  const price = data ? (data.현재가 ?? 0) : 0;
-  const change = data ? (data.등락률 ?? 0) : 0;
+  const price = data && typeof data.현재가 === 'number' ? data.현재가 : 0;
+  const change = data && typeof data.등락률 === 'number' ? data.등락률 : 0;
   const isUp = change > 0;
   const isDown = change < 0;
   const color = isUp ? "var(--color-danger)" : isDown ? "var(--color-primary)" : "var(--color-text)";
 
   return (
-    <div style={{ display: "grid", gridTemplateColumns: "60px 2fr 1fr 1fr 100px", padding: "12px 1rem", borderBottom: "1px solid rgba(255,255,255,0.03)", fontSize: "0.95rem", alignItems: "center" }}>
-      <div style={{ textAlign: "center" }}>
+    <div 
+      onClick={() => router.push(`/search?q=${stock.code}`)}
+      className="hover-highlight"
+      style={{ display: "grid", gridTemplateColumns: "60px 2fr 1fr 1fr 100px", padding: "12px 1rem", borderBottom: "1px solid rgba(255,255,255,0.03)", fontSize: "0.95rem", alignItems: "center", cursor: "pointer" }}
+    >
+      <div style={{ textAlign: "center" }} onClick={(e) => e.stopPropagation()}>
         <input type="checkbox" />
       </div>
       <div style={{ fontWeight: 600 }}>{stock.name}</div>

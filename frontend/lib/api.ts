@@ -31,15 +31,31 @@ export const api = {
   kr: {
     indices:        ()                       => req("/api/kr/indices"),
     stockPrice:     (code: string)           => req(`/api/kr/stocks/${code}`),
+    stockName:      (code: string)           => req(`/api/kr/stocks/${code}/name`),
+    allStocks:      ()                       => req("/api/kr/stocks/all"),
     volumeRanking:  (market = "ALL")         => req(`/api/kr/volume-ranking?market=${market}`),
     changeRanking:  (market = "ALL", dir = "up") =>
                                                 req(`/api/kr/change-ranking?market=${market}&direction=${dir}`),
     investorTrend:  (market = "KOSPI")       => req(`/api/kr/investor-trend?market=${market}`),
     minuteChart:    (code: string, iv = 5)   => req(`/api/kr/chart/${code}/minute?interval=${iv}`),
-    dailyChart:     (code: string, p = 60)   => req(`/api/kr/chart/${code}/daily?period=${p}`),
+    dailyChart:     (code: string, p = 600, unit = "D") => req(`/api/kr/chart/${code}/daily?period=${p}&unit=${unit}`),
     stocksBulk:     (codes: string[])        => req(`/api/kr/stocks-bulk?codes=${codes.join(",")}`),
     sectorMap:      ()                       => req("/api/kr/sector-map"),
     hotSectors:     ()                       => req("/api/kr/hot-sectors"),
+    stockInvestorTrendByCode: (code: string) => req(`/api/kr/stocks/${code}/investor-trend`),
+  },
+
+  ai: {
+    krStockReport:  (code: string, name: string, priceData: any, investorData: any[]) => req("/api/ai/kr-stock-report", {
+      method: "POST",
+      body: JSON.stringify({ code: code, name: name, price_data: priceData, investor_data: investorData }),
+    }),
+    scenarios: ()                            => req("/api/ai/scenarios"),
+    sectorRotation: ()                       => req("/api/ai/sector-rotation"),
+    realtimePicksKr: (body: any = {})        => req("/api/ai/realtime-picks-kr", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
   },
 
   // ── 포트폴리오·즐겨찾기 ───────────────────────────────────────────────────
@@ -66,6 +82,7 @@ export const api = {
     health:       ()                         => req("/api/health"),
     configStatus: ()                         => req("/api/config-status"),
   },
+
 };
 
 // ── SSE 연결 유틸 ─────────────────────────────────────────────────────────────
