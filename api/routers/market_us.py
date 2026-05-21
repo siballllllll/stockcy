@@ -41,6 +41,21 @@ def us_stocks(tickers: str = Query(..., description="콤마로 구분된 티커 
     return df.to_dict(orient="records")
 
 
+@router.get("/stocks/all")
+def us_stocks_all():
+    """US 전체 종목 티커 → 한국어 이름 맵 반환 (검색 자동완성용)."""
+    try:
+        from sectors_us import US_SECTOR_MAP
+        result: dict[str, str] = {}
+        for sectors in US_SECTOR_MAP.values():
+            for stocks in sectors.values():
+                for s in stocks:
+                    result[s["ticker"]] = s["name"]
+        return result
+    except Exception:
+        return {}
+
+
 @router.get("/stocks/{ticker}")
 def us_stock_detail(ticker: str, exchange: str = Query("NASDAQ")):
     """미국 개별 종목 상세 (현재가, 지표, 재무 요약)."""

@@ -70,6 +70,13 @@ export default function SearchPage() {
     () => api.kr.allStocks(),
     { revalidateOnFocus: false }
   );
+
+  // US 전체 종목 맵 (ticker → 한국어 이름)
+  const { data: usAllStocks } = useSWR(
+    !isKR ? "/api/us/stocks/all" : null,
+    () => api.us.allStocks(),
+    { revalidateOnFocus: false }
+  );
   const { data: krChartRaw } = useSWR(
     isKR ? `/api/kr/chart/${currentCode}/${chartType}/${minuteInterval}` : null,
     () => {
@@ -148,22 +155,45 @@ export default function SearchPage() {
     });
   }, [chartDataRaw, chartType]);
 
-  // 자동완성 (KR 전용)
+  // 자동완성 (KR: 코드+이름+초성 / US: 티커+한국어이름+초성)
   const filteredStocks = useMemo(() => {
-    if (!isKR || !searchQuery.trim() || !allStocks) return [];
+    if (!searchQuery.trim()) return [];
     const query = searchQuery.replace(/\s+/g, "").toLowerCase();
     const queryChosung = getChosung(query);
-    const results = [];
-    for (const [code, name] of Object.entries(allStocks as Record<string, string>)) {
-      const nameSafe = name.replace(/\s+/g, "").toLowerCase();
-      const nameChosung = getChosung(nameSafe);
-      if (code.includes(query) || nameSafe.includes(query) || nameChosung.includes(queryChosung)) {
-        results.push({ code, name });
+
+    if (isKR) {
+      if (!allStocks) return [];
+      const results = [];
+      for (const [code, name] of Object.entries(allStocks as Record<string, string>)) {
+        const nameSafe = name.replace(/\s+/g, "").toLowerCase();
+        const nameChosung = getChosung(nameSafe);
+        if (code.includes(query) || nameSafe.includes(query) || nameChosung.includes(queryChosung)) {
+          results.push({ code, name });
+        }
+        if (results.length >= 10) break;
       }
-      if (results.length >= 10) break;
+      return results;
+    } else {
+      // US: ticker 또는 한국어 이름으로 검색
+      if (!usAllStocks) return [];
+      const results = [];
+      for (const [ticker, name] of Object.entries(usAllStocks as Record<string, string>)) {
+        const tickerLower = ticker.toLowerCase();
+        const nameSafe = name.replace(/\s+/g, "").toLowerCase();
+        const nameChosung = getChosung(nameSafe);
+        if (
+          tickerLower.startsWith(query) ||
+          tickerLower.includes(query) ||
+          nameSafe.includes(query) ||
+          nameChosung.includes(queryChosung)
+        ) {
+          results.push({ code: ticker, name });
+        }
+        if (results.length >= 10) break;
+      }
+      return results;
     }
-    return results;
-  }, [isKR, searchQuery, allStocks]);
+  }, [isKR, searchQuery, allStocks, usAllStocks]);
 
   const performSearch = (code: string) => {
     if (!code.trim()) return;
@@ -185,15 +215,13 @@ export default function SearchPage() {
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
-    if (isKR) {
-      if (filteredStocks.length > 0) {
-        performSearch(filteredStocks[0].code);
-      } else if (searchQuery.match(/^\d+$/)) {
-        performSearch(searchQuery);
-      }
-    } else {
-      // US: ticker 직접 입력
-      if (searchQuery.trim()) performSearch(searchQuery.trim().toUpperCase());
+    if (filteredStocks.length > 0) {
+      // 자동완성 최상단 항목 선택 (KR+US 공통)
+      performSearch(filteredStocks[0].code);
+    } else if (isKR && searchQuery.match(/^\d+$/)) {
+      performSearch(searchQuery);
+    } else if (!isKR && searchQuery.trim()) {
+      performSearch(searchQuery.trim().toUpperCase());
     }
   };
 
@@ -410,8 +438,8 @@ export default function SearchPage() {
               />
             </form>
 
-            {/* KR 자동완성 드롭다운 */}
-            {isKR && showDropdown && searchQuery && filteredStocks.length > 0 && (
+            {/* 자동완성 드롭다운 (KR + US 공통) */}
+            {showDropdown && searchQuery && filteredStocks.length > 0 && (
               <div style={{ position: "absolute", top: "100%", left: 0, right: 0, zIndex: 9999, backgroundColor: "#0F172A", border: "1px solid #334155", borderRadius: "8px", marginTop: "4px", overflow: "hidden", boxShadow: "0 12px 32px rgba(0,0,0,0.8)" }}>
                 {filteredStocks.map((item, idx) => (
                   <div

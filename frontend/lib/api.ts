@@ -24,6 +24,7 @@ export const api = {
     stocks:      (tickers: string[])        => req(`/api/us/stocks?tickers=${tickers.join(",")}`),
     stockDetail: (ticker: string, exch = "NASDAQ") =>
                                                req(`/api/us/stocks/${ticker}?exchange=${exch}`),
+    allStocks:   ()                         => req("/api/us/stocks/all"),
     sectorMap:   ()                         => req("/api/us/sector-map"),
     chart:       (ticker: string, period = "1y", interval = "1d") =>
                                                req(`/api/us/chart/${ticker}?period=${period}&interval=${interval}`),
