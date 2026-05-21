@@ -220,10 +220,9 @@ def _build_markline(markers: dict) -> dict:
             data.append({
                 "yAxis": val, "name": label,
                 "label": {
-                    "show": True, "position": "insideEndTop",
+                    "show": True, "position": "end",
                     "formatter": f"{label} {{c}}", "color": color,
-                    "fontSize": 11, "backgroundColor": "rgba(0,0,0,0.6)",
-                    "padding": [2, 5], "borderRadius": 3
+                    "fontSize": 11,
                 },
                 "lineStyle": {"color": color, "type": "dashed", "width": 1.5}
             })
@@ -4600,11 +4599,12 @@ def main():
                         with _tab_chart:
                             st.caption("ℹ️ 이동평균선 안내: 🟡5일(단기) | 💗20일(생명) | 🟢60일(수급) | 🔵120일(경기)")
                             _kr_rep_c = st.session_state.get(f"kr_report_{selected_code_kr}", {})
-                            _kr_chart_m = {
+                            _kr_raw_m = {
                                 "buy":  _parse_price_str(_kr_rep_c.get("buy_target")),
                                 "sell": _parse_price_str(_kr_rep_c.get("sell_target")),
                                 "stop": _parse_price_str(_kr_rep_c.get("stop_loss")),
-                            } if any(_kr_rep_c.get(k) for k in ("buy_target", "sell_target", "stop_loss")) else None
+                            }
+                            _kr_chart_m = _kr_raw_m if any(v and v > 0 for v in _kr_raw_m.values()) else None
                             _kr_echarts_chart(selected_code_kr, interval=st.session_state.kr_chart_type, height=500, period=_kr_period, markers=_kr_chart_m)
                         with _tab_box:
                             _kr_box_key = f"kr_box_result_{selected_code_kr}"
@@ -7218,11 +7218,12 @@ def main():
                         with _utab_chart:
                             st.caption("ℹ️ 이동평균선 안내: 🟡5일(단기) | 💗20일(생명) | 🟢60일(수급) | 🔵120일(경기)")
                             _us_rep_c = st.session_state.get(f"report_{_us_ticker_cur}", {})
-                            _us_chart_m = {
+                            _us_raw_m = {
                                 "buy":  _parse_price_str(_us_rep_c.get("buy_target")),
                                 "sell": _parse_price_str(_us_rep_c.get("sell_target")),
                                 "stop": _parse_price_str(_us_rep_c.get("stop_loss")),
-                            } if any(_us_rep_c.get(k) for k in ("buy_target", "sell_target", "stop_loss")) else None
+                            }
+                            _us_chart_m = _us_raw_m if any(v and v > 0 for v in _us_raw_m.values()) else None
                             _us_echarts_chart(_us_ticker_cur, interval=_us_iv_cur, height=500, period=_us_period, markers=_us_chart_m)
                         with _utab_box:
                             _us_box_key = f"us_box_result_{_us_ticker_cur}"
