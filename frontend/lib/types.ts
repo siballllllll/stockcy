@@ -166,6 +166,55 @@ export interface RealtimePick {
   supply_signal: string;
 }
 
+// ── 국내 종목 AI 리포트 ───────────────────────────────────────────────────────
+export interface KrStockReport {
+  verified_name:              string;
+  ticker_mismatch:            boolean;
+  rating:                     string;
+  key_issues:                 string;
+  short_term_view_pct:        string;
+  short_term_view_price:      string;
+  short_term_view_reason:     string;
+  buy_target:                 string;
+  sell_target:                string;
+  stop_loss:                  string;
+  mid_term_view_pct:          string;
+  mid_term_view_price:        string;
+  mid_term_view_condition:    string;
+  "세력분석"?:                string;
+  analysis:                   string;
+  historical_pattern_analysis?: string;
+  long_term_rating:           string;
+  long_term_period:           string;
+  long_term_target:           string;
+  long_term_target_pct?:      string;
+  long_term_analysis:         string;
+  error?:                     string;
+}
+
+// ── 미국 단타 핫 종목 ─────────────────────────────────────────────────────────
+export interface HotStockUs {
+  ticker:          string;
+  verified_name:   string;
+  ticker_verified: boolean;
+  name_kr:         string;
+  buy_target:      string;
+  sell_target:     string;
+  stop_loss:       string;
+  reasoning:       string;
+  error?:          string;
+}
+
+// ── 차트 데이터 ───────────────────────────────────────────────────────────────
+export interface ChartCandle {
+  일자:   string;
+  시가:   number;
+  고가:   number;
+  저가:   number;
+  종가:   number;
+  거래량: number;
+}
+
 // ── SSE 이벤트 ────────────────────────────────────────────────────────────────
 export type SseStatus = "idle" | "running" | "done" | "error";
 

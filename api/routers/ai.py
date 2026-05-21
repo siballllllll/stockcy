@@ -351,13 +351,32 @@ async def realtime_picks_kr(req: RealtimePicksRequest):
 
 @router.get("/sector-rotation")
 async def sector_rotation():
-    """국내 핫 섹터 탐지 및 대장주 분석 (SSE)."""
+    """국내 핫 섹터 탐지 및 대장주 분석 (SSE). 시장 데이터를 자동 수집합니다."""
     from ai_engine import analyze_sector_rotation
 
     async def _gen():
-        yield _sse({"status": "running", "message": "📊 섹터 로테이션 분석 중..."})
+        yield _sse({"status": "running", "message": "📊 시장 데이터 수집 중..."})
         try:
-            result = await asyncio.to_thread(analyze_sector_rotation)
+            try:
+                from data_kr import (
+                    get_kr_market_index, get_kr_volume_ranking,
+                    get_kr_change_ranking, get_kr_investor_trend,
+                )
+                kospi  = await asyncio.to_thread(get_kr_market_index, "KOSPI")
+                kosdaq = await asyncio.to_thread(get_kr_market_index, "KOSDAQ")
+                vol_r  = await asyncio.to_thread(get_kr_volume_ranking, "ALL")
+                chg_r  = await asyncio.to_thread(get_kr_change_ranking, "ALL", "up")
+                inv_r  = await asyncio.to_thread(get_kr_investor_trend, "KOSPI")
+                raw = (
+                    f"KOSPI: {kospi}\nKOSDAQ: {kosdaq}\n"
+                    f"거래량 상위: {(vol_r or [])[:10]}\n"
+                    f"등락률 상위: {(chg_r or [])[:10]}\n"
+                    f"외국인·기관 수급: {(inv_r or [])[:10]}"
+                )
+            except Exception:
+                raw = "실시간 데이터 조회 실패 — 구글 검색으로 보완하여 분석"
+            yield _sse({"status": "running", "message": "📊 섹터 로테이션 분석 중... (1~2분 소요)"})
+            result = await asyncio.to_thread(analyze_sector_rotation, "국내 주식", raw)
             yield _sse({"status": "done", "result": result})
         except Exception as e:
             yield _sse({"status": "error", "message": str(e)})

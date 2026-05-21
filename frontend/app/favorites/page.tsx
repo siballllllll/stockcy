@@ -1,23 +1,26 @@
 "use client";
 import { useState } from "react";
-import { Star, RefreshCw, Send, Trash2, Plus } from "lucide-react";
+import { Star, RefreshCw, Send, Trash2, Plus, Zap } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
 import { StatusBox } from "@/components/ui/StatusBox";
 import { Skeleton } from "@/components/ui/LoadingSpinner";
 import { SSEPanel } from "@/components/ui/SSEPanel";
+import { StockModal } from "@/components/ui/StockModal";
+import type { StockInfo } from "@/components/ui/StockModal";
 import { useSSE } from "@/hooks/useSSE";
 import useSWR from "swr";
 import { api } from "@/lib/api";
-import type { Favorite } from "@/lib/types";
+import type { Favorite, KrStock, UsStock } from "@/lib/types";
 
 // ── 가격 행 ───────────────────────────────────────────────────────────────────
 function FavRow({
-  fav, price, onRemove,
+  fav, price, onRemove, onAnalyze,
 }: {
-  fav: Favorite;
-  price?: { price: number; change_pct: number } | null;
-  onRemove: (ticker: string) => void;
+  fav:       Favorite;
+  price?:    { price: number; change_pct: number } | null;
+  onRemove:  (ticker: string) => void;
+  onAnalyze: (s: StockInfo) => void;
 }) {
   const isKr = fav["시장"] === "국내";
   const up   = (price?.change_pct ?? 0) > 0;
@@ -46,13 +49,22 @@ function FavRow({
         {price ? `${up ? "+" : ""}${price.change_pct.toFixed(2)}%` : "—"}
       </td>
       <td>
-        <button
-          className="stockcy-btn stockcy-btn-secondary"
-          style={{ padding: "2px 8px", fontSize: "0.72rem" }}
-          onClick={() => onRemove(fav["티커"])}
-        >
-          <Trash2 size={11} />
-        </button>
+        <div style={{ display: "flex", gap: "4px" }}>
+          <button
+            className="stockcy-btn stockcy-btn-secondary"
+            style={{ padding: "2px 8px", fontSize: "0.72rem" }}
+            onClick={() => onAnalyze({ code: fav["티커"], name: fav["종목명"], market: fav["시장"] as "국내" | "미국" })}
+          >
+            <Zap size={11} />
+          </button>
+          <button
+            className="stockcy-btn stockcy-btn-secondary"
+            style={{ padding: "2px 8px", fontSize: "0.72rem" }}
+            onClick={() => onRemove(fav["티커"])}
+          >
+            <Trash2 size={11} />
+          </button>
+        </div>
       </td>
     </tr>
   );
@@ -60,10 +72,10 @@ function FavRow({
 
 // ── 종목 추가 폼 ──────────────────────────────────────────────────────────────
 function AddFavoriteForm({ onAdded }: { onAdded: () => void }) {
-  const [market, setMarket] = useState<"국내" | "미국">("미국");
-  const [ticker, setTicker] = useState("");
-  const [name,   setName]   = useState("");
-  const [msg,    setMsg]    = useState<{ type: "success" | "danger"; text: string } | null>(null);
+  const [market,  setMarket]  = useState<"국내" | "미국">("미국");
+  const [ticker,  setTicker]  = useState("");
+  const [name,    setName]    = useState("");
+  const [msg,     setMsg]     = useState<{ type: "success" | "danger"; text: string } | null>(null);
   const [loading, setLoading] = useState(false);
 
   const handleAdd = async () => {
@@ -105,10 +117,49 @@ function AddFavoriteForm({ onAdded }: { onAdded: () => void }) {
 
 // ── 메인 페이지 ───────────────────────────────────────────────────────────────
 export default function FavoritesPage() {
+  const [selectedStock, setSelectedStock] = useState<StockInfo | null>(null);
+
   const { data: favs, mutate: refetchFavs, isLoading } =
     useSWR("favorites", () => api.portfolio.loadFavorites() as Promise<Favorite[]>);
 
   const brief = useSSE<{ success: boolean; msg: string }>("/api/admin/daily-brief/send", { method: "POST" });
+
+  // ── 실시간 시세 ──────────────────────────────────────────────────────────────
+  const krTickers = (favs ?? []).filter(f => f["시장"] === "국내").map(f => f["티커"]);
+  const usTickers = (favs ?? []).filter(f => f["시장"] === "미국").map(f => f["티커"]);
+
+  const { data: krPriceMap } = useSWR(
+    krTickers.length > 0 ? `kr-fav-prices-${krTickers.join(",")}` : null,
+    async () => {
+      const map: Record<string, { price: number; change_pct: number }> = {};
+      await Promise.all(krTickers.map(async (code) => {
+        try {
+          const d = await api.kr.stockPrice(code) as KrStock;
+          if (d?.price) map[code] = { price: d.price, change_pct: d.change_pct };
+        } catch { /* ignore */ }
+      }));
+      return map;
+    },
+    { refreshInterval: 60000 }
+  );
+
+  const { data: usPriceMap } = useSWR(
+    usTickers.length > 0 ? `us-fav-prices-${usTickers.join(",")}` : null,
+    async () => {
+      const arr = await api.us.stocks(usTickers) as UsStock[];
+      const map: Record<string, { price: number; change_pct: number }> = {};
+      for (const s of (arr ?? [])) {
+        map[s["심볼"]] = { price: s["현재가($)"], change_pct: s["등락률(%)"] };
+      }
+      return map;
+    },
+    { refreshInterval: 60000 }
+  );
+
+  const priceMap: Record<string, { price: number; change_pct: number }> = {
+    ...(krPriceMap ?? {}),
+    ...(usPriceMap ?? {}),
+  };
 
   const handleRemove = async (ticker: string) => {
     await api.portfolio.removeFavorite(ticker);
@@ -122,6 +173,10 @@ export default function FavoritesPage() {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
 
+      {selectedStock && (
+        <StockModal stock={selectedStock} onClose={() => setSelectedStock(null)} />
+      )}
+
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
         <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
           <Star size={18} style={{ color: "var(--color-accent)" }} />
@@ -129,21 +184,14 @@ export default function FavoritesPage() {
         </div>
         <button
           className="stockcy-btn stockcy-btn-secondary"
-          onClick={() => refetchFavs()}
+          onClick={() => { refetchFavs(); }}
         >
           <RefreshCw size={13} /> 새로고침
         </button>
       </div>
 
       {/* ── 즐겨찾기 테이블 ─────────────────────────────────────────── */}
-      <Card
-        title={`즐겨찾기 종목 (${favs?.length ?? 0}개)`}
-        action={
-          <StatusBox type="info" className="text-xs">
-            실시간 시세는 별도 조회 필요 (Step 4 구현 예정)
-          </StatusBox>
-        }
-      >
+      <Card title={`즐겨찾기 종목 (${favs?.length ?? 0}개)`}>
         <AddFavoriteForm onAdded={() => refetchFavs()} />
 
         <div className="stockcy-divider" />
@@ -165,7 +213,13 @@ export default function FavoritesPage() {
             </thead>
             <tbody>
               {favs.map((f) => (
-                <FavRow key={f["티커"]} fav={f} price={null} onRemove={handleRemove} />
+                <FavRow
+                  key={f["티커"]}
+                  fav={f}
+                  price={priceMap[f["티커"]] ?? null}
+                  onRemove={handleRemove}
+                  onAnalyze={setSelectedStock}
+                />
               ))}
             </tbody>
           </table>
@@ -175,11 +229,9 @@ export default function FavoritesPage() {
       {/* ── 장 마감 브리핑 ─────────────────────────────────────────── */}
       <Card title={<span style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}><Send size={15} style={{ color: "var(--color-accent)" }} />텔레그램 장 마감 브리핑</span>}>
         <SSEPanel<{ success: boolean; msg: string }>
-          status={brief.status}
-          message={brief.message}
+          status={brief.status} message={brief.message}
           result={brief.result}
-          onStart={handleSendBrief}
-          startLabel="브리핑 발송"
+          onStart={handleSendBrief} startLabel="브리핑 발송"
           disabled={!favs || favs.length === 0}
           idleHint={
             favs && favs.length > 0
@@ -188,9 +240,7 @@ export default function FavoritesPage() {
           }
         >
           {(data) => (
-            <StatusBox type={data.success ? "success" : "danger"}>
-              {data.msg}
-            </StatusBox>
+            <StatusBox type={data.success ? "success" : "danger"}>{data.msg}</StatusBox>
           )}
         </SSEPanel>
       </Card>

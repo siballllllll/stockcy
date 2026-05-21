@@ -3,6 +3,8 @@
  * 모든 백엔드(FastAPI) 호출은 이 파일을 통해 이루어집니다.
  */
 
+import type { Favorite } from "@/lib/types";
+
 const BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
 async function req<T>(path: string, opts?: RequestInit): Promise<T> {
@@ -44,7 +46,10 @@ export const api = {
   portfolio: {
     loadPortfolio: ()                        => req("/api/portfolio"),
     loadAi:        ()                        => req("/api/portfolio/ai"),
-    loadFavorites: ()                        => req("/api/favorites"),
+    loadFavorites: async () => {
+      const r = await req<{ data: Favorite[]; message: string }>("/api/favorites");
+      return r.data ?? [];
+    },
     addFavorite: (marketType: string, ticker: string, name: string) =>
       req("/api/favorites", {
         method: "POST",
