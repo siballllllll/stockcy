@@ -2817,6 +2817,37 @@ def show_favorites_center():
     """)
     st.markdown('<p style="font-size:1.10rem;color:#888">관심 종목의 실시간 시세와 AI 매수 타이밍을 한눈에 관리합니다.</p>', unsafe_allow_html=True)
     
+    # 💌 장 마감 AI 리포트 발송 버튼 추가
+    col1, col2 = st.columns([3, 1])
+    with col2:
+        if st.button("💌 오늘의 장 마감 AI 리포트 받기", use_container_width=True, type="primary"):
+            st.session_state._daily_brief_running = True
+            import threading
+            def _run_brief():
+                try:
+                    from daily_brief import send_daily_brief_to_telegram
+                    res = send_daily_brief_to_telegram()
+                    st.session_state._daily_brief_result = res
+                except Exception as e:
+                    st.session_state._daily_brief_result = {"success": False, "msg": str(e)}
+                finally:
+                    st.session_state._daily_brief_running = False
+            
+            threading.Thread(target=_run_brief, daemon=True).start()
+            st.toast("💌 AI가 리포트를 작성하고 있습니다. 약 1~2분 뒤 텔레그램으로 전송됩니다!", icon="⏳")
+            
+    if st.session_state.get("_daily_brief_running"):
+        st.info("🤖 AI가 회원님의 즐겨찾기 포트폴리오를 기반으로 시장을 분석하고 있습니다... (텔레그램을 확인해주세요!)")
+    
+    res = st.session_state.pop("_daily_brief_result", None)
+    if res:
+        if res.get("success"):
+            st.success(res.get("msg", "발송 성공!"))
+        else:
+            st.error(res.get("msg", "발송 실패!"))
+            
+    st.markdown("---")
+    
     from db import load_favorites, remove_favorite
     favs, msg = load_favorites()
     
