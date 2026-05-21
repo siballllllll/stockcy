@@ -1756,19 +1756,39 @@ def _render_ci_tab_fragment():
         None,
     )
     if _ci_bg_running and not st.session_state.get("_ci_result"):
-        _ci_feedback_ph.markdown(
-            f"<div style='background:rgba(30,60,30,0.55);border:1.5px solid #388e3c;"
-            f"border-radius:10px;padding:13px 18px;margin:8px 0;"
-            f"display:flex;align-items:center;gap:12px;'>"
-            f"<span style='font-size:1.4rem'>⏳</span>"
-            f"<div><div style='color:#66bb6a;font-weight:700;font-size:0.95rem'>"
-            f"잠시 대기해주세요. 분석 중입니다...</div>"
-            f"<div style='color:#aaa;font-size:0.82rem;margin-top:3px'>"
-            f"<b style='color:#eee'>'{_ci_bg_running}'</b> 키워드를 AI가 분석하고 있습니다. "
-            f"완료되면 자동으로 결과가 표시됩니다. <span style='color:#666'>(최대 120초)</span>"
-            f"</div></div></div>",
-            unsafe_allow_html=True,
-        )
+        import streamlit.components.v1 as _ci_cmp
+        _ci_cmp.html(f"""
+        <div style="background:rgba(30,60,30,0.55);border:1.5px solid #388e3c;border-radius:10px;padding:15px;margin:8px 0;font-family:sans-serif;">
+            <div style="display:flex;align-items:center;gap:15px;margin-bottom:10px;">
+                <div style="width:24px;height:24px;border:3px solid rgba(102,187,106,0.3);border-top:3px solid #66bb6a;border-radius:50%;animation:spin 1s linear infinite;"></div>
+                <div>
+                    <div style="color:#66bb6a;font-weight:bold;font-size:15px;">잠시 대기해주세요. 분석 중입니다...</div>
+                    <div style="color:#aaa;font-size:13px;margin-top:4px;">
+                        <b style="color:#eee;">'{_ci_bg_running}'</b> 키워드를 AI가 분석하고 있습니다.
+                    </div>
+                </div>
+            </div>
+            <div style="background:rgba(0,0,0,0.4);border-radius:6px;height:12px;overflow:hidden;position:relative;">
+                <div id="ci-prog" style="background:linear-gradient(90deg,#4caf50,#81c784);height:100%;width:0%;transition:width 1s linear;border-radius:6px;"></div>
+            </div>
+            <div style="display:flex;justify-content:space-between;color:#888;font-size:11px;margin-top:6px;">
+                <span id="ci-time">0초 경과</span>
+                <span>최대 120초</span>
+            </div>
+        </div>
+        <style>@keyframes spin {{ 0% {{ transform: rotate(0deg); }} 100% {{ transform: rotate(360deg); }} }}</style>
+        <script>
+            var st = Date.now();
+            setInterval(function(){{
+                var el = Math.floor((Date.now() - st) / 1000);
+                var pct = Math.min(100, (el / 120) * 100);
+                var prog = document.getElementById('ci-prog');
+                var timeStr = document.getElementById('ci-time');
+                if(prog) prog.style.width = pct + "%";
+                if(timeStr) timeStr.innerText = el + "초 경과";
+            }}, 1000);
+        </script>
+        """, height=120)
 
     # ── 클릭 / 제출 처리 ─────────────────────────────────────────────
     _ci_chip_kw   = st.session_state.pop("_ci_chip_kw", None)
@@ -1852,19 +1872,40 @@ def _render_ci_tab_fragment():
                 st.rerun()
             else:
                 # 새 분析 시작 — 즉시 피드백 표시
-                _ci_feedback_ph.markdown(
-                    f"<div style='background:rgba(30,60,30,0.55);border:1.5px solid #388e3c;"
-                    f"border-radius:10px;padding:13px 18px;margin:8px 0;"
-                    f"display:flex;align-items:center;gap:12px;'>"
-                    f"<span style='font-size:1.4rem'>⏳</span>"
-                    f"<div><div style='color:#66bb6a;font-weight:700;font-size:0.95rem'>"
-                    f"잠시 대기해주세요. 분석 중입니다...</div>"
-                    f"<div style='color:#aaa;font-size:0.82rem;margin-top:3px'>"
-                    f"<b style='color:#eee'>'{_ci_kw}'</b> 키워드를 AI가 분석하고 있습니다. "
-                    f"완료되면 자동으로 결과가 표시됩니다. <span style='color:#666'>(최대 120초)</span>"
-                    f"</div></div></div>",
-                    unsafe_allow_html=True,
-                )
+                import streamlit.components.v1 as _ci_cmp
+                with _ci_feedback_ph:
+                    _ci_cmp.html(f"""
+                    <div style="background:rgba(30,60,30,0.55);border:1.5px solid #388e3c;border-radius:10px;padding:15px;margin:8px 0;font-family:sans-serif;">
+                        <div style="display:flex;align-items:center;gap:15px;margin-bottom:10px;">
+                            <div style="width:24px;height:24px;border:3px solid rgba(102,187,106,0.3);border-top:3px solid #66bb6a;border-radius:50%;animation:spin 1s linear infinite;"></div>
+                            <div>
+                                <div style="color:#66bb6a;font-weight:bold;font-size:15px;">잠시 대기해주세요. 분석 중입니다...</div>
+                                <div style="color:#aaa;font-size:13px;margin-top:4px;">
+                                    <b style="color:#eee;">'{_ci_kw}'</b> 키워드를 AI가 분석하고 있습니다.
+                                </div>
+                            </div>
+                        </div>
+                        <div style="background:rgba(0,0,0,0.4);border-radius:6px;height:12px;overflow:hidden;position:relative;">
+                            <div id="ci-prog" style="background:linear-gradient(90deg,#4caf50,#81c784);height:100%;width:0%;transition:width 1s linear;border-radius:6px;"></div>
+                        </div>
+                        <div style="display:flex;justify-content:space-between;color:#888;font-size:11px;margin-top:6px;">
+                            <span id="ci-time">0초 경과</span>
+                            <span>최대 120초</span>
+                        </div>
+                    </div>
+                    <style>@keyframes spin {{ 0% {{ transform: rotate(0deg); }} 100% {{ transform: rotate(360deg); }} }}</style>
+                    <script>
+                        var st = Date.now();
+                        setInterval(function(){{
+                            var el = Math.floor((Date.now() - st) / 1000);
+                            var pct = Math.min(100, (el / 120) * 100);
+                            var prog = document.getElementById('ci-prog');
+                            var timeStr = document.getElementById('ci-time');
+                            if(prog) prog.style.width = pct + "%";
+                            if(timeStr) timeStr.innerText = el + "초 경과";
+                        }}, 1000);
+                    </script>
+                    """, height=120)
                 st.session_state.pop("_ci_result", None)
                 st.session_state["_ci_last_kw"]       = _ci_kw
                 st.session_state["_ci_cache_checked"] = False
