@@ -2,7 +2,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { BarChart2, TrendingUp, GitBranch, Star } from "lucide-react";
+import { BarChart2, TrendingUp, GitBranch, Star, Layers } from "lucide-react";
 import { BriefingModal } from "@/components/ui/BriefingModal";
 
 const TABS = [
@@ -10,6 +10,7 @@ const TABS = [
   { href: "/search",    label: "📊 종목 종합 검색",  icon: <BarChart2 size={15} /> },
   { href: "/sectors",   label: "🔥 이슈 섹터 탐색",  icon: <GitBranch size={15} /> },
   { href: "/favorites", label: "⭐ 즐겨찾기",        icon: <Star size={15} /> },
+  { href: "/scenarios", label: "📈 시나리오",         icon: <Layers size={15} /> },
 ];
 
 export function TopNav() {

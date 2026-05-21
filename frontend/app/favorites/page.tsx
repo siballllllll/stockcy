@@ -1,6 +1,7 @@
 "use client";
 import { useState } from "react";
-import { Star, RefreshCw, Send, Trash2, Plus, Zap } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { Star, RefreshCw, Send, Trash2, Plus, Zap, BarChart2 } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
 import { StatusBox } from "@/components/ui/StatusBox";
@@ -22,6 +23,7 @@ function FavRow({
   onRemove:  (ticker: string) => void;
   onAnalyze: (s: StockInfo) => void;
 }) {
+  const router = useRouter();
   const isKr = fav["시장"] === "국내";
   const up   = (price?.change_pct ?? 0) > 0;
   const down = (price?.change_pct ?? 0) < 0;
@@ -50,9 +52,20 @@ function FavRow({
       </td>
       <td>
         <div style={{ display: "flex", gap: "4px" }}>
+          {isKr && (
+            <button
+              className="stockcy-btn stockcy-btn-secondary"
+              style={{ padding: "2px 8px", fontSize: "0.72rem" }}
+              title="차트 보기"
+              onClick={() => router.push(`/search?q=${fav["티커"]}`)}
+            >
+              <BarChart2 size={11} />
+            </button>
+          )}
           <button
             className="stockcy-btn stockcy-btn-secondary"
             style={{ padding: "2px 8px", fontSize: "0.72rem" }}
+            title="AI 분석"
             onClick={() => onAnalyze({ code: fav["티커"], name: fav["종목명"], market: fav["시장"] as "국내" | "미국" })}
           >
             <Zap size={11} />

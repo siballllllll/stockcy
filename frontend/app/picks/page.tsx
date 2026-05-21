@@ -1,9 +1,11 @@
 "use client";
 import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { Target, Filter, TrendingUp, AlertCircle, Clock, Activity, Loader2 } from "lucide-react";
 import { connectSSE, api } from "@/lib/api";
 
 export default function PicksPage() {
+  const router = useRouter();
   const [filter, setFilter] = useState("전체");
 
   const [loading, setLoading] = useState(true);
@@ -127,7 +129,7 @@ export default function PicksPage() {
                                  pick.urgency?.includes("대기") ? "var(--color-warning)" : "var(--color-success)";
             
             return (
-              <div key={pick.code} className="stockcy-card hover-highlight" style={{ padding: "14px", borderTop: `3px solid ${urgencyColor}`, background: "rgba(255,255,255,0.02)", cursor: "pointer", display: "flex", flexDirection: "column", gap: "10px" }}>
+              <div key={pick.code} className="stockcy-card hover-highlight" onClick={() => pick.code && router.push(`/search?q=${pick.code}`)} style={{ padding: "14px", borderTop: `3px solid ${urgencyColor}`, background: "rgba(255,255,255,0.02)", cursor: "pointer", display: "flex", flexDirection: "column", gap: "10px" }}>
                 {/* 카드 상단: 종목명 및 상태 */}
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
                   <div>
