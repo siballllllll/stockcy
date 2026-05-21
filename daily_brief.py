@@ -11,20 +11,20 @@ def send_daily_brief_to_telegram(status_callback=None) -> dict:
             status_callback(msg)
 
     try:
-        from db import get_favorites
+        from db import load_favorites
         _update_status("⭐ 즐겨찾기 포트폴리오 정보를 가져오는 중...")
-        favorites = get_favorites()
+        favorites, _ = load_favorites()
         if not favorites:
             return {"success": False, "msg": "⭐ 즐겨찾기에 등록된 종목이 없습니다."}
 
         # 시세 데이터 수집
         portfolio_info = []
         for fav in favorites:
-            market = fav.get("market_type", "")
-            code = fav.get("ticker", "")
-            name = fav.get("name", "")
+            market = fav.get("시장", "국내")
+            code = fav.get("티커", "")
+            name = fav.get("종목명", "")
             
-            if market == "국내 주식 🇰🇷":
+            if market == "국내":
                 try:
                     _update_status(f"📊 국내 주식 시세 수집 중... ({name})")
                     from data_kr import get_kr_stock_price
