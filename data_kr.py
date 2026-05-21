@@ -718,8 +718,10 @@ def get_kr_minute_chart(stock_code: str, interval: int = 5):
         pass
 
     # ── 데이터 병합 (중복 제거 및 정렬) ───────────────────────────────────────────
-    df = pd.concat([df_all, df_kis]).drop_duplicates("datetime").sort_values("datetime").reset_index(drop=True)
-    
+    df_concat = pd.concat([df_all, df_kis])
+    if df_concat.empty or "datetime" not in df_concat.columns:
+        return pd.DataFrame()
+    df = df_concat.drop_duplicates("datetime").sort_values("datetime").reset_index(drop=True)
     if df.empty:
         return pd.DataFrame()
 
