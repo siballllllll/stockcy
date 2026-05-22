@@ -311,7 +311,7 @@ function SearchPageInner() {
   // KR 필드명 통합 (구 API: 52주최고가/PER, 신 API: w52_high/per 모두 지원)
   const w52High = stockData?.w52_high || stockData?.["52주최고가"] || price || 1;
   const w52Low  = stockData?.w52_low  || stockData?.["52주최저가"] || 1;
-  const per = parseFloat(String(stockData?.per || stockData?.PER || 0).replace(",", "")) || 0;
+  const per = parseFloat(String(stockData?.per || stockData?.PER || "0").replace(/[^0-9.-]/g, "")) || 0;
   const pbr = parseFloat(String(stockData?.pbr || stockData?.PBR || 0).replace(",", "")) || 0;
 
   // 차트 데이터 파싱
@@ -746,15 +746,15 @@ function SearchPageInner() {
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "0.5rem", rowGap: "0.75rem", fontSize: "0.85rem" }}>
                 {isKR ? (
                   <>
-                    <div><div style={{ color: "var(--color-muted)", fontSize: "0.75rem" }}>거래량</div><div style={{ fontWeight: 700 }}>{stockData?.거래량?.toLocaleString() || 0}주</div></div>
-                    <div><div style={{ color: "var(--color-muted)", fontSize: "0.75rem" }}>거래대금</div><div style={{ fontWeight: 700 }}>₩{((stockData?.거래량 || 0) * price / 100000000).toLocaleString(undefined, { maximumFractionDigits: 0 })}억</div></div>
-                    <div><div style={{ color: "var(--color-muted)", fontSize: "0.75rem" }}>PER</div><div style={{ fontWeight: 700 }}>{stockData?.PER || "N/A"}</div></div>
-                    <div><div style={{ color: "var(--color-muted)", fontSize: "0.75rem" }}>시가</div><div style={{ fontWeight: 700 }}>₩{stockData?.시가?.toLocaleString() || 0}</div></div>
-                    <div><div style={{ color: "var(--color-muted)", fontSize: "0.75rem" }}>고가</div><div style={{ fontWeight: 700 }}>₩{stockData?.고가?.toLocaleString() || 0}</div></div>
-                    <div><div style={{ color: "var(--color-muted)", fontSize: "0.75rem" }}>저가</div><div style={{ fontWeight: 700 }}>₩{stockData?.저가?.toLocaleString() || 0}</div></div>
-                    <div><div style={{ color: "var(--color-muted)", fontSize: "0.75rem" }}>PBR</div><div style={{ fontWeight: 700 }}>{stockData?.PBR || "N/A"}</div></div>
-                    <div><div style={{ color: "var(--color-muted)", fontSize: "0.75rem" }}>52주 최고</div><div style={{ fontWeight: 700, color: "var(--color-danger)" }}>₩{stockData?.["52주최고가"]?.toLocaleString() || price}</div></div>
-                    <div><div style={{ color: "var(--color-muted)", fontSize: "0.75rem" }}>52주 최저</div><div style={{ fontWeight: 700, color: "var(--color-primary)" }}>₩{stockData?.["52주최저가"]?.toLocaleString() || 0}</div></div>
+                    <div><div style={{ color: "var(--color-muted)", fontSize: "0.75rem" }}>거래량</div><div style={{ fontWeight: 700 }}>{(stockData?.volume || stockData?.거래량 || 0).toLocaleString()}주</div></div>
+                    <div><div style={{ color: "var(--color-muted)", fontSize: "0.75rem" }}>거래대금</div><div style={{ fontWeight: 700 }}>₩{(((stockData?.amount || stockData?.거래대금 || 0)) / 100000000).toLocaleString(undefined, { maximumFractionDigits: 0 })}억</div></div>
+                    <div><div style={{ color: "var(--color-muted)", fontSize: "0.75rem" }}>PER</div><div style={{ fontWeight: 700 }}>{stockData?.per || stockData?.PER || "N/A"}</div></div>
+                    <div><div style={{ color: "var(--color-muted)", fontSize: "0.75rem" }}>시가</div><div style={{ fontWeight: 700 }}>₩{(stockData?.open || stockData?.시가 || 0).toLocaleString()}</div></div>
+                    <div><div style={{ color: "var(--color-muted)", fontSize: "0.75rem" }}>고가</div><div style={{ fontWeight: 700 }}>₩{(stockData?.high || stockData?.고가 || 0).toLocaleString()}</div></div>
+                    <div><div style={{ color: "var(--color-muted)", fontSize: "0.75rem" }}>저가</div><div style={{ fontWeight: 700 }}>₩{(stockData?.low  || stockData?.저가 || 0).toLocaleString()}</div></div>
+                    <div><div style={{ color: "var(--color-muted)", fontSize: "0.75rem" }}>PBR</div><div style={{ fontWeight: 700 }}>{stockData?.pbr || stockData?.PBR || "N/A"}</div></div>
+                    <div><div style={{ color: "var(--color-muted)", fontSize: "0.75rem" }}>52주 최고</div><div style={{ fontWeight: 700, color: "var(--color-danger)" }}>₩{(stockData?.w52_high || stockData?.["52주최고가"] || 0).toLocaleString()}</div></div>
+                    <div><div style={{ color: "var(--color-muted)", fontSize: "0.75rem" }}>52주 최저</div><div style={{ fontWeight: 700, color: "var(--color-primary)" }}>₩{(stockData?.w52_low  || stockData?.["52주최저가"] || 0).toLocaleString()}</div></div>
                   </>
                 ) : (
                   <>
