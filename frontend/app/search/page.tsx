@@ -260,6 +260,52 @@ function SearchPageInner() {
     () => api.us.allStocks(),
     { revalidateOnFocus: false }
   );
+
+  // 섹터맵 (KR/US 공통)
+  const { data: sectorMapData } = useSWR(
+    isKR ? "/api/kr/sector-map" : "/api/us/sector-map",
+    () => isKR ? api.kr.sectorMap() : api.us.sectorMap(),
+    { revalidateOnFocus: false }
+  );
+
+  // 현재 종목의 섹터/세부섹터 찾기
+  const sectorInfo = useMemo(() => {
+    if (!sectorMapData || !currentCode) return null;
+    const map = sectorMapData as Record<string, Record<string, any[]>>;
+    for (const [sector, subMap] of Object.entries(map)) {
+      if (!subMap || typeof subMap !== "object") continue;
+      for (const [subSector, stocks] of Object.entries(subMap)) {
+        if (!Array.isArray(stocks)) continue;
+        const found = stocks.some((s: any) =>
+          isKR ? String(s.code) === String(currentCode)
+               : String(s.ticker).toUpperCase() === String(currentCode).toUpperCase()
+        );
+        if (found) return { sector, subSector };
+      }
+    }
+    return null;
+  }, [sectorMapData, currentCode, isKR]);
+
+  // 투자경고/위험 배지 계산
+  const warningBadges = useMemo(() => {
+    if (!isKR || !krStockData) return [];
+    const badges: { label: string; color: string; bg: string }[] = [];
+    const warn    = krStockData.mrkt_warn   ?? "";
+    const status  = krStockData.status_code ?? "";
+    const halt    = krStockData.halt        ?? "N";
+    const managed = krStockData.managed     ?? "N";
+    const shortOv = krStockData.short_over  ?? "N";
+    const vi      = krStockData.vi_type     ?? "N";
+
+    if (halt === "Y")          badges.push({ label: "거래정지",  color: "#fff",     bg: "#555" });
+    if (managed !== "N" && managed !== "00") badges.push({ label: "관리종목", color: "#fff", bg: "#7c3aed" });
+    if (warn === "03" || status === "54")    badges.push({ label: "투자위험",  color: "#fff", bg: "#dc2626" });
+    else if (warn === "02" || status === "53") badges.push({ label: "투자경고", color: "#fff", bg: "#ea580c" });
+    else if (warn === "01" || status === "52") badges.push({ label: "투자주의", color: "#fff", bg: "#d97706" });
+    if (shortOv === "Y")       badges.push({ label: "단기과열",  color: "#fff",     bg: "#0284c7" });
+    if (vi !== "N" && vi !== "") badges.push({ label: "VI발동",  color: "#fff",     bg: "#059669" });
+    return badges;
+  }, [isKR, krStockData]);
   const { data: krChartRaw } = useSWR(
     isKR ? `/api/kr/chart/${currentCode}/${chartType}/${minuteInterval}/${chartPeriod}` : null,
     () => {
@@ -550,10 +596,20 @@ function SearchPageInner() {
         {/* ── 좌측: 차트 영역 ─────────────────────────────────────────── */}
         <div className="stockcy-card" style={{ display: "flex", flexDirection: "column", padding: 0, minHeight: "700px" }}>
           <div style={{ padding: "1.5rem 1.5rem 1rem", borderBottom: "1px solid rgba(255,255,255,0.05)" }}>
-            <div style={{ display: "flex", alignItems: "baseline", gap: "10px", marginBottom: "0.25rem" }}>
+            <div style={{ display: "flex", alignItems: "baseline", gap: "8px", marginBottom: "0.25rem", flexWrap: "wrap" }}>
               <h2 style={{ fontSize: "1.4rem", fontWeight: 800, margin: 0 }}>
                 {stockName || (isLoading ? "로딩중..." : "종목명")}
               </h2>
+              {/* 투자경고 배지 */}
+              {warningBadges.map((b, i) => (
+                <span key={i} style={{
+                  fontSize: "0.68rem", fontWeight: 800, padding: "2px 6px",
+                  borderRadius: "4px", background: b.bg, color: b.color,
+                  alignSelf: "center", flexShrink: 0,
+                }}>
+                  {b.label}
+                </span>
+              ))}
               <span style={{ color: "var(--color-muted)", fontSize: "0.95rem" }}>({currentCode})</span>
               <div style={{ marginLeft: "0.5rem", fontSize: "1.4rem", fontWeight: 800 }}>
                 {currSymbol}{price.toLocaleString()}
@@ -562,6 +618,27 @@ function SearchPageInner() {
                 {changeStr} {isKR ? `${changeVal.toLocaleString()}원 ` : ""}({change > 0 ? "+" : ""}{change.toFixed(2)}%)
               </div>
             </div>
+
+            {/* 섹터 정보 */}
+            {sectorInfo && (
+              <div style={{ display: "flex", alignItems: "center", gap: "6px", marginTop: "4px", marginBottom: "4px" }}>
+                <span style={{
+                  fontSize: "0.75rem", fontWeight: 700, padding: "2px 8px",
+                  background: "rgba(99,102,241,0.15)", border: "1px solid rgba(99,102,241,0.4)",
+                  borderRadius: "4px", color: "#818cf8",
+                }}>
+                  {sectorInfo.sector}
+                </span>
+                <span style={{ fontSize: "0.72rem", color: "var(--color-muted)" }}>›</span>
+                <span style={{
+                  fontSize: "0.75rem", fontWeight: 600, padding: "2px 8px",
+                  background: "rgba(99,102,241,0.08)", border: "1px solid rgba(99,102,241,0.2)",
+                  borderRadius: "4px", color: "#a5b4fc",
+                }}>
+                  {sectorInfo.subSector}
+                </span>
+              </div>
+            )}
 
             {/* US: 프리/애프터마켓 표시 */}
             {!isKR && usStockData && (usStockData.pre_price > 0 || usStockData.post_price > 0) && (
