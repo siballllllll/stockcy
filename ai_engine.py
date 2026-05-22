@@ -281,13 +281,22 @@ def _call_gemini(prompt, use_search=False, temperature=0.7, response_mime_type=N
     for model in _MODEL_FALLBACK:
         for attempt in range(2):
             try:
-                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
-                    future = ex.submit(_do_call, model, config)
+                import threading as _threading
+                result_holder: list = [None]
+                error_holder:  list = [None]
+                def _run_in_daemon():
                     try:
-                        response = future.result(timeout=_timeout)
-                    except concurrent.futures.TimeoutError:
-                        raise Exception(f"API_TIMEOUT: AI 응답 대기 시간({_timeout}초)을 초과했습니다. 잠시 후 다시 시도해주세요.")
-
+                        result_holder[0] = _do_call(model, config)
+                    except Exception as exc:
+                        error_holder[0] = exc
+                t = _threading.Thread(target=_run_in_daemon, daemon=True)
+                t.start()
+                t.join(timeout=_timeout)
+                if t.is_alive():
+                    raise Exception(f"API_TIMEOUT: AI 응답 대기 시간({_timeout}초)을 초과했습니다. 잠시 후 다시 시도해주세요.")
+                if error_holder[0]:
+                    raise error_holder[0]
+                response = result_holder[0]
                 _QUOTA_EXHAUSTED = False
                 return response
 
@@ -551,22 +560,48 @@ def generate_scenario_detail(issue_title: str, scenario_title: str, economic_ana
         res = _parse_json_response(response)
         # [Python Override - 실시간 현재가 기반 단타 타점 교정]
         try:
-            from data import get_us_stock_data
             stocks = res.get("short_detail", {}).get("stocks", [])
             if stocks:
                 tickers = [s.get("ticker", "") for s in stocks if s.get("ticker")]
                 if tickers:
-                    df_prices = get_us_stock_data(tickers)
                     price_map = {}
-                    if not df_prices.empty:
-                        for _, row in df_prices.iterrows():
-                            price_map[row["심볼"]] = float(row["현재가($)"])
+                    us_tickers = [t for t in tickers if not str(t).isdigit()]
+                    kr_tickers = [t for t in tickers if str(t).isdigit()]
+                    
+                    if us_tickers:
+                        try:
+                            from data import get_us_stock_data
+                            df_prices = get_us_stock_data(us_tickers)
+                            if not df_prices.empty:
+                                for _, row in df_prices.iterrows():
+                                    price_map[row["심볼"]] = float(row["현재가($)"])
+                        except Exception:
+                            pass
+                            
+                    if kr_tickers:
+                        try:
+                            from data_kr import get_kr_stock_price
+                            for t in kr_tickers:
+                                kr_data = get_kr_stock_price(t)
+                                if kr_data and kr_data.get("price", 0) > 0:
+                                    price_map[t] = float(kr_data["price"])
+                        except Exception:
+                            pass
+
                     for s in stocks:
-                        cp = price_map.get(s.get("ticker", ""), 0)
+                        tk = s.get("ticker", "")
+                        cp = price_map.get(tk, 0)
                         if cp > 0:
-                            s["entry_point"] = f"${cp:.2f} (현재가)"
-                            s["target"] = f"${cp * 1.06:.2f} (+6%)"
-                            s["stop"] = f"${cp * 0.98:.2f} (-2%)"
+                            is_kr = str(tk).isdigit()
+                            curr_sym = "₩" if is_kr else "$"
+                            if is_kr:
+                                s["entry_point"] = f"{curr_sym}{int(cp):,} (현재가)"
+                                s["target"] = f"{curr_sym}{int(cp * 1.06):,} (+6%)"
+                                s["stop"] = f"{curr_sym}{int(cp * 0.98):,} (-2%)"
+                            else:
+                                s["entry_point"] = f"{curr_sym}{cp:.2f} (현재가)"
+                                s["target"] = f"{curr_sym}{cp * 1.06:.2f} (+6%)"
+                                s["stop"] = f"{curr_sym}{cp * 0.98:.2f} (-2%)"
                         else:
                             s["entry_point"] = "시세 조회 실패"
                             s["target"] = "시세 조회 실패"
@@ -799,15 +834,32 @@ def discover_hot_day_trading_stock(context=""):
         # [Python Override - Hallucination Prevention]
         ticker = res.get("ticker")
         if ticker:
-            from data import get_us_stock_data
             try:
-                # 실시간 시세 재조회하여 타점 강제 덮어쓰기
-                price_data = get_us_stock_data([ticker])
-                if price_data and ticker in price_data:
-                    cp = float(price_data[ticker]['price'])
-                    res["buy_target"] = f"${cp * 0.99:.2f} ~ ${cp * 1.01:.2f} 이하"
-                    res["sell_target"] = f"${cp * 1.06:.2f} (+6%)"
-                    res["stop_loss"] = f"${cp * 0.98:.2f} (-2%)"
+                is_kr = str(ticker).isdigit()
+                cp = 0
+                if is_kr:
+                    from data_kr import get_kr_stock_price
+                    kr_data = get_kr_stock_price(ticker)
+                    if kr_data and kr_data.get("price", 0) > 0:
+                        cp = float(kr_data["price"])
+                else:
+                    from data import get_us_stock_data
+                    df_prices = get_us_stock_data([ticker])
+                    if not df_prices.empty:
+                        for _, row in df_prices.iterrows():
+                            if row["심볼"] == ticker:
+                                cp = float(row["현재가($)"])
+                
+                if cp > 0:
+                    curr_sym = "₩" if is_kr else "$"
+                    if is_kr:
+                        res["buy_target"] = f"{curr_sym}{int(cp * 0.99):,} ~ {curr_sym}{int(cp * 1.01):,} 이하"
+                        res["sell_target"] = f"{curr_sym}{int(cp * 1.06):,} (+6%)"
+                        res["stop_loss"] = f"{curr_sym}{int(cp * 0.98):,} (-2%)"
+                    else:
+                        res["buy_target"] = f"{curr_sym}{cp * 0.99:.2f} ~ {curr_sym}{cp * 1.01:.2f} 이하"
+                        res["sell_target"] = f"{curr_sym}{cp * 1.06:.2f} (+6%)"
+                        res["stop_loss"] = f"{curr_sym}{cp * 0.98:.2f} (-2%)"
                 else:
                     res["buy_target"] = "시세 조회 실패 (수동 확인 권장)"
                     res["sell_target"] = "시세 조회 실패"
@@ -2277,3 +2329,74 @@ def analyze_trading_patterns(records: list) -> dict:
     except Exception as e:
         return {"error": _friendly_error(e)}
 
+
+def recommend_entry_price(ticker: str, name: str, market: str, current_price: float, w52_high: float = None, w52_low: float = None) -> dict:
+    """미매수 관심종목에 대한 AI 매수가(타점) 추천"""
+    client = genai.Client(api_key=st.secrets["gemini"]["api_key"])
+    
+    currency = "KRW" if market == "국내" else "USD"
+    price_info = f"- 현재가: {current_price} {currency}\n"
+    if w52_high and w52_low:
+        price_info += f"- 52주 최고/최저: {w52_high} / {w52_low} {currency}\n"
+        
+    prompt = f"""
+당신은 최고의 트레이딩 타점 분석가입니다.
+사용자가 아직 매수하지 않고 관심종목으로만 지켜보고 있는 종목에 대해 가장 이상적인 **신규 매수 진입가(Buy Target)**를 추천해주세요.
+
+종목: {name} ({ticker}, {market})
+{price_info}
+
+지시사항:
+1. 현재가와 52주 변동폭(제공된 경우)을 참고하여, **단기~스윙 관점**에서 가장 리스크 대비 보상 비율(손익비)이 좋은 매수 타점을 제시하세요.
+2. 현재가가 이미 충분히 저점이라 당장 매수해도 좋다면 현재가 주변을 제시해도 됩니다.
+3. 상승 추세라면 약간의 눌림목(Pullback) 가격을 제시하세요.
+4. 반드시 JSON 형식으로만 응답해야 합니다.
+5. 응답 JSON 구조:
+{{
+  "recommended_price": 120.5,
+  "reason": "현재가 대비 -3% 수준의 주요 지지선. 단기 과매도를 노리는 눌림목 타점입니다."
+}}
+
+오직 JSON만 출력하세요. 마크다운 백틱(```json)도 사용하지 마세요.
+"""
+    try:
+        response = client.models.generate_content(
+            model='gemini-2.5-flash',
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                temperature=0.3,
+                response_mime_type="application/json"
+            ),
+        )
+        return json.loads(response.text)
+    except Exception as e:
+        return {"error": str(e), "recommended_price": current_price, "reason": "AI 타점 추천에 실패했습니다. 현재가를 기준으로 분석을 보완합니다."}
+
+
+def analyze_trade_postmortem(ticker: str, name: str, market: str, buy_price: float, sell_price: float, buy_date: str, sell_date: str, profit_pct: float, owner: str = "USER") -> dict:
+    """거래 결과(Postmortem) 분석 리포트 생성"""
+    curr = "₩" if market == "국내" else "$"
+    result_label = "수익" if profit_pct >= 0 else "손실"
+    prompt = (
+        f"당신은 월스트리트 출신 탑티어 트레이딩 코치이자 퀀트 분석가입니다.\n"
+        f"다음 거래에 대한 냉철한 사후 분석(Postmortem)을 수행하세요.\n\n"
+        f"- 종목: {name} ({ticker})\n"
+        f"- 시장: {market}\n"
+        f"- 매수가: {curr}{buy_price:,}  매수일: {buy_date}\n"
+        f"- 매도가: {curr}{sell_price:,}  매도일: {sell_date}\n"
+        f"- 손익률: {profit_pct:.2f}% ({result_label})\n"
+        f"- 거래 주체: {'AI 에이전트' if owner == 'AI' else '사용자'}\n\n"
+        "위 데이터를 바탕으로 매수/매도 타이밍, 수익/손실 원인, 교훈을 분석하세요.\n"
+        "반드시 아래 JSON 형식으로만 응답하세요 (추가 텍스트 없이):\n"
+        "{\n"
+        '  "evaluation": "종합 평가 (3~4문장. 매수/매도 타이밍의 적절성 평가)",\n'
+        '  "cause": "수익 또는 손실의 핵심 원인 (2~3문장. 가격 움직임, 보유 기간, 시장 환경 등)",\n'
+        '  "learning_point": "이 거래에서 얻을 수 있는 핵심 교훈 (1~2문장. 향후 거래의 가이드라인)"\n'
+        "}"
+    )
+    try:
+        response = _call_gemini(prompt, use_search=False, temperature=0.7, timeout_sec=45)
+        res = _parse_json_response(response)
+        return res
+    except Exception as e:
+        return {"evaluation": f"분석 오류: {e}", "cause": "-", "learning_point": "-"}
