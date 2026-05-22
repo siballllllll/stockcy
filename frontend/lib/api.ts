@@ -29,6 +29,7 @@ export const api = {
     chart:       (ticker: string, period = "1y", interval = "1d") =>
                                                req(`/api/us/chart/${ticker}?period=${period}&interval=${interval}`),
     exchangeRate: ()                        => req<{ rate: number; symbol: string; fallback: boolean }>("/api/us/exchange-rate"),
+    crypto:       (symbol = "BTC")         => req<{ symbol: string; price: number; change_pct: number; error?: boolean }>(`/api/us/crypto/${symbol}`),
     minuteChart: (ticker: string, iv = 5) => {
       const period = iv <= 5 ? "1d" : iv <= 30 ? "5d" : "1mo";
       return req(`/api/us/chart/${ticker}?period=${period}&interval=${iv}m`);

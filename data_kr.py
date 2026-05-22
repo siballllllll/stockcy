@@ -252,7 +252,7 @@ def get_kr_stock_price(stock_code: str):
         o = data["output"]
         return {
             "code": stock_code,
-            "name": o.get("hts_kor_isnm", stock_code),
+            "name": o.get("hts_kor_isnm") or stock_code,
             "price": int(o.get("stck_prpr", 0) or 0),
             "change": int(o.get("prdy_vrss", 0) or 0),
             "change_pct": float(o.get("prdy_ctrt", 0) or 0),

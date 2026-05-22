@@ -99,6 +99,23 @@ def us_chart(
         return []
 
 
+@router.get("/crypto/{symbol}")
+def crypto_price(symbol: str = "BTC"):
+    """암호화폐 현재가 (yfinance BTC-USD 등)."""
+    try:
+        import yfinance as yf
+        ticker = f"{symbol.upper()}-USD"
+        fi = yf.Ticker(ticker).fast_info
+        price = float(fi.get("regularMarketPrice", 0) or fi.get("lastPrice", 0) or 0)
+        prev  = float(fi.get("previousClose", 0) or 0)
+        change_pct = round(((price - prev) / prev * 100) if prev > 0 else 0.0, 2)
+        if price > 0:
+            return {"symbol": symbol.upper(), "price": round(price, 2), "change_pct": change_pct}
+    except Exception:
+        pass
+    return {"symbol": symbol.upper(), "price": 0, "change_pct": 0, "error": True}
+
+
 @router.get("/exchange-rate")
 def us_exchange_rate():
     """USD/KRW 실시간 환율 (yfinance USDKRW=X)."""
