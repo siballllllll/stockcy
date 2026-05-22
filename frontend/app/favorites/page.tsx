@@ -1,10 +1,10 @@
 "use client";
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import useSWR from "swr";
 import { api } from "@/lib/api";
 import type { Favorite, KrStock, UsStock } from "@/lib/types";
-import { Star, RefreshCw, Send, Trash2, Plus, Zap, BarChart2, Bell, TrendingUp, BookOpen, Loader2 } from "lucide-react";
+import { Star, RefreshCw, Send, Trash2, Plus, Zap, BarChart2, Bell, TrendingUp, BookOpen, Loader2, Brain } from "lucide-react";
 
 const BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 import { Card } from "@/components/ui/Card";
@@ -610,6 +610,79 @@ function SellButton({ p, onSell }: { p: any; onSell: (p: any, price: number) => 
   );
 }
 
+// ── AI 복기 리포트 모달 ─────────────────────────────────────────────────────────
+function PostmortemModal({ trade, onClose, onRefresh }: { trade: any; onClose: () => void; onRefresh: () => void }) {
+  const taskId = `postmortem-${trade["티커"]}-${trade["매도시간"]}`;
+  const isUs = !String(trade["티커"]).match(/^[0-9]+$/);
+
+  const { start, status, message, result, reset } = useSSE<any>("/api/ai/postmortem", {
+    method: "POST",
+    globalId: taskId,
+    globalTitle: `${trade["종목명"]} 복기`
+  });
+
+  const parseNum = (val: any) => Number(String(val ?? "0").replace(/[^0-9.-]+/g, ""));
+  const buildBody = () => ({
+    ticker: trade["티커"] ?? trade.ticker,
+    name: trade["종목명"] ?? trade.name,
+    market: isUs ? "미국" : "국내",
+    buy_price: parseNum(trade["매수가($)"] ?? trade.buy_price),
+    sell_price: parseNum(trade["매도가($)"] ?? trade.sell_price),
+    buy_date: trade["매수시간"] ?? trade.buy_date ?? "알 수 없음",
+    sell_date: trade["매도시간"] ?? trade.sell_date ?? "알 수 없음",
+    profit_pct: parseNum(trade["수익률(%)"] ?? trade.profit_pct),
+    owner: trade["소유자"] ?? trade.owner ?? "USER"
+  });
+
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { if (status === "idle") start(buildBody()); }, []);
+
+  return (
+    <div style={{
+      position: "fixed", top: 0, left: 0, right: 0, bottom: 0, 
+      background: "rgba(0,0,0,0.6)", zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center"
+    }}>
+      <div style={{
+        background: "var(--color-surface)", padding: "1.5rem", borderRadius: "12px", width: "90%", maxWidth: "600px", 
+        border: "1px solid var(--color-border)", boxShadow: "0 10px 30px rgba(0,0,0,0.3)",
+        maxHeight: "90vh", overflowY: "auto"
+      }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem" }}>
+          <h2 style={{ fontSize: "1.2rem", fontWeight: 700, margin: 0 }}>🧠 {trade["종목명"]} AI 복기 리포트</h2>
+          <button className="stockcy-btn" style={{ padding: "4px 8px" }} onClick={() => { onClose(); if(status === "done") onRefresh(); }}>✕</button>
+        </div>
+        
+        {status === "error" ? (
+          <StatusBox type="danger">{message}</StatusBox>
+        ) : !result ? (
+          <div style={{ padding: "2rem", textAlign: "center", color: "var(--color-muted)" }}>
+            <Loader2 className="animate-spin" size={24} style={{ margin: "0 auto 1rem auto" }} />
+            <div style={{ marginTop: "1rem" }}>{message || "AI 복기 분석 중..."}</div>
+            <button className="stockcy-btn stockcy-btn-secondary" style={{ marginTop: "1.5rem", fontSize: "0.8rem", padding: "4px 12px" }} onClick={() => start(buildBody())}>
+              <RefreshCw size={12} style={{ marginRight: "6px" }} /> 다시 시도
+            </button>
+          </div>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
+             <div style={{ background: "rgba(255,255,255,0.03)", padding: "1rem", borderRadius: "8px" }}>
+                <div style={{ fontSize: "0.85rem", color: "var(--color-muted)", marginBottom: "0.5rem" }}>📝 종합 평가</div>
+                <div style={{ lineHeight: 1.6, whiteSpace: "pre-line" }}>{result.evaluation}</div>
+             </div>
+             <div style={{ background: "rgba(255,255,255,0.03)", padding: "1rem", borderRadius: "8px" }}>
+                <div style={{ fontSize: "0.85rem", color: "var(--color-muted)", marginBottom: "0.5rem" }}>🔍 핵심 원인</div>
+                <div style={{ lineHeight: 1.6, whiteSpace: "pre-line" }}>{result.cause}</div>
+             </div>
+             <div style={{ background: "rgba(99,102,241,0.15)", border: "1px solid rgba(99,102,241,0.3)", padding: "1rem", borderRadius: "8px" }}>
+                <div style={{ fontSize: "0.85rem", color: "var(--color-primary)", fontWeight: 700, marginBottom: "0.5rem" }}>💡 학습 포인트 (교훈)</div>
+                <div style={{ lineHeight: 1.6, fontWeight: 500, whiteSpace: "pre-line" }}>{result.learning_point}</div>
+             </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ── 거래 내역 탭 ──────────────────────────────────────────────────────────────
 function TradesTab() {
   const { data: tradeRes, isLoading, mutate } = useSWR("/api/trades", () => api.portfolio.loadTrades() as Promise<{ data: any[]; message: string }>);
@@ -620,6 +693,7 @@ function TradesTab() {
   const [addMsg, setAddMsg] = useState<{ type: "success" | "danger"; text: string } | null>(null);
   const [adding, setAdding] = useState(false);
   const [showForm, setShowForm] = useState(false);
+  const [postmortemTrade, setPostmortemTrade] = useState<any | null>(null);
 
   const totalProfit = trades.reduce((s, t) => s + (Number(t["수익금($)"] ?? t.profit ?? 0)), 0);
   const winCount    = trades.filter(t => (Number(t["수익금($)"] ?? t.profit ?? 0)) > 0).length;
@@ -657,6 +731,9 @@ function TradesTab() {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
+      {postmortemTrade && (
+        <PostmortemModal trade={postmortemTrade} onClose={() => setPostmortemTrade(null)} onRefresh={() => mutate()} />
+      )}
       {/* 요약 + 추가 버튼 */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <div style={{ display: "flex", gap: "1rem" }}>
@@ -704,6 +781,7 @@ function TradesTab() {
               <th style={{ textAlign: "right" }}>손익률</th>
               <th>결과</th>
               <th>매도일</th>
+              <th>학습/복기</th>
               <th></th>
             </tr>
           </thead>
@@ -714,6 +792,7 @@ function TradesTab() {
               const color     = profit >= 0 ? "var(--color-danger)" : "var(--color-primary)";
               const ticker    = String(t["티커"] ?? t.ticker ?? "");
               const sellDate  = String(t["매도시간"] ?? t.sell_date ?? "");
+              const lp        = t["학습포인트"] ?? t.learning_point;
               return (
                 <tr key={i}>
                   <td style={{ fontWeight: 600 }}>{String(t["종목명"] ?? t.name ?? "")} <span style={{ fontSize: "0.72rem", color: "var(--color-muted)" }}>({ticker})</span></td>
@@ -724,6 +803,17 @@ function TradesTab() {
                   <td style={{ textAlign: "right", color, fontWeight: 700 }}>{profitPct >= 0 ? "+" : ""}{profitPct.toFixed(2)}%</td>
                   <td><Badge variant={profit >= 0 ? "success" : "danger"}>{String(t["결과"] ?? t.result ?? "-")}</Badge></td>
                   <td style={{ fontSize: "0.75rem", color: "var(--color-muted)" }}>{sellDate.slice(0, 10)}</td>
+                  <td>
+                    {lp ? (
+                      <div style={{ fontSize: "0.75rem", color: "var(--color-primary)", maxWidth: "150px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", cursor: "pointer" }} title={lp} onClick={() => setPostmortemTrade(t)}>
+                        💡 {lp}
+                      </div>
+                    ) : (
+                      <button className="stockcy-btn stockcy-btn-primary" style={{ padding: "2px 6px", fontSize: "0.7rem", background: "transparent", border: "1px solid var(--color-primary)", color: "var(--color-primary)" }} onClick={() => setPostmortemTrade(t)}>
+                        <Brain size={10} style={{ marginRight: "4px" }} /> AI 복기
+                      </button>
+                    )}
+                  </td>
                   <td>
                     <button className="stockcy-btn stockcy-btn-secondary" style={{ padding: "2px 6px", fontSize: "0.7rem" }} onClick={() => handleDelete(ticker, sellDate)}>
                       <Trash2 size={10} />
