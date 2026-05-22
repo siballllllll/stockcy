@@ -185,6 +185,30 @@ function SearchPageInner() {
   const [searchQuery, setSearchQuery] = useState("");
   const [activeTab, setActiveTab] = useState("시세");
   const [currentCode, setCurrentCode] = useState<string>(isKR ? "005930" : "AAPL");
+
+  // 최근 검색 기록 (KR/US 통합, 최대 10개)
+  const RECENT_KEY = "stockcy_recent_searches_v2";
+  const [recentSearches, setRecentSearches] = useState<{ code: string; name: string; market: string }[]>([]);
+
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem(RECENT_KEY);
+      if (stored) {
+        setRecentSearches(JSON.parse(stored));
+      }
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  const removeRecentSearch = (code: string, market: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setRecentSearches(prev => {
+      const next = prev.filter(r => !(r.code === code && r.market === market));
+      try { localStorage.setItem(RECENT_KEY, JSON.stringify(next)); } catch {}
+      return next;
+    });
+  };
   const [chartType, setChartType]     = useState<string>("daily");
   const [chartPeriod, setChartPeriod] = useState<string>("1Y");
   const [minuteInterval, setMinuteInterval] = useState<number>(5);
@@ -214,6 +238,13 @@ function SearchPageInner() {
   const [aiStatus, setAiStatus] = useState<"idle" | "loading" | "done" | "error">("idle");
   const [aiAnalysisTab, setAiAnalysisTab] = useState<"short" | "entry" | "mid" | "long">("short");
   const [aiMsg, setAiMsg] = useState("");
+
+  // 가격 알림 설정 모달 상태
+  const [alertModalOpen, setAlertModalOpen] = useState(false);
+  const [alertType, setAlertType] = useState("상승 돌파");
+  const [targetPrice, setTargetPrice] = useState("");
+  const [alertLoading, setAlertLoading] = useState(false);
+  const [alertMsg, setAlertMsg] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
   // 차트 타입 변경 시 유효한 기간으로 리셋
   useEffect(() => {
@@ -392,48 +423,115 @@ function SearchPageInner() {
     if (!searchQuery.trim()) return [];
     const query = searchQuery.replace(/\s+/g, "").toLowerCase();
     const queryChosung = getChosung(query);
+    const isChosungOnly = /^[ㄱ-ㅎ]+$/.test(query);
 
     if (isKR) {
       if (!allStocks) return [];
-      const results = [];
+      const results: { code: string; name: string; score: number }[] = [];
       for (const [code, name] of Object.entries(allStocks as Record<string, string>)) {
         const nameSafe = name.replace(/\s+/g, "").toLowerCase();
         const nameChosung = getChosung(nameSafe);
-        if (code.includes(query) || nameSafe.includes(query) || nameChosung.includes(queryChosung)) {
-          results.push({ code, name });
+        
+        let score = 0;
+        const matchChosung = isChosungOnly && nameChosung.includes(queryChosung);
+
+        if (code === query) {
+          score = 200;
+        } else if (code.startsWith(query)) {
+          score = 150;
+        } else if (nameSafe === query) {
+          score = 180;
+        } else if (nameSafe.startsWith(query)) {
+          score = 120;
+        } else if (code.includes(query)) {
+          score = 100;
+        } else if (nameSafe.includes(query)) {
+          score = 90;
+        } else if (matchChosung) {
+          if (nameChosung === queryChosung) score = 80;
+          else if (nameChosung.startsWith(queryChosung)) score = 60;
+          else score = 40;
         }
-        if (results.length >= 10) break;
+
+        if (score > 0) {
+          results.push({ code, name, score });
+        }
       }
-      return results;
+      return results.sort((a, b) => b.score - a.score).slice(0, 10);
     } else {
       // US: ticker 또는 한국어 이름으로 검색
       if (!usAllStocks) return [];
-      const results = [];
+      const results: { code: string; name: string; score: number }[] = [];
       for (const [ticker, name] of Object.entries(usAllStocks as Record<string, string>)) {
         const tickerLower = ticker.toLowerCase();
         const nameSafe = name.replace(/\s+/g, "").toLowerCase();
         const nameChosung = getChosung(nameSafe);
-        if (
-          tickerLower.startsWith(query) ||
-          tickerLower.includes(query) ||
-          nameSafe.includes(query) ||
-          nameChosung.includes(queryChosung)
-        ) {
-          results.push({ code: ticker, name });
+        
+        let score = 0;
+        const matchChosung = isChosungOnly && nameChosung.includes(queryChosung);
+
+        if (tickerLower === query) {
+          score = 200;
+        } else if (tickerLower.startsWith(query)) {
+          score = 150;
+        } else if (nameSafe === query) {
+          score = 180;
+        } else if (nameSafe.startsWith(query)) {
+          score = 120;
+        } else if (tickerLower.includes(query)) {
+          score = 100;
+        } else if (nameSafe.includes(query)) {
+          score = 90;
+        } else if (matchChosung) {
+          if (nameChosung === queryChosung) score = 80;
+          else if (nameChosung.startsWith(queryChosung)) score = 60;
+          else score = 40;
         }
-        if (results.length >= 10) break;
+
+        if (score > 0) {
+          results.push({ code: ticker, name, score });
+        }
       }
-      return results;
+      return results.sort((a, b) => b.score - a.score).slice(0, 10);
     }
   }, [isKR, searchQuery, allStocks, usAllStocks]);
 
-  const performSearch = (code: string) => {
+  const performSearch = (code: string, nameHint?: string) => {
     if (!code.trim()) return;
+    const upper = code.toUpperCase();
     setSearchQuery("");
     setShowDropdown(false);
-    setCurrentCode(code.toUpperCase());
+    setCurrentCode(upper);
     setAiStatus("idle");
     setAiResult(null);
+    // 최근 검색 저장
+    let displayName = nameHint || upper;
+    if (!nameHint) {
+      if (isKR && allStocks) {
+        const stocksMap = allStocks as Record<string, string>;
+        if (stocksMap[upper]) {
+          displayName = stocksMap[upper];
+        } else {
+          // 이름으로 검색했을 경우
+          const entry = Object.entries(stocksMap).find(([c, n]) => n === upper);
+          if (entry) displayName = entry[1];
+        }
+      } else if (!isKR && usAllStocks) {
+        const foundName = (usAllStocks as Record<string, string>)[upper];
+        if (foundName) displayName = foundName;
+      }
+    }
+    const entry = { code: upper, name: displayName, market };
+    setRecentSearches(prev => {
+      const next = [entry, ...prev.filter(r => !(r.code === upper && r.market === market))].slice(0, 10);
+      try { localStorage.setItem(RECENT_KEY, JSON.stringify(next)); } catch {}
+      return next;
+    });
+  };
+
+  const clearRecentSearches = () => {
+    setRecentSearches([]);
+    try { localStorage.removeItem(RECENT_KEY); } catch {}
   };
 
   useEffect(() => {
@@ -664,29 +762,29 @@ function SearchPageInner() {
 
             <div style={{ marginTop: "1rem", display: "flex", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
               <select
-                className="stockcy-input"
+                className="stockcy-input bg-zinc-800 text-white border border-white/10 rounded px-2 py-1 focus:outline-none focus:border-indigo-500 transition-colors"
                 value={chartType}
                 onChange={(e) => setChartType(e.target.value)}
-                style={{ width: "100px", padding: "6px 10px", fontSize: "0.9rem", background: "var(--color-surface-hover)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: "4px", color: "#fff" }}
+                style={{ width: "100px" }}
               >
-                <option value="minute">분봉</option>
-                <option value="daily">일봉</option>
-                <option value="weekly">주봉</option>
-                <option value="monthly">월봉</option>
+                <option value="minute" className="bg-zinc-800 text-white">분봉</option>
+                <option value="daily" className="bg-zinc-800 text-white">일봉</option>
+                <option value="weekly" className="bg-zinc-800 text-white">주봉</option>
+                <option value="monthly" className="bg-zinc-800 text-white">월봉</option>
               </select>
 
               {chartType === "minute" && (
                 <select
-                  className="stockcy-input"
+                  className="stockcy-input bg-zinc-800 text-white border border-white/10 rounded px-2 py-1 focus:outline-none focus:border-indigo-500 transition-colors"
                   value={minuteInterval}
                   onChange={(e) => setMinuteInterval(Number(e.target.value))}
-                  style={{ width: "80px", padding: "6px 10px", fontSize: "0.9rem", background: "var(--color-surface-hover)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: "4px", color: "#fff" }}
+                  style={{ width: "80px" }}
                 >
-                  <option value={1}>1분</option>
-                  <option value={5}>5분</option>
-                  <option value={15}>15분</option>
-                  <option value={30}>30분</option>
-                  <option value={60}>60분</option>
+                  <option value={1} className="bg-zinc-800 text-white">1분</option>
+                  <option value={5} className="bg-zinc-800 text-white">5분</option>
+                  <option value={15} className="bg-zinc-800 text-white">15분</option>
+                  <option value={30} className="bg-zinc-800 text-white">30분</option>
+                  <option value={60} className="bg-zinc-800 text-white">60분</option>
                 </select>
               )}
 
@@ -759,13 +857,88 @@ function SearchPageInner() {
               />
             </form>
 
+            {/* 최근 검색 종목 */}
+            {recentSearches.filter(r => r.market === market).length > 0 && !searchQuery && (
+              <div style={{ display: "flex", alignItems: "center", gap: "6px", marginTop: "8px", flexWrap: "wrap" }}>
+                <span style={{ fontSize: "0.72rem", color: "var(--color-muted)", fontWeight: 700, flexShrink: 0 }}>최근 검색:</span>
+                {recentSearches.filter(r => r.market === market).map((r, i) => {
+                  let display = r.name && r.name !== r.code ? r.name : r.code;
+                  if (display === r.code) {
+                    if (market === "KR" && allStocks) {
+                      const m = allStocks as Record<string, string>;
+                      if (m[r.code]) display = m[r.code];
+                    } else if (market === "US" && usAllStocks) {
+                      const m = usAllStocks as Record<string, string>;
+                      if (m[r.code]) display = m[r.code];
+                    }
+                  }
+                  return (
+                    <div
+                      key={i}
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "4px",
+                        background: "rgba(255,255,255,0.08)",
+                        border: "1px solid rgba(255,255,255,0.15)",
+                        padding: "4px 8px 4px 10px",
+                        borderRadius: "12px",
+                        fontSize: "0.75rem",
+                        color: "var(--color-text)",
+                        fontWeight: 600,
+                        transition: "all 0.2s",
+                      }}
+                    >
+                      <span
+                        onClick={() => performSearch(r.code, display)}
+                        style={{ cursor: "pointer" }}
+                        onMouseOver={(e) => e.currentTarget.style.color = "var(--color-accent)"}
+                        onMouseOut={(e) => e.currentTarget.style.color = "var(--color-text)"}
+                      >
+                        {display}
+                      </span>
+                      <button
+                        onClick={(e) => removeRecentSearch(r.code, r.market, e)}
+                        style={{
+                          background: "transparent",
+                          border: "none",
+                          cursor: "pointer",
+                          color: "var(--color-muted)",
+                          padding: "2px",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          borderRadius: "50%",
+                        }}
+                        onMouseOver={(e) => e.currentTarget.style.color = "var(--color-danger)"}
+                        onMouseOut={(e) => e.currentTarget.style.color = "var(--color-muted)"}
+                      >
+                        <X size={10} />
+                      </button>
+                    </div>
+                  );
+                })}
+                <button
+                  onClick={clearRecentSearches}
+                  style={{
+                    background: "transparent", border: "none", padding: "0",
+                    fontSize: "0.7rem", color: "var(--color-muted)",
+                    cursor: "pointer", marginLeft: "6px",
+                  }}
+                  title="최근 검색 전체 삭제"
+                >
+                  전체삭제
+                </button>
+              </div>
+            )}
+
             {/* 자동완성 드롭다운 (KR + US 공통) */}
             {showDropdown && searchQuery && filteredStocks.length > 0 && (
               <div style={{ position: "absolute", top: "100%", left: 0, right: 0, zIndex: 9999, backgroundColor: "#0F172A", border: "1px solid #334155", borderRadius: "8px", marginTop: "4px", overflow: "hidden", boxShadow: "0 12px 32px rgba(0,0,0,0.8)" }}>
                 {filteredStocks.map((item, idx) => (
                   <div
                     key={item.code}
-                    onClick={() => performSearch(item.code)}
+                    onClick={() => performSearch(item.code, item.name)}
                     style={{ padding: "10px 16px", cursor: "pointer", borderBottom: idx < filteredStocks.length - 1 ? "1px solid rgba(255,255,255,0.05)" : "none", display: "flex", justifyContent: "space-between" }}
                     onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.05)")}
                     onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
@@ -861,9 +1034,37 @@ function SearchPageInner() {
                 </div>
               </div>
 
-              <div style={{ display: "flex", alignItems: "center", gap: "6px", color: "var(--color-warning)", fontSize: "0.8rem", cursor: "pointer", fontWeight: 600 }}>
-                <Bell size={14} /> 가격 알림 설정
-              </div>
+              <button
+                onClick={() => { setAlertModalOpen(true); setAlertMsg(null); setTargetPrice(String(price)); }}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: "8px",
+                  color: "#ffd600",
+                  fontSize: "0.85rem",
+                  fontWeight: 700,
+                  cursor: "pointer",
+                  background: "rgba(253, 224, 71, 0.08)",
+                  border: "1px solid rgba(253, 224, 71, 0.2)",
+                  padding: "8px 16px",
+                  borderRadius: "8px",
+                  width: "100%",
+                  transition: "all 0.2s ease-in-out",
+                  marginTop: "0.5rem",
+                  marginBottom: "0.5rem",
+                }}
+                onMouseOver={(e) => {
+                  e.currentTarget.style.background = "rgba(253, 224, 71, 0.15)";
+                  e.currentTarget.style.borderColor = "rgba(253, 224, 71, 0.4)";
+                }}
+                onMouseOut={(e) => {
+                  e.currentTarget.style.background = "rgba(253, 224, 71, 0.08)";
+                  e.currentTarget.style.borderColor = "rgba(253, 224, 71, 0.2)";
+                }}
+              >
+                <Bell size={14} /> 실시간 가격 알림 설정
+              </button>
 
               {/* 타점 보드 */}
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: "6px", marginTop: "auto" }}>
@@ -1028,6 +1229,143 @@ function SearchPageInner() {
 
         </div>
       </div>
+      {/* 글라스모피즘 실시간 가격 알림 모달 */}
+      {alertModalOpen && (
+        <div style={{
+          position: "fixed", top: 0, left: 0, right: 0, bottom: 0, zIndex: 99999,
+          background: "rgba(15, 23, 42, 0.75)", backdropFilter: "blur(12px)",
+          display: "flex", alignItems: "center", justifyContent: "center", padding: "1.5rem"
+        }}>
+          <div style={{
+            background: "rgba(30, 41, 59, 0.5)", border: "1px solid rgba(255, 255, 255, 0.1)",
+            boxShadow: "0 25px 50px -12px rgba(0, 0, 0, 0.5)",
+            borderRadius: "16px", padding: "1.75rem", width: "100%", maxWidth: "420px",
+            display: "flex", flexDirection: "column", gap: "1.2rem",
+            position: "relative"
+          }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                <Bell size={18} color="var(--color-warning)" />
+                <span style={{ fontSize: "1.1rem", fontWeight: 800, color: "var(--color-text)" }}>실시간 가격 알림 설정</span>
+              </div>
+              <button
+                onClick={() => setAlertModalOpen(false)}
+                style={{
+                  background: "transparent", border: "none", cursor: "pointer",
+                  color: "var(--color-muted)", padding: "4px", borderRadius: "50%",
+                  display: "flex", alignItems: "center", justifyContent: "center"
+                }}
+                onMouseOver={(e) => e.currentTarget.style.color = "var(--color-danger)"}
+                onMouseOut={(e) => e.currentTarget.style.color = "var(--color-muted)"}
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            {/* 종목 요약 카드 */}
+            <div style={{
+              background: "rgba(255, 255, 255, 0.03)",
+              border: "1px solid rgba(255, 255, 255, 0.05)",
+              borderRadius: "8px", padding: "12px",
+              display: "flex", flexDirection: "column", gap: "4px"
+            }}>
+              <div style={{ fontSize: "0.78rem", color: "var(--color-muted)" }}>알림 대상 종목</div>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+                <span style={{ fontWeight: 700, fontSize: "0.95rem" }}>{stockName} <span style={{ fontSize: "0.8rem", color: "var(--color-muted)" }}>({currentCode})</span></span>
+                <span style={{ fontWeight: 800, color: "var(--color-accent)" }}>
+                  현재가: {currSymbol}{price.toLocaleString()}
+                </span>
+              </div>
+            </div>
+
+            {/* 입력 폼 */}
+            <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
+              <div>
+                <label style={{ fontSize: "0.78rem", color: "var(--color-muted)", display: "block", marginBottom: "6px" }}>감시 조건</label>
+                <select
+                  className="stockcy-input bg-zinc-900 border border-white/10 rounded px-3 py-2 w-full text-white text-sm focus:outline-none focus:border-indigo-500 transition-colors"
+                  value={alertType}
+                  onChange={e => setAlertType(e.target.value)}
+                >
+                  <option value="상승 돌파">현재가 대비 상승 돌파 (≥)</option>
+                  <option value="하락 돌파">현재가 대비 하락 돌파 (≤)</option>
+                  <option value="목표가 도달">지정가 목표가 도달</option>
+                  <option value="손절가 도달">지정가 손절가 도달</option>
+                </select>
+              </div>
+
+              <div>
+                <label style={{ fontSize: "0.78rem", color: "var(--color-muted)", display: "block", marginBottom: "6px" }}>감시 가격 ({currSymbol})</label>
+                <input
+                  className="stockcy-input w-full bg-zinc-900/60 border border-white/10 rounded px-3 py-2 text-white"
+                  type="number"
+                  step="any"
+                  placeholder={String(price)}
+                  value={targetPrice}
+                  onChange={e => setTargetPrice(e.target.value)}
+                  style={{ boxSizing: "border-box" }}
+                />
+              </div>
+            </div>
+
+            {/* 텔레그램 가이드 팁 배너 */}
+            <div style={{
+              background: "rgba(99, 102, 241, 0.08)",
+              border: "1px solid rgba(99, 102, 241, 0.2)",
+              borderRadius: "10px", padding: "10px 12px",
+              fontSize: "0.75rem", color: "#a5b4fc", lineHeight: 1.4
+            }}>
+              <span style={{ fontWeight: 800, color: "#818cf8" }}>💡 텔레그램 연동 안내:</span> 백엔드 봇이 활성화되어 있다면, 실시간 시장가 도달 즉시 텔레그램 메시지가 발송됩니다.
+            </div>
+
+            {/* 실행 버튼 */}
+            <button
+              className="stockcy-btn stockcy-btn-primary"
+              onClick={async () => {
+                const tp = Number(targetPrice);
+                if (!tp || tp <= 0) {
+                  setAlertMsg({ type: "error", text: "올바른 감시 가격을 입력해 주세요." });
+                  return;
+                }
+                setAlertLoading(true);
+                setAlertMsg(null);
+                try {
+                  const marketType = isKR ? "국내" : "미국";
+                  await api.portfolio.saveAlert(marketType, currentCode, stockName, alertType, tp);
+                  setAlertMsg({ type: "success", text: `성공: ${stockName} 알림 추가 완료 (${alertType} @ ${currSymbol}${tp.toLocaleString()})` });
+                  setTimeout(() => {
+                    setAlertModalOpen(false);
+                  }, 1200);
+                } catch (err: any) {
+                  setAlertMsg({ type: "error", text: `추가 실패: ${err.message}` });
+                } finally {
+                  setAlertLoading(false);
+                }
+              }}
+              disabled={alertLoading || !targetPrice}
+              style={{
+                width: "100%", padding: "12px", fontWeight: 700, fontSize: "0.9rem",
+                display: "flex", alignItems: "center", justifyContent: "center", gap: "8px",
+                background: "linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)",
+                border: "none", color: "white", borderRadius: "8px", cursor: "pointer"
+              }}
+            >
+              {alertLoading ? <><Loader2 className="animate-spin" size={16} /> 설정 중...</> : "알림 설정 완료"}
+            </button>
+
+            {alertMsg && (
+              <div style={{
+                fontSize: "0.8rem",
+                color: alertMsg.type === "success" ? "var(--color-success)" : "var(--color-danger)",
+                textAlign: "center", marginTop: "4px",
+                fontWeight: 600
+              }}>
+                {alertMsg.text}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
