@@ -612,30 +612,61 @@ function SellButton({ p, onSell }: { p: any; onSell: (p: any, price: number) => 
 
 // ── AI 복기 리포트 모달 ─────────────────────────────────────────────────────────
 function PostmortemModal({ trade, onClose, onRefresh }: { trade: any; onClose: () => void; onRefresh: () => void }) {
-  const taskId = `postmortem-${trade["티커"]}-${trade["매도시간"]}`;
   const isUs = !String(trade["티커"]).match(/^[0-9]+$/);
-
-  const { start, status, message, result, reset } = useSSE<any>("/api/ai/postmortem", {
-    method: "POST",
-    globalId: taskId,
-    globalTitle: `${trade["종목명"]} 복기`
-  });
+  const [pmStatus, setPmStatus] = useState<"loading" | "done" | "error">("loading");
+  const [pmMsg,    setPmMsg]    = useState("🤖 거래 복기 분석 중... (1~2분 소요)");
+  const [pmResult, setPmResult] = useState<any>(null);
 
   const parseNum = (val: any) => Number(String(val ?? "0").replace(/[^0-9.-]+/g, ""));
-  const buildBody = () => ({
-    ticker: trade["티커"] ?? trade.ticker,
-    name: trade["종목명"] ?? trade.name,
-    market: isUs ? "미국" : "국내",
-    buy_price: parseNum(trade["매수가($)"] ?? trade.buy_price),
-    sell_price: parseNum(trade["매도가($)"] ?? trade.sell_price),
-    buy_date: trade["매수시간"] ?? trade.buy_date ?? "알 수 없음",
-    sell_date: trade["매도시간"] ?? trade.sell_date ?? "알 수 없음",
-    profit_pct: parseNum(trade["수익률(%)"] ?? trade.profit_pct),
-    owner: trade["소유자"] ?? trade.owner ?? "USER"
-  });
+
+  const runAnalysis = async () => {
+    setPmStatus("loading");
+    setPmMsg("🤖 거래 복기 분석 중... (1~2분 소요)");
+    setPmResult(null);
+    try {
+      const res = await fetch(`${BASE_URL}/api/ai/postmortem`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ticker:     trade["티커"]    ?? trade.ticker,
+          name:       trade["종목명"]  ?? trade.name,
+          market:     isUs ? "미국" : "국내",
+          buy_price:  parseNum(trade["매수가($)"]  ?? trade.buy_price),
+          sell_price: parseNum(trade["매도가($)"]  ?? trade.sell_price),
+          buy_date:   trade["매수시간"] ?? trade.buy_date  ?? "알 수 없음",
+          sell_date:  trade["매도시간"] ?? trade.sell_date ?? "알 수 없음",
+          profit_pct: parseNum(trade["수익률(%)"] ?? trade.profit_pct),
+          owner:      trade["소유자"]  ?? trade.owner ?? "USER",
+        }),
+      });
+      if (!res.body) throw new Error("no body");
+      const reader = res.body.getReader();
+      const dec = new TextDecoder();
+      let buf = "";
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += dec.decode(value, { stream: true });
+        const parts = buf.split("\n\n");
+        buf = parts.pop() ?? "";
+        for (const part of parts) {
+          if (!part.trim().startsWith("data:")) continue;
+          try {
+            const d = JSON.parse(part.trim().slice(5).trim());
+            if (d.status === "running") setPmMsg(d.message ?? "분석 중...");
+            if (d.status === "done")    { setPmResult(d.result); setPmStatus("done"); }
+            if (d.status === "error")   { setPmMsg(d.message ?? "오류 발생"); setPmStatus("error"); }
+          } catch {}
+        }
+      }
+    } catch (e) {
+      setPmMsg(String(e));
+      setPmStatus("error");
+    }
+  };
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => { if (status === "idle") start(buildBody()); }, []);
+  useEffect(() => { runAnalysis(); }, []);
 
   return (
     <div style={{
@@ -649,33 +680,35 @@ function PostmortemModal({ trade, onClose, onRefresh }: { trade: any; onClose: (
       }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem" }}>
           <h2 style={{ fontSize: "1.2rem", fontWeight: 700, margin: 0 }}>🧠 {trade["종목명"]} AI 복기 리포트</h2>
-          <button className="stockcy-btn" style={{ padding: "4px 8px" }} onClick={() => { onClose(); if(status === "done") onRefresh(); }}>✕</button>
+          <button className="stockcy-btn" style={{ padding: "4px 8px" }} onClick={() => { onClose(); if (pmStatus === "done") onRefresh(); }}>✕</button>
         </div>
         
-        {status === "error" ? (
-          <StatusBox type="danger">{message}</StatusBox>
-        ) : !result ? (
-          <div style={{ padding: "2rem", textAlign: "center", color: "var(--color-muted)" }}>
-            <Loader2 className="animate-spin" size={24} style={{ margin: "0 auto 1rem auto" }} />
-            <div style={{ marginTop: "1rem" }}>{message || "AI 복기 분석 중..."}</div>
-            <button className="stockcy-btn stockcy-btn-secondary" style={{ marginTop: "1.5rem", fontSize: "0.8rem", padding: "4px 12px" }} onClick={() => start(buildBody())}>
+        {pmStatus === "error" ? (
+          <>
+            <StatusBox type="danger">{pmMsg}</StatusBox>
+            <button className="stockcy-btn stockcy-btn-secondary" style={{ marginTop: "1rem", fontSize: "0.8rem", padding: "4px 12px" }} onClick={runAnalysis}>
               <RefreshCw size={12} style={{ marginRight: "6px" }} /> 다시 시도
             </button>
+          </>
+        ) : pmStatus === "loading" ? (
+          <div style={{ padding: "2rem", textAlign: "center", color: "var(--color-muted)" }}>
+            <Loader2 className="animate-spin" size={24} style={{ margin: "0 auto 1rem auto" }} />
+            <div style={{ marginTop: "1rem" }}>{pmMsg}</div>
           </div>
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
-             <div style={{ background: "rgba(255,255,255,0.03)", padding: "1rem", borderRadius: "8px" }}>
-                <div style={{ fontSize: "0.85rem", color: "var(--color-muted)", marginBottom: "0.5rem" }}>📝 종합 평가</div>
-                <div style={{ lineHeight: 1.6, whiteSpace: "pre-line" }}>{result.evaluation}</div>
-             </div>
-             <div style={{ background: "rgba(255,255,255,0.03)", padding: "1rem", borderRadius: "8px" }}>
-                <div style={{ fontSize: "0.85rem", color: "var(--color-muted)", marginBottom: "0.5rem" }}>🔍 핵심 원인</div>
-                <div style={{ lineHeight: 1.6, whiteSpace: "pre-line" }}>{result.cause}</div>
-             </div>
-             <div style={{ background: "rgba(99,102,241,0.15)", border: "1px solid rgba(99,102,241,0.3)", padding: "1rem", borderRadius: "8px" }}>
-                <div style={{ fontSize: "0.85rem", color: "var(--color-primary)", fontWeight: 700, marginBottom: "0.5rem" }}>💡 학습 포인트 (교훈)</div>
-                <div style={{ lineHeight: 1.6, fontWeight: 500, whiteSpace: "pre-line" }}>{result.learning_point}</div>
-             </div>
+            <div style={{ background: "rgba(255,255,255,0.03)", padding: "1rem", borderRadius: "8px" }}>
+              <div style={{ fontSize: "0.85rem", color: "var(--color-muted)", marginBottom: "0.5rem" }}>📝 종합 평가</div>
+              <div style={{ lineHeight: 1.6, whiteSpace: "pre-line" }}>{pmResult?.evaluation}</div>
+            </div>
+            <div style={{ background: "rgba(255,255,255,0.03)", padding: "1rem", borderRadius: "8px" }}>
+              <div style={{ fontSize: "0.85rem", color: "var(--color-muted)", marginBottom: "0.5rem" }}>🔍 핵심 원인</div>
+              <div style={{ lineHeight: 1.6, whiteSpace: "pre-line" }}>{pmResult?.cause}</div>
+            </div>
+            <div style={{ background: "rgba(99,102,241,0.15)", border: "1px solid rgba(99,102,241,0.3)", padding: "1rem", borderRadius: "8px" }}>
+              <div style={{ fontSize: "0.85rem", color: "var(--color-primary)", fontWeight: 700, marginBottom: "0.5rem" }}>💡 학습 포인트 (교훈)</div>
+              <div style={{ lineHeight: 1.6, fontWeight: 500, whiteSpace: "pre-line" }}>{pmResult?.learning_point}</div>
+            </div>
           </div>
         )}
       </div>
