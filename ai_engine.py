@@ -281,22 +281,13 @@ def _call_gemini(prompt, use_search=False, temperature=0.7, response_mime_type=N
     for model in _MODEL_FALLBACK:
         for attempt in range(2):
             try:
-                import threading as _threading
-                result_holder: list = [None]
-                error_holder:  list = [None]
-                def _run_in_daemon():
+                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
+                    future = ex.submit(_do_call, model, config)
                     try:
-                        result_holder[0] = _do_call(model, config)
-                    except Exception as exc:
-                        error_holder[0] = exc
-                t = _threading.Thread(target=_run_in_daemon, daemon=True)
-                t.start()
-                t.join(timeout=_timeout)
-                if t.is_alive():
-                    raise Exception(f"API_TIMEOUT: AI 응답 대기 시간({_timeout}초)을 초과했습니다. 잠시 후 다시 시도해주세요.")
-                if error_holder[0]:
-                    raise error_holder[0]
-                response = result_holder[0]
+                        response = future.result(timeout=_timeout)
+                    except concurrent.futures.TimeoutError:
+                        raise Exception(f"API_TIMEOUT: AI 응답 대기 시간({_timeout}초)을 초과했습니다. 잠시 후 다시 시도해주세요.")
+
                 _QUOTA_EXHAUSTED = False
                 return response
 
