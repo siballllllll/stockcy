@@ -281,12 +281,14 @@ def _call_gemini(prompt, use_search=False, temperature=0.7, response_mime_type=N
     for model in _MODEL_FALLBACK:
         for attempt in range(2):
             try:
-                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
-                    future = ex.submit(_do_call, model, config)
-                    try:
-                        response = future.result(timeout=_timeout)
-                    except concurrent.futures.TimeoutError:
-                        raise Exception(f"API_TIMEOUT: AI 응답 대기 시간({_timeout}초)을 초과했습니다. 잠시 후 다시 시도해주세요.")
+                ex = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+                future = ex.submit(_do_call, model, config)
+                try:
+                    response = future.result(timeout=_timeout)
+                except concurrent.futures.TimeoutError:
+                    ex.shutdown(wait=False)  # 블로킹 없이 즉시 해제
+                    raise Exception(f"API_TIMEOUT: AI 응답 대기 시간({_timeout}초)을 초과했습니다. 잠시 후 다시 시도해주세요.")
+                ex.shutdown(wait=False)
 
                 _QUOTA_EXHAUSTED = False
                 return response
@@ -322,9 +324,12 @@ def _call_gemini(prompt, use_search=False, temperature=0.7, response_mime_type=N
                     if response_mime_type:
                         config_no_search.response_mime_type = response_mime_type
                     try:
-                        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
-                            future = ex.submit(_do_call, model, config_no_search)
-                            response = future.result(timeout=_timeout)
+                        ex2 = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+                        future2 = ex2.submit(_do_call, model, config_no_search)
+                        try:
+                            response = future2.result(timeout=_timeout)
+                        finally:
+                            ex2.shutdown(wait=False)
                         return response
                     except Exception as fallback_err:
                         print(f"Fallback without search also failed: {fallback_err}")
