@@ -20,9 +20,10 @@ interface ChartProps {
     downColor?: string;
   };
   rightPadBars?: number; // 마감까지 남은 빈 봉 수
+  showSessions?: boolean; // 미국 장 구간 배경 표시
 }
 
-export default function Chart({ data, height = 450, colors = {}, rightPadBars = 0 }: ChartProps) {
+export default function Chart({ data, height = 450, colors = {}, rightPadBars = 0, showSessions = false }: ChartProps) {
   const chartContainerRef = useRef<HTMLDivElement>(null);
   const chartRef          = useRef<IChartApi | null>(null);
   const seriesRef         = useRef<any>(null);
@@ -135,7 +136,76 @@ export default function Chart({ data, height = 450, colors = {}, rightPadBars = 
       chartRef.current?.timeScale().applyOptions({ rightOffset: rightPadBars });
     }
     chartRef.current?.timeScale().fitContent();
-  }, [data, rightPadBars]);
+
+    // ── 미국 장 구간 배경 오버레이 ──────────────────────────────────────
+    if (!showSessions || !chartRef.current || !chartContainerRef.current) return;
+
+    const chart     = chartRef.current;
+    const container = chartContainerRef.current;
+    container.style.position = "relative";
+
+    const canvas = document.createElement("canvas");
+    canvas.style.cssText = "position:absolute;top:0;left:0;pointer-events:none;z-index:1;";
+    container.appendChild(canvas);
+
+    // 데이터 타임스탬프에서 고유 거래일 추출 (fake-UTC = EST 그대로 저장)
+    const dates = new Map<string, [number, number, number]>();
+    for (const item of data) {
+      if (typeof item.time !== "number") continue;
+      const dt = new Date(item.time * 1000);
+      const y = dt.getUTCFullYear(), m = dt.getUTCMonth(), d = dt.getUTCDate();
+      const key = `${y}-${m}-${d}`;
+      if (!dates.has(key)) dates.set(key, [y, m, d]);
+    }
+
+    const draw = () => {
+      if (!chartContainerRef.current) return;
+      const w = chartContainerRef.current.clientWidth;
+      const h = chartContainerRef.current.clientHeight;
+      canvas.width  = w;
+      canvas.height = h;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return;
+      ctx.clearRect(0, 0, w, h);
+
+      for (const [y, m, d] of dates.values()) {
+        const preX1 = chart.timeScale().timeToCoordinate(Date.UTC(y, m, d,  4,  0, 0) / 1000 as any);
+        const preX2 = chart.timeScale().timeToCoordinate(Date.UTC(y, m, d,  9, 30, 0) / 1000 as any);
+        const aftX1 = chart.timeScale().timeToCoordinate(Date.UTC(y, m, d, 16,  0, 0) / 1000 as any);
+        const aftX2 = chart.timeScale().timeToCoordinate(Date.UTC(y, m, d, 20,  0, 0) / 1000 as any);
+
+        if (preX1 !== null && preX2 !== null) {
+          ctx.fillStyle = "rgba(250, 200, 0, 0.07)";
+          ctx.fillRect(preX1, 0, preX2 - preX1, h);
+          if (preX2 - preX1 > 30) {
+            ctx.fillStyle = "rgba(250, 200, 0, 0.45)";
+            ctx.font = "10px sans-serif";
+            ctx.fillText("PRE", preX1 + 4, 14);
+          }
+        }
+
+        if (aftX1 !== null && aftX2 !== null) {
+          ctx.fillStyle = "rgba(150, 100, 255, 0.07)";
+          ctx.fillRect(aftX1, 0, aftX2 - aftX1, h);
+          if (aftX2 - aftX1 > 30) {
+            ctx.fillStyle = "rgba(150, 100, 255, 0.45)";
+            ctx.font = "10px sans-serif";
+            ctx.fillText("AH", aftX1 + 4, 14);
+          }
+        }
+      }
+    };
+
+    draw();
+    chart.timeScale().subscribeVisibleTimeRangeChange(draw);
+    window.addEventListener("resize", draw);
+
+    return () => {
+      try { chart.timeScale().unsubscribeVisibleTimeRangeChange(draw); } catch {}
+      window.removeEventListener("resize", draw);
+      try { canvas.remove(); } catch {}
+    };
+  }, [data, rightPadBars, showSessions]);
 
   return <div ref={chartContainerRef} style={{ width: "100%", height: `${height}px` }} />;
 }

@@ -123,7 +123,7 @@ def us_chart(
     try:
         import yfinance as yf
         is_minute = interval.endswith("m") and interval != "1mo"
-        df = yf.Ticker(ticker.upper()).history(period=period, interval=interval, auto_adjust=True)
+        df = yf.Ticker(ticker.upper()).history(period=period, interval=interval, auto_adjust=True, prepost=is_minute)
         if df is None or df.empty:
             return []
         records = []

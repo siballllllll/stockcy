@@ -968,7 +968,7 @@ function SearchPageInner() {
 
           <div style={{ flex: 1, display: "flex", alignItems: "stretch", justifyContent: "stretch", minHeight: "500px", padding: "0" }}>
             {chartData.length > 0 ? (
-              <Chart data={chartData} rightPadBars={rightPadBars} />
+              <Chart data={chartData} rightPadBars={rightPadBars} showSessions={!isKR && chartType === "minute"} />
             ) : (
               <div style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--color-muted)" }}>
                 <Loader2 className="animate-spin" size={32} />
