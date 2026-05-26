@@ -387,49 +387,43 @@ def _get_or_create_worksheet(sh, title, headers):
         return ws
 
 def _gsheet_backup_portfolio(portfolio_list, current_prices_df=None, owner="USER"):
-    """[구글 시트 백업 전용] 현재 포트폴리오 스냅샷을 '현재포트폴리오' 탭에 백업합니다. (Owner별 병합)"""
+    """[구글 시트 백업 전용] 현재 포트폴리오 스냅샷을 '현재포트폴리오' 탭에 백업합니다."""
     sh, msg = _get_spreadsheet()
     if not sh:
         return False, msg
     try:
         headers = ["소유자", "저장시간", "티커", "종목명", "수량", "매수가($)", "현재가($)", "수익금($)", "수익률(%)", "등급"]
         ws = _get_or_create_worksheet(sh, "현재포트폴리오", headers)
-        
-        # 기존 데이터 가져와서 다른 소유자 데이터만 유지
-        all_records = safe_get_all_records(ws)
-        other_records = [r for r in all_records if str(r.get("소유자", "USER")).upper() != owner.upper()]
-        
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+        # SQLite에서 모든 소유자 데이터를 읽어 전체 재구성 (구글 시트 read 제거)
+        conn = get_db_conn()
+        cursor = conn.cursor()
+        cursor.execute("SELECT owner, ticker, name, quantity, buy_price, rating FROM portfolio")
+        all_rows = cursor.fetchall()
+        conn.close()
+
         ws.clear()
         ws.append_row(headers)
-        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        
-        # 다른 소유자 데이터 복구
-        for r in other_records:
-            ws.append_row([
-                r.get("소유자", "USER"), r.get("저장시간", ""), r.get("티커", ""), r.get("종목명", ""),
-                r.get("수량", 0), r.get("매수가($)", 0), r.get("현재가($)", 0),
-                r.get("수익금($)", 0), r.get("수익률(%)", 0), r.get("등급", "-")
-            ])
-            
-        # 내 데이터 저장
-        for item in portfolio_list:
-            ticker = item["ticker"]
-            bp = item["buy_price"]
-            qty = item["quantity"]
-            name = item.get("name", ticker)
-            rating = item.get("rating", "-")
+        rows_to_add = []
+        for r in all_rows:
+            o = str(r["owner"]).upper()
+            tk = str(r["ticker"])
+            bp = float(r["buy_price"] or 0)
+            qty = float(r["quantity"] or 0)
             cp = bp
             profit, profit_pct = 0.0, 0.0
-            if current_prices_df is not None and not current_prices_df.empty:
-                if ticker in current_prices_df["심볼"].values:
-                    cp = current_prices_df[current_prices_df["심볼"] == ticker].iloc[0]["현재가($)"]
+            if o == owner.upper() and current_prices_df is not None and not current_prices_df.empty:
+                if tk in current_prices_df["심볼"].values:
+                    cp = current_prices_df[current_prices_df["심볼"] == tk].iloc[0]["현재가($)"]
                     invested = bp * qty
                     profit = (cp * qty) - invested
                     profit_pct = (profit / invested * 100) if invested > 0 else 0
-
-            ws.append_row([owner.upper(), now, ticker, name, qty,
-                           round(bp, 2), round(cp, 2),
-                           round(profit, 2), round(profit_pct, 2), rating])
+            rows_to_add.append([o, now, tk, str(r["name"]), qty,
+                                 round(bp, 2), round(cp, 2),
+                                 round(profit, 2), round(profit_pct, 2), str(r["rating"] or "-")])
+        if rows_to_add:
+            ws.append_rows(rows_to_add)
         return True, "성공"
     except Exception as e:
         print(f"Failed to backup portfolio to Google Sheets: {e}")
@@ -736,17 +730,9 @@ def _gsheet_backup_save_balance(owner: str, balance: float):
     try:
         headers = ["소유자", "잔고(₩)", "최근업데이트"]
         ws = _get_or_create_worksheet(sh, "모의투자계좌", headers)
-        records = safe_get_all_records(ws)
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        found = False
-        for idx, r in enumerate(records):
-            if str(r.get("소유자", "")).upper() == owner.upper():
-                found = True
-                ws.update_cell(idx + 2, 2, balance)
-                ws.update_cell(idx + 2, 3, now)
-                break
-        if not found:
-            ws.append_row([owner.upper(), balance, now])
+        # read 없이 append (시트는 로그 형태 — SQLite가 정본)
+        ws.append_row([owner.upper(), balance, now])
         return True
     except Exception as e:
         print(f"Failed to backup virtual balance to Google Sheets: {e}")
@@ -817,9 +803,7 @@ def _gsheet_backup_save_favorite(market_type: str, ticker: str, name: str):
     try:
         headers = ["추가시간", "시장", "티커", "종목명"]
         ws = _get_or_create_worksheet(sh, "즐겨찾기", headers)
-        existing = safe_get_all_records(ws)
-        if any(str(r.get("티커", "")).strip() == str(ticker).strip() for r in existing):
-            return True, "이미 존재함"
+        # 중복 체크는 SQLite에서 완료됨 — 구글 시트 read 없이 바로 append
         ws.append_row([
             datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             market_type, ticker, name
@@ -1364,10 +1348,7 @@ def _gsheet_backup_save_trade_analysis_record(trade_data: dict, analysis_result:
         ws = _get_or_create_worksheet(sh, "거래분석DB", headers)
         ticker = str(trade_data.get("ticker", ""))
         sell_date = str(trade_data.get("sell_date", ""))[:10]
-        existing = safe_get_all_records(ws)
-        for r in existing:
-            if str(r.get("티커", "")) == ticker and str(r.get("매도일", ""))[:10] == sell_date:
-                return True, "이미 저장됨"
+        # 중복 체크는 SQLite에서 완료됨 — 구글 시트 read 없이 바로 append
         trades_list = analysis_result.get("trades", [])
         tr = trades_list[0] if trades_list else {}
         ws.append_row([
