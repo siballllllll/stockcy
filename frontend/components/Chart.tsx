@@ -148,14 +148,36 @@ export default function Chart({ data, height = 450, colors = {}, rightPadBars = 
     canvas.style.cssText = "position:absolute;top:0;left:0;pointer-events:none;z-index:1;";
     container.appendChild(canvas);
 
-    // 데이터 타임스탬프에서 고유 거래일 추출 (fake-UTC = EST 그대로 저장)
-    const dates = new Map<string, [number, number, number]>();
-    for (const item of data) {
-      if (typeof item.time !== "number") continue;
-      const dt = new Date(item.time * 1000);
-      const y = dt.getUTCFullYear(), m = dt.getUTCMonth(), d = dt.getUTCDate();
-      const key = `${y}-${m}-${d}`;
-      if (!dates.has(key)) dates.set(key, [y, m, d]);
+    // 봉 간격(초): 다음 봉 시작 = 현재 봉 끝
+    const barWidth = data.length >= 2
+      ? (data[1].time as number) - (data[0].time as number)
+      : 300;
+
+    // fake-UTC 타임스탬프 기준 세션 구분 (EST 시각 그대로 UTC처럼 취급)
+    const getSession = (t: number) => {
+      const min = new Date(t * 1000).getUTCHours() * 60 + new Date(t * 1000).getUTCMinutes();
+      if (min < 9 * 60 + 30) return 0; // PRE
+      if (min < 16 * 60)     return 1; // MAIN
+      return 2;                         // AH
+    };
+
+    // 연속 PRE/AH 구간을 블록으로 추출 (실제 데이터 타임스탬프만 사용)
+    type Block = { isAH: boolean; tStart: number; tEnd: number };
+    const blocks: Block[] = [];
+    let curSess = -1, blockStart = 0;
+
+    for (let i = 0; i < data.length; i++) {
+      const sess = getSession(data[i].time as number);
+      if (sess !== curSess) {
+        if (i > 0 && (curSess === 0 || curSess === 2)) {
+          blocks.push({ isAH: curSess === 2, tStart: data[blockStart].time as number, tEnd: data[i].time as number });
+        }
+        curSess = sess;
+        blockStart = i;
+      }
+    }
+    if (curSess === 0 || curSess === 2) {
+      blocks.push({ isAH: curSess === 2, tStart: data[blockStart].time as number, tEnd: (data[data.length - 1].time as number) + barWidth });
     }
 
     const draw = () => {
@@ -168,39 +190,20 @@ export default function Chart({ data, height = 450, colors = {}, rightPadBars = 
       if (!ctx) return;
       ctx.clearRect(0, 0, w, h);
 
-      const visibleRange = chart.timeScale().getVisibleRange();
-      if (!visibleRange) return;
-      const { from, to } = visibleRange as { from: number; to: number };
-
-      const drawBand = (tStart: number, tEnd: number, fill: string, labelFill: string, label: string) => {
-        // 가시 범위와 겹치지 않으면 스킵
-        if (tEnd <= from || tStart >= to) return;
+      for (const { isAH, tStart, tEnd } of blocks) {
         const rawX1 = chart.timeScale().timeToCoordinate(tStart as any);
         const rawX2 = chart.timeScale().timeToCoordinate(tEnd as any);
-        // null이거나 화면 밖이면 가장자리로 클램프
-        const x1 = rawX1 !== null ? Math.max(0, rawX1) : 0;
-        const x2 = rawX2 !== null ? Math.min(w, rawX2) : w;
-        if (x2 <= x1) return;
-        ctx.fillStyle = fill;
+        if (rawX1 === null || rawX2 === null) continue;
+        const x1 = Math.max(0, rawX1);
+        const x2 = Math.min(w, rawX2);
+        if (x2 <= x1 || x2 < 0 || x1 > w) continue;
+        ctx.fillStyle = isAH ? "rgba(150, 100, 255, 0.07)" : "rgba(250, 200, 0, 0.07)";
         ctx.fillRect(x1, 0, x2 - x1, h);
         if (x2 - x1 > 30) {
-          ctx.fillStyle = labelFill;
+          ctx.fillStyle = isAH ? "rgba(150, 100, 255, 0.45)" : "rgba(250, 200, 0, 0.45)";
           ctx.font = "10px sans-serif";
-          ctx.fillText(label, x1 + 4, 14);
+          ctx.fillText(isAH ? "AH" : "PRE", x1 + 4, 14);
         }
-      };
-
-      for (const [y, m, d] of dates.values()) {
-        drawBand(
-          Date.UTC(y, m, d,  4,  0, 0) / 1000,
-          Date.UTC(y, m, d,  9, 30, 0) / 1000,
-          "rgba(250, 200, 0, 0.07)", "rgba(250, 200, 0, 0.45)", "PRE"
-        );
-        drawBand(
-          Date.UTC(y, m, d, 16,  0, 0) / 1000,
-          Date.UTC(y, m, d, 20,  0, 0) / 1000,
-          "rgba(150, 100, 255, 0.07)", "rgba(150, 100, 255, 0.45)", "AH"
-        );
       }
     };
 
