@@ -423,11 +423,11 @@ async def realtime_picks_kr(req: RealtimePicksRequest):
                     )
                     from ai_engine import analyze_kr_hot_sectors
 
-                    # 시장 데이터 병렬 수집
-                    mkt_task   = asyncio.to_thread(get_kr_market_index)
-                    vol_task   = asyncio.to_thread(get_kr_volume_ranking)
-                    chg_j_task = asyncio.to_thread(get_kr_change_ranking, "J")
-                    chg_q_task = asyncio.to_thread(get_kr_change_ranking, "Q")
+                    # 시장 데이터 병렬 수집 (각 태스크에 개별 타임아웃 → KIS API 무응답 시 영구 대기 방지)
+                    mkt_task   = asyncio.wait_for(asyncio.to_thread(get_kr_market_index),          timeout=20)
+                    vol_task   = asyncio.wait_for(asyncio.to_thread(get_kr_volume_ranking),        timeout=20)
+                    chg_j_task = asyncio.wait_for(asyncio.to_thread(get_kr_change_ranking, "J"),   timeout=20)
+                    chg_q_task = asyncio.wait_for(asyncio.to_thread(get_kr_change_ranking, "Q"),   timeout=20)
                     mkt_res, vol_res, chg_j, chg_q = await asyncio.gather(
                         mkt_task, vol_task, chg_j_task, chg_q_task,
                         return_exceptions=True
@@ -436,11 +436,11 @@ async def realtime_picks_kr(req: RealtimePicksRequest):
                     vol_rank = vol_res if isinstance(vol_res, list) else []
                     chg_rank = (chg_j if isinstance(chg_j, list) else []) + (chg_q if isinstance(chg_q, list) else [])
 
-                    # 핫 섹터 AI + 수급 데이터 병렬
+                    # 핫 섹터 AI + 수급 데이터 병렬 (수급 API도 타임아웃 추가)
                     yield _sse({"status": "running", "message": "🔥 핫 섹터 분석 및 수급 데이터 수집 중..."})
-                    hs_task  = asyncio.wait_for(asyncio.to_thread(analyze_kr_hot_sectors), timeout=95)
-                    inv_j_task = asyncio.to_thread(get_kr_frgn_inst_rank, "J", 30)
-                    inv_q_task = asyncio.to_thread(get_kr_frgn_inst_rank, "Q", 30)
+                    hs_task    = asyncio.wait_for(asyncio.to_thread(analyze_kr_hot_sectors),          timeout=95)
+                    inv_j_task = asyncio.wait_for(asyncio.to_thread(get_kr_frgn_inst_rank, "J", 30), timeout=25)
+                    inv_q_task = asyncio.wait_for(asyncio.to_thread(get_kr_frgn_inst_rank, "Q", 30), timeout=25)
                     hs_res, inv_j, inv_q = await asyncio.gather(
                         hs_task, inv_j_task, inv_q_task,
                         return_exceptions=True

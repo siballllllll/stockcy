@@ -55,6 +55,10 @@ export function PicksBoard() {
 
     const endpoint = kr ? "/api/ai/realtime-picks-kr" : "/api/ai/realtime-picks-us";
 
+    // 최대 3.5분 후 자동 타임아웃 (서버 응답 없을 때 로딩 무한 대기 방지)
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 210_000);
+
     connectSSE(
       endpoint,
       (evt) => {
@@ -83,12 +87,18 @@ export function PicksBoard() {
           setLoading(false);
         }
       },
-      { method: "POST", body: {} }
+      { method: "POST", body: {}, signal: controller.signal }
     ).then(() => {
+      clearTimeout(timeoutId);
       if (!unmountedRef.current) setLoading(false);
-    }).catch(() => {
+    }).catch((err: any) => {
+      clearTimeout(timeoutId);
       if (!unmountedRef.current) {
-        setStatusMsg("서버 연결 실패");
+        if (err?.name === "AbortError") {
+          setStatusMsg("⏱️ AI 분석 시간이 초과됐습니다 (3.5분). 잠시 후 다시 시도해주세요.");
+        } else {
+          setStatusMsg("서버 연결 실패");
+        }
         setLoading(false);
       }
     });

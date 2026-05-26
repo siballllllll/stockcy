@@ -137,6 +137,10 @@ export default function RealtimePicksBoard() {
     setSelectedPick(null);
     setMsg("실시간 시장 데이터 수집 중...");
 
+    // 최대 3.5분 후 자동 타임아웃 (서버 무응답 시 로딩 무한 대기 방지)
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 210_000);
+
     try {
       await connectSSE("/api/ai/realtime-picks-kr", (parsed) => {
         if (parsed.status === "running") {
@@ -164,10 +168,16 @@ export default function RealtimePicksBoard() {
           setMsg(`❌ 오류: ${parsed.message}`);
           setStatus("error");
         }
-      }, { method: "POST", body: {} });
+      }, { method: "POST", body: {}, signal: controller.signal });
     } catch (err: any) {
-      setMsg(`❌ 연결 오류: ${err.message}`);
+      if (err?.name === "AbortError") {
+        setMsg("⏱️ AI 분析 시간이 초과됐습니다 (3.5분). 잠시 후 다시 시도해주세요.");
+      } else {
+        setMsg(`❌ 연결 오류: ${err.message}`);
+      }
       setStatus("error");
+    } finally {
+      clearTimeout(timeoutId);
     }
   };
 

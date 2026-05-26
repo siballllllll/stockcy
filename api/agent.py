@@ -153,17 +153,25 @@ async def ai_trading_loop():
     
     while True:
         try:
-            logger.info("🔍 AI Agent: 시장 스캔 시작...")
-            
+            kr_open = _is_market_open("국내")
+            us_open = _is_market_open("미국")
+
+            if not kr_open and not us_open:
+                logger.info("AI Agent: 모든 시장 휴장 중. 스캔 건너뜀.")
+                await asyncio.sleep(INTERVAL_SECONDS)
+                continue
+
+            logger.info(f"🔍 AI Agent: 시장 스캔 시작... (국내: {'개장' if kr_open else '휴장'}, 미국: {'개장' if us_open else '휴장'})")
+
             # 1. 감시 대상 종목 로드 및 동적 시장 주도주 우주(Universe) 결합
             # (사용자 즐겨찾기 + 실시간 국내/미국 거래대금 상위 + 상승률 상위)
             favorites, _ = load_favorites()
             if not favorites:
                 favorites = []
-            
+
             scan_universe = []
             seen_tickers = set()
-            
+
             # (1) 사용자 즐겨찾기 최우선 추가
             for fav in favorites:
                 ticker = fav.get("티커", "")
@@ -175,75 +183,77 @@ async def ai_trading_loop():
                         "시장": fav.get("시장", "국내"),
                         "source": "FAVORITE"
                     })
-            
-            # (2) 국내 실시간 거래대금 상위 5개 추가
-            try:
-                from data_kr import get_kr_volume_ranking
-                kr_vols = get_kr_volume_ranking() or []
-                for item in kr_vols[:5]:
-                    code = item.get("종목코드", "")
-                    if code and code not in seen_tickers:
-                        seen_tickers.add(code)
-                        scan_universe.append({
-                            "티커": code,
-                            "종목명": item.get("종목명", code),
-                            "시장": "국내",
-                            "source": "KR_HOT_VOLUME"
-                        })
-            except Exception as e:
-                logger.error(f"Failed to fetch KR volume ranking: {e}")
-                
-            # (3) 국내 실시간 등락률 상위 5개 추가 (코스피 3개 + 코스닥 3개)
-            try:
-                from data_kr import get_kr_change_ranking
-                kr_changes_j = get_kr_change_ranking(market="J") or []
-                kr_changes_q = get_kr_change_ranking(market="Q") or []
-                for item in kr_changes_j[:3] + kr_changes_q[:3]:
-                    code = item.get("종목코드", "")
-                    if code and code not in seen_tickers:
-                        seen_tickers.add(code)
-                        scan_universe.append({
-                            "티커": code,
-                            "종목명": item.get("종목명", code),
-                            "시장": "국내",
-                            "source": "KR_HOT_CHANGE"
-                        })
-            except Exception as e:
-                logger.error(f"Failed to fetch KR change ranking: {e}")
-                
-            # (4) 미국 실시간 거래대금 상위 5개 추가
-            try:
-                from data_kr import get_us_volume_ranking
-                us_vols = get_us_volume_ranking() or []
-                for item in us_vols[:5]:
-                    ticker = item.get("티커", "")
-                    if ticker and ticker not in seen_tickers:
-                        seen_tickers.add(ticker)
-                        scan_universe.append({
-                            "티커": ticker,
-                            "종목명": ticker,
-                            "시장": "미국",
-                            "source": "US_HOT_VOLUME"
-                        })
-            except Exception as e:
-                logger.error(f"Failed to fetch US volume ranking: {e}")
-                
-            # (5) 미국 실시간 등락률 상위 5개 추가
-            try:
-                from data_kr import get_us_change_ranking
-                us_changes = get_us_change_ranking() or []
-                for item in us_changes[:5]:
-                    ticker = item.get("티커", "")
-                    if ticker and ticker not in seen_tickers:
-                        seen_tickers.add(ticker)
-                        scan_universe.append({
-                            "티커": ticker,
-                            "종목명": ticker,
-                            "시장": "미국",
-                            "source": "US_HOT_CHANGE"
-                        })
-            except Exception as e:
-                logger.error(f"Failed to fetch US change ranking: {e}")
+
+            if kr_open:
+                # (2) 국내 실시간 거래대금 상위 5개 추가
+                try:
+                    from data_kr import get_kr_volume_ranking
+                    kr_vols = get_kr_volume_ranking() or []
+                    for item in kr_vols[:5]:
+                        code = item.get("종목코드", "")
+                        if code and code not in seen_tickers:
+                            seen_tickers.add(code)
+                            scan_universe.append({
+                                "티커": code,
+                                "종목명": item.get("종목명", code),
+                                "시장": "국내",
+                                "source": "KR_HOT_VOLUME"
+                            })
+                except Exception as e:
+                    logger.error(f"Failed to fetch KR volume ranking: {e}")
+
+                # (3) 국내 실시간 등락률 상위 5개 추가 (코스피 3개 + 코스닥 3개)
+                try:
+                    from data_kr import get_kr_change_ranking
+                    kr_changes_j = get_kr_change_ranking(market="J") or []
+                    kr_changes_q = get_kr_change_ranking(market="Q") or []
+                    for item in kr_changes_j[:3] + kr_changes_q[:3]:
+                        code = item.get("종목코드", "")
+                        if code and code not in seen_tickers:
+                            seen_tickers.add(code)
+                            scan_universe.append({
+                                "티커": code,
+                                "종목명": item.get("종목명", code),
+                                "시장": "국내",
+                                "source": "KR_HOT_CHANGE"
+                            })
+                except Exception as e:
+                    logger.error(f"Failed to fetch KR change ranking: {e}")
+
+            if us_open:
+                # (4) 미국 실시간 거래대금 상위 5개 추가
+                try:
+                    from data_kr import get_us_volume_ranking
+                    us_vols = get_us_volume_ranking() or []
+                    for item in us_vols[:5]:
+                        ticker = item.get("티커", "")
+                        if ticker and ticker not in seen_tickers:
+                            seen_tickers.add(ticker)
+                            scan_universe.append({
+                                "티커": ticker,
+                                "종목명": ticker,
+                                "시장": "미국",
+                                "source": "US_HOT_VOLUME"
+                            })
+                except Exception as e:
+                    logger.error(f"Failed to fetch US volume ranking: {e}")
+
+                # (5) 미국 실시간 등락률 상위 5개 추가
+                try:
+                    from data_kr import get_us_change_ranking
+                    us_changes = get_us_change_ranking() or []
+                    for item in us_changes[:5]:
+                        ticker = item.get("티커", "")
+                        if ticker and ticker not in seen_tickers:
+                            seen_tickers.add(ticker)
+                            scan_universe.append({
+                                "티커": ticker,
+                                "종목명": ticker,
+                                "시장": "미국",
+                                "source": "US_HOT_CHANGE"
+                            })
+                except Exception as e:
+                    logger.error(f"Failed to fetch US change ranking: {e}")
             
             if not scan_universe:
                 logger.info("AI Agent: 스캔할 감시 대상 종목이 없습니다. 대기...")
@@ -329,11 +339,18 @@ async def ai_trading_loop():
                     if market == "미국":
                         qty = 1 # 미국 주식은 1주
                     
-                    # 매매 대금 계산 (원화 환산 기준)
-                    trade_cost = current_price * qty
+                    # 매매 대금 및 매수 수수료 계산 (온라인 기본 수수료 적용)
+                    base_cost = current_price * qty
+                    fee_rate = 0.00015 if market == "국내" else 0.0007  # 국내 0.015%, 미국 0.07%
+                    fee = base_cost * fee_rate
+                    trade_cost = base_cost + fee
+                    
                     if market == "미국":
                         rate = _get_usd_krw_rate()
                         trade_cost = trade_cost * rate
+                        fee_krw = fee * rate
+                    else:
+                        fee_krw = fee
                         
                     if ai_cash < trade_cost:
                         logger.info(f"AI Agent: {name} 매수 자금 부족 (잔고: {ai_cash:,.0f}원, 필요: {trade_cost:,.0f}원). 매매 보류.")
@@ -363,21 +380,38 @@ async def ai_trading_loop():
                     save_portfolio_to_gsheet(ai_portfolio, owner=AI_OWNER_NAME)
                     
                     # 텔레그램 알림
-                    msg = f"🤖 [AI 매수 진입]\n출처: {source_korean}\n종목: {name} ({ticker})\n매수가: {current_price}\n수량: {qty}주\n사용 예수금: {trade_cost:,.0f}원\n남은 예수금: {new_ai_cash:,.0f}원\n사유: {reason}"
+                    currency = "$" if market == "미국" else "₩"
+                    msg = f"🤖 [AI 매수 진입]\n출처: {source_korean}\n종목: {name} ({ticker})\n매수가: {currency}{current_price:,.2f}\n수량: {qty}주\n수수료(원화 환산): {fee_krw:,.1f}원\n사용 예수금(수수료 포함): {trade_cost:,.0f}원\n남은 예수금: {new_ai_cash:,.0f}원\n사유: {reason}"
                     send_price_alert(msg)
                     
                 elif action == "SELL" and position == "HOLDING" and confidence >= 60:
-                    # 매도 체결 로직
+                    # 매도 체결 로직 및 거래세/수수료 공제
                     qty = holding["quantity"]
-                    profit = (current_price - holding["buy_price"]) * qty
-                    profit_pct = (current_price - holding["buy_price"]) / holding["buy_price"] * 100 if holding["buy_price"] > 0 else 0
+                    bp = holding["buy_price"]
+                    sp = current_price
+                    
+                    # 수수료 및 거래세율 적용 (국내 0.195% 매도세 포함, 미국 SEC Fee 포함 0.08%)
+                    if market == "국내":
+                        buy_fee_rate = 0.00015   # 0.015%
+                        sell_fee_rate = 0.00195  # 0.015% + 0.18% (거래세)
+                    else:
+                        buy_fee_rate = 0.0007    # 0.07%
+                        sell_fee_rate = 0.0008   # 0.07% + 0.01% (SEC Fee 등)
+                        
+                    # 실질 투자금(수수료 가산) 및 실질 회수금(수수료/거래세 차감) 계산
+                    invested = bp * qty * (1 + buy_fee_rate)
+                    returned = sp * qty * (1 - sell_fee_rate)
+                    
+                    # 실질 정밀 손익 및 수익률 책정 (수수료 제세금 완전 공제)
+                    profit = returned - invested
+                    profit_pct = (profit / invested * 100) if invested > 0 else 0.0
                     
                     # 1. 예수금 가산 및 저장 (원화 환산 기준)
                     from db import load_virtual_balances, save_virtual_balance
                     balances = load_virtual_balances()
                     ai_cash = balances.get("AI", 10000000.0)
                     
-                    trade_revenue = current_price * qty
+                    trade_revenue = returned
                     if market == "미국":
                         rate = _get_usd_krw_rate()
                         trade_revenue = trade_revenue * rate
@@ -390,8 +424,8 @@ async def ai_trading_loop():
                         "ticker": ticker,
                         "name": name,
                         "quantity": qty,
-                        "buy_price": holding["buy_price"],
-                        "sell_price": current_price,
+                        "buy_price": bp,
+                        "sell_price": sp,
                         "profit": profit,
                         "profit_pct": profit_pct,
                         "result": "수익" if profit >= 0 else "손실",
@@ -404,7 +438,8 @@ async def ai_trading_loop():
                     save_portfolio_to_gsheet(ai_portfolio, owner=AI_OWNER_NAME)
                     
                     # 텔레그램 알림
-                    msg = f"🤖 [AI 매도 청산]\n종목: {name}\n매도가: {current_price}\n손익: {profit_pct:.2f}%\n회수 예수금: {trade_revenue:,.0f}원\n현재 예수금: {new_ai_cash:,.0f}원\n사유: {reason}"
+                    currency = "$" if market == "미국" else "₩"
+                    msg = f"🤖 [AI 매도 청산]\n종목: {name}\n매도가: {currency}{sp:,.2f}\n실질 손익(수수료/세금 공제): {currency}{profit:+,.2f} ({profit_pct:+.2f}%)\n회수 예수금(원화 환산): {trade_revenue:,.0f}원\n현재 예수금: {new_ai_cash:,.0f}원\n사유: {reason}"
                     send_price_alert(msg)
                     
             logger.info(f"AI Agent: 1주기 스캔 완료. {INTERVAL_SECONDS}초 대기...")

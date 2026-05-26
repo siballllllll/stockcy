@@ -93,11 +93,13 @@ async function readSSE(
   url: string,
   method: "GET" | "POST" = "GET",
   body?: object,
-  onMessage?: (msg: string) => void
+  onMessage?: (msg: string) => void,
+  signal?: AbortSignal
 ): Promise<any> {
   const opts: RequestInit = {
     method,
     headers: { "Content-Type": "application/json" },
+    signal,
   };
   if (body) opts.body = JSON.stringify(body);
   const res = await fetch(`${BASE_URL}${url}`, opts);
@@ -873,16 +875,32 @@ function ScenariosPageInner() {
     setStatusMsg("AI 시나리오 분석 중...");
     setIssueIdx(0);
     setReady("scenarios", false);
+
+    // 최대 3분 후 자동 타임아웃 (서버 무응답 시 로딩 영구 대기 방지)
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => { if (!cancelled) controller.abort(); }, 180_000);
+
     (async () => {
       try {
         const result = await readSSE(
           `/api/ai/scenarios?use_cache=false`,
           "GET",
           undefined,
-          (msg) => { if (!cancelled) setStatusMsg(msg); }
+          (msg) => { if (!cancelled) setStatusMsg(msg); },
+          controller.signal
         );
         if (!cancelled) {
+          if (result?.error) {
+            setLoadError(`AI 분석 오류: ${result.error}`);
+            setLoading(false);
+            return;
+          }
           const newIssues = result?.issues ?? [];
+          if (newIssues.length === 0) {
+            setLoadError("AI 분석 결과를 받지 못했습니다. 잠시 후 다시 시도해주세요.");
+            setLoading(false);
+            return;
+          }
           setIssues(newIssues);
           const ts = new Date().toLocaleString("ko-KR");
           setLastUpdated(ts);
@@ -893,14 +911,20 @@ function ScenariosPageInner() {
           setLoading(false);
           setReady("scenarios", true);
         }
-      } catch (e) {
+      } catch (e: any) {
         if (!cancelled) {
-          setLoadError(String(e));
+          if (e?.name === "AbortError") {
+            setLoadError("AI 시나리오 분석 시간이 초과됐습니다 (3분). 잠시 후 다시 시도해주세요.");
+          } else {
+            setLoadError(String(e));
+          }
           setLoading(false);
         }
+      } finally {
+        clearTimeout(timeoutId);
       }
     })();
-    return () => { cancelled = true; };
+    return () => { cancelled = true; controller.abort(); clearTimeout(timeoutId); };
   }, [fetchTrigger]);
 
   const handleUpdate = () => {
