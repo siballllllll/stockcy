@@ -412,16 +412,13 @@ function SearchPageInner() {
       const rawTime = d.일자 || d.date || d.날짜 || d.time || d.datetime || "";
       let finalTime: any = rawTime;
       if (chartType === "minute") {
-        // 백엔드는 KST(한국시간) datetime 문자열로 내려줌
-        // new Date()는 KST 문자열을 로컬 시간으로 파싱하므로 UTC 변환 필요
-        // lightweight-charts는 UTC Unix timestamp(초) 기준
+        // KST 시간을 UTC 변환 없이 그대로 사용 → 차트에 KST 시간(09:00~15:30)이 표시됨
         const kstStr = rawTime.replace("T", " ").slice(0, 19); // "2024-05-26 09:05:00"
         const [datePart, timePart] = kstStr.split(" ");
         const [y, mo, d2] = datePart.split("-").map(Number);
         const [h, min, s] = (timePart || "00:00:00").split(":").map(Number);
-        // KST = UTC+9, UTC timestamp = KST - 9h
-        const utcMs = Date.UTC(y, mo - 1, d2, h - 9, min, s || 0);
-        finalTime = Math.floor(utcMs / 1000);
+        const ms = Date.UTC(y, mo - 1, d2, h, min, s || 0);
+        finalTime = Math.floor(ms / 1000);
       } else {
         finalTime = rawTime.split(" ")[0];
       }
