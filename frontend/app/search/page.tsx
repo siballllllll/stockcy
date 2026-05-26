@@ -440,6 +440,30 @@ function SearchPageInner() {
     });
   }, [chartDataRaw, chartType]);
 
+  // 분봉 차트 오른쪽 빈 공간: 장 마감까지 남은 봉 수
+  const rightPadBars = useMemo(() => {
+    if (chartType !== "minute") return 0;
+    const now = new Date();
+    if (isKR) {
+      const kstH = (now.getUTCHours() + 9) % 24;
+      const kstM = now.getUTCMinutes();
+      const currentMin = kstH * 60 + kstM;
+      const closeMin   = 15 * 60 + 30; // 15:30
+      const remaining  = closeMin - currentMin;
+      return remaining > 0 ? Math.ceil(remaining / minuteInterval) : 0;
+    } else {
+      // EDT(UTC-4) 기준, 동부 표준시(UTC-5)는 11월~3월
+      const isDST = now.getMonth() >= 2 && now.getMonth() <= 10;
+      const offset = isDST ? -4 : -5;
+      const estH = ((now.getUTCHours() + offset) % 24 + 24) % 24;
+      const estM = now.getUTCMinutes();
+      const currentMin = estH * 60 + estM;
+      const closeMin   = 16 * 60; // 16:00
+      const remaining  = closeMin - currentMin;
+      return remaining > 0 ? Math.ceil(remaining / minuteInterval) : 0;
+    }
+  }, [chartType, isKR, minuteInterval]);
+
   // 자동완성 (KR: 코드+이름+초성 / US: 티커+한국어이름+초성)
   const filteredStocks = useMemo(() => {
     if (!searchQuery.trim()) return [];
@@ -947,7 +971,7 @@ function SearchPageInner() {
 
           <div style={{ flex: 1, display: "flex", alignItems: "stretch", justifyContent: "stretch", minHeight: "500px", padding: "0" }}>
             {chartData.length > 0 ? (
-              <Chart data={chartData} />
+              <Chart data={chartData} rightPadBars={rightPadBars} />
             ) : (
               <div style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--color-muted)" }}>
                 <Loader2 className="animate-spin" size={32} />

@@ -19,9 +19,10 @@ interface ChartProps {
     upColor?: string;
     downColor?: string;
   };
+  rightPadBars?: number; // 마감까지 남은 빈 봉 수
 }
 
-export default function Chart({ data, height = 450, colors = {} }: ChartProps) {
+export default function Chart({ data, height = 450, colors = {}, rightPadBars = 0 }: ChartProps) {
   const chartContainerRef = useRef<HTMLDivElement>(null);
   const chartRef          = useRef<IChartApi | null>(null);
   const seriesRef         = useRef<any>(null);
@@ -49,8 +50,8 @@ export default function Chart({ data, height = 450, colors = {} }: ChartProps) {
       timeScale: {
         timeVisible: true,
         secondsVisible: false,
-        fixLeftEdge: true,  // 왼쪽 데이터 끝 도달 시 추가 드래그 방지
-        fixRightEdge: true, // 오른쪽 데이터 끝 도달 시 추가 드래그 방지
+        fixLeftEdge: true,
+        fixRightEdge: rightPadBars === 0, // 빈 봉 패딩 있을 때는 오른쪽 고정 해제
       },
     });
 
@@ -130,8 +131,11 @@ export default function Chart({ data, height = 450, colors = {} }: ChartProps) {
       color: d.close >= d.open ? "rgba(255,60,60,0.5)" : "rgba(50,150,255,0.5)",
     })) as any);
 
+    if (rightPadBars > 0) {
+      chartRef.current?.timeScale().applyOptions({ rightOffset: rightPadBars });
+    }
     chartRef.current?.timeScale().fitContent();
-  }, [data]);
+  }, [data, rightPadBars]);
 
   return <div ref={chartContainerRef} style={{ width: "100%", height: `${height}px` }} />;
 }
