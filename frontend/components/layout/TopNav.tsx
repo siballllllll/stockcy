@@ -90,6 +90,9 @@ export function TopNav() {
           <span style={{ fontSize: "1.1rem", fontWeight: 800, color: "var(--color-accent)", letterSpacing: "-0.02em" }}>
             STOCKCY
           </span>
+          <span style={{ fontSize: "0.65rem", fontWeight: 500, color: "var(--color-muted)", marginLeft: "6px", opacity: 0.7 }}>
+            v2.0.0
+          </span>
         </div>
 
         {/* 탭 목록 */}

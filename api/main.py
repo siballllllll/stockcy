@@ -22,6 +22,7 @@ import api.core.streamlit_mock  # noqa: F401
 # ── 3. FastAPI 및 라우터 임포트 ──────────────────────────────────────────────
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from version import APP_VERSION
 
 from api.routers import (
     market_kr as kr,
@@ -37,7 +38,7 @@ from api.routers import (
 app = FastAPI(
     title="Stockcy Backend API",
     description="국내/미국 주식 데이터 및 AI 분석 API",
-    version="2.0.0",
+    version=APP_VERSION,
 )
 
 # ── 5. 미들웨어 설정 ─────────────────────────────────────────────────────────
@@ -70,7 +71,11 @@ app.include_router(admin.router,      prefix="/api/admin",    tags=["관리자"]
 # ── 7. 헬스체크 ───────────────────────────────────────────────────────────────
 @app.get("/api/health", tags=["시스템"])
 def health():
-    return {"status": "ok", "app": "Stockcy API v1.0"}
+    return {"status": "ok", "app": f"Stockcy API v{APP_VERSION}"}
+
+@app.get("/api/version", tags=["시스템"])
+def get_version():
+    return {"version": APP_VERSION}
 
 # ── 8. 백그라운드 태스크 ───────────────────────────────────────────────────────
 import asyncio
