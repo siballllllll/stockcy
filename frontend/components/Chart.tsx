@@ -168,41 +168,39 @@ export default function Chart({ data, height = 450, colors = {}, rightPadBars = 
       if (!ctx) return;
       ctx.clearRect(0, 0, w, h);
 
+      const visibleRange = chart.timeScale().getVisibleRange();
+      if (!visibleRange) return;
+      const { from, to } = visibleRange as { from: number; to: number };
+
+      const drawBand = (tStart: number, tEnd: number, fill: string, labelFill: string, label: string) => {
+        // 가시 범위와 겹치지 않으면 스킵
+        if (tEnd <= from || tStart >= to) return;
+        const rawX1 = chart.timeScale().timeToCoordinate(tStart as any);
+        const rawX2 = chart.timeScale().timeToCoordinate(tEnd as any);
+        // null이거나 화면 밖이면 가장자리로 클램프
+        const x1 = rawX1 !== null ? Math.max(0, rawX1) : 0;
+        const x2 = rawX2 !== null ? Math.min(w, rawX2) : w;
+        if (x2 <= x1) return;
+        ctx.fillStyle = fill;
+        ctx.fillRect(x1, 0, x2 - x1, h);
+        if (x2 - x1 > 30) {
+          ctx.fillStyle = labelFill;
+          ctx.font = "10px sans-serif";
+          ctx.fillText(label, x1 + 4, 14);
+        }
+      };
+
       for (const [y, m, d] of dates.values()) {
-        const preX1 = chart.timeScale().timeToCoordinate(Date.UTC(y, m, d,  4,  0, 0) / 1000 as any);
-        const preX2 = chart.timeScale().timeToCoordinate(Date.UTC(y, m, d,  9, 30, 0) / 1000 as any);
-        const aftX1 = chart.timeScale().timeToCoordinate(Date.UTC(y, m, d, 16,  0, 0) / 1000 as any);
-        const aftX2 = chart.timeScale().timeToCoordinate(Date.UTC(y, m, d, 20,  0, 0) / 1000 as any);
-
-        // 프리마켓: 09:30(preX2)만 화면 내에 있으면 그림 — preX1이 null이면 왼쪽 가장자리(0)까지
-        if (preX2 !== null) {
-          const x1 = preX1 ?? 0;
-          const width = preX2 - x1;
-          if (width > 0) {
-            ctx.fillStyle = "rgba(250, 200, 0, 0.07)";
-            ctx.fillRect(x1, 0, width, h);
-            if (width > 30) {
-              ctx.fillStyle = "rgba(250, 200, 0, 0.45)";
-              ctx.font = "10px sans-serif";
-              ctx.fillText("PRE", x1 + 4, 14);
-            }
-          }
-        }
-
-        // 애프터마켓: 16:00(aftX1)만 화면 내에 있으면 그림 — aftX2가 null이면 오른쪽 가장자리(w)까지
-        if (aftX1 !== null) {
-          const x2 = aftX2 ?? w;
-          const width = x2 - aftX1;
-          if (width > 0) {
-            ctx.fillStyle = "rgba(150, 100, 255, 0.07)";
-            ctx.fillRect(aftX1, 0, width, h);
-            if (width > 30) {
-              ctx.fillStyle = "rgba(150, 100, 255, 0.45)";
-              ctx.font = "10px sans-serif";
-              ctx.fillText("AH", aftX1 + 4, 14);
-            }
-          }
-        }
+        drawBand(
+          Date.UTC(y, m, d,  4,  0, 0) / 1000,
+          Date.UTC(y, m, d,  9, 30, 0) / 1000,
+          "rgba(250, 200, 0, 0.07)", "rgba(250, 200, 0, 0.45)", "PRE"
+        );
+        drawBand(
+          Date.UTC(y, m, d, 16,  0, 0) / 1000,
+          Date.UTC(y, m, d, 20,  0, 0) / 1000,
+          "rgba(150, 100, 255, 0.07)", "rgba(150, 100, 255, 0.45)", "AH"
+        );
       }
     };
 
