@@ -8,6 +8,11 @@ import { useMarket } from "@/lib/market-context";
 
 const PX_PER_SEC = 80;
 
+// 국내 대표 종목 (코드 순)
+const KR_REPS = ["005930","000660","005380","035420","051910","005490","000270","035720","096770","028260","012330","068270","247540","373220"];
+// 미국 대표 종목
+const US_REPS = ["AAPL","MSFT","NVDA","AMZN","GOOGL","META","TSLA","AVGO","JPM","V","UNH","LLY","XOM","WMT","COST"];
+
 function IdxItem({ name, price, changePct }: { name: string; price: number; changePct: number }) {
   if (!price) return null;
   const up    = changePct > 0;
@@ -101,6 +106,8 @@ export function MarketTickerBar() {
   const { data: fx }      = useSWR("usd-krw-rate",             () => api.us.exchangeRate(),                        { refreshInterval: 300000, revalidateOnFocus: false });
   const { data: gainers } = useSWR("kr-top-gainers",           () => api.kr.changeRanking("KOSPI", "up") as Promise<any[]>, { refreshInterval: 300000, revalidateOnFocus: false });
   const { data: volumes } = useSWR("kr-top-volumes",           () => api.kr.volumeRanking("ALL")         as Promise<any[]>, { refreshInterval: 300000, revalidateOnFocus: false });
+  const { data: krReps }  = useSWR("kr-rep-stocks",            () => api.kr.stocksBulk(KR_REPS)          as Promise<Record<string, any>>, { refreshInterval: 60000,  revalidateOnFocus: false });
+  const { data: usReps }  = useSWR("us-rep-stocks",            () => api.us.stocks(US_REPS)               as Promise<any[]>, { refreshInterval: 60000,  revalidateOnFocus: false });
 
   const topGainers = Array.isArray(gainers)
     ? gainers.slice(0, 8).map((g: any) => ({
@@ -118,7 +125,7 @@ export function MarketTickerBar() {
 
   return (
     <div style={{ background: "var(--color-surface)", borderBottom: "1px solid var(--color-border)" }}>
-      {/* 윗줄: 시장 탭에 따라 국내/미국 지수 */}
+      {/* 윗줄: 시장 탭에 따라 국내/미국 지수 + 대표 종목 */}
       <div style={{ borderBottom: "1px solid rgba(255,255,255,0.04)" }}>
         <TickerRow>
           {market === "KR" ? (
@@ -126,6 +133,24 @@ export function MarketTickerBar() {
               {kr?.KOSPI  && <IdxItem name="KOSPI"  price={kr.KOSPI.index}  changePct={kr.KOSPI.change_pct} />}
               {DOT}
               {kr?.KOSDAQ && <IdxItem name="KOSDAQ" price={kr.KOSDAQ.index} changePct={kr.KOSDAQ.change_pct} />}
+              {krReps && Object.keys(krReps).length > 0 && (
+                <>
+                  {SEP}
+                  {KR_REPS.map((code, i) => {
+                    const d = (krReps as any)[code];
+                    if (!d) return null;
+                    const price = d.price ?? d["현재가"] ?? 0;
+                    const chg   = d.change_pct ?? d["등락률(%)"] ?? 0;
+                    const name  = d.name ?? d["종목명"] ?? code;
+                    return (
+                      <span key={code} style={{ display: "inline-flex", alignItems: "center", gap: "1.5rem" }}>
+                        <StockItem name={name} code={code} changePct={chg} price={price} />
+                        {i < KR_REPS.length - 1 && DOT}
+                      </span>
+                    );
+                  })}
+                </>
+              )}
             </>
           ) : (
             <>
@@ -136,6 +161,22 @@ export function MarketTickerBar() {
               {us?.DOW         && <IdxItem name="DOW"     price={us.DOW.price}        changePct={us.DOW.change_pct} />}
               {DOT}
               {us?.VIX         && <IdxItem name="VIX"     price={us.VIX.price}        changePct={us.VIX.change_pct} />}
+              {Array.isArray(usReps) && usReps.length > 0 && (
+                <>
+                  {SEP}
+                  {usReps.map((d: any, i: number) => {
+                    const ticker = d["심볼"] ?? d.ticker ?? "";
+                    const price  = d["현재가($)"] ?? d.price ?? 0;
+                    const chg    = d["등락률(%)"] ?? d.change_pct ?? 0;
+                    return (
+                      <span key={ticker} style={{ display: "inline-flex", alignItems: "center", gap: "1.5rem" }}>
+                        <IdxItem name={ticker} price={price} changePct={chg} />
+                        {i < usReps.length - 1 && DOT}
+                      </span>
+                    );
+                  })}
+                </>
+              )}
             </>
           )}
         </TickerRow>
