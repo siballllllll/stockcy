@@ -517,4 +517,27 @@ US_SECTOR_MAP = {
             {"name": "리튬아메리카스",         "ticker": "LAC",   "exchange": "NYSE"},
         ],
     },
+    "주요 ETF": {
+        "시장 지수 ETF": [
+            {"name": "SPDR S&P 500",           "ticker": "SPY",   "exchange": "NYSE"},
+            {"name": "Invesco QQQ (나스닥100)",  "ticker": "QQQ",   "exchange": "NASDAQ"},
+            {"name": "Vanguard S&P 500",       "ticker": "VOO",   "exchange": "NYSE"},
+            {"name": "iShares Russell 2000",   "ticker": "IWM",   "exchange": "NYSE"},
+            {"name": "Dow Jones Industrial",   "ticker": "DIA",   "exchange": "NYSE"},
+        ],
+        "레버리지/인버스 ETF": [
+            {"name": "나스닥 3배 레버리지",      "ticker": "TQQQ",  "exchange": "NASDAQ"},
+            {"name": "나스닥 3배 인버스",        "ticker": "SQQQ",  "exchange": "NASDAQ"},
+            {"name": "반도체 3배 레버리지",      "ticker": "SOXL",  "exchange": "NYSE"},
+            {"name": "반도체 3배 인버스",        "ticker": "SOXS",  "exchange": "NYSE"},
+            {"name": "S&P500 3배 레버리지",      "ticker": "UPRO",  "exchange": "NYSE"},
+        ],
+        "배당/채권/기타 ETF": [
+            {"name": "Schwab US 배당주",         "ticker": "SCHD",  "exchange": "NYSE"},
+            {"name": "JPMorgan 배당 프리미엄",   "ticker": "JEPI",  "exchange": "NYSE"},
+            {"name": "미국 20년 이상 장기채",    "ticker": "TLT",   "exchange": "NASDAQ"},
+            {"name": "미국 단기채",              "ticker": "SHV",   "exchange": "NASDAQ"},
+            {"name": "비트코인 현물 ETF",        "ticker": "IBIT",  "exchange": "NASDAQ"},
+        ],
+    },
 }

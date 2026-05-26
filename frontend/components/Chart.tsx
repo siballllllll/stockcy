@@ -49,6 +49,8 @@ export default function Chart({ data, height = 450, colors = {} }: ChartProps) {
       timeScale: {
         timeVisible: true,
         secondsVisible: false,
+        fixLeftEdge: true,  // 왼쪽 데이터 끝 도달 시 추가 드래그 방지
+        fixRightEdge: true, // 오른쪽 데이터 끝 도달 시 추가 드래그 방지
       },
     });
 
@@ -78,12 +80,28 @@ export default function Chart({ data, height = 450, colors = {} }: ChartProps) {
     chartRef.current  = chart;
     seriesRef.current = { candlestick: candlestickSeries, ma5: ma5Series, ma20: ma20Series, ma60: ma60Series, ma120: ma120Series, volume: volumeSeries };
 
+    // ── 차트 너비/높이 꽉 차도록 Resize 핸들러 복원 ───────────────────────
+    const handleResize = () => {
+      if (chartContainerRef.current && chartRef.current) {
+        chartRef.current.applyOptions({
+          width: chartContainerRef.current.clientWidth,
+          height: chartContainerRef.current.clientHeight || height,
+        });
+      }
+    };
+
+    window.addEventListener("resize", handleResize);
+    // 최초 렌더링 후 컨테이너 크기 안착 시점 보정 (100ms 딜레이 실행)
+    const timer = setTimeout(handleResize, 100);
+
     return () => {
+      window.removeEventListener("resize", handleResize);
+      clearTimeout(timer);
       chart.remove();
       chartRef.current  = null;
       seriesRef.current = null;
     };
-  }, [backgroundColor, textColor, upColor, downColor]);
+  }, [backgroundColor, textColor, upColor, downColor, height]);
 
   useEffect(() => {
     if (!seriesRef.current || !data || data.length === 0) return;

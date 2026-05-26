@@ -4,9 +4,9 @@ import { useRouter } from "next/navigation";
 import useSWR from "swr";
 import { api } from "@/lib/api";
 import type { Favorite, KrStock, UsStock } from "@/lib/types";
-import { Star, RefreshCw, Send, Trash2, Plus, Zap, BarChart2, Bell, TrendingUp, BookOpen, Loader2, Brain } from "lucide-react";
+import { Star, RefreshCw, Send, Trash2, Plus, Zap, BarChart2, Bell, TrendingUp, BookOpen, Loader2, Brain, Sparkles, AlertCircle } from "lucide-react";
 
-const BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+const BASE_URL = "/backend";
 import { Card } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
 import { StatusBox } from "@/components/ui/StatusBox";
@@ -37,11 +37,12 @@ function getStatusInfo(pct: number | null, price?: number, w52High?: number, w52
 }
 
 // ── 즐겨찾기 카드 ─────────────────────────────────────────────────────────────
-function FavRow({ fav, price, onRemove, onAnalyze }: {
+function FavRow({ fav, price, onRemove, onAnalyze, gapBulkMap }: {
   fav: Favorite;
   price?: { price: number; change_pct: number; w52_high?: number; w52_low?: number } | null;
   onRemove: (ticker: string) => void;
   onAnalyze: (s: StockInfo) => void;
+  gapBulkMap: Record<string, any>;
 }) {
   const router = useRouter();
   const isKr   = fav["시장"] === "국내";
@@ -50,6 +51,12 @@ function FavRow({ fav, price, onRemove, onAnalyze }: {
   const down   = (pct ?? 0) < 0;
   const color  = up ? "var(--color-up)" : down ? "var(--color-down)" : "var(--color-flat)";
   const status = getStatusInfo(pct, price?.price, price?.w52_high, price?.w52_low);
+
+  // 시간외 갭 데이터 분석
+  const gapData = gapBulkMap?.[fav["티커"].toUpperCase()];
+  const gapUp = gapData?.gap_direction?.includes("상승");
+  const gapDown = gapData?.gap_direction?.includes("하락");
+  const gapText = gapData?.gap_strength && gapData?.gap_strength !== "보합권" ? gapData.gap_strength : null;
 
   return (
     <div style={{
@@ -60,10 +67,32 @@ function FavRow({ fav, price, onRemove, onAnalyze }: {
       display: "flex", flexDirection: "column", gap: "8px",
     }}>
       {/* 제목 행 */}
-      <div style={{ display: "flex", alignItems: "center", gap: "5px" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: "5px", flexWrap: "wrap" }}>
         <Star size={12} style={{ color: "var(--color-warning)", fill: "var(--color-warning)", flexShrink: 0 }} />
         <span style={{ fontWeight: 700, fontSize: "0.9rem" }}>{fav["종목명"]}</span>
-        <span style={{ fontSize: "0.7rem", color: "var(--color-muted)" }}>({fav["티커"]})</span>
+        <span style={{ fontSize: "0.7rem", color: "var(--color-muted)", marginRight: "4px" }}>({fav["티커"]})</span>
+
+        {/* 실시간 갭 배지 표출 */}
+        {gapData && gapText && (
+          <span 
+            style={{
+              fontSize: "0.65rem",
+              padding: "1px 5px",
+              borderRadius: "4px",
+              background: gapUp ? "rgba(16, 185, 129, 0.15)" : gapDown ? "rgba(239, 68, 68, 0.15)" : "rgba(255,255,255,0.06)",
+              color: gapUp ? "#34d399" : gapDown ? "#f87171" : "#a1a1aa",
+              border: `1px solid ${gapUp ? "rgba(16, 185, 129, 0.3)" : gapDown ? "rgba(239, 68, 68, 0.3)" : "rgba(255, 255, 255, 0.12)"}`,
+              fontWeight: 800,
+              cursor: "help",
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "2px"
+            }}
+            title={`🌙 시간외 주요 변수:\n${gapData.overnight_issue_summary}\n\n💡 대응 가이드:\n${gapData.trading_action_guide}`}
+          >
+            {gapUp ? "🟢 갭상" : gapDown ? "🔴 갭하" : "⚪ 보합"} {gapText}
+          </span>
+        )}
       </div>
 
       {/* 시세 + 현황 배지 */}
@@ -157,7 +186,8 @@ function AddFavoriteForm({ onAdded }: { onAdded: () => void }) {
 }
 
 // ── 추천 상태 뱃지 ────────────────────────────────────────────────────────────
-function RecommendBadge({ pct }: { pct: number }) {
+function RecommendBadge({ pct, hasPrice }: { pct: number; hasPrice?: boolean }) {
+  if (hasPrice === false) return <Badge variant="info">⚪ 대기</Badge>;
   if (pct >= 10)       return <Badge variant="danger">🔴 수익실현 대기</Badge>;
   if (pct >= 3)        return <Badge variant="success">🟢 보유 유지</Badge>;
   if (pct >= -3)       return <Badge variant="info">🔵 보유 유지</Badge>;
@@ -225,15 +255,15 @@ function AddPortfolioForm({ onAdded }: { onAdded: () => void }) {
 }
 
 // ── 보유 종목 탭 ──────────────────────────────────────────────────────────────
-function PortfolioTab() {
+function PortfolioTab({ gapBulkMap }: { gapBulkMap: Record<string, any> }) {
   const { data: portfolio, isLoading, mutate } = useSWR<any[]>("/api/portfolio", () => api.portfolio.loadPortfolio() as Promise<any[]>);
 
   // KR/US 종목 분류 (1~6자리 숫자 = KR, 6자리로 패딩)
-  const isKrCode  = (t: string) => /^\d{1,6}$/.test(String(t));
-  const padKr     = (t: string) => String(t).padStart(6, "0");
+  const isKrCode  = (t: string) => /^\d{1,6}$/.test(String(t).trim());
+  const padKr     = (t: string) => String(t).trim().padStart(6, "0");
   const krItems   = (portfolio ?? []).filter(p => isKrCode(p.ticker));
   const krTickers = krItems.map(p => padKr(p.ticker));
-  const usTickers = (portfolio ?? []).filter(p => !isKrCode(p.ticker)).map(p => p.ticker);
+  const usTickers = (portfolio ?? []).filter(p => !isKrCode(p.ticker)).map(p => String(p.ticker).trim().toUpperCase());
 
   // KR 현재가
   const { data: krPrices } = useSWR(
@@ -242,7 +272,7 @@ function PortfolioTab() {
       const map: Record<string, number> = {};
       await Promise.all(krTickers.map(async (code) => {
         try {
-          const paddedCode = String(code).padStart(6, "0");
+          const paddedCode = String(code).trim().padStart(6, "0");
           const d = await api.kr.stockPrice(paddedCode) as any;
           if (d?.price) map[paddedCode] = d.price;
         } catch {}
@@ -260,7 +290,9 @@ function PortfolioTab() {
       const map: Record<string, number> = {};
       for (const s of (arr ?? [])) {
         const ticker = s["심볼"] ?? s.ticker ?? "";
-        if (ticker) map[ticker] = s["현재가($)"] ?? s.price ?? 0;
+        if (ticker) {
+          map[ticker.trim().toUpperCase()] = s["현재가($)"] ?? s.price ?? 0;
+        }
       }
       return map;
     },
@@ -271,29 +303,46 @@ function PortfolioTab() {
   const { data: fxData } = useSWR(
     usTickers.length > 0 ? "usd-krw-rate" : null,
     () => api.us.exchangeRate(),
-    { refreshInterval: 300000 }  // 5분마다 갱신
+    { refreshInterval: 300000 }
   );
   const usdKrw = fxData?.rate ?? 1350;
 
   const enriched = useMemo(() => {
     return (portfolio ?? []).map(p => {
-      const isUs = !isKrCode(p.ticker);
-      const normalTicker = isUs ? p.ticker : padKr(p.ticker);
+      const trimmed = String(p.ticker).trim();
+      const isUs = !isKrCode(trimmed);
+      const normalTicker = isUs ? trimmed.toUpperCase() : padKr(trimmed);
       const livePriceMap = isUs ? (usPrices ?? {}) : (krPrices ?? {});
-      const currentPrice = livePriceMap[normalTicker] ?? livePriceMap[p.ticker] ?? p.buy_price ?? 0;
+      
+      const currentPrice = livePriceMap[normalTicker] ?? livePriceMap[trimmed.toUpperCase()] ?? livePriceMap[trimmed] ?? 0;
+      const hasPrice = currentPrice > 0;
+      
       const cost = (p.buy_price ?? 0) * (p.quantity ?? 0);
-      const value = currentPrice * (p.quantity ?? 0);
-      const profit = value - cost;
-      const profitPct = cost > 0 ? (profit / cost) * 100 : 0;
-      // KRW 환산 (US 종목만)
+      const value = hasPrice ? currentPrice * (p.quantity ?? 0) : cost;
+      const profit = hasPrice ? value - cost : 0;
+      const profitPct = (hasPrice && cost > 0) ? (profit / cost) * 100 : 0;
+      
       const costKrw  = isUs ? cost  * usdKrw : cost;
       const valueKrw = isUs ? value * usdKrw : value;
-      return { ...p, isUs, normalTicker, currentPrice, cost, value, profit, profitPct, costKrw, valueKrw };
+      
+      return { 
+         ...p, 
+         isUs, 
+         normalTicker, 
+         currentPrice, 
+         hasPrice, 
+         cost, 
+         value, 
+         profit, 
+         profitPct, 
+         costKrw, 
+         valueKrw 
+      };
     });
   }, [portfolio, krPrices, usPrices, usdKrw]);
 
-  const totalCostKrw   = enriched.reduce((s, p) => s + p.costKrw, 0);
-  const totalValueKrw  = enriched.reduce((s, p) => s + p.valueKrw, 0);
+  const totalCostKrw   = enriched.reduce((s, p) => s + (p.hasPrice ? p.costKrw : 0), 0);
+  const totalValueKrw  = enriched.reduce((s, p) => s + (p.hasPrice ? p.valueKrw : 0), 0);
   const totalProfitKrw = totalValueKrw - totalCostKrw;
   const hasUsItems     = enriched.some(p => p.isUs);
 
@@ -349,18 +398,34 @@ function PortfolioTab() {
     }
   };
 
-  const handleSellRecord = async (p: any, sellPrice: number) => {
-    const qty = Number(p.quantity ?? 0);
+  const handleSellRecord = async (p: any, sellPrice: number, sellQty: number) => {
     const bp  = Number(p.buy_price ?? 0);
-    const profit = (sellPrice - bp) * qty;
+    const profit = (sellPrice - bp) * sellQty;
     const profitPct = bp > 0 ? ((sellPrice - bp) / bp) * 100 : 0;
+    
     await api.portfolio.saveTrade({
-      ticker: p.ticker, name: p.name, quantity: qty,
+      ticker: p.ticker, name: p.name, quantity: sellQty,
       buy_price: bp, sell_price: sellPrice,
       profit, profit_pct: profitPct,
       result: profit >= 0 ? "수익" : "손실",
       sell_date: new Date().toISOString().slice(0, 19),
     });
+
+    const remainingQty = p.quantity - sellQty;
+    let updated = [...(portfolio ?? [])];
+    if (remainingQty <= 0) {
+      updated = updated.filter((item: any) => item.ticker !== p.ticker);
+    } else {
+      updated = updated.map((item: any) => 
+        item.ticker === p.ticker ? { ...item, quantity: remainingQty } : item
+      );
+    }
+    await fetch(`${BASE_URL}/api/portfolio`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ portfolio_list: updated }),
+    }).catch(() => {});
+
     mutate();
   };
 
@@ -424,7 +489,7 @@ function PortfolioTab() {
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: "0" }}>
           {/* 헤더 행 */}
-          <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr 0.7fr 1fr 0.8fr 1.2fr auto", gap: "6px", padding: "8px 12px", fontSize: "0.75rem", color: "var(--color-muted)", fontWeight: 600, borderBottom: "1px solid var(--color-border)" }}>
+          <div style={{ display: "grid", gridTemplateColumns: "2.2fr 1fr 1fr 0.7fr 1fr 0.8fr 1.2fr auto", gap: "6px", padding: "8px 12px", fontSize: "0.75rem", color: "var(--color-muted)", fontWeight: 600, borderBottom: "1px solid var(--color-border)" }}>
             <div>종목명</div>
             <div style={{ textAlign: "right" }}>평단가</div>
             <div style={{ textAlign: "right" }}>현재가</div>
@@ -451,31 +516,62 @@ function PortfolioTab() {
               ? `≈${p.profit >= 0 ? "+" : ""}₩${Math.round(p.profit * usdKrw).toLocaleString()}`
               : null;
 
+            // 시간외 갭 예측 배지 추가
+            const gapData = gapBulkMap?.[p.ticker.toUpperCase()];
+            const gapUp = gapData?.gap_direction?.includes("상승");
+            const gapDown = gapData?.gap_direction?.includes("하락");
+            const gapText = gapData?.gap_strength && gapData?.gap_strength !== "보합권" ? gapData.gap_strength : null;
+
             return (
               <div key={i} style={{ borderBottom: "1px solid rgba(255,255,255,0.04)" }}>
-                <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr 0.7fr 1fr 0.8fr 1.2fr auto", gap: "6px", padding: "10px 12px", alignItems: "center", fontSize: "0.85rem" }}>
-                  <div style={{ fontWeight: 600 }}>
-                    {p.name || p.normalTicker || p.ticker}
-                    <span style={{ fontSize: "0.72rem", color: "var(--color-muted)", marginLeft: "4px" }}>
-                      ({p.normalTicker || p.ticker})
-                    </span>
-                    {p.isUs && <span style={{ marginLeft: "4px", fontSize: "0.65rem", padding: "1px 5px", background: "rgba(50,200,100,0.15)", border: "1px solid rgba(50,200,100,0.3)", borderRadius: "3px", color: "var(--color-success)" }}>US</span>}
+                <div style={{ display: "grid", gridTemplateColumns: "2.2fr 1fr 1fr 0.7fr 1fr 0.8fr 1.2fr auto", gap: "6px", padding: "10px 12px", alignItems: "center", fontSize: "0.85rem" }}>
+                  <div style={{ fontWeight: 600, display: "flex", flexDirection: "column", gap: "2px" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: "4px", flexWrap: "wrap" }}>
+                      <span>{p.name || p.normalTicker || p.ticker}</span>
+                      <span style={{ fontSize: "0.72rem", color: "var(--color-muted)" }}>
+                        ({p.normalTicker || p.ticker})
+                      </span>
+                      {p.isUs && <span style={{ fontSize: "0.65rem", padding: "1px 5px", background: "rgba(50,200,100,0.15)", border: "1px solid rgba(50,200,100,0.3)", borderRadius: "3px", color: "var(--color-success)" }}>US</span>}
+                    </div>
+
+                    {/* 시간외 갭 배지 인라인 노출 */}
+                    {gapData && gapText && (
+                      <div style={{ display: "flex" }}>
+                        <span 
+                          style={{
+                            fontSize: "0.65rem",
+                            padding: "1px 4px",
+                            borderRadius: "3px",
+                            background: gapUp ? "rgba(16, 185, 129, 0.15)" : gapDown ? "rgba(239, 68, 68, 0.15)" : "rgba(255,255,255,0.06)",
+                            color: gapUp ? "#34d399" : gapDown ? "#f87171" : "#a1a1aa",
+                            border: `1px solid ${gapUp ? "rgba(16, 185, 129, 0.3)" : gapDown ? "rgba(239, 68, 68, 0.3)" : "rgba(255, 255, 255, 0.12)"}`,
+                            fontWeight: 800,
+                            cursor: "help",
+                            display: "inline-flex",
+                            alignItems: "center"
+                          }}
+                          title={`🌙 시간외 주요 변수:\n${gapData.overnight_issue_summary}\n\n💡 대응 가이드:\n${gapData.trading_action_guide}`}
+                        >
+                          {gapUp ? "🟢 갭상" : gapDown ? "🔴 갭하" : "⚪ 보합"} {gapText}
+                        </span>
+                      </div>
+                    )}
                   </div>
                   <div style={{ textAlign: "right" }}>{buyStr}</div>
                   <div style={{ textAlign: "right", fontWeight: 600 }}>
-                    {p.currentPrice > 0 ? priceStr : <span style={{ color: "var(--color-muted)" }}>로딩중...</span>}
+                    {p.hasPrice ? priceStr : <span style={{ color: "var(--color-muted)", fontSize: "0.8rem", fontWeight: 400 }}>로딩중...</span>}
                   </div>
                   <div style={{ textAlign: "right" }}>{Number(p.quantity ?? 0).toLocaleString()}주</div>
-                  <div style={{ textAlign: "right", color, fontWeight: 600 }}>
-                    {profitStr}
-                    {profitKrwHint && (
+                  <div style={{ textAlign: "right", color: p.hasPrice ? color : "var(--color-muted)", fontWeight: 600 }}>
+                    {p.hasPrice ? profitStr : "-"}
+                    {p.hasPrice && profitKrwHint && (
                       <div style={{ fontSize: "0.68rem", color: "var(--color-muted)", fontWeight: 400 }}>{profitKrwHint}</div>
                     )}
                   </div>
-                  <div style={{ textAlign: "right", color, fontWeight: 700 }}>
-                    {p.profitPct >= 0 ? "+" : ""}{p.profitPct.toFixed(2)}%
+                  <div style={{ textAlign: "right", color: p.hasPrice ? color : "var(--color-muted)", fontWeight: 700 }}>
+                    {p.hasPrice ? `${p.profitPct >= 0 ? "+" : ""}${p.profitPct.toFixed(2)}%` : "-"}
                   </div>
-                  <div style={{ textAlign: "center" }}><RecommendBadge pct={p.profitPct} /></div>
+                  <div style={{ textAlign: "center" }}><RecommendBadge pct={p.profitPct} hasPrice={p.hasPrice} /></div>
                   <div style={{ display: "flex", gap: "4px", flexWrap: "wrap" }}>
                     <button className="stockcy-btn stockcy-btn-secondary" style={{ padding: "2px 6px", fontSize: "0.7rem" }} title="AI 매도 타이밍" onClick={() => openSellAnalysis(p)}>
                       AI
@@ -577,16 +673,22 @@ function PortfolioTab() {
 }
 
 // ── 매도 버튼 (인라인 폼) ──────────────────────────────────────────────────────
-function SellButton({ p, onSell }: { p: any; onSell: (p: any, price: number) => Promise<void> }) {
+function SellButton({ p, onSell }: { p: any; onSell: (p: any, price: number, qty: number) => Promise<void> }) {
   const [open, setOpen] = useState(false);
   const [price, setPrice] = useState(String(p.currentPrice || p.buy_price || ""));
+  const [qty, setQty] = useState(String(p.quantity || ""));
   const [saving, setSaving] = useState(false);
 
   const handleSell = async () => {
     const sp = Number(price);
-    if (!sp) return;
+    const sq = Number(qty);
+    if (!sp || !sq) return;
+    if (sq > p.quantity) {
+      alert("보유 수량보다 많이 매도할 수 없습니다.");
+      return;
+    }
     setSaving(true);
-    await onSell(p, sp);
+    await onSell(p, sp, sq);
     setSaving(false);
     setOpen(false);
   };
@@ -601,9 +703,11 @@ function SellButton({ p, onSell }: { p: any; onSell: (p: any, price: number) => 
   return (
     <div style={{ display: "flex", gap: "6px", alignItems: "center" }}>
       <span style={{ fontSize: "0.8rem", color: "var(--color-muted)" }}>매도가</span>
-      <input className="stockcy-input" type="number" value={price} onChange={e => setPrice(e.target.value)} style={{ width: "100px" }} />
+      <input className="stockcy-input" type="number" value={price} onChange={e => setPrice(e.target.value)} style={{ width: "80px" }} />
+      <span style={{ fontSize: "0.8rem", color: "var(--color-muted)", marginLeft: "4px" }}>수량</span>
+      <input className="stockcy-input" type="number" value={qty} onChange={e => setQty(e.target.value)} style={{ width: "60px" }} />
       <button className="stockcy-btn stockcy-btn-primary" style={{ padding: "4px 8px", fontSize: "0.8rem" }} onClick={handleSell} disabled={saving}>
-        {saving ? "저장중..." : "확정"}
+        {saving ? "진행중" : "확정"}
       </button>
       <button className="stockcy-btn stockcy-btn-secondary" style={{ padding: "4px 8px", fontSize: "0.8rem" }} onClick={() => setOpen(false)}>취소</button>
     </div>
@@ -617,7 +721,10 @@ function PostmortemModal({ trade, onClose, onRefresh }: { trade: any; onClose: (
   const [pmMsg,    setPmMsg]    = useState("🤖 거래 복기 분석 중... (1~2분 소요)");
   const [pmResult, setPmResult] = useState<any>(null);
 
-  const parseNum = (val: any) => Number(String(val ?? "0").replace(/[^0-9.-]+/g, ""));
+  const parseNum = (val: any) => {
+    const n = Number(String(val ?? "0").replace(/[^0-9.-]+/g, ""));
+    return isNaN(n) ? 0 : n;
+  };
 
   const runAnalysis = async () => {
     setPmStatus("loading");
@@ -628,17 +735,21 @@ function PostmortemModal({ trade, onClose, onRefresh }: { trade: any; onClose: (
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          ticker:     trade["티커"]    ?? trade.ticker,
+          ticker:     String(trade["티커"] ?? trade.ticker),
           name:       trade["종목명"]  ?? trade.name,
           market:     isUs ? "미국" : "국내",
-          buy_price:  parseNum(trade["매수가($)"]  ?? trade.buy_price),
-          sell_price: parseNum(trade["매도가($)"]  ?? trade.sell_price),
+          buy_price:  parseNum(trade["매수가($)"] ?? trade["매수가(원)"] ?? trade.buy_price),
+          sell_price: parseNum(trade["매도가($)"] ?? trade["매도가(원)"] ?? trade.sell_price),
           buy_date:   trade["매수시간"] ?? trade.buy_date  ?? "알 수 없음",
           sell_date:  trade["매도시간"] ?? trade.sell_date ?? "알 수 없음",
           profit_pct: parseNum(trade["수익률(%)"] ?? trade.profit_pct),
           owner:      trade["소유자"]  ?? trade.owner ?? "USER",
         }),
       });
+      if (!res.ok) {
+        const text = await res.text();
+        throw new Error(`API 오류 (${res.status}): ${text}`);
+      }
       if (!res.body) throw new Error("no body");
       const reader = res.body.getReader();
       const dec = new TextDecoder();
@@ -665,7 +776,6 @@ function PostmortemModal({ trade, onClose, onRefresh }: { trade: any; onClose: (
     }
   };
 
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { runAnalysis(); }, []);
 
   return (
@@ -721,15 +831,52 @@ function TradesTab() {
   const { data: tradeRes, isLoading, mutate } = useSWR("/api/trades", () => api.portfolio.loadTrades() as Promise<{ data: any[]; message: string }>);
   const trades: any[] = tradeRes?.data ?? [];
 
-  // 신규 거래 기록 폼
   const [form, setForm] = useState({ ticker: "", name: "", buy_price: "", sell_price: "", quantity: "", result: "수익" });
   const [addMsg, setAddMsg] = useState<{ type: "success" | "danger"; text: string } | null>(null);
   const [adding, setAdding] = useState(false);
   const [showForm, setShowForm] = useState(false);
   const [postmortemTrade, setPostmortemTrade] = useState<any | null>(null);
 
-  const totalProfit = trades.reduce((s, t) => s + (Number(t["수익금($)"] ?? t.profit ?? 0)), 0);
-  const winCount    = trades.filter(t => (Number(t["수익금($)"] ?? t.profit ?? 0)) > 0).length;
+  const usDates = useMemo(() => {
+    return Array.from(new Set(
+      trades
+        .filter(t => {
+          const ticker = String(t["티커"] ?? t.ticker ?? "").trim();
+          return ticker !== "" && !ticker.match(/^[0-9]+$/);
+        })
+        .map(t => String(t["매도시간"] ?? t.sell_date ?? "").slice(0, 10))
+        .filter(d => d.length === 10)
+    ));
+  }, [trades]);
+
+  const { data: fxData } = useSWR(
+    "usd-krw-rate-trades",
+    () => api.us.exchangeRate(),
+    { refreshInterval: 300000 }
+  );
+  const usdKrwFallback = fxData?.rate ?? 1350;
+
+  const { data: historicalRates, isLoading: isRatesLoading } = useSWR(
+    usDates.length > 0 ? `us-historical-rates-${usDates.join(",")}` : null,
+    () => api.us.exchangeRatesHistorical(usDates)
+  );
+
+  const totalProfit = useMemo(() => {
+    return trades.reduce((sum, t) => {
+      const ticker = String(t["티커"] ?? t.ticker ?? "").trim().toUpperCase();
+      const isUs = ticker !== "" && !ticker.match(/^[0-9]+$/);
+      const p = Number(t["수익금($)"] ?? t.profit ?? 0);
+      if (isUs) {
+        const d = String(t["매도시간"] ?? t.sell_date ?? "").slice(0, 10);
+        const rate = historicalRates?.[d] || usdKrwFallback;
+        return sum + (p * rate);
+      } else {
+        return sum + p;
+      }
+    }, 0);
+  }, [trades, historicalRates, usdKrwFallback]);
+
+  const winCount = trades.filter(t => (Number(t["수익금($)"] ?? t.profit ?? 0)) > 0).length;
 
   const handleAdd = async () => {
     if (!form.ticker || !form.buy_price || !form.sell_price || !form.quantity) return;
@@ -767,12 +914,15 @@ function TradesTab() {
       {postmortemTrade && (
         <PostmortemModal trade={postmortemTrade} onClose={() => setPostmortemTrade(null)} onRefresh={() => mutate()} />
       )}
-      {/* 요약 + 추가 버튼 */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <div style={{ display: "flex", gap: "1rem" }}>
+        <div style={{ display: "flex", gap: "1rem", alignItems: "center" }}>
           <span style={{ fontSize: "0.85rem", color: "var(--color-muted)" }}>총 {trades.length}건</span>
           <span style={{ fontWeight: 700, color: totalProfit >= 0 ? "var(--color-danger)" : "var(--color-primary)" }}>
-            누적 손익: {totalProfit >= 0 ? "+" : ""}₩{Math.round(totalProfit).toLocaleString()}
+            누적 손익: {usDates.length > 0 && isRatesLoading ? (
+              <span style={{ color: "var(--color-muted)", fontWeight: 400, fontSize: "0.8rem" }}>환율 계산 중...</span>
+            ) : (
+              `${totalProfit >= 0 ? "+" : ""}₩${Math.round(totalProfit).toLocaleString()}`
+            )}
           </span>
           {trades.length > 0 && <span style={{ fontSize: "0.85rem", color: "var(--color-muted)" }}>승률: {((winCount / trades.length) * 100).toFixed(0)}%</span>}
         </div>
@@ -823,16 +973,36 @@ function TradesTab() {
               const profit    = Number(t["수익금($)"] ?? t.profit ?? 0);
               const profitPct = Number(t["수익률(%)"] ?? t.profit_pct ?? 0);
               const color     = profit >= 0 ? "var(--color-danger)" : "var(--color-primary)";
-              const ticker    = String(t["티커"] ?? t.ticker ?? "");
+              const ticker    = String(t["티커"] ?? t.ticker ?? "").trim().toUpperCase();
+              const isUs      = ticker !== "" && !ticker.match(/^[0-9]+$/);
               const sellDate  = String(t["매도시간"] ?? t.sell_date ?? "");
               const lp        = t["학습포인트"] ?? t.learning_point;
+              
+              const buyPrice  = Number(t["매수가($)"] ?? t.buy_price ?? 0);
+              const sellPrice = Number(t["매도가($)"] ?? t.sell_price ?? 0);
+              
+              const buyStr    = isUs ? `$${buyPrice.toFixed(2)}` : `₩${Math.round(buyPrice).toLocaleString()}`;
+              const sellStr   = isUs ? `$${sellPrice.toFixed(2)}` : `₩${Math.round(sellPrice).toLocaleString()}`;
+              const profitStr = isUs ? `$${profit.toFixed(2)}` : `₩${Math.round(profit).toLocaleString()}`;
+              
+              const d = sellDate.slice(0, 10);
+              const rate = isUs ? (historicalRates?.[d] || usdKrwFallback) : 1;
+              const profitKrw = profit * rate;
+              
               return (
                 <tr key={i}>
                   <td style={{ fontWeight: 600 }}>{String(t["종목명"] ?? t.name ?? "")} <span style={{ fontSize: "0.72rem", color: "var(--color-muted)" }}>({ticker})</span></td>
-                  <td style={{ textAlign: "right" }}>₩{Number(t["매수가($)"] ?? t.buy_price ?? 0).toLocaleString()}</td>
-                  <td style={{ textAlign: "right" }}>₩{Number(t["매도가($)"] ?? t.sell_price ?? 0).toLocaleString()}</td>
+                  <td style={{ textAlign: "right" }}>{buyStr}</td>
+                  <td style={{ textAlign: "right" }}>{sellStr}</td>
                   <td style={{ textAlign: "right" }}>{Number(t["수량"] ?? t.quantity ?? 0).toLocaleString()}주</td>
-                  <td style={{ textAlign: "right", color, fontWeight: 600 }}>{profit >= 0 ? "+" : ""}₩{Math.round(profit).toLocaleString()}</td>
+                  <td style={{ textAlign: "right", color, fontWeight: 600 }}>
+                    {profit >= 0 ? "+" : ""}{profitStr}
+                    {isUs && (
+                      <div style={{ fontSize: "0.68rem", color: "var(--color-muted)", fontWeight: 400 }}>
+                        {isRatesLoading ? "환율 계산 중..." : `≈${profit >= 0 ? "+" : ""}₩${Math.round(profitKrw).toLocaleString()}`}
+                      </div>
+                    )}
+                  </td>
                   <td style={{ textAlign: "right", color, fontWeight: 700 }}>{profitPct >= 0 ? "+" : ""}{profitPct.toFixed(2)}%</td>
                   <td><Badge variant={profit >= 0 ? "success" : "danger"}>{String(t["결과"] ?? t.result ?? "-")}</Badge></td>
                   <td style={{ fontSize: "0.75rem", color: "var(--color-muted)" }}>{sellDate.slice(0, 10)}</td>
@@ -863,6 +1033,10 @@ function TradesTab() {
 }
 
 // ── 가격 알림 탭 ──────────────────────────────────────────────────────────────
+function AlertCircleIcon() {
+  return <AlertCircle size={14} style={{ color: "var(--color-danger)" }} />;
+}
+
 function AlertsTab() {
   const { data: alerts, isLoading, mutate } = useSWR<any[]>("/api/alerts", () => api.portfolio.loadAlerts() as Promise<any[]>);
   const [form, setForm] = useState({ market: "국내", ticker: "", name: "", alert_type: "목표가 도달", target_price: "" });
@@ -969,6 +1143,11 @@ export default function FavoritesPage() {
   const krTickers = (favs ?? []).filter(f => f["시장"] === "국내").map(f => f["티커"]);
   const usTickers = (favs ?? []).filter(f => f["시장"] === "미국").map(f => f["티커"]);
 
+  // 시간외 갭 예측 관리 상태
+  const [gapBulkMap, setGapBulkMap] = useState<Record<string, any>>({});
+  const [gapBulkStatus, setGapBulkStatus] = useState<"idle" | "loading" | "done">("idle");
+  const [gapBulkMsg, setGapBulkMsg] = useState("");
+
   type PriceEntry = { price: number; change_pct: number; w52_high?: number; w52_low?: number };
 
   const { data: krPriceMap } = useSWR(
@@ -1004,19 +1183,169 @@ export default function FavoritesPage() {
     refetchFavs();
   };
 
+  // 관심 및 보유 종목의 시간외 갭을 수집해 일괄적으로 캐시 조회 및 실시간 RAG 스캔 가동
+  const handleGapBulkScan = async () => {
+    // 1. 모든 감시 대상 티커 추출 (즐겨찾기 + 포트폴리오)
+    const portfolioRes = await api.portfolio.loadPortfolio().catch(() => []) as any[];
+    const allTickers = Array.from(new Set([
+      ...(favs ?? []).map(f => f["티커"].toUpperCase().trim()),
+      ...portfolioRes.map(p => p.ticker.toUpperCase().trim())
+    ])).filter(Boolean);
+
+    if (allTickers.length === 0) return;
+
+    setGapBulkStatus("loading");
+    setGapBulkMsg("🌙 시간외 갭 분석 작동 중...");
+
+    try {
+      // (1) 백엔드 캐시 고속 체크
+      const bulkRes = await api.ai.overnightGapBulk(allTickers);
+      const initialMap = { ...(bulkRes.results ?? {}) };
+      setGapBulkMap(initialMap);
+
+      // (2) 캐시 만료 혹은 미분석된 종목만 순차 실시간 RAG 스캐닝 가동
+      const unanalyzed = allTickers.filter(t => !initialMap[t]);
+      if (unanalyzed.length > 0) {
+        for (let i = 0; i < unanalyzed.length; i++) {
+          const ticker = unanalyzed[i];
+          const isKr = /^\d+$/.test(ticker);
+          setGapBulkMsg(`📡 [${i + 1}/${unanalyzed.length}] ${ticker} 뉴스 및 시간외 공시 추적 중...`);
+
+          try {
+            // 개별 갭 RAG API 동기식 처리 (SSE 스트림 읽기)
+            const singleRes = await fetch(`${BASE_URL}/api/ai/overnight-gap`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                ticker: isKr ? ticker.padStart(6, "0") : ticker,
+                name: ticker,
+                market: isKr ? "국내" : "미국"
+              })
+            });
+
+            if (singleRes.ok && singleRes.body) {
+              const reader = singleRes.body.getReader();
+              const dec = new TextDecoder();
+              let buf = "";
+              while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                buf += dec.decode(value, { stream: true });
+                const parts = buf.split("\n\n");
+                buf = parts.pop() ?? "";
+                for (const part of parts) {
+                  if (part.trim().startsWith("data:")) {
+                    try {
+                      const d = JSON.parse(part.trim().slice(5).trim());
+                      if (d.status === "done" && d.result) {
+                        initialMap[ticker] = d.result;
+                        setGapBulkMap({ ...initialMap });
+                      }
+                    } catch {}
+                  }
+                }
+              }
+            }
+          } catch {}
+        }
+      }
+      setGapBulkStatus("done");
+      setGapBulkMsg("🌙 시간외 갭 일괄 스캔이 완료되었습니다!");
+    } catch (err: any) {
+      setGapBulkStatus("done");
+      setGapBulkMsg(`❌ 갭 스캔 오류: ${err.message}`);
+    }
+  };
+
+  // 장 마감 이후 시간외 시점에 자동으로 백그라운드 캐시 고속 체크 실행
+  useEffect(() => {
+    const checkHolidaysAndCachedGaps = async () => {
+      if (!favs || favs.length === 0) return;
+      const portfolioRes = await api.portfolio.loadPortfolio().catch(() => []) as any[];
+      const allTickers = Array.from(new Set([
+        ...favs.map(f => f["티커"].toUpperCase().trim()),
+        ...portfolioRes.map(p => p.ticker.toUpperCase().trim())
+      ])).filter(Boolean);
+
+      try {
+        const bulkRes = await api.ai.overnightGapBulk(allTickers);
+        if (bulkRes?.results) {
+          setGapBulkMap(bulkRes.results);
+        }
+      } catch {}
+    };
+
+    if (favs && favs.length > 0) {
+      checkHolidaysAndCachedGaps();
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [favs]);
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
       {selectedStock && <StockModal stock={selectedStock} onClose={() => setSelectedStock(null)} />}
 
       {/* 헤더 */}
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "8px" }}>
         <h1 style={{ fontSize: "1.05rem", fontWeight: 700, display: "flex", alignItems: "center", gap: "0.5rem" }}>
           <Star size={18} style={{ color: "var(--color-accent)" }} /> 즐겨찾기 & 포트폴리오 관리
         </h1>
-        <button className="stockcy-btn stockcy-btn-secondary" onClick={() => refetchFavs()}>
-          <RefreshCw size={13} /> 새로고침
-        </button>
+        <div style={{ display: "flex", gap: "6px" }}>
+          {/* 일괄 시간외 갭 예측 스캐너 작동 버튼 */}
+          <button 
+            className="stockcy-btn"
+            onClick={handleGapBulkScan}
+            disabled={gapBulkStatus === "loading"}
+            style={{ 
+              padding: "6px 12px", 
+              fontSize: "0.78rem", 
+              background: "rgba(245, 158, 11, 0.15)", 
+              border: "1px solid rgba(245, 158, 11, 0.3)", 
+              color: "#fbbf24",
+              display: "flex",
+              alignItems: "center",
+              gap: "4px",
+              fontWeight: "bold"
+            }}
+          >
+            {gapBulkStatus === "loading" ? (
+              <>
+                <Loader2 size={13} className="animate-spin" />
+                분석 중...
+              </>
+            ) : (
+              <>
+                <Sparkles size={13} />
+                🌙 시간외 갭 일괄 분석
+              </>
+            )}
+          </button>
+
+          <button className="stockcy-btn stockcy-btn-secondary" onClick={() => refetchFavs()}>
+            <RefreshCw size={13} /> 새로고침
+          </button>
+        </div>
       </div>
+
+      {/* 일괄 분석 진행률 정보창 */}
+      {gapBulkMsg && (
+        <div 
+          style={{ 
+            fontSize: "0.75rem", 
+            background: "rgba(0,0,0,0.3)", 
+            padding: "8px 12px", 
+            borderRadius: "6px", 
+            border: "1px solid var(--color-border)",
+            color: "var(--color-subtle)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between"
+          }}
+        >
+          <span>{gapBulkMsg}</span>
+          <button style={{ background: "none", border: "none", color: "var(--color-muted)", cursor: "pointer", fontSize: "0.75rem" }} onClick={() => setGapBulkMsg("")}>✕</button>
+        </div>
+      )}
 
       {/* 탭 네비 */}
       <div style={{ display: "flex", gap: "6px", borderBottom: "1px solid var(--color-border)", paddingBottom: "2px" }}>
@@ -1047,7 +1376,7 @@ export default function FavoritesPage() {
             ) : (
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))", gap: "10px" }}>
                 {favs.map((f) => (
-                  <FavRow key={f["티커"]} fav={f} price={priceMap[f["티커"]] ?? null} onRemove={handleRemove} onAnalyze={setSelectedStock} />
+                  <FavRow key={f["티커"]} fav={f} price={priceMap[f["티커"]] ?? null} onRemove={handleRemove} onAnalyze={setSelectedStock} gapBulkMap={gapBulkMap} />
                 ))}
               </div>
             )}
@@ -1068,7 +1397,7 @@ export default function FavoritesPage() {
         </>
       )}
 
-      {tab === "portfolio" && <Card title="📊 보유 종목 현황"><PortfolioTab /></Card>}
+      {tab === "portfolio" && <Card title="📊 보유 종목 현황"><PortfolioTab gapBulkMap={gapBulkMap} /></Card>}
       {tab === "trades"    && <Card title="📋 거래 내역"><TradesTab /></Card>}
       {tab === "alerts"    && <Card title="🔔 가격 알림 설정"><AlertsTab /></Card>}
     </div>

@@ -84,14 +84,26 @@ def _override_targets(res: dict) -> dict:
             rating = str(s.get("signal", ""))
             if cp > 0:
                 if rating in ("추천", "매우 강력 추천"):
+                    # AI 예측 단기 목표 수익률 파싱 (Fallback: +6%)
+                    try:
+                        gain = float(str(s.get("expected_gain_pct", "6.0")).strip().replace("%", "").replace("+", ""))
+                    except Exception:
+                        gain = 6.0
+                    # AI 예측 단기 손절 리스크 파싱 (Fallback: -2%)
+                    try:
+                        loss = float(str(s.get("expected_loss_pct", "-2.0")).strip().replace("%", ""))
+                        if loss > 0: loss = -loss # 양수로 오면 음수로 교정
+                    except Exception:
+                        loss = -2.0
+
                     if is_kr:
-                        s["buy_target"]  = f"{int(cp * 0.99):,}원 ~ {int(cp * 1.01):,}원"
-                        s["sell_target"] = f"{int(cp * 1.06):,}원 (+6%)"
-                        s["stop_loss"]   = f"{int(cp * 0.98):,}원 (-2%)"
+                        s["buy_target"]  = f"{int(cp * 0.97):,}원 ~ {int(cp * 1.00):,}원 (현재가 대비 1~3% 분할 눌림목 매수 대기)"
+                        s["sell_target"] = f"{int(cp * (1 + gain / 100)):,}원 (+{gain:.1f}%)"
+                        s["stop_loss"]   = f"{int(cp * (1 + loss / 100)):,}원 ({loss:.1f}%)"
                     else:
-                        s["buy_target"]  = f"${cp * 0.99:.2f} ~ ${cp * 1.01:.2f}"
-                        s["sell_target"] = f"${cp * 1.06:.2f} (+6%)"
-                        s["stop_loss"]   = f"${cp * 0.98:.2f} (-2%)"
+                        s["buy_target"]  = f"${cp * 0.97:.2f} ~ ${cp * 1.00:.2f} (1~3% 분할 눌림목 매수 대기)"
+                        s["sell_target"] = f"${cp * (1 + gain / 100):.2f} (+{gain:.1f}%)"
+                        s["stop_loss"]   = f"${cp * (1 + loss / 100):.2f} ({loss:.1f}%)"
                 else:
                     s["buy_target"]  = "관망 (진입 타점 없음)"
                     s["sell_target"] = "관망"
@@ -160,10 +172,9 @@ def get_market_news(category="general"):
 
 # 모델 폴백 순서 (분석 품질을 위해 Pro 모델을 최상단에 배치)
 _MODEL_FALLBACK = [
-    "gemini-2.5-flash-preview-05-20",
     "gemini-2.5-flash",
-    "gemini-2.0-flash",
     "gemini-1.5-flash",
+    "gemini-1.5-pro",
 ]
 
 # 할당량 소진 여부 (세션 중 반복 호출 방지)
@@ -264,7 +275,7 @@ def _call_gemini(prompt, use_search=False, temperature=0.7, response_mime_type=N
         raise Exception("QUOTA_EXHAUSTED: 오늘의 Gemini API 무료 할당량이 소진되었습니다. 내일 자정(한국 기준) 초기화됩니다.")
 
     api_key = os.getenv("GEMINI_API_KEY", "")
-    client = genai.Client(api_key=api_key)
+    client = genai.Client(api_key=api_key, http_options={"api_version": "v1alpha"})
 
     config_kwargs = {"temperature": temperature}
     if use_search:
@@ -313,7 +324,24 @@ def _call_gemini(prompt, use_search=False, temperature=0.7, response_mime_type=N
                         continue
                     break
 
-                # 모델 없음 — 다음 모델로
+                # 모델 없음 혹은 그라운딩 v1beta 모델 404 오류 → 검색 없이 순수 AI 즉시 재시도
+                if ("404" in err_str or "NOT_FOUND" in err_str) and use_search:
+                    print(f"[AI] 모델 404 감지 (그라운딩 v1beta 호환성 우려) → 검색 없이 즉시 우회 재시도합니다. 모델: {model}")
+                    config_no_search = types.GenerateContentConfig(temperature=temperature)
+                    if response_mime_type:
+                        config_no_search.response_mime_type = response_mime_type
+                    try:
+                        ex2 = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+                        future2 = ex2.submit(_do_call, model, config_no_search)
+                        try:
+                            response = future2.result(timeout=_timeout)
+                        finally:
+                            ex2.shutdown(wait=False)
+                        return response
+                    except Exception as fallback_err:
+                        print(f"Fallback without search for 404 also failed: {fallback_err}")
+
+                # 순수 404 오류이거나 검색이 이미 꺼져있었을 때만 다음 모델로 폴백
                 if "404" in err_str or "NOT_FOUND" in err_str:
                     print(f"[AI] 모델 {model} 사용 불가 (404), 다음 모델로 폴백. 에러: {err_str[:120]}")
                     break
@@ -338,6 +366,114 @@ def _call_gemini(prompt, use_search=False, temperature=0.7, response_mime_type=N
                 raise api_err
 
     raise last_err
+
+
+def _fetch_target_news(query: str, limit: int = 4) -> str:
+    """구글 뉴스 RSS를 활용해 특정 키워드에 대한 최신 뉴스 헤드라인과 요약을 초고속(0.5초 이내) 수집합니다."""
+    import urllib.parse
+    import xml.etree.ElementTree as ET
+    import requests
+    import re
+
+    if not query or not query.strip():
+        return ""
+
+    try:
+        # 구글 뉴스 RSS 검색 API 호출 (hl=ko, gl=KR)
+        encoded_query = urllib.parse.quote(query.strip())
+        url = f"https://news.google.com/rss/search?q={encoded_query}&hl=ko&gl=KR&ceid=KR:ko"
+        
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36"
+        }
+        
+        # 2.5초 내로 타임아웃 주어 딜레이 최소화
+        resp = requests.get(url, headers=headers, timeout=2.5)
+        if resp.status_code != 200:
+            return ""
+            
+        root = ET.fromstring(resp.content)
+        items = root.findall(".//item")
+        
+        news_list = []
+        for idx, item in enumerate(items[:limit]):
+            title_el = item.find("title")
+            desc_el = item.find("description")
+            pub_el = item.find("pubDate")
+            
+            title = title_el.text if title_el is not None else ""
+            desc = desc_el.text if desc_el is not None else ""
+            pub_date = pub_el.text if pub_el is not None else ""
+            
+            # HTML 태그 제거 (구글 뉴스 RSS description에는 간혹 html이 섞여 있음)
+            desc_clean = re.sub(r'<[^>]*>', '', desc).strip()
+            
+            # 너무 긴 설명 축소
+            if len(desc_clean) > 200:
+                desc_clean = desc_clean[:200] + "..."
+                
+            news_list.append(f"[{idx+1}] {title}\n    - 요약: {desc_clean}\n    - 보도일시: {pub_date}")
+            
+        if not news_list:
+            return "최근 24시간 동안 관련된 특정 뉴스 팩트가 조회되지 않았습니다."
+            
+        return "\n\n".join(news_list)
+        
+    except Exception as e:
+        print(f"[RAG 뉴스 검색 오류] {e}")
+        return ""
+
+
+def _fetch_target_news_us(query: str, limit: int = 5) -> str:
+    """구글 뉴스 RSS를 활용해 미국 주식(영문) 특정 키워드에 대한 최신 뉴스 헤드라인과 요약을 초고속(0.5초 이내) 수집합니다."""
+    import urllib.parse
+    import xml.etree.ElementTree as ET
+    import requests
+    import re
+
+    if not query or not query.strip():
+        return ""
+
+    try:
+        # 구글 뉴스 RSS 미국(영어) 검색 API 호출
+        encoded_query = urllib.parse.quote(query.strip())
+        url = f"https://news.google.com/rss/search?q={encoded_query}&hl=en&gl=US&ceid=US:en"
+        
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36"
+        }
+        
+        resp = requests.get(url, headers=headers, timeout=2.5)
+        if resp.status_code != 200:
+            return ""
+            
+        root = ET.fromstring(resp.content)
+        items = root.findall(".//item")
+        
+        news_list = []
+        for idx, item in enumerate(items[:limit]):
+            title_el = item.find("title")
+            desc_el = item.find("description")
+            pub_el = item.find("pubDate")
+            
+            title = title_el.text if title_el is not None else ""
+            desc = desc_el.text if desc_el is not None else ""
+            pub_date = pub_el.text if pub_el is not None else ""
+            
+            desc_clean = re.sub(r'<[^>]*>', '', desc).strip()
+            if len(desc_clean) > 200:
+                desc_clean = desc_clean[:200] + "..."
+                
+            news_list.append(f"[{idx+1}] {title}\n    - Summary: {desc_clean}\n    - Published: {pub_date}")
+            
+        if not news_list:
+            return "No recent target news found for the US market query."
+            
+        return "\n\n".join(news_list)
+        
+    except Exception as e:
+        print(f"[RAG US 뉴스 검색 오류] {e}")
+        return ""
 
 
 def generate_daily_briefing():
@@ -422,13 +558,13 @@ def generate_market_scenarios() -> dict:
         '          "trigger": "현실화 조건 (1문장)",\n'
         '          "economic_analysis": "경제적 영향. PER/밸류에이션 관점 포함 (2~3문장)",\n'
         '          "rising_stocks": [\n'
-        '            {"name": "종목명", "ticker": "국내=6자리숫자코드/미국=심볼", "reason": "이유", "valuation_note": "PER 코멘트", "signal": "매우 강력 추천/추천/중간추천/비추천/매우 비추천", "signal_reason": "현재 매수 관점 한 줄 요약"}\n'
+        '            {"name": "종목명", "ticker": "국내=6자리숫자코드/미국=심볼", "reason": "이유", "valuation_note": "PER 코멘트", "signal": "매우 강력 추천/추천/중간추천/비추천/매우 비추천", "signal_reason": "현재 매수 관점 한 줄 요약", "expected_gain_pct": "호재/모멘텀 크기에 따른 합리적 단기 목표 상승률 (% 기호 없이, 예: 8.0)", "expected_loss_pct": "합리적 손절 기준율 (음수, 예: -3.0)"}\n'
         "          ],\n"
         '          "falling_stocks": [\n'
-        '            {"name": "종목명", "ticker": "국내=6자리숫자코드/미국=심볼", "reason": "이유", "valuation_note": "PER 코멘트", "signal": "매우 강력 추천/추천/중간추천/비추천/매우 비추천", "signal_reason": "현재 매수 관점 한 줄 요약"}\n'
+        '            {"name": "종목명", "ticker": "국내=6자리숫자코드/미국=심볼", "reason": "이유", "valuation_note": "PER 코멘트", "signal": "매우 강력 추천/추천/중간추천/비추천/매우 비추천", "signal_reason": "현재 매수 관점 한 줄 요약", "expected_gain_pct": "기대 변동률 (% 기호 없이, 예: -12.0)", "expected_loss_pct": "손절 기준율 (예: 5.0)"}\n'
         "          ],\n"
         '          "theme_stocks": [\n'
-        '            {"name": "종목명", "ticker": "KOSPI/KOSDAQ 6자리숫자코드", "type": "직접관련주 또는 간접테마주", "historical_pattern": "과거 유사 이슈 때 이 종목이 어떻게 움직였는지 (1문장)", "reason": "이번에 연동 상승이 예상되는 이유 + 시총 규모 간략 언급", "signal": "매우 강력 추천/추천/중간추천/비추천/매우 비추천", "signal_reason": "현재 매수 관점 한 줄 요약"}\n'
+        '            {"name": "종목명", "ticker": "KOSPI/KOSDAQ 6자리숫자코드", "type": "직접관련주 또는 간접테마주", "historical_pattern": "과거 유사 이슈 때 이 종목이 어떻게 움직였는지 (1문장)", "reason": "이번에 연동 상승이 예상되는 이유 + 시총 규모 간략 언급", "signal": "매우 강력 추천/추천/중간추천/비추천/매우 비추천", "signal_reason": "현재 매수 관점 한 줄 요약", "expected_gain_pct": "테마 연동 기대 상승률 (% 기호 없이, 예: 12.0)", "expected_loss_pct": "손절 기준율 (음수, 예: -4.0)"}\n'
         "          ],\n"
         '          "short_strategy": "단타 전략: 진입 타이밍·청산 조건 (1~2문장)",\n'
         '          "long_strategy": "장타 전략: 포지션 방향·보유 기간 (1~2문장)"\n'
@@ -516,8 +652,28 @@ def analyze_custom_issue(keyword: str) -> dict:
 def generate_scenario_detail(issue_title: str, scenario_title: str, economic_analysis: str,
                               rising: list, falling: list) -> dict:
     """특정 시나리오의 상세 심층 분석을 생성합니다."""
+    import re
+    
+    # ── [RAG] 이슈에 맞는 최신 뉴스 팩트 동적 수집 ───────────────────────────
+    # 시나리오 타이틀에서 수식어(예: "시나리오 A: ") 제거
+    sc_clean = re.sub(r'^시나리오\s+[A-Z]:\s*', '', scenario_title)
+    search_query = f"{issue_title} {sc_clean}"
+    # 특수문자 제거 및 공백 정규화
+    search_query = re.sub(r'[\[\](){}:,.]', ' ', search_query)
+    # 단어 조인 (너무 길지 않게 최대 3단어로 쿼리 구성)
+    keywords = [w for w in search_query.split() if len(w) >= 2]
+    final_query = " ".join(keywords[:3])
+    
+    # 구글 뉴스 RSS 기반으로 4개 수집
+    news_txt = _fetch_target_news(final_query, limit=4)
+    if not news_txt or "조회되지 않았습니다" in news_txt:
+        # Fallback: 개별 키워드가 너무 길어 조회가 안 되었을 때를 대비해 이슈 타이틀 단독으로 재조회
+        fallback_query = " ".join([w for w in re.sub(r'[\[\](){}:,.]', ' ', issue_title).split() if len(w) >= 2][:2])
+        news_txt = _fetch_target_news(fallback_query, limit=3)
+        
     rising_txt = ", ".join(f"{s.get('name','?')}({s.get('ticker','?')})" for s in rising)
     falling_txt = ", ".join(f"{s.get('name','?')}({s.get('ticker','?')})" for s in falling)
+    
     prompt = (
         f"당신은 월스트리트 20년 경력의 매크로 전략가이자 퀀트 트레이더입니다.\n"
         f"아래 시나리오에 대한 심층 상세 분석을 제공하세요.\n\n"
@@ -526,9 +682,11 @@ def generate_scenario_detail(issue_title: str, scenario_title: str, economic_ana
         f"## 기본 분석: {economic_analysis}\n"
         f"## 상승 후보: {rising_txt}\n"
         f"## 하락 후보: {falling_txt}\n\n"
+        f"## [현재 시나리오 관련 최신 뉴스 팩트 (실시간 RAG)]:\n"
+        f"{news_txt}\n\n"
         "⚠️ [가격 신뢰성 원칙] short_detail.stocks의 entry_point, target, stop은 구글 검색으로 각 종목의 실제 현재가를 확인한 뒤, "
         "그 가격에 기반한 합리적인 수준으로 설정하세요. 현재가와 동떨어진(±50% 이상 차이나는) 가격은 절대 제시하지 마세요.\n\n"
-        "구글 검색을 통해 최신 정보를 보강하고 아래 JSON 형식으로만 응답하세요 (백틱, 주석 금지):\n\n"
+        "제공된 실시간 뉴스 팩트 및 최신 정보를 바탕으로 분석하되 아래 JSON 형식으로만 응답하세요 (백틱, 주석 금지):\n\n"
         "{\n"
         '  "deep_analysis": "심층 경제·시장 분석 (4~5문장, PER·금리·수급·섹터 로테이션 포함)",\n'
         '  "historical_precedent": "유사한 역사적 사례와 당시 시장 반응 (2~3문장)",\n'
@@ -538,7 +696,7 @@ def generate_scenario_detail(issue_title: str, scenario_title: str, economic_ana
         '    "exit": "청산 조건·목표가·손절선",\n'
         '    "timing": "최적 진입 타이밍 (장 초반/중반/후반)",\n'
         '    "stocks": [\n'
-        '      {"name": "종목명", "ticker": "티커", "entry_point": "진입가 기준 (구글 검색 실제가 기반)", "target": "목표가", "stop": "손절가", "note": "추가 코멘트"}\n'
+        '      {"name": "종목명", "ticker": "티커", "entry_point": "진입가 기준", "expected_gain_pct": "해당 종목의 당일 호재 강도·모멘텀에 따른 단기 기대 수익률 (% 기호 없이 정수/실수만, 예: 8.5 또는 15.0)", "expected_loss_pct": "단기 감내 리스크 비율 (음수, 예: -3.0)", "note": "추가 코멘트"}\n'
         "    ]\n"
         "  },\n"
         '  "long_detail": {\n'
@@ -546,19 +704,22 @@ def generate_scenario_detail(issue_title: str, scenario_title: str, economic_ana
         '    "hold_period": "예상 보유 기간",\n'
         '    "position_sizing": "포지션 비중 권고 (예: 포트폴리오의 X%)  ",\n'
         '    "stocks": [\n'
-        '      {"name": "종목명", "ticker": "티커", "reason": "장기 보유 이유", "catalyst": "주요 촉매 이벤트"}\n'
+        '      {"name": "종목명", "ticker": "티커", "reason": "장기 보유 이유", "catalyst": "주요 촉매 이벤트", "entry_point": "장기 분할매수 타점", "expected_gain_pct": "해당 종목의 장기 성장성/비즈니스 모델 분석에 따른 중장기 목표 기대 수익률 (% 기호 없이 정수/실수만, 예: 45.0 또는 120.0)", "expected_loss_pct": "장기 투자 감내 리스크 비율 (음수, 예: -15.0)", "hold_period": "권장 보유 기간 (예: 6개월~1년)"}\n'
         "    ]\n"
         "  }\n"
         "}"
     )
     try:
-        response = _call_gemini(prompt, use_search=True, temperature=0.5, timeout_sec=120)
+        response = _call_gemini(prompt, use_search=False, temperature=0.5, timeout_sec=45)
         res = _parse_json_response(response)
-        # [Python Override - 실시간 현재가 기반 단타 타점 교정]
+        # [Python Override - 실시간 현재가 기반 단타 & 장타 타점 교정]
         try:
-            stocks = res.get("short_detail", {}).get("stocks", [])
-            if stocks:
-                tickers = [s.get("ticker", "") for s in stocks if s.get("ticker")]
+            short_stocks = res.get("short_detail", {}).get("stocks", [])
+            long_stocks = res.get("long_detail", {}).get("stocks", [])
+            all_detail_stocks = short_stocks + long_stocks
+            
+            if all_detail_stocks:
+                tickers = [s.get("ticker", "") for s in all_detail_stocks if s.get("ticker")]
                 if tickers:
                     price_map = {}
                     us_tickers = [t for t in tickers if not str(t).isdigit()]
@@ -584,24 +745,75 @@ def generate_scenario_detail(issue_title: str, scenario_title: str, economic_ana
                         except Exception:
                             pass
 
-                    for s in stocks:
+                    # 1. 단타 타점 교정 (현재가 기준 AI 예측 기대 수익률/손절률 반영)
+                    for s in short_stocks:
                         tk = s.get("ticker", "")
                         cp = price_map.get(tk, 0)
                         if cp > 0:
                             is_kr = str(tk).isdigit()
                             curr_sym = "₩" if is_kr else "$"
+                            
+                            # AI 예측 단기 목표 수익률 파싱 (Fallback: +6%)
+                            try:
+                                gain = float(str(s.get("expected_gain_pct", "6.0")).strip().replace("%", "").replace("+", ""))
+                            except Exception:
+                                gain = 6.0
+                            # AI 예측 단기 손절 리스크 파싱 (Fallback: -2%)
+                            try:
+                                loss = float(str(s.get("expected_loss_pct", "-2.0")).strip().replace("%", ""))
+                                if loss > 0: loss = -loss # 양수로 오면 음수로 교정
+                            except Exception:
+                                loss = -2.0
+                            
                             if is_kr:
-                                s["entry_point"] = f"{curr_sym}{int(cp):,} (현재가)"
-                                s["target"] = f"{curr_sym}{int(cp * 1.06):,} (+6%)"
-                                s["stop"] = f"{curr_sym}{int(cp * 0.98):,} (-2%)"
+                                s["entry_point"] = f"{curr_sym}{int(cp * 0.97):,} ~ {curr_sym}{int(cp):,} (현재가 대비 1~3% 분할 눌림목 매수)"
+                                s["target"] = f"{curr_sym}{int(cp * (1 + gain / 100)):,} (+{gain:.1f}%)"
+                                s["stop"] = f"{curr_sym}{int(cp * (1 + loss / 100)):,} ({loss:.1f}%)"
                             else:
-                                s["entry_point"] = f"{curr_sym}{cp:.2f} (현재가)"
-                                s["target"] = f"{curr_sym}{cp * 1.06:.2f} (+6%)"
-                                s["stop"] = f"{curr_sym}{cp * 0.98:.2f} (-2%)"
+                                s["entry_point"] = f"{curr_sym}{cp * 0.97:.2f} ~ {curr_sym}{cp:.2f} (1~3% 눌림목 매수)"
+                                s["target"] = f"{curr_sym}{cp * (1 + gain / 100):.2f} (+{gain:.1f}%)"
+                                s["stop"] = f"{curr_sym}{cp * (1 + loss / 100):.2f} ({loss:.1f}%)"
                         else:
                             s["entry_point"] = "시세 조회 실패"
                             s["target"] = "시세 조회 실패"
                             s["stop"] = "시세 조회 실패"
+
+                    # 2. 장타 타점 교정 (현재가 기준 AI 예측 기대 수익률/손절률 반영)
+                    for s in long_stocks:
+                        tk = s.get("ticker", "")
+                        cp = price_map.get(tk, 0)
+                        if cp > 0:
+                            is_kr = str(tk).isdigit()
+                            curr_sym = "₩" if is_kr else "$"
+                            
+                            # AI 예측 장기 목표 수익률 파싱 (Fallback: +30%)
+                            try:
+                                gain = float(str(s.get("expected_gain_pct", "30.0")).strip().replace("%", "").replace("+", ""))
+                            except Exception:
+                                gain = 30.0
+                            # AI 예측 장기 손절 리스크 파싱 (Fallback: -15%)
+                            try:
+                                loss = float(str(s.get("expected_loss_pct", "-15.0")).strip().replace("%", ""))
+                                if loss > 0: loss = -loss # 양수로 오면 음수로 교정
+                            except Exception:
+                                loss = -15.0
+                            
+                            if is_kr:
+                                s["entry_point"] = f"{curr_sym}{int(cp * 0.95):,} ~ {curr_sym}{int(cp * 1.02):,}원"
+                                s["target"] = f"{curr_sym}{int(cp * (1 + gain / 100)):,}원 (+{gain:.1f}%)"
+                                s["stop"] = f"{curr_sym}{int(cp * (1 + loss / 100)):,}원 ({loss:.1f}%)"
+                            else:
+                                s["entry_point"] = f"{curr_sym}{cp * 0.95:.2f} ~ {curr_sym}{cp * 1.02:.2f}"
+                                s["target"] = f"{curr_sym}{cp * (1 + gain / 100):.2f} (+{gain:.1f}%)"
+                                s["stop"] = f"{curr_sym}{cp * (1 + loss / 100):.2f} ({loss:.1f}%)"
+                            if not s.get("hold_period"):
+                                s["hold_period"] = "6개월 ~ 1년"
+                        else:
+                            s["entry_point"] = "시세 조회 실패"
+                            s["target"] = "시세 조회 실패"
+                            s["stop"] = "시세 조회 실패"
+                            if not s.get("hold_period"):
+                                s["hold_period"] = "-"
         except Exception:
             pass
         return res
@@ -636,6 +848,108 @@ def generate_mindmap_data():
         return code
     except Exception as e:
         return f"graph TD\n  A[\"분석 시스템\"] --> B[\"{str(e)[:30]}\"]"
+def analyze_autonomous_trading(ticker: str, name: str, current_price: float, market: str, position: str, avg_price: float) -> dict:
+    """AI 자율 매매 에이전트를 위한 매수/매도/홀딩 판단 함수.
+    position: "NONE" (미보유) 또는 "HOLDING" (보유중)
+    """
+    try:
+        from db import load_ai_cache, save_ai_cache
+        
+        # [초정밀 비용 세이브 락] 1차 캐시 확인 (NONE 종목은 4시간, HOLDING 종목은 30분 유효)
+        cache_key = f"auto_trade_{ticker}_{position}_{market}"
+        cached_res = load_ai_cache(cache_key)
+        if cached_res:
+            return cached_res
+            
+        from data_kr import get_kr_stock_price
+        from data import get_us_stock_detail
+        
+        info = ""
+        if market == "국내":
+            d = get_kr_stock_price(ticker)
+            if d:
+                info = f"변동률: {d.get('change_pct', 0)}%, 52주최고: {d.get('w52_high', 0)}, 52주최저: {d.get('w52_low', 0)}, 거래량: {d.get('volume', 0)}"
+        else:
+            d = get_us_stock_detail(ticker)
+            if d:
+                info = f"변동률: {d.get('change_pct', 0)}%, P/E: {d.get('trailingPE', 'N/A')}, P/B: {d.get('priceToBook', 'N/A')}"
+                
+        # 쉐도우 연관 리스크 감지 로직
+        shadow_warning = ""
+        shadow_anchors_map = {
+            "041190": "⛓️ 두나무 지분연동 (비트코인 테마) - 두나무 지분 7.2% 보유",
+            "003530": "⛓️ 두나무/토스/야놀자 3대 지분 연계 변동주 - 지분 보유",
+            "021080": "⛓️ 두나무 지분 간접연동 - 펀드를 통한 간접 지분",
+            "006800": "🚀 스페이스X 지분연동 (우주항공 테마) - 스페이스X 1000억대 지분 투자",
+            "274090": "🚀 스페이스X 밸류체인 연동 - 원소재 가공 공급",
+            "211050": "🚀 위성통신 밸류체인 연계",
+            "041020": "🧠 오픈AI (인공지능 테마) - GPT Store 서비스 연동",
+            "047560": "🧠 오픈AI (인공지능 테마) - 파트너십 기반 사업",
+            "084680": "💳 토스 지분연동 - 토스뱅크 지분 7.5% 보유",
+            "053300": "💳 토스 지분연동 - 토스뱅크 주주사",
+            "041270": "🏦 케이뱅크 지분연동 - 케이뱅크 지주 주주사",
+            "035600": "🏦 케이뱅크 지분연동 - 간편결제 연동 주주사",
+            "019550": "✈️ 야놀자 지분연동 - 대규모 펀드 투자",
+            "086280": "🤖 현대차 로봇 밸류체인 - 보스턴 다이내믹스 지분 직접 보유",
+            "108490": "🤖 현대차 로봇 밸류체인 - 자율주행 로봇 협력 실증",
+            "018670": "⚡ 초전도체 간접 연동 (퀀텀에너지 테마) - L&S벤처 지분 연동형",
+            "047310": "⚡ 초전도체 간접 연동 (퀀텀에너지 테마) - 지분 연동형",
+            "047920": "🧪 HLB 바이오 그룹 순환 테마 - 판권/제조 연계",
+            "003520": "🧪 HLB 바이오 그룹 순환 테마 - 계열사 유통 연동",
+            "000660": "🔌 엔비디아 AI 가속기 공급망 - HBM3E 핵심 독점 공급",
+            "042700": "🔌 엔비디아 AI 가속기 공급망 - TC 본더 장비 독점 납품"
+        }
+        
+        ticker_clean = str(ticker).strip().upper()
+        if ticker_clean in shadow_anchors_map:
+            shadow_warning = f"\n[★ ⚠️ 쉐도우 자산 연동 감지] 이 종목은 {shadow_anchors_map[ticker_clean]}로 인해 시장에서 급등락하는 대표적 지분연동/간접 수혜 쉐도우 종목입니다. 본업 실적보다 연계 자산(비트코인, 스페이스X, 초전도성 검증 등)의 외생적 요소로 요동치므로, 신중하고 극도로 방어적인 포지션을 결정하세요."
+
+        api_key = os.environ.get("GEMINI_API_KEY")
+        if not api_key:
+            return {"action": "HOLD", "confidence": 0, "reason": "API Key Error"}
+            
+        client = genai.Client(api_key=api_key, http_options={"api_version": "v1alpha"})
+            
+        system_instruction = f"""당신은 월스트리트 출신의 냉철한 AI 퀀트 트레이더입니다.{shadow_warning}
+지금 당신은 [{name} ({ticker})] 종목에 대해 {position} 상태입니다.
+시장: {market}
+현재가: {current_price}
+추가정보: {info}
+
+만약 미보유(NONE) 상태라면, 지금이 매수 적기인지(BUY) 아니면 관망할지(HOLD) 결정하세요.
+만약 보유중(HOLDING) 상태라면 (평단가: {avg_price}), 지금이 수익실현/손절매의 매도 적기인지(SELL) 아니면 더 들고 갈지(HOLD) 결정하세요.
+
+당신의 결정을 반드시 다음 JSON 형식으로만 응답하세요:
+{{
+  "action": "BUY" 또는 "SELL" 또는 "HOLD",
+  "confidence": 1에서 100 사이의 확신도 (정수),
+  "reason": "결정에 대한 명확한 사유 (1-2문장 이내)"
+}}
+절대 다른 마크다운이나 설명을 덧붙이지 마세요."""
+
+        response = client.models.generate_content(
+            model="gemini-2.5-flash",
+            contents="이 종목에 대해 어떻게 처분해야 할까?",
+            config=types.GenerateContentConfig(
+                system_instruction=system_instruction,
+                temperature=0.3,
+                response_mime_type="application/json"
+            ),
+        )
+        res_text = response.text.strip()
+        if res_text.startswith("```json"):
+            res_text = res_text[7:-3]
+        result_dict = json.loads(res_text)
+        
+        # 2차: 캐시 저장 (NONE 은 4시간, HOLDING 은 30분)
+        ttl_hours = 4.0 if position == "NONE" else 0.5
+        save_ai_cache(cache_key, result_dict, ttl_hours=ttl_hours)
+        
+        return result_dict
+    except Exception as e:
+        print(f"analyze_autonomous_trading error: {e}")
+        return {"action": "HOLD", "confidence": 0, "reason": "AI Error"}
+
 
 
 @st.cache_data(ttl=300)
@@ -683,24 +997,32 @@ def generate_stock_report(ticker, current_price, change_pct):
     """
     선택한 주식의 세력 수급 등급 및 타점을 분석하여 JSON 객체로 반환합니다.
     """
+    # [RAG 영문 실시간 뉴스 피드 강제 주입]
+    news_txt = _fetch_target_news_us(f"{ticker} stock", limit=5)
+    if not news_txt or "No recent target" in news_txt:
+        news_txt = f"Current Price of {ticker} is ${current_price} ({change_pct}%)."
+
     prompt = f"""
 당신은 월스트리트 전문 애널리스트입니다.
 현재 {ticker}의 주가는 ${current_price} ({change_pct}%)입니다.
 
-[분석 원칙 — 데이터 기반 객관적 판단]
-상승·하락 어느 쪽으로도 편향하지 마세요.
-실적, 수급, 기술적 지표, 역사적 흐름, 매크로 데이터를 종합해 사실에 근거한 전망을 제시하세요.
-데이터가 상승을 지지하면 상승을, 하락을 지지하면 하락을 솔직하게 제시하세요.
-근거 없는 낙관도, 근거 없는 비관도 금지. 수치와 사실로만 서술하세요.
+[실시간 최신 영문 뉴스 팩트시트 (RAG)]
+{news_txt}
+
+[분석 원칙 — 냉철한 리스크 차감 및 낙관 편향(Optimism Bias) 절대 금지]
+1. 상승·하락 어느 쪽으로도 편향하지 마십시오. 장밋빛 낙관론은 금융 분석가로서 최악의 과오입니다.
+2. 실적, 수급, 밸류에이션(PER/PBR 역사적 상단 도달 여부), 매크로 긴축 환경, 최근 분기 성장 둔화 우려 등의 부정적인 요인(Risk Factors)을 반드시 50% 이상의 강도로 엄격히 차감 반영(Risk Discount)하십시오.
+3. 데이터가 상승을 지지하면 상승을 제시하되 반드시 상단 저항 매물대의 현실적 한계를 기재하고, 지표나 실적이 하락을 지지하면 하락 전망을 과감하고 냉정하게 제시하십시오.
+4. 근거 없는 낙관이나 희망 사항은 완전 배제하며, 오직 밸류에이션 멀티플과 역사적 프랙탈 데이터 등 수치적 사실에만 기반하여 보수적으로 깎아서 산정하십시오.
 
 ⚠️ [최우선 검증 단계] 분석 전 반드시 구글 검색으로 티커 '{ticker}'가 실제 NYSE/NASDAQ/AMEX 상장 회사인지 확인하세요.
 - 검색어: "{ticker} stock company name NYSE NASDAQ"
 - 확인한 실제 회사명을 'verified_name'에 기재하세요.
 - 확인한 회사가 분석 맥락과 다르거나 확인 불가 시 'ticker_mismatch': true 설정.
 
-구글 검색으로 최신 뉴스·실적·SEC 공시·옵션 플로우를 파악한 뒤 반드시 아래 JSON 형식으로만 응답하세요:
+제공된 실시간 영문 뉴스 팩트 및 최신 정보를 바탕으로 분석하되 반드시 아래 JSON 형식으로만 응답하세요:
 {{
-  "verified_name": "구글 검색으로 확인한 티커 {ticker}의 실제 회사명",
+  "verified_name": "확인한 티커 {ticker}의 실제 회사명",
   "ticker_mismatch": false,
 
   "rating": "단기 트레이딩 등급 (매우 강력 추천 / 추천 / 중간추천 / 비추천 / 매우 비추천)",
@@ -715,7 +1037,7 @@ def generate_stock_report(ticker, current_price, change_pct):
   "sell_target": "단기 목표가 가이드라인 (추천/매우 강력 추천이면 시스템이 +6%로 자동 교정)",
   "stop_loss": "손절가 가이드라인 (추천/매우 강력 추천이면 시스템이 -2%로 자동 교정)",
 
-  "mid_term_view_pct": "중기(1~3개월) 예상 변동률 — % 기호 없이 순수 숫자만 (예: 8.5 또는 -6.0)",
+  "mid_term_view_pct": "중기(1~3개월) 예상 변동률 — % 기호 없이 순수 숫자만. 관성적 15% 기재 절대 금지. 종목 고유 변동성에 맞춰 과감하게 책정 (예: 우량주는 6.5, 변동성 종목은 25.0 등)",
   "mid_term_view_price": "중기 예상 가격대 (달러 단위, 시스템이 mid_term_view_pct로 자동 계산)",
   "mid_term_view_condition": "이 중기 전망의 핵심 변수 또는 catalyst (상승·하락 모두 가능, 구체적인 이벤트·조건)",
 
@@ -725,28 +1047,49 @@ def generate_stock_report(ticker, current_price, change_pct):
   "long_term_rating": "중장기 등급 (적극 매수 / 분할 매수 / 관망 / 비중 축소 / 전량 매도)",
   "long_term_period": "권장 투자 기간",
   "long_term_target": "중장기 목표가 가이드라인 (달러 단위, 시스템이 long_term_target_pct로 자동 계산)",
-  "long_term_target_pct": "중장기 예상 수익/손실률 — % 기호 없이 순수 숫자만 (예: 25.0 또는 -10.0)",
-  "long_term_analysis": "매크로 사이클·펀더멘털 중장기 분석 (마크다운 상세)"
+  "long_term_target_pct": "중장기 예상 수익/손실률 — % 기호 없이 순수 숫자만. 관성적 30% 기재 절대 금지. 종목 고유 성장성/펀더멘털에 맞춰 책정 (예: 우량주는 12.0, 급등 성장주는 80.0 등)",
+  "long_term_analysis": "매크로 사이클·펀더멘털 중장기 분석 (마크다운 상세)",
+  "upside_scenario_pct": "긍정적 모멘텀 작동 시 예상 단기 최대 상승률. 관성적 15% 절대 금지. 호재 강도에 연동 (% 기호 없이 실수/정수 숫자만, 예: 8.5 또는 45.0)",
+  "upside_scenario_reason": "긍정 시나리오 현실화 시 진입 방법 및 돌파 타점 대응 전략 (1~2문장)",
+  "downside_scenario_pct": "부정적 모멘텀 또는 시장 조정 시 예상 단기 최대 하락률. 관성적 -10% 절대 금지 (음수 % 기호 없이 순수 실수/정수 숫자만, 예: -4.5 또는 -25.0)",
+  "downside_scenario_reason": "부정 시나리오 발생 시 저점 눌림목 대기 전략 및 지지선 대응법 (1~2문장)"
 }}
 
 !! [수치 산정 주의] 타점(buy/sell/stop) 및 중장기 목표가는 시스템이 실시간 현재가 기반으로 강제 덮어쓰기(Override) 하므로, AI는 논리적 근거 확보에 집중하세요.
 
+!! [평균 편향 금지 지침] AI는 관성적으로 중기 +15% 내외, 장기 +30% 내외를 뱉는 치명적인 버그(Average Bias)가 있습니다. 종목 고유의 변동성(안정 대형주는 +5~12%, 성장주는 +25~60%, 강세 테마주는 +80% 이상)에 맞춰 매우 탄력적이고 개성 있는 수치를 뿜어내십시오.
+
 !! [딥링크] 종목 언급 시 반드시 '종목명(티커)' 형식: Apple(AAPL), NVIDIA(NVDA) 등
 """
     try:
-        response = _call_gemini(prompt, use_search=True, temperature=0.7)
+        # RAG 뉴스 정보가 이미 완벽하게 주입되었으므로 딜레이 최소화를 위해 use_search=False로 설정
+        response = _call_gemini(prompt, use_search=False, temperature=0.7)
         res = _parse_json_response(response)
 
-        # [Python Override - Conditional & No-Fallback]
+        # [Python Override - Conditional & No-Fallback - 동적 하이브리드 타점 적용]
         try:
             cp = float(current_price)
             rating = str(res.get("rating", ""))
 
+            # AI 예측 단기 목표 수익률 파싱 (short_term_view_pct)
+            try:
+                import re
+                raw_pct = str(res.get("short_term_view_pct", "6.0"))
+                # 숫자(소수점 포함) 모두 추출
+                pct_nums = [float(n) for n in re.findall(r'[-+]?\d*\.\d+|\d+', raw_pct)]
+                gain = sum(pct_nums) / len(pct_nums) if pct_nums else 6.0
+                if gain <= 0: gain = 6.0 # 음수나 0이 오면 기본값 6.0% 적용
+            except Exception:
+                gain = 6.0
+            
+            # AI 예측 손절선 (기대 수익 비율의 1/3 수준으로 합리적 하방 리스크 조절)
+            loss = -max(2.0, min(gain * 0.4, 8.0))
+
             # 조건부 단기 타점: 추천/매우 강력 추천일 때만 계산
             if rating in ("추천", "매우 강력 추천"):
-                res["buy_target"] = f"${cp:.2f} ~ ${cp * 1.01:.2f}"
-                res["sell_target"] = f"${cp * 1.06:.2f} (+6%)"
-                res["stop_loss"]   = f"${cp * 0.98:.2f} (-2%)"
+                res["buy_target"] = f"${cp * 0.97:.2f} ~ ${cp:.2f} (1~3% 분할 눌림목 매수)"
+                res["sell_target"] = f"${cp * (1 + gain / 100):.2f} (+{gain:.1f}%)"
+                res["stop_loss"]   = f"${cp * (1 + loss / 100):.2f} ({loss:.1f}%)"
             else:
                 res["buy_target"] = "관망 (진입 타점 없음)"
                 res["sell_target"] = "단타 진입 불가"
@@ -767,6 +1110,22 @@ def generate_stock_report(ticker, current_price, change_pct):
                 res["long_term_target"] = f"${cp * (1 + lt_pct / 100):.2f} ({sign}{lt_pct:.1f}%)"
             except Exception:
                 res["long_term_target"] = "AI 수익률 산정 불가 (재분석 요망)"
+
+            # ── [추가] 양방향 시나리오별 평행 우주 타점 및 가이드 자동 계산 (USD) ──
+            try:
+                import re
+                raw_up = str(res.get("upside_scenario_pct", "15.0"))
+                up_pct = float(re.findall(r'[-+]?\d*\.\d+|\d+', raw_up)[0]) if re.findall(r'[-+]?\d*\.\d+|\d+', raw_up) else 15.0
+                if up_pct < 0: up_pct = -up_pct
+                res["upside_scenario_price"] = f"${cp * (1 + up_pct / 100):.2f}"
+                
+                raw_down = str(res.get("downside_scenario_pct", "-10.0"))
+                down_pct = float(re.findall(r'[-+]?\d*\.\d+|\d+', raw_down)[0]) if re.findall(r'[-+]?\d*\.\d+|\d+', raw_down) else -10.0
+                if down_pct > 0: down_pct = -down_pct
+                res["downside_scenario_price"] = f"${cp * (1 + down_pct / 100):.2f}"
+            except Exception:
+                res["upside_scenario_price"] = "AI 가격 산정 불가"
+                res["downside_scenario_price"] = "AI 가격 산정 불가"
 
         except Exception:
             pass
@@ -1178,23 +1537,32 @@ def generate_kr_stock_report(stock_code: str, name: str, price_data: dict, inves
 - 기관 순매수: {latest['기관']:+,}주
 - 개인 순매수: {latest['개인']:+,}주"""
 
+    cp = price_data.get('price', 0)
+    if not cp:
+        return {
+            "rating": "분석 오류",
+            "buy_target": "-", "sell_target": "-", "stop_loss": "-",
+            "세력분석": "-",
+            "analysis": "가격 데이터를 가져오지 못했습니다. 종목 코드와 네트워크 상태를 확인해주세요."
+        }
+
     prompt = f"""
 당신은 한국 주식시장 전문 애널리스트입니다.
 
-[분석 원칙 — 데이터 기반 객관적 판단]
-상승·하락 어느 쪽으로도 편향하지 마세요.
-실적, 수급, 기술적 지표, 역사적 흐름, 섹터 동향을 종합해 사실에 근거한 전망을 제시하세요.
-데이터가 상승을 지지하면 상승을, 하락을 지지하면 하락을 솔직하게 제시하세요.
-근거 없는 낙관도, 근거 없는 비관도 금지. 수치와 사실로만 서술하세요.
+[분석 원칙 — 냉철한 리스크 차감 및 낙관 편향(Optimism Bias) 절대 금지]
+1. 상승·하락 어느 쪽으로도 편향하지 마십시오. 장밋빛 낙관론은 금융 분석가로서 최악의 과오입니다.
+2. 실적, 수급, 밸류에이션(PER/PBR 역사적 고점 여부), 고금리 매크로 부담, 개별 오버행(잠재적 매도 물량) 우려 및 섹터 둔화 등 부정적인 요인(Risk Factors)을 반드시 50% 이상의 강도로 엄격히 차감 반영(Risk Discount)하십시오.
+3. 데이터가 상승을 지지하면 상승을 제시하되 반드시 저항 매물대의 한계를 명시하고, 수급 이탈이나 실적 둔화가 관찰되면 하락 전망을 과감하고 냉정하게 제시하십시오.
+4. 근거 없는 낙관이나 희망 사항은 완전 배제하며, 오직 객관적 밸류에이션 수치와 수급 데이터에만 기반하여 보수적으로 깎아서 산정하십시오.
 
 [종목 정보]
 종목명: {name} ({stock_code})
-현재가: {price_data['price']:,}원 ({price_data['change_pct']:+.2f}%)
+현재가: {cp:,}원 ({price_data.get('change_pct', 0):+.2f}%)
 시가총액: {price_data.get('market_cap', '-')}
-거래량: {price_data['volume']:,}주 / 거래대금: {price_data['amount'] // 100000000:,}억원
-시가: {price_data['open']:,}원 | 고가: {price_data['high']:,}원 | 저가: {price_data['low']:,}원
-52주 최고: {price_data['w52_high']:,}원 | 52주 최저: {price_data['w52_low']:,}원
-PER: {price_data['per']} | PBR: {price_data['pbr']}
+거래량: {price_data.get('volume', 0):,}주 / 거래대금: {price_data.get('amount', 0) // 100000000:,}억원
+시가: {price_data.get('open', 0):,}원 | 고가: {price_data.get('high', 0):,}원 | 저가: {price_data.get('low', 0):,}원
+52주 최고: {price_data.get('w52_high', 0):,}원 | 52주 최저: {price_data.get('w52_low', 0):,}원
+PER: {price_data.get('per', '-')} | PBR: {price_data.get('pbr', '-')}
 {investor_summary}
 
 ⚠️ [최우선 검증 단계] 분석 시작 전 반드시 구글 검색으로 KRX 종목코드 '{stock_code}'의 실제 종목명을 확인하세요.
@@ -1220,7 +1588,7 @@ PER: {price_data['per']} | PBR: {price_data['pbr']}
   "sell_target": "단기 목표가 가이드라인 (추천/매우 강력 추천이면 시스템이 +6%로 자동 교정)",
   "stop_loss": "손절가 가이드라인 (추천/매우 강력 추천이면 시스템이 -2%로 자동 교정)",
 
-  "mid_term_view_pct": "중기(1~3개월) 예상 변동률 — % 기호 없이 순수 숫자만 (예: 8.5 또는 -6.0)",
+  "mid_term_view_pct": "중기(1~3개월) 예상 변동률 — % 기호 없이 순수 숫자만. 관성적 15% 기재 절대 금지. 종목 고유 변동성에 맞춰 과감하게 책정 (예: 우량주는 6.5, 변동성 종목은 25.0 등)",
   "mid_term_view_price": "중기 예상 가격대 (원 단위, 시스템이 mid_term_view_pct로 자동 계산)",
   "mid_term_view_condition": "이 중기 전망의 핵심 변수 또는 catalyst (상승·하락 모두 가능, 구체적인 이벤트·조건)",
 
@@ -1231,11 +1599,17 @@ PER: {price_data['per']} | PBR: {price_data['pbr']}
   "long_term_rating": "중장기 등급 (적극 매수 / 분할 매수 / 관망 / 비중 축소 / 전량 매도)",
   "long_term_period": "권장 투자 기간",
   "long_term_target": "중장기 목표가 가이드라인 (원 단위, 시스템이 long_term_target_pct로 자동 계산)",
-  "long_term_target_pct": "중장기 예상 수익/손실률 — % 기호 없이 순수 숫자만 (예: 25.0 또는 -10.0)",
-  "long_term_analysis": "거시경제 사이클·펀더멘털 기반 중장기 분석 (마크다운 상세)"
+  "long_term_target_pct": "중장기 예상 수익/손실률 — % 기호 없이 순수 숫자만. 관성적 30% 기재 절대 금지. 종목 고유 성장성/펀더멘털에 맞춰 책정 (예: 우량주는 12.0, 급등 성장주는 80.0 등)",
+  "long_term_analysis": "거시경제 사이클·펀더멘털 기반 중장기 분석 (마크다운 상세)",
+  "upside_scenario_pct": "긍정적 모멘텀 작동 시 예상 단기 최대 상승률. 관성적 15% 절대 금지. 호재 강도에 연동 (% 기호 없이 실수/정수 숫자만, 예: 8.5 또는 45.0)",
+  "upside_scenario_reason": "긍정 시나리오 현실화 시 진입 방법 및 돌파 타점 대응 전략 (1~2문장)",
+  "downside_scenario_pct": "부정적 모멘텀 또는 시장 조정 시 예상 단기 최대 하락률. 관성적 -10% 절대 금지 (음수 % 기호 없이 순수 실수/정수 숫자만, 예: -4.5 또는 -25.0)",
+  "downside_scenario_reason": "부정 시나리오 발생 시 저점 눌림목 대기 전략 및 지지선 대응법 (1~2문장)"
 }}
 
 !! [수치 산정 주의] 모든 가격 타점은 시스템이 실시간 현재가 기반으로 강제 덮어쓰기 하므로, AI는 수치 계산보다 분석 논리에 집중하세요.
+
+!! [평균 편향 금지 지침] AI는 관성적으로 중기 +15% 내외, 장기 +30% 내외를 뱉는 치명적인 버그(Average Bias)가 있습니다. 종목 고유의 변동성(안정 대형주는 +5~12%, 성장주는 +25~60%, 강세 테마주는 +80% 이상)에 맞춰 매우 탄력적이고 개성 있는 수치를 뿜어내십시오.
 
 !! [딥링크] 종목 언급 시 반드시 '종목명(6자리코드)' 형식: 삼성전자(005930), SK하이닉스(000660) 등
 """
@@ -1243,14 +1617,29 @@ PER: {price_data['per']} | PBR: {price_data['pbr']}
         response = _call_gemini(prompt, use_search=True, temperature=0.7)
         res = _parse_json_response(response)
 
-        # [Python Override - Conditional & No-Fallback]
+        # [Python Override - Conditional & No-Fallback - 동적 하이브리드 타점 적용]
         try:
             cp = float(price_data['price'])
             rating = str(res.get("rating", ""))
+            
+            # AI 예측 단기 목표 수익률 파싱 (short_term_view_pct)
+            try:
+                import re
+                raw_pct = str(res.get("short_term_view_pct", "6.0"))
+                # 숫자(소수점 포함) 모두 추출
+                pct_nums = [float(n) for n in re.findall(r'[-+]?\d*\.\d+|\d+', raw_pct)]
+                gain = sum(pct_nums) / len(pct_nums) if pct_nums else 6.0
+                if gain <= 0: gain = 6.0 # 음수나 0이 오면 기본값 6.0% 적용
+            except Exception:
+                gain = 6.0
+            
+            # AI 예측 손절선 (기대 수익 비율의 1/3 수준으로 합리적 하방 리스크 조절)
+            loss = -max(2.0, min(gain * 0.4, 8.0))
+
             if rating in ("추천", "매우 강력 추천"):
-                res["buy_target"] = f"{int(cp * 0.99):,}원 ~ {int(cp * 1.01):,}원"
-                res["sell_target"] = f"{int(cp * 1.06):,}원 (+6%)"
-                res["stop_loss"] = f"{int(cp * 0.98):,}원 (-2%)"
+                res["buy_target"] = f"{int(cp * 0.97):,}원 ~ {int(cp * 1.00):,}원 (현재가 대비 1~3% 분할 눌림목 매수)"
+                res["sell_target"] = f"{int(cp * (1 + gain / 100)):,}원 (+{gain:.1f}%)"
+                res["stop_loss"] = f"{int(cp * (1 + loss / 100)):,}원 ({loss:.1f}%)"
             else:
                 res["buy_target"] = "관망 (진입 타점 없음)"
                 res["sell_target"] = "단타 진입 불가"
@@ -1267,6 +1656,22 @@ PER: {price_data['per']} | PBR: {price_data['pbr']}
                 res["long_term_target"] = f"{int(cp * (1 + lt_pct / 100)):,}원 ({sign}{lt_pct:.1f}%)"
             except Exception:
                 res["long_term_target"] = "AI 수익률 산정 불가 (재분석 요망)"
+                
+            # ── [추가] 양방향 시나리오별 평행 우주 타점 및 가이드 자동 계산 ──
+            try:
+                import re
+                raw_up = str(res.get("upside_scenario_pct", "15.0"))
+                up_pct = float(re.findall(r'[-+]?\d*\.\d+|\d+', raw_up)[0]) if re.findall(r'[-+]?\d*\.\d+|\d+', raw_up) else 15.0
+                if up_pct < 0: up_pct = -up_pct
+                res["upside_scenario_price"] = f"{int(cp * (1 + up_pct / 100)):,}원"
+                
+                raw_down = str(res.get("downside_scenario_pct", "-10.0"))
+                down_pct = float(re.findall(r'[-+]?\d*\.\d+|\d+', raw_down)[0]) if re.findall(r'[-+]?\d*\.\d+|\d+', raw_down) else -10.0
+                if down_pct > 0: down_pct = -down_pct
+                res["downside_scenario_price"] = f"{int(cp * (1 + down_pct / 100)):,}원"
+            except Exception:
+                res["upside_scenario_price"] = "AI 가격 산정 불가"
+                res["downside_scenario_price"] = "AI 가격 산정 불가"
         except Exception:
             pass
 
@@ -2328,7 +2733,13 @@ def analyze_trading_patterns(records: list) -> dict:
 
 def recommend_entry_price(ticker: str, name: str, market: str, current_price: float, w52_high: float = None, w52_low: float = None) -> dict:
     """미매수 관심종목에 대한 AI 매수가(타점) 추천"""
-    client = genai.Client(api_key=st.secrets["gemini"]["api_key"])
+    api_key = os.environ.get("GEMINI_API_KEY")
+    if not api_key:
+        try:
+            api_key = st.secrets["gemini"]["api_key"]
+        except Exception:
+            pass
+    client = genai.Client(api_key=api_key, http_options={"api_version": "v1alpha"})
     
     currency = "KRW" if market == "국내" else "USD"
     price_info = f"- 현재가: {current_price} {currency}\n"
@@ -2396,3 +2807,138 @@ def analyze_trade_postmortem(ticker: str, name: str, market: str, buy_price: flo
         return res
     except Exception as e:
         return {"evaluation": f"분석 오류: {e}", "cause": "-", "learning_point": "-"}
+
+
+def analyze_shadow_sector_catalyst(ticker: str, name: str, market: str) -> dict:
+    """AI 실시간 쉐도우 섹터 & 찌라시 팩트 체커 엔진 코어.
+    구글 실시간 검색(use_search=True)을 가동하여 7일간의 신규 공급계약, 신사업, 루머 진위 및 숨겨진 지분 관계를 교차 체크합니다.
+    """
+    ticker_str = str(ticker).upper()
+    prompt = f"""당신은 기업의 공급계약, 신사업 진출, 대기업 수급 밸류체인, 그리고 **'숨겨진 지분 보유/자회사 투자 관계'**를 초정밀 분석하는 'AI 쉐도우 섹터 판독가'입니다.
+최근 7일 및 과거 뉴스 히스토리를 종합하여 [{name} ({ticker_str})] 종목에 대한 실시간 뉴스, 공급계약 체결 공시, 대형사 거래 개시 소식, 혹은 **'비상장사/글로벌 벤처 지분 투자 현황 및 자회사 연동 테마'**를 구글 검색을 통해 철저하게 수집하고 분석하세요.
+
+[분석 및 검증 지침]
+1. **지분 관계 및 간접 투자 동조화 (Hidden Equity Connection) 분석**:
+   - 이 종목의 공식 업종(예: 창업투자, 증권, 화학 등)과 완전히 무관하더라도, **특정 비상장사나 글로벌 혁신 기업의 지분/투자금 보유(예: 우리기술투자의 두나무/업비트 지분보유 ➔ 비트코인 가상자산 테마, 미래에셋증권의 스페이스X 지분보유 ➔ 우주항공 테마, 창해에탄올의 자회사 지분보유 등)**로 인해 다른 기초자산이나 글로벌 메가 이슈에 100% 동조되어 요동치는 독특한 "지분연동형 쉐도우 섹터"인지를 철저히 파악하여 도출해 내세요.
+2. **팩트 신뢰도 등급 (credibility)**을 아래 기준에 따라 냉철하게 부여하세요:
+   - '상' (공식 팩트): 금융감독원 DART 공식 공시(분기보고서 지분 명세서 등) 및 계약 공시 확인 완료, 대기업 공식 발표 보도자료, 메이저 경제 3사(연합, 머니투데이 등)의 지분 인수 및 계약 확정보도 확인 완료.
+   - '미확인' (찌라시 주의): 공식 공시나 팩트 체크 보도가 전혀 없는 단순 블로그 속보, 카더라 통신, 지라시성 낚시 기사 및 근거 없는 투자 루머.
+3. **동적 쉐도우 섹터명 (shadow_sector)**을 도출하세요:
+   - 신규 계약뿐 아니라 지분 보유로 인해 주가가 강력하게 동조화되는 '실시간 쉐도우 섹터'를 한 줄로 간결히 나타내세요.
+   - 예: "⛓️ 두나무 지분연동 (비트코인 테마)" 또는 "🚀 스페이스X 지분연동 (우주항공 테마)", "⚡ 2차전지 배터리 팩 케이스 (삼성SDI향 납품)" 등.
+   - 만약 유의미한 지분 얽힘이나 신사업/공급 계약 팩트가 없다면, 기존의 업종 대분류명을 그대로 표시하세요.
+4. **루머 리스크 및 지분 리스크 가이드라인 (rumor_warning_guide)**을 작성하세요:
+   - 지분 연동 종목인 경우: 단순히 지분만 가지고 테마로 엮여 요동치므로, 실제 본업의 실적과 괴리가 클 수 있음을 경고하는 지분투자 특화형 리스크 가이드라인을 적어주세요 (1~2줄).
+   - 일반 미확인 찌라시인 경우: 뇌동매매 추격 매수를 경고하는 리스크 가이드 (1~2줄).
+   - 공식 팩트가 확실한 경우: "금융감독원 공식 보고서 지분 소유 명세 및 계약서가 정식 확인된 공인된 팩트 구조입니다." 로 기재하세요.
+
+반드시 아래 JSON 형식으로만 응답하세요 (설명 없이 JSON 객체만 반환):
+{{
+  "shadow_sector": "도출된 쉐도우 섹터명 (15자 내외)",
+  "credibility": "상 또는 미확인",
+  "catalyst_summary": "최근 발생한 핵심 계약/신사업/지분보유 구조 팩트 요약 (1~2줄)",
+  "rumor_warning_guide": "투자자 경고용 리스크 가이드라인 (1~2줄)",
+  "partner_company": "연계된 대형 고객사 또는 지분 보유사 이름 (예: 두나무 / 스페이스X / 현대차 등, 없으면 '-')"
+}}"""
+    try:
+        response = _call_gemini(prompt, use_search=True, temperature=0.3, timeout_sec=60)
+        return _parse_json_response(response)
+    except Exception as e:
+        print(f"analyze_shadow_sector_catalyst error: {e}")
+        return {
+            "shadow_sector": "데이터 로드 실패",
+            "credibility": "미확인",
+            "catalyst_summary": f"RAG 검색 오류: {str(e)[:50]}",
+            "rumor_warning_guide": "서버 통신 오류로 인해 팩트 체크가 중단되었습니다. 신중한 접근이 필요합니다.",
+            "partner_company": "-"
+        }
+
+
+def discover_shadow_stocks(keyword: str) -> dict:
+    """사용자가 입력한 임의의 테마/앵커 키워드(예: 트럼프, 케이뱅크, 컬리 등)에 대해
+    실시간 구글 검색을 가동하여 숨겨진 지분 보유사나 간접 수혜주(쉐도우 종목)들을 발굴해냅니다.
+    """
+    keyword_clean = str(keyword).strip()
+    prompt = f"""당신은 기업의 숨겨진 지분 관계, 자회사 지분율, 공급계약 및 비상장사 투자 인프라를 추적하는 '초지능형 쉐도우 섹터 발굴 엔진'입니다.
+최근 7일 및 과거 뉴스 히스토리, 기업 공시를 분석하여 입력 키워드 [{keyword_clean}]와 직간접적으로 연결된 국내(KR) 및 미국(US) 상장 주식들 중 **'보유 지분이나 자회사 투자, 혹은 독점 밸류체인 관계'**로 인해 강력한 주가 동조화를 보이는 대표적인 쉐도우 종목들을 구글 실시간 검색을 통해 최소 2개, 최대 5개 발굴해내세요.
+
+[분석 및 반환 필수 요소]
+1. **지분 얽힘 및 투자 관계 (Equity Connection)**: 단순한 테마 엮임이 아닌, 구체적으로 몇 %의 지분을 가지고 있는지, 펀드를 통해 투자했는지, 또는 핵심 자회사인지 등의 구체적 지분 팩트를 제시하세요.
+2. **신뢰 등급 (credibility)**: '상' (공식 지분/공시 확인) 또는 '미확인' (시장 루머/찌라시)
+3. **종목명 및 티커**: 한/미 종목 모두 가능하며 정확한 종목명과 티커(코드는 6자리 숫자 또는 US 알파벳)를 제시해야 합니다.
+4. **리스크 가이드라인**: 지분 희석이나 본업 실적 무관 상승에 대한 뇌동매매 방어 경고 (1줄).
+
+반드시 아래 JSON 형식으로만 응답하세요 (설명 없이 JSON 객체만 반환):
+{{
+  "anchor_keyword": "{keyword_clean}",
+  "discovery_summary": "키워드와 관련된 쉐도우 섹터 구조 총평 (1~2줄)",
+  "stocks": [
+    {{
+      "name": "종목명",
+      "ticker": "티커/코드",
+      "market": "KR 또는 US",
+      "relationship": "지분 보유율 및 구체적 관계 설명 (예: 두나무 지분 7.2% 보유)",
+      "credibility": "상 또는 미확인",
+      "risk_guide": "뇌동매매 방지 경고 가이드라인 (1줄)"
+    }}
+  ]
+}}"""
+    try:
+        response = _call_gemini(prompt, use_search=True, temperature=0.3, timeout_sec=60)
+        return _parse_json_response(response)
+    except Exception as e:
+        print(f"discover_shadow_stocks error: {e}")
+        return {
+            "anchor_keyword": keyword_clean,
+            "discovery_summary": f"RAG 검색 중 오류가 발생했습니다: {str(e)[:50]}",
+            "stocks": []
+        }
+
+
+def analyze_overnight_gap_risk(ticker: str, name: str, market: str) -> dict:
+    """시간외 거래 및 밤사이 돌발 공시/뉴스를 AI RAG로 긴급 수집하여,
+    익일 시초가 갭상승/갭하락 방향 및 예상 등락률 범위를 판독하고 실전 대응 수칙을 제안합니다.
+    """
+    ticker_str = str(ticker).upper()
+    prompt = f"""당신은 장 마감(정규장 종료) 후 발생하는 공시, 실적 발표, 밤사이 글로벌 메가 뉴스 보도 및 찌라시 촉매제를 정밀 수집하고 분석하는 'AI 시간외 긴급 갭 스캐너'입니다.
+최근 24시간(특히 정규장 종료 직후부터 현재 시각까지) 구글 실시간 검색을 가동하여 [{name} ({ticker_str})] 종목에 유입된 돌발 공시(3자배정 유상증자, 무상증자, CB 발행, 공급 계약 등), 분기/연간 실적 발표, 대기업 연계 뉴스, 혹은 글로벌 기초자산(비트코인, 유가 등) 시세 급변동 요인을 수집하세요.
+
+[분석 및 검증 지침]
+1. **익일 시초가 영향 진단 (gap_direction)**:
+   - 밤사이 발생한 재료의 임팩트를 냉정히 연산하여 아래 3가지 중 하나로 결정하세요:
+     - '갭상승 가능성 높음' (호재 공시, 어닝 서프라이즈, 메가 테마 엮임 등)
+     - '갭하락 가능성 높음' (악재 CB 공시, 횡령, 어닝 쇼크, 테마 버블 붕괴 등)
+     - '영향 없음 (보합 중립)' (유의미한 신규 호재/악재 공시나 기사가 감지되지 않음)
+2. **예상 갭 강도 및 등락 범위 (gap_strength)**:
+   - 만약 '갭상승 가능성 높음'인 경우: 예상 상승 폭 범위 제시 (예: "+3.5% ~ +7.0%")
+   - 만약 '갭하락 가능성 높음'인 경우: 예상 하락 폭 범위 제시 (예: "-3.0% ~ -6.5%")
+   - 영향 없음인 경우: "0.0% ~ +0.5%" 또는 "보합권"으로 표시하세요.
+3. **긴급 시간외 이슈 요약 (overnight_issue_summary)**:
+   - 최근 24시간 동안 발생하여 내일 아침 갭에 영향을 미치는 핵심 돌발 재료를 1줄로 요약하세요 (예: "3자배정 유상증자 500억 납입 공시 유입", "장 마감 후 어닝 쇼크 실적 공시로 애프터마켓 폭락 중" 등).
+   - 아무 이슈가 없다면 "최근 24시간 이내 감지된 돌발 시간외 이슈가 없습니다." 로 기재하세요.
+4. **시간외 단일가 및 익일 시초가 대처 행동 강령 (trading_action_guide)**:
+   - 투자자가 지금 시간외 단일가 거래(16:00~18:00)나 익일 장 시작 시 뇌동매매를 피하고 손실을 최소화할 수 있는 **구체적인 행동 수칙**을 1~2줄로 지능적으로 제안하세요.
+   - 예: "시간외 3자배정 호재이므로 매수를 고려하되, 내일 아침 시초가 +8% 초과 갭상 시 추격 매수를 금지하고 눌림목을 대기하세요."
+   - 예: "악재 CB 발행 공시이므로 시간외 단일가에서 즉시 비중 축소(손절매)를 실행하여 리스크를 방어하세요."
+
+반드시 아래 JSON 형식으로만 응답하세요 (설명 없이 JSON 객체만 반환):
+{{
+  "gap_direction": "갭상승 가능성 높음 또는 갭하락 가능성 높음 또는 영향 없음 (보합 중립)",
+  "gap_strength": "예상 갭 등락 폭 (예: +4.0% ~ +8.0%, 없으면 '보합권')",
+  "overnight_issue_summary": "최근 24시간 핵심 시간외 이슈 요약 (1줄)",
+  "trading_action_guide": "시간외 단일가 및 시초가 대응 행동 수칙 (1~2줄)"
+}}"""
+    try:
+        response = _call_gemini(prompt, use_search=True, temperature=0.3, timeout_sec=60)
+        return _parse_json_response(response)
+    except Exception as e:
+        print(f"analyze_overnight_gap_risk error: {e}")
+        return {
+            "gap_direction": "영향 없음 (보합 중립)",
+            "gap_strength": "보합권",
+            "overnight_issue_summary": f"RAG 갭 스캔 오류: {str(e)[:50]}",
+            "trading_action_guide": "장 마감 후 돌발 공시나 뉴스가 감지되지 않았습니다. 차분한 상시 모니터링을 유지하세요."
+        }
+
+
+

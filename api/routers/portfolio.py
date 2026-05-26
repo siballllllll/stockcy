@@ -68,6 +68,11 @@ class TradeAnalysisRecordRequest(BaseModel):
     analysis_result: dict
 
 
+class TelegramConfigRequest(BaseModel):
+    token:   str
+    chat_id: str
+
+
 # ── 즐겨찾기 ─────────────────────────────────────────────────────────────────
 
 @router.get("/favorites")
@@ -100,10 +105,44 @@ async def check_favorite(ticker: str):
 
 # ── 포트폴리오 ────────────────────────────────────────────────────────────────
 
+@router.get("/portfolio/debug")
+async def debug_portfolio():
+    """포트폴리오 로드 디버그용 엔드포인트"""
+    import traceback
+    try:
+        from db import _get_spreadsheet
+        sh, msg = await asyncio.to_thread(_get_spreadsheet)
+        if not sh:
+            return {"error": f"스프레드시트 접근 실패: {msg}"}
+        worksheets = await asyncio.to_thread(lambda: [ws.title for ws in sh.worksheets()])
+        try:
+            ws = sh.worksheet("현재포트폴리오")
+            records = await asyncio.to_thread(ws.get_all_records)
+            return {"worksheets": worksheets, "record_count": len(records), "sample": records[:2] if records else []}
+        except Exception as e:
+            return {"worksheets": worksheets, "error": str(e), "trace": traceback.format_exc()}
+    except Exception as e:
+        return {"fatal_error": str(e), "trace": traceback.format_exc()}
+
+
 @router.get("/portfolio")
 async def load_portfolio():
     from db import load_portfolio_from_gsheet
     data = await asyncio.to_thread(load_portfolio_from_gsheet)
+    return data or []
+
+
+@router.get("/portfolio/agent")
+async def load_agent_portfolio():
+    from db import load_portfolio_from_gsheet
+    data = await asyncio.to_thread(load_portfolio_from_gsheet, owner="AI_AGENT")
+    return data or []
+
+
+@router.get("/portfolio/agent/scan-logs")
+async def load_agent_scan_logs():
+    from db import load_agent_scan_logs_from_gsheet
+    data = await asyncio.to_thread(load_agent_scan_logs_from_gsheet)
     return data or []
 
 
@@ -142,7 +181,16 @@ async def save_ai_portfolio(req: AiPortfolioSaveRequest):
 @router.get("/trades")
 async def load_trades():
     from db import load_trade_history_from_gsheet
-    df, msg = await asyncio.to_thread(load_trade_history_from_gsheet)
+    df, msg = await asyncio.to_thread(load_trade_history_from_gsheet, owner="USER")
+    if df is None or (hasattr(df, "empty") and df.empty):
+        return {"data": [], "message": msg}
+    return {"data": df.to_dict(orient="records"), "message": msg}
+
+
+@router.get("/trades/agent")
+async def load_agent_trades():
+    from db import load_trade_history_from_gsheet
+    df, msg = await asyncio.to_thread(load_trade_history_from_gsheet, owner="AI_AGENT")
     if df is None or (hasattr(df, "empty") and df.empty):
         return {"data": [], "message": msg}
     return {"data": df.to_dict(orient="records"), "message": msg}
@@ -231,3 +279,52 @@ async def load_trade_analysis_records():
     from db import load_trade_analysis_records
     data, msg = await asyncio.to_thread(load_trade_analysis_records)
     return {"data": data or [], "message": msg}
+
+
+@router.get("/telegram/config")
+async def get_telegram_config():
+    from db import load_telegram_config
+    token, chat_id = await asyncio.to_thread(load_telegram_config)
+    # 보안상 마스킹 처리
+    masked_token = ""
+    if token:
+        parts = token.split(":")
+        if len(parts) == 2:
+            bot_id, secret = parts
+            masked_secret = secret[:3] + "*" * (len(secret) - 6) + secret[-3:] if len(secret) > 6 else "******"
+            masked_token = f"{bot_id}:{masked_secret}"
+        else:
+            masked_token = token[:5] + "*" * (len(token) - 8) + token[-3:] if len(token) > 8 else "******"
+            
+    masked_chat_id = ""
+    if chat_id:
+        masked_chat_id = chat_id[:3] + "*" * (len(chat_id) - 5) + chat_id[-2:] if len(chat_id) > 5 else "******"
+        
+    return {
+        "token": token,
+        "chat_id": chat_id,
+        "masked_token": masked_token,
+        "masked_chat_id": masked_chat_id
+    }
+
+
+@router.post("/telegram/config")
+async def save_and_test_telegram(req: TelegramConfigRequest):
+    from db import save_telegram_config
+    # 1. 설정 저장
+    ok, msg = await asyncio.to_thread(save_telegram_config, req.token, req.chat_id)
+    if not ok:
+        return {"success": False, "message": f"설정 저장 실패: {msg}"}
+        
+    # 2. 테스트 메시지 전송
+    from telegram_bot import send_message
+    test_text = (
+        "🎉 <b>[스톡시 텔레그램 테스트]</b>\n"
+        "텔레그램 연동 및 가격 알림 서비스가 성공적으로 활성화되었습니다! 🚀\n\n"
+        "앞으로 AI 추천 타점 도달 및 개별 알림 조건 발생 시 실시간 푸시 알림이 발송됩니다."
+    )
+    send_ok = await asyncio.to_thread(send_message, test_text)
+    if send_ok:
+        return {"success": True, "message": "텔레그램 설정 저장 및 웰컴 테스트 메시지 발송에 성공했습니다. 폰을 확인해 보세요!"}
+    else:
+        return {"success": False, "message": "설정은 성공적으로 저장되었으나, 텔레그램 테스트 발송에 실패했습니다. 봇 토큰과 Chat ID가 정확한지 확인해 주세요."}

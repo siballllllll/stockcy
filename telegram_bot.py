@@ -3,6 +3,13 @@ import requests
 
 
 def _get_credentials() -> tuple[str, str] | tuple[None, None]:
+    try:
+        from db import load_telegram_config
+        token, chat_id = load_telegram_config()
+        if token and chat_id:
+            return token, chat_id
+    except Exception:
+        pass
     token = os.getenv("TELEGRAM_BOT_TOKEN", "")
     chat_id = os.getenv("TELEGRAM_CHAT_ID", "")
     if token and chat_id:
@@ -42,6 +49,9 @@ def send_price_alert(market: str, ticker: str, name: str,
         "상승돌파": "🚀",
         "하락돌파": "🔴",
         "매수진입": "🟢",
+        "AI매수가 도달": "🟢",
+        "AI목표가 도달": "🚀",
+        "AI손절가 도달": "🔴",
     }
     emoji = emoji_map.get(alert_type, "🔔")
 

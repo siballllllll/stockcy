@@ -200,8 +200,8 @@ export function StockModal({ stock, onClose }: { stock: StockInfo; onClose: () =
     () => api.kr.dailyChart(stock.code, 40) as Promise<ChartCandle[]>
   );
 
-  const krAnalysis = useSSE<KrStockReport>("/api/ai/kr-stock-report", { method: "POST" });
-  const usAnalysis = useSSE<StockReport>("/api/ai/stock-report",    { method: "POST" });
+  const krAnalysis = useSSE<KrStockReport>("/api/ai/kr-stock-report", { method: "POST", globalId: `kr-report-${stock.code}`, globalTitle: `${stock.name} 종합 분석` });
+  const usAnalysis = useSSE<StockReport>("/api/ai/stock-report",    { method: "POST", globalId: `us-report-${stock.code}`, globalTitle: `${stock.name} 종합 분석` });
   const analysis   = isKr ? krAnalysis : usAnalysis;
 
   const price     = isKr ? krPrice?.price            : usPrice?.["현재가($)"];

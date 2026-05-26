@@ -23,41 +23,64 @@ import api.core.streamlit_mock  # noqa: F401
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from api.routers import market_us, market_kr, ai, portfolio, admin
+from api.routers import (
+    market_kr as kr,
+    market_us as us,
+    ai,
+    portfolio,
+    admin,
+    trading,
+    screener
+)
 
 # ── 4. FastAPI 앱 생성 ───────────────────────────────────────────────────────
 app = FastAPI(
-    title="Stockcy API",
-    version="1.0.0",
-    description="Stockcy AI 트레이딩 대시보드 — FastAPI 백엔드",
+    title="Stockcy Backend API",
+    description="국내/미국 주식 데이터 및 AI 분석 API",
+    version="2.0.0",
 )
 
-# ── 5. CORS 설정 (Next.js 프론트와 통신) ─────────────────────────────────────
-_allowed_origins = [
-    "http://localhost:3000",   # Next.js dev
+# ── 5. 미들웨어 설정 ─────────────────────────────────────────────────────────
+origins = [
+    "http://localhost:3000",
     "http://localhost:3001",
-    os.environ.get("FRONTEND_URL", "http://localhost:3000"),
+    "http://127.0.0.1:3000",
+    "http://127.0.0.1:3001",
+    "https://drop-down-prankish-breath.ngrok-free.dev",
 ]
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=list(set(_allowed_origins)),
+    allow_origins=origins,
+    allow_origin_regex=r"https://.*\.ngrok-free\.dev", # ngrok 도메인 변경 대비 동적 regex 허용
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 # ── 6. 라우터 등록 ────────────────────────────────────────────────────────────
-app.include_router(market_us.router,  prefix="/api/us",    tags=["미국 시장"])
-app.include_router(market_kr.router,  prefix="/api/kr",    tags=["국내 시장"])
-app.include_router(ai.router,         prefix="/api/ai",    tags=["AI 분석"])
-app.include_router(portfolio.router,  prefix="/api",       tags=["포트폴리오·즐겨찾기"])
-app.include_router(admin.router,      prefix="/api/admin", tags=["관리자"])
+app.include_router(trading.router,    prefix="/api",          tags=["Trading"])
+app.include_router(us.router,         prefix="/api/us",       tags=["미국 시장"])
+app.include_router(kr.router,         prefix="/api/kr",       tags=["국내 시장"])
+app.include_router(ai.router,         prefix="/api/ai",       tags=["AI 분석"])
+app.include_router(screener.router,   prefix="/api/screener", tags=["스크리너"])
+app.include_router(portfolio.router,  prefix="/api",          tags=["포트폴리오·즐겨찾기"])
+app.include_router(admin.router,      prefix="/api/admin",    tags=["관리자"])
 
 # ── 7. 헬스체크 ───────────────────────────────────────────────────────────────
 @app.get("/api/health", tags=["시스템"])
 def health():
     return {"status": "ok", "app": "Stockcy API v1.0"}
+
+# ── 8. 백그라운드 태스크 ───────────────────────────────────────────────────────
+import asyncio
+from api.background import price_alert_loop
+
+@app.on_event("startup")
+async def startup_event():
+    asyncio.create_task(price_alert_loop())
+    from api.agent import ai_trading_loop
+    asyncio.create_task(ai_trading_loop())
 
 
 @app.get("/api/config-status", tags=["시스템"])

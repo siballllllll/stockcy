@@ -35,7 +35,9 @@ export function BriefingModal({ onClose }: Props) {
     setMsg("🔍 Google Search 기반 주도 섹터 분석 중...");
 
     try {
-      const BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+      const BASE = typeof window === "undefined"
+        ? (process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8000")
+        : "/backend";
       const res = await fetch(`${BASE}/api/ai/daily-briefing`, {
         signal: abortRef.current.signal,
       });

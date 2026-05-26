@@ -1,7 +1,8 @@
 "use client";
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useRef, useContext, useEffect } from "react";
 import { connectSSE } from "@/lib/api";
 import type { SseStatus } from "@/lib/types";
+import { AiTaskContext } from "@/contexts/AiTaskContext";
 
 interface SseState<T> {
   status:     SseStatus;
@@ -10,19 +11,12 @@ interface SseState<T> {
   fromCache:  boolean;
 }
 
-/**
- * SSE 스트림 훅
- * @example
- *   const { status, result, message, start } = useSSE<DailyBriefing>("/api/ai/daily-briefing");
- *   <button onClick={start}>분석 시작</button>
- *   {status === "running" && <Spinner text={message} />}
- *   {status === "done" && <Result data={result} />}
- */
 export function useSSE<T>(
   path: string,
-  options?: { method?: "GET" | "POST"; body?: object }
+  options?: { method?: "GET" | "POST"; body?: object; globalId?: string; globalTitle?: string }
 ) {
-  const [state, setState] = useState<SseState<T>>({
+  // 1. Local State
+  const [localState, setLocalState] = useState<SseState<T>>({
     status:    "idle",
     message:   "",
     result:    null,
@@ -31,43 +25,63 @@ export function useSSE<T>(
 
   const abortRef = useRef<AbortController | null>(null);
 
-  const start = useCallback(async (runtimeBody?: object) => {
-    // 이전 요청 취소
+  // 2. Global Context
+  const aiCtx = useContext(AiTaskContext);
+
+  const startLocal = useCallback(async (runtimeBody?: object) => {
     abortRef.current?.abort();
     abortRef.current = new AbortController();
 
-    setState({ status: "running", message: "분석 시작 중...", result: null, fromCache: false });
+    setLocalState({ status: "running", message: "분석 시작 중...", result: null, fromCache: false });
 
     try {
       await connectSSE<T>(
         path,
         (evt) => {
           if (evt.status === "running") {
-            setState((s) => ({ ...s, status: "running", message: evt.message ?? "처리 중..." }));
+            setLocalState((s) => ({ ...s, status: "running", message: evt.message ?? "처리 중..." }));
           } else if (evt.status === "done") {
-            setState({
+            setLocalState({
               status:    "done",
               message:   "",
               result:    (evt.result as T) ?? null,
               fromCache: evt.from_cache ?? false,
             });
           } else if (evt.status === "error") {
-            setState({ status: "error", message: evt.message ?? "오류 발생", result: null, fromCache: false });
+            setLocalState({ status: "error", message: evt.message ?? "오류 발생", result: null, fromCache: false });
           }
         },
-        { method: options?.method, body: runtimeBody ?? options?.body }
+        { method: options?.method, body: runtimeBody ?? options?.body, signal: abortRef.current.signal }
       );
     } catch (err) {
       if ((err as Error).name !== "AbortError") {
-        setState({ status: "error", message: String(err), result: null, fromCache: false });
+        setLocalState({ status: "error", message: String(err), result: null, fromCache: false });
       }
     }
   }, [path, options]);
 
-  const reset = useCallback(() => {
+  const resetLocal = useCallback(() => {
     abortRef.current?.abort();
-    setState({ status: "idle", message: "", result: null, fromCache: false });
+    setLocalState({ status: "idle", message: "", result: null, fromCache: false });
   }, []);
 
-  return { ...state, start, reset };
+  // 3. Delegate to Global or Local
+  if (options?.globalId && aiCtx) {
+    const task = aiCtx.getTask(options.globalId);
+    return {
+      status: task?.status || "idle",
+      message: task?.message || "",
+      result: (task?.result as T) || null,
+      fromCache: task?.fromCache || false,
+      start: (runtimeBody?: object) => {
+        aiCtx.startTask(options.globalId!, options.globalTitle || "AI 분석", path, {
+          method: options.method,
+          body: runtimeBody ?? options.body
+        });
+      },
+      reset: () => aiCtx.clearTask(options.globalId!),
+    };
+  }
+
+  return { ...localState, start: startLocal, reset: resetLocal };
 }

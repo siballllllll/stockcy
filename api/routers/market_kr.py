@@ -225,7 +225,9 @@ def kr_daily_chart(
 def kr_stocks_bulk(codes: str = Query(..., description="콤마로 구분된 종목코드 목록")):
     """국내 종목 복수 시세 일괄 조회."""
     fns = _kr()
-    code_list = tuple(c.strip() for c in codes.split(",") if c.strip())
+    # get_kr_prices_bulk expects tuples of (code, yf_ticker)
+    # Since suffix isn't provided here, fallback to .KS (KIS API works regardless)
+    code_list = tuple((c.strip(), c.strip() + ".KS") for c in codes.split(",") if c.strip())
     try:
         result = fns["prices_bulk"](code_list)
         return result or {}

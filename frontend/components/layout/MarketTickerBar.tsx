@@ -2,17 +2,11 @@
 import useSWR from "swr";
 import { api } from "@/lib/api";
 import type { UsIndices, KrIndices } from "@/lib/types";
+import { useRouter } from "next/navigation";
 
-function Idx({ name, price, changePct, error }: { name: string; price: number; changePct: number; error?: boolean }) {
-  if (error) {
-    return (
-      <span style={{ display: "inline-flex", alignItems: "baseline", gap: "0.3rem", flexShrink: 0 }}>
-        <span style={{ color: "var(--color-muted)", fontSize: "0.72rem" }}>{name}</span>
-        <span style={{ color: "var(--color-danger)", fontSize: "0.72rem" }}>오류</span>
-      </span>
-    );
-  }
-  if (!price) return null;
+// 지수 아이템
+function IdxItem({ name, price, changePct, error }: { name: string; price: number; changePct: number; error?: boolean }) {
+  if (error || !price) return null;
   const up    = changePct > 0;
   const down  = changePct < 0;
   const color = up ? "var(--color-up)" : down ? "var(--color-down)" : "var(--color-flat)";
@@ -30,35 +24,109 @@ function Idx({ name, price, changePct, error }: { name: string; price: number; c
   );
 }
 
+// 개별 종목 아이템 (클릭 가능)
+function StockItem({ name, code, changePct, price }: { name: string; code: string; changePct: number; price: number }) {
+  const router = useRouter();
+  const up   = changePct > 0;
+  const down = changePct < 0;
+  const color = up ? "var(--color-up)" : down ? "var(--color-down)" : "var(--color-flat)";
+  const sign  = up ? "+" : "";
+  return (
+    <button
+      onClick={() => router.push(`/search?market=KR&q=${code}`)}
+      style={{
+        display: "inline-flex", alignItems: "baseline", gap: "0.3rem", flexShrink: 0,
+        background: "none", border: "none", cursor: "pointer", padding: 0,
+      }}
+    >
+      <span style={{ color: "var(--color-muted)", fontSize: "0.72rem" }}>{name}</span>
+      <span style={{ fontWeight: 600, fontSize: "0.82rem", color: "var(--color-text)" }}>
+        ₩{price.toLocaleString()}
+      </span>
+      <span style={{ color, fontSize: "0.72rem" }}>
+        {sign}{changePct.toFixed(2)}%
+      </span>
+    </button>
+  );
+}
+
+const DOT = (
+  <span style={{ color: "rgba(255,255,255,0.15)", fontSize: "0.75rem", flexShrink: 0 }}>●</span>
+);
+const SEP = (
+  <span style={{ color: "var(--color-border)", fontSize: "0.75rem", flexShrink: 0 }}>│</span>
+);
+
 export function MarketTickerBar() {
-  const { data: us }  = useSWR<UsIndices>("us-indices",   () => api.us.indices()    as Promise<UsIndices>,   { refreshInterval: 60000 });
-  const { data: kr }  = useSWR<KrIndices>("kr-indices",   () => api.kr.indices()    as Promise<KrIndices>,   { refreshInterval: 60000 });
-  const { data: btc } = useSWR("btc-price", () => api.us.crypto("BTC"), { refreshInterval: 120000 });
-  const { data: fx }  = useSWR("usd-krw-rate", () => api.us.exchangeRate(),          { refreshInterval: 300000 });
+  const { data: us }      = useSWR<UsIndices>("us-indices",    () => api.us.indices()    as Promise<UsIndices>,   { refreshInterval: 60000 });
+  const { data: kr }      = useSWR<KrIndices>("kr-indices",    () => api.kr.indices()    as Promise<KrIndices>,   { refreshInterval: 60000 });
+  const { data: btc }     = useSWR("btc-price",                () => api.us.crypto("BTC"),                        { refreshInterval: 120000 });
+  const { data: fx }      = useSWR("usd-krw-rate",             () => api.us.exchangeRate(),                       { refreshInterval: 300000 });
+  const { data: gainers } = useSWR("kr-top-gainers", () =>
+    api.kr.changeRanking("KOSPI", "up") as Promise<any[]>,
+    { refreshInterval: 300000, revalidateOnFocus: false }
+  );
+
+  // 급등 종목 상위 8개
+  const topGainers: Array<{ name: string; code: string; change_pct: number; price: number }> =
+    Array.isArray(gainers)
+      ? gainers.slice(0, 8).map((g: any) => ({
+          name: g.name ?? g.종목명,
+          code: g.code ?? g.종목코드,
+          change_pct: g.change_pct ?? g["등락률(%)"] ?? 0,
+          price: g.price ?? g.현재가 ?? 0,
+        }))
+      : [];
 
   return (
-    <div style={{ background: "var(--color-surface)", borderBottom: "1px solid var(--color-border)", padding: "5px 5%", overflowX: "auto" }}>
-      <div className="animate-marquee" style={{ display: "flex", alignItems: "center", gap: "2rem", minWidth: "100%" }}>
-
+    <div style={{
+      background: "var(--color-surface)",
+      borderBottom: "1px solid var(--color-border)",
+      padding: "5px 0",
+      overflow: "hidden",
+      position: "relative",
+    }}>
+      <div
+        className="animate-marquee"
+        style={{ display: "inline-flex", alignItems: "center", gap: "1.5rem", paddingLeft: "100%" }}
+      >
         {/* 국내 지수 */}
-        {kr?.KOSPI  && <Idx name="KOSPI"  price={kr.KOSPI.index}  changePct={kr.KOSPI.change_pct} />}
-        {kr?.KOSDAQ && <Idx name="KOSDAQ" price={kr.KOSDAQ.index} changePct={kr.KOSDAQ.change_pct} />}
+        {kr?.KOSPI  && <IdxItem name="KOSPI"  price={kr.KOSPI.index}  changePct={kr.KOSPI.change_pct} />}
+        {DOT}
+        {kr?.KOSDAQ && <IdxItem name="KOSDAQ" price={kr.KOSDAQ.index} changePct={kr.KOSDAQ.change_pct} />}
 
-        <span style={{ color: "var(--color-border)", fontSize: "0.75rem" }}>│</span>
+        {SEP}
 
         {/* 미국 지수 */}
-        {us?.["S&P 500"] && <Idx name="S&P500" price={us["S&P 500"].price} changePct={us["S&P 500"].change_pct} />}
-        {us?.NASDAQ      && <Idx name="NASDAQ"  price={us.NASDAQ.price}     changePct={us.NASDAQ.change_pct} />}
-        {us?.DOW         && <Idx name="DOW"     price={us.DOW.price}        changePct={us.DOW.change_pct} />}
-        {us?.VIX         && <Idx name="VIX"     price={us.VIX.price}        changePct={us.VIX.change_pct} />}
+        {us?.["S&P 500"] && <IdxItem name="S&P500" price={us["S&P 500"].price} changePct={us["S&P 500"].change_pct} />}
+        {DOT}
+        {us?.NASDAQ      && <IdxItem name="NASDAQ"  price={us.NASDAQ.price}     changePct={us.NASDAQ.change_pct} />}
+        {DOT}
+        {us?.DOW         && <IdxItem name="DOW"     price={us.DOW.price}        changePct={us.DOW.change_pct} />}
+        {DOT}
+        {us?.VIX         && <IdxItem name="VIX"     price={us.VIX.price}        changePct={us.VIX.change_pct} />}
 
-        <span style={{ color: "var(--color-border)", fontSize: "0.75rem" }}>│</span>
+        {SEP}
 
-        {/* BTC / USD/KRW — 실시간 */}
-        {btc && !btc.error && <Idx name="BTC/USD" price={btc.price}       changePct={btc.change_pct} />}
-        {btc?.error        && <Idx name="BTC/USD" price={0} changePct={0} error />}
-        {fx  && fx.rate > 0 && <Idx name="USD/KRW" price={fx.rate}        changePct={0} />}
+        {/* BTC / USD/KRW */}
+        {btc && !btc.error && <IdxItem name="BTC/USD" price={btc.price}  changePct={btc.change_pct} />}
+        {fx  && fx.rate > 0 && <><>{DOT}</><IdxItem name="USD/KRW" price={fx.rate}   changePct={0} /></>}
 
+        {/* 오늘의 급등 종목 (있을 때만) */}
+        {topGainers.length > 0 && (
+          <>
+            {SEP}
+            <span style={{ color: "var(--color-warning)", fontSize: "0.7rem", fontWeight: 700, flexShrink: 0 }}>
+              🔥 급등
+            </span>
+            {topGainers.map((g, i) => (
+              <span key={i} style={{ display: "inline-flex", alignItems: "center", gap: "1.5rem" }}>
+                <StockItem name={g.name} code={g.code} changePct={g.change_pct} price={g.price} />
+                {i < topGainers.length - 1 && DOT}
+              </span>
+            ))}
+          </>
+        )}
       </div>
     </div>
   );

@@ -3,6 +3,7 @@ import "./globals.css";
 import { TopNav } from "@/components/layout/TopNav";
 import { MarketTickerBar } from "@/components/layout/MarketTickerBar";
 import { Providers } from "@/components/Providers";
+import { AiTaskProvider } from "@/contexts/AiTaskContext";
 
 export const metadata: Metadata = {
   title: "Stockcy — AI 트레이딩 대시보드",
@@ -14,18 +15,20 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="ko" style={{ height: "100%" }}>
       <body style={{ minHeight: "100%", display: "flex", flexDirection: "column" }}>
         <Providers>
-          <TopNav />
-          <MarketTickerBar />
-          <main
-            style={{
-              flex:    1,
-              width:   "100%",
-              margin:  "0 auto",
-              padding: "1.5rem 5%",
-            }}
-          >
-            {children}
-          </main>
+          <AiTaskProvider>
+            <TopNav />
+            <MarketTickerBar />
+            <main
+              style={{
+                flex:    1,
+                width:   "100%",
+                margin:  "0 auto",
+                padding: "1.5rem 5%",
+              }}
+            >
+              {children}
+            </main>
+          </AiTaskProvider>
         </Providers>
       </body>
     </html>

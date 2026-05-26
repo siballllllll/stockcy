@@ -336,7 +336,7 @@ def _get_kr_shares_map() -> dict:
 
 @st.cache_data(ttl=60)
 def get_kr_investor_trend(stock_code: str):
-    """종목별 외국인/기관/개인 순매수 동향 (최근 5영업일)
+    """종목별 외국인/기관/개인 순매수 동향 (최근 10영업일)
     KIS API → 네이버 금융 차트 API(외국인 보유율 변화 기반 추정) 순으로 시도."""
     # 1차: KIS API
     data = _get(
@@ -346,15 +346,35 @@ def get_kr_investor_trend(stock_code: str):
     )
     if data:
         results = []
-        for item in data.get("output", [])[:5]:
+        for item in data.get("output", [])[:10]:
             d = item.get("stck_bsop_date", "")
             if len(d) == 8:
                 d = f"{d[:4]}-{d[4:6]}-{d[6:]}"
+            
+            close_val = int(item.get("stck_clpr", 0) or 0)
+            change_pct = float(item.get("prdy_ctrt", 0) or 0)
+            sign = item.get("prdy_vrss_sign", "")
+            if sign in ("4", "5") and change_pct > 0:
+                change_pct = -change_pct
+                
+            frgn = int(item.get("frgn_ntby_qty", 0) or 0)
+            inst = int(item.get("orgn_ntby_qty", 0) or 0)
+            prsn = int(item.get("prsn_ntby_qty", 0) or 0)
+            
             results.append({
+                "date": d,
+                "close": close_val,
+                "change_pct": change_pct,
+                "foreign": frgn,
+                "inst": inst,
+                "individual": prsn,
+                # 하위 호환용 한글 키
                 "날짜": d,
-                "개인": int(item.get("prsn_ntby_qty", 0) or 0),
-                "외국인": int(item.get("frgn_ntby_qty", 0) or 0),
-                "기관": int(item.get("orgn_ntby_qty", 0) or 0),
+                "개인": prsn,
+                "외국인": frgn,
+                "기관": inst,
+                "종가": close_val,
+                "등락률": change_pct
             })
         return results
 
@@ -362,7 +382,7 @@ def get_kr_investor_trend(stock_code: str):
     try:
         import datetime as _dt2, requests as _req2
         _today = _dt2.date.today()
-        _start = (_today - _dt2.timedelta(days=14)).strftime("%Y%m%d") + "000000"
+        _start = (_today - _dt2.timedelta(days=20)).strftime("%Y%m%d") + "000000"
         _end = _today.strftime("%Y%m%d") + "235959"
         _url = (
             f"https://api.stock.naver.com/chart/domestic/item/{stock_code}/day"
@@ -384,18 +404,31 @@ def get_kr_investor_trend(stock_code: str):
                 _cur_r  = _rows[i].get("foreignRetentionRate") or 0
                 _rate_chg = float(_cur_r) - float(_prev_r)
                 _frgn = int(_rate_chg * _total_shares / 100) if _total_shares > 0 else 0
+                
+                close_val = int(_rows[i].get("closePrice", 0) or 0)
+                change_pct = float(_rows[i].get("fluctuationsRatio", 0.0) or 0.0)
+                
                 _d = str(_rows[i].get("localDate", ""))
                 if len(_d) == 8:
                     _d = f"{_d[:4]}-{_d[4:6]}-{_d[6:]}"
                 results.append({
+                    "date": _d,
+                    "close": close_val,
+                    "change_pct": change_pct,
+                    "foreign": _frgn,
+                    "inst": 0,
+                    "individual": 0,
+                    # 하위 호환용 한글 키
                     "날짜": _d,
                     "외국인": _frgn,
                     "기관": 0,
                     "개인": 0,
-                    "_estimated": True,  # 추정값 표시용 플래그
+                    "종가": close_val,
+                    "등락률": change_pct,
+                    "_estimated": True,
                 })
-            # 최신 5거래일만 반환
-            return list(reversed(results))[:5]
+            # 최신 10거래일만 반환
+            return list(reversed(results))[:10]
     except Exception:
         pass
 
@@ -679,11 +712,11 @@ def get_kr_minute_chart(stock_code: str, interval: int = 5):
     _now_kr = _dt.now(_pytz.timezone("Asia/Seoul")).replace(tzinfo=None)
     _today = _now_kr.date()
 
-    # ── yfinance 기간 설정 ────────────────────────────────────────────────────
+    # ── yfinance 기간 설정 (물리적 한계 극대화: 1m은 7d, 5m은 60d) ────────────────────────────
     if interval <= 1:
-        yf_interval, period = "1m",  "5d"
+        yf_interval, period = "1m",  "7d"
     elif interval <= 5:
-        yf_interval, period = "5m",  "30d"
+        yf_interval, period = "5m",  "60d"
     elif interval <= 15:
         yf_interval, period = "15m", "60d"
     else:
@@ -1170,6 +1203,7 @@ def get_kr_daily_chart(stock_code: str, period: str = "3mo", unit: str = "D") ->
         "1d": 2, "3d": 5, "1w": 8, "15d": 22, "1mo": 35,
         "3mo": 95, "6mo": 185, "1y": 370,
         "2y": 740, "3y": 1100, "5y": 1830, "10y": 3650,
+        "MAX": 15000, "max": 15000,
     }
     _days = _period_days.get(period, 95)
     _end_dt  = _dt.now()
@@ -1514,9 +1548,10 @@ def get_us_minute_chart(ticker: str, interval: int = 5) -> pd.DataFrame:
     import yfinance as yf
     _map = {1: "1m", 3: "5m", 5: "5m", 10: "15m", 15: "15m", 30: "30m", 60: "60m"}
     yf_interval = _map.get(interval, "5m")
+    # yfinance의 1분봉(1m)은 7일이 한계이며, 5분봉(5m) 이상은 60일이 물리적 제공 한계입니다.
+    period = "7d" if yf_interval == "1m" else "60d"
     try:
-        # prepost=True를 설정하여 프리마켓/애프터마켓 데이터 포함. period="5d"로 안정적 데이터 확보
-        raw = yf.Ticker(ticker).history(period="5d", interval=yf_interval, auto_adjust=True, prepost=True)
+        raw = yf.Ticker(ticker).history(period=period, interval=yf_interval, auto_adjust=True, prepost=True)
         if raw.empty:
             return pd.DataFrame()
         df = raw.reset_index()

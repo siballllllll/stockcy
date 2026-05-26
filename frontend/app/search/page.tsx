@@ -2,7 +2,7 @@
 import { useState, useEffect, useRef, useMemo, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import useSWR from "swr";
-import { api } from "@/lib/api";
+import { api, connectSSE } from "@/lib/api";
 import { useMarket } from "@/lib/market-context";
 import { Search, Star, Briefcase, Bell, BarChart2, DollarSign, Activity, Loader2, PlusCircle, X } from "lucide-react";
 import Chart from "@/components/Chart";
@@ -210,27 +210,27 @@ function SearchPageInner() {
     });
   };
   const [chartType, setChartType]     = useState<string>("daily");
-  const [chartPeriod, setChartPeriod] = useState<string>("1Y");
+  const [chartPeriod, setChartPeriod] = useState<string>("MAX");
   const [minuteInterval, setMinuteInterval] = useState<number>(5);
 
   // 기간 옵션: 차트 타입별 (분봉은 기간 없음)
   const PERIOD_OPTIONS: Record<string, string[]> = {
-    daily:   ["1Y", "3Y", "5Y"],
-    weekly:  ["2Y", "5Y", "10Y"],
-    monthly: ["5Y", "10Y", "MAX"],
+    daily:   ["MAX"],
+    weekly:  ["MAX"],
+    monthly: ["MAX"],
     minute:  [],
   };
   // KR: 기간 → 일봉 개수
   const KR_PERIOD_DAYS: Record<string, Record<string, number>> = {
-    daily:   { "1Y": 250, "3Y": 750, "5Y": 1250 },
-    weekly:  { "2Y": 104, "5Y": 260, "10Y": 520 },
-    monthly: { "5Y": 60, "10Y": 120, "MAX": 600 },
+    daily:   { "MAX": 5000 },
+    weekly:  { "MAX": 1000 },
+    monthly: { "MAX": 600 },
   };
   // US: 기간 → yfinance period
   const US_PERIOD: Record<string, Record<string, string>> = {
-    daily:   { "1Y": "1y", "3Y": "5y", "5Y": "5y" },
-    weekly:  { "2Y": "2y", "5Y": "5y", "10Y": "10y" },
-    monthly: { "5Y": "5y", "10Y": "10y", "MAX": "max" },
+    daily:   { "MAX": "max" },
+    weekly:  { "MAX": "max" },
+    monthly: { "MAX": "max" },
   };
   const [showDropdown, setShowDropdown] = useState(false);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -238,6 +238,19 @@ function SearchPageInner() {
   const [aiStatus, setAiStatus] = useState<"idle" | "loading" | "done" | "error">("idle");
   const [aiAnalysisTab, setAiAnalysisTab] = useState<"short" | "entry" | "mid" | "long">("short");
   const [aiMsg, setAiMsg] = useState("");
+
+  // RAG 상태 변수 정의 (아코디언 UI 제거 이전의 원래 기획 사양)
+  const [shadowStatus, setShadowStatus] = useState<"idle" | "loading" | "done" | "error">("idle");
+  const [shadowResult, setShadowResult] = useState<any>(null);
+  const [shadowMsg, setShadowMsg]       = useState<string>("RAG 분석 대기 중...");
+
+  const [gapStatus, setGapStatus] = useState<"idle" | "loading" | "done" | "error">("idle");
+  const [gapResult, setGapResult] = useState<any>(null);
+  const [gapMsg, setGapMsg]       = useState<string>("갭 예측 대기 중...");
+
+  const [boxStatus, setBoxStatus] = useState<"idle" | "loading" | "done" | "error">("idle");
+  const [boxResult, setBoxResult] = useState<any>(null);
+  const [boxMsg, setBoxMsg]       = useState<string>("박스권 분석 대기 중...");
 
   // 가격 알림 설정 모달 상태
   const [alertModalOpen, setAlertModalOpen] = useState(false);
@@ -248,8 +261,9 @@ function SearchPageInner() {
 
   // 차트 타입 변경 시 유효한 기간으로 리셋
   useEffect(() => {
-    const opts = PERIOD_OPTIONS[chartType] ?? [];
-    if (opts.length > 0 && !opts.includes(chartPeriod)) setChartPeriod(opts[0]);
+    if (chartType !== "minute") {
+      setChartPeriod("MAX");
+    }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [chartType]);
 
@@ -398,8 +412,16 @@ function SearchPageInner() {
       const rawTime = d.일자 || d.date || d.날짜 || d.time || d.datetime || "";
       let finalTime: any = rawTime;
       if (chartType === "minute") {
-        const dateObj = new Date(rawTime);
-        finalTime = Math.floor(dateObj.getTime() / 1000) + (9 * 3600);
+        // 백엔드는 KST(한국시간) datetime 문자열로 내려줌
+        // new Date()는 KST 문자열을 로컬 시간으로 파싱하므로 UTC 변환 필요
+        // lightweight-charts는 UTC Unix timestamp(초) 기준
+        const kstStr = rawTime.replace("T", " ").slice(0, 19); // "2024-05-26 09:05:00"
+        const [datePart, timePart] = kstStr.split(" ");
+        const [y, mo, d2] = datePart.split("-").map(Number);
+        const [h, min, s] = (timePart || "00:00:00").split(":").map(Number);
+        // KST = UTC+9, UTC timestamp = KST - 9h
+        const utcMs = Date.UTC(y, mo - 1, d2, h - 9, min, s || 0);
+        finalTime = Math.floor(utcMs / 1000);
       } else {
         finalTime = rawTime.split(" ")[0];
       }
@@ -600,6 +622,121 @@ function SearchPageInner() {
     return                { label: "🔴 장기 고평가", color: "#ff4b4b", desc: `PER ${per.toFixed(1)} — 고평가 구간, 장기 진입 신중` };
   })();
 
+  // 1. AI 실시간 쉐도우 섹터 & 팩트 진단 연동
+  const runShadowSectorAnalysis = async (ticker: string, name: string, mkt: string) => {
+    setShadowStatus("loading");
+    setShadowResult(null);
+    setShadowMsg("🔬 실시간 공시 및 밸류체인 추적 중...");
+    try {
+      await connectSSE<any>(
+        "/api/ai/shadow-sector",
+        (evt) => {
+          if (evt.status === "running") {
+            setShadowMsg(evt.message ?? "분석 중...");
+          } else if (evt.status === "done" && evt.result) {
+            setShadowResult(evt.result);
+            setShadowStatus("done");
+          } else if (evt.status === "error") {
+            setShadowMsg(evt.message ?? "오류 발생");
+            setShadowStatus("error");
+          }
+        },
+        {
+          method: "POST",
+          body: {
+            ticker: mkt === "KR" ? ticker.padStart(6, "0") : ticker,
+            name: name || ticker,
+            market: mkt === "KR" ? "국내" : "미국",
+            force_update: false,
+          },
+        }
+      );
+    } catch (err: any) {
+      setShadowMsg(`❌ 오류: ${err.message}`);
+      setShadowStatus("error");
+    }
+  };
+
+  // 2. AI 시간외 긴급 진단 & 익일 갭 예측 RAG 분석 연동
+  const runOvernightGapAnalysis = async (ticker: string, name: string, mkt: string) => {
+    setGapStatus("loading");
+    setGapResult(null);
+    setGapMsg("🌙 시간외 돌발 공시 및 최신 뉴스망 탐색 중...");
+    try {
+      await connectSSE<any>(
+        "/api/ai/overnight-gap",
+        (evt) => {
+          if (evt.status === "running") {
+            setGapMsg(evt.message ?? "분석 중...");
+          } else if (evt.status === "done" && evt.result) {
+            setGapResult(evt.result);
+            setGapStatus("done");
+          } else if (evt.status === "error") {
+            setGapMsg(evt.message ?? "오류 발생");
+            setGapStatus("error");
+          }
+        },
+        {
+          method: "POST",
+          body: {
+            ticker: mkt === "KR" ? ticker.padStart(6, "0") : ticker,
+            name: name || ticker,
+            market: mkt === "KR" ? "국내" : "미국",
+          },
+        }
+      );
+    } catch (err: any) {
+      setGapMsg(`❌ 오류: ${err.message}`);
+      setGapStatus("error");
+    }
+  };
+
+  // 3. AI 차트 박스권 & 세력 수급 패턴 분석 RAG 분석 연동
+  const runBoxAnalysis = async () => {
+    setBoxStatus("loading");
+    setBoxResult(null);
+    setBoxMsg("📦 차트 데이터 분석 및 세력 수급 추적 중...");
+    try {
+      await connectSSE<any>(
+        "/api/ai/box-pattern",
+        (evt) => {
+          if (evt.status === "running") {
+            setBoxMsg(evt.message ?? "분석 중...");
+          } else if (evt.status === "done" && evt.result) {
+            setBoxResult(evt.result);
+            setBoxStatus("done");
+          } else if (evt.status === "error") {
+            setBoxMsg(evt.message ?? "오류 발생");
+            setBoxStatus("error");
+          }
+        },
+        {
+          method: "POST",
+          body: {
+            ticker: isKR ? currentCode.padStart(6, "0") : currentCode,
+            name: stockName || currentCode,
+            price_data: stockData || {},
+            market: isKR ? "국내" : "미국",
+          },
+        }
+      );
+    } catch (err: any) {
+      setBoxMsg(`❌ 오류: ${err.message}`);
+      setBoxStatus("error");
+    }
+  };
+
+  // 종목 변경 시 RAG 상태 초기화 (자동 실행 X — 버튼 클릭 시에만 실행)
+  useEffect(() => {
+    setShadowStatus("idle");
+    setShadowResult(null);
+    setGapStatus("idle");
+    setGapResult(null);
+    setBoxStatus("idle");
+    setBoxResult(null);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentCode]);
+
   // AI 분석 (KR 전용)
   const runAiAnalysis = async () => {
     setAiStatus("loading");
@@ -646,7 +783,7 @@ function SearchPageInner() {
   };
 
   // 탭 목록 (수급은 KR 전용)
-  const ANALYSIS_TABS = isKR ? ["시세", "수급", "AI 분석"] : ["시세", "AI 분석"];
+  const ANALYSIS_TABS = isKR ? ["시세", "수급", "박스권", "AI 분석"] : ["시세", "박스권", "AI 분석"];
 
   // AI 분석 (US)
   const runUsAiAnalysis = async () => {
@@ -788,24 +925,7 @@ function SearchPageInner() {
                 </select>
               )}
 
-              {/* 기간 선택 (분봉 제외) */}
-              {chartType !== "minute" && (PERIOD_OPTIONS[chartType] ?? []).map(p => (
-                <button
-                  key={p}
-                  onClick={() => setChartPeriod(p)}
-                  style={{
-                    padding: "4px 10px", fontSize: "0.8rem", fontWeight: 700,
-                    borderRadius: "4px", border: "1px solid",
-                    borderColor: chartPeriod === p ? "var(--color-accent)" : "rgba(255,255,255,0.15)",
-                    background:  chartPeriod === p ? "rgba(255,255,255,0.1)" : "transparent",
-                    color: chartPeriod === p ? "var(--color-text)" : "rgba(255,255,255,0.4)",
-                    cursor: "pointer",
-                    transition: "0.15s",
-                  }}
-                >
-                  {p}
-                </button>
-              ))}
+              {/* chart period buttons removed */}
             </div>
 
             <div style={{ marginTop: "1.5rem" }}>
@@ -959,7 +1079,7 @@ function SearchPageInner() {
                 onClick={() => setActiveTab(tab)}
                 style={{ flex: 1, padding: "8px", borderRadius: "6px", fontWeight: 700, fontSize: "0.85rem", border: "1px solid", borderColor: activeTab === tab ? "var(--color-accent)" : "var(--color-border)", background: activeTab === tab ? "rgba(255,255,255,0.05)" : "var(--color-surface)", color: "var(--color-text)", cursor: "pointer", transition: "0.2s" }}
               >
-                {tab === "시세" ? "📊 시세" : tab === "수급" ? "🔥 수급" : "🤖 AI 분석"}
+                {tab === "시세" ? "📊 시세" : tab === "수급" ? "🔥 수급" : tab === "박스권" ? "📈 박스권" : "🤖 AI 분석"}
               </button>
             ))}
           </div>
@@ -1081,6 +1201,162 @@ function SearchPageInner() {
                   </div>
                 ))}
               </div>
+
+              {/* ── AI RAG 분석 섹션 (온디맨드) ───────────────────────────── */}
+              <div style={{ borderTop: "1px solid var(--color-border)", paddingTop: "1rem", display: "flex", flexDirection: "column", gap: "0.75rem" }}>
+                <div style={{ fontSize: "0.78rem", color: "var(--color-muted)", fontWeight: 600, letterSpacing: "0.05em", textTransform: "uppercase" }}>
+                  🤖 AI RAG 실시간 분석 <span style={{ fontSize: "0.7rem", opacity: 0.6 }}>(클릭 시 유료 API 호출)</span>
+                </div>
+
+                {/* ─ 쉐도우 섹터 패널 ─ */}
+                <div style={{ border: "1px solid var(--color-border)", borderRadius: "10px", overflow: "hidden" }}>
+                  {/* idle: 버튼 */}
+                  {shadowStatus === "idle" && (
+                    <button
+                      onClick={() => runShadowSectorAnalysis(currentCode, stockName || currentCode, isKR ? "KR" : "US")}
+                      disabled={!currentCode}
+                      style={{
+                        width: "100%", padding: "12px 16px", display: "flex", alignItems: "center", gap: "10px",
+                        background: "rgba(245, 158, 11, 0.04)", border: "none", cursor: currentCode ? "pointer" : "not-allowed",
+                        color: "var(--color-text)", textAlign: "left",
+                        transition: "background 0.2s",
+                      }}
+                      onMouseEnter={e => (e.currentTarget.style.background = "rgba(245, 158, 11, 0.1)")}
+                      onMouseLeave={e => (e.currentTarget.style.background = "rgba(245, 158, 11, 0.04)")}
+                    >
+                      <span style={{ fontSize: "1.1rem" }}>🔬</span>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontSize: "0.88rem", fontWeight: 700, color: "#fbbf24" }}>AI 실시간 쉐도우 섹터 &amp; 팩트 진단</div>
+                        <div style={{ fontSize: "0.75rem", color: "var(--color-muted)", marginTop: "2px" }}>공시·밸류체인·섹터 연동 종목 영향 분석</div>
+                      </div>
+                      <span style={{ fontSize: "0.75rem", padding: "3px 8px", borderRadius: "6px", background: "rgba(245,158,11,0.15)", color: "#fbbf24", fontWeight: 700 }}>분석 시작 →</span>
+                    </button>
+                  )}
+                  {/* loading */}
+                  {shadowStatus === "loading" && (
+                    <div style={{ padding: "14px 16px", display: "flex", alignItems: "center", gap: "10px" }}>
+                      <Loader2 className="animate-spin" size={14} color="#fbbf24" />
+                      <span style={{ fontSize: "0.85rem", color: "var(--color-muted)" }}>{shadowMsg}</span>
+                    </div>
+                  )}
+                  {/* error */}
+                  {shadowStatus === "error" && (
+                    <div style={{ padding: "12px 16px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: "8px" }}>
+                      <span style={{ fontSize: "0.82rem", color: "#f87171" }}>{shadowMsg}</span>
+                      <button onClick={() => runShadowSectorAnalysis(currentCode, stockName || currentCode, isKR ? "KR" : "US")} style={{ fontSize: "0.75rem", padding: "3px 8px", borderRadius: "6px", background: "rgba(239,68,68,0.15)", color: "#f87171", border: "1px solid rgba(239,68,68,0.3)", cursor: "pointer" }}>재시도</button>
+                    </div>
+                  )}
+                  {/* done */}
+                  {shadowStatus === "done" && shadowResult && (
+                    <div style={{ padding: "14px 16px", display: "flex", flexDirection: "column", gap: "10px" }}>
+                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "8px" }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                          <span style={{ fontSize: "1rem" }}>🔬</span>
+                          <div>
+                            <div style={{ fontSize: "0.88rem", fontWeight: 800, color: shadowResult.credibility === "상" ? "#fbbf24" : "#f87171" }}>AI 쉐도우 섹터 &amp; 팩트 진단</div>
+                            {shadowResult.shadow_sector && (
+                              <div style={{ fontSize: "0.75rem", color: "var(--color-muted)", marginTop: "2px" }}>{shadowResult.shadow_sector}</div>
+                            )}
+                          </div>
+                        </div>
+                        <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                          <span style={{ fontSize: "0.72rem", fontWeight: 800, padding: "2px 8px", borderRadius: "12px", background: shadowResult.credibility === "상" ? "rgba(245,158,11,0.15)" : "rgba(239,68,68,0.15)", color: shadowResult.credibility === "상" ? "#fbbf24" : "#f87171", border: `1px solid ${shadowResult.credibility === "상" ? "rgba(245,158,11,0.3)" : "rgba(239,68,68,0.3)"}` }}>신뢰도: {shadowResult.credibility || "중립"}</span>
+                          <button onClick={() => { setShadowStatus("idle"); setShadowResult(null); }} style={{ fontSize: "0.72rem", padding: "2px 6px", borderRadius: "6px", background: "rgba(255,255,255,0.06)", color: "var(--color-muted)", border: "1px solid var(--color-border)", cursor: "pointer" }}>닫기</button>
+                        </div>
+                      </div>
+                      {/* 핵심 요약 */}
+                      <div style={{ fontSize: "0.85rem", fontWeight: 700, color: "var(--color-text)", lineHeight: 1.5 }}>{shadowResult.catalyst_summary}</div>
+                      {/* 연계 기업 */}
+                      {shadowResult.partner_company && shadowResult.partner_company !== "-" && (
+                        <div style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "0.8rem", background: "rgba(245,158,11,0.06)", padding: "6px 10px", borderRadius: "6px" }}>
+                          <span style={{ color: "var(--color-muted)" }}>연계 기업:</span>
+                          <span style={{ fontWeight: 700, color: "#fbbf24" }}>{shadowResult.partner_company}</span>
+                        </div>
+                      )}
+                      {/* 리스크 가이드 */}
+                      {shadowResult.rumor_warning_guide && (
+                        <div style={{ fontSize: "0.8rem", color: "var(--color-muted)", lineHeight: 1.6, background: "rgba(255,255,255,0.02)", padding: "8px 12px", borderRadius: "6px", borderLeft: "3px solid rgba(245,158,11,0.4)" }}>
+                          ⚠️ {shadowResult.rumor_warning_guide}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {/* ─ 시간외 갭 패널 ─ */}
+                <div style={{ border: "1px solid var(--color-border)", borderRadius: "10px", overflow: "hidden" }}>
+                  {/* idle: 버튼 */}
+                  {gapStatus === "idle" && (
+                    <button
+                      onClick={() => runOvernightGapAnalysis(currentCode, stockName || currentCode, isKR ? "KR" : "US")}
+                      disabled={!currentCode}
+                      style={{
+                        width: "100%", padding: "12px 16px", display: "flex", alignItems: "center", gap: "10px",
+                        background: "rgba(59, 130, 246, 0.04)", border: "none", cursor: currentCode ? "pointer" : "not-allowed",
+                        color: "var(--color-text)", textAlign: "left",
+                        transition: "background 0.2s",
+                      }}
+                      onMouseEnter={e => (e.currentTarget.style.background = "rgba(59, 130, 246, 0.1)")}
+                      onMouseLeave={e => (e.currentTarget.style.background = "rgba(59, 130, 246, 0.04)")}
+                    >
+                      <span style={{ fontSize: "1.1rem" }}>🌙</span>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontSize: "0.88rem", fontWeight: 700, color: "#60a5fa" }}>AI 시간외 긴급 진단 &amp; 익일 갭 예측</div>
+                        <div style={{ fontSize: "0.75rem", color: "var(--color-muted)", marginTop: "2px" }}>시간외 공시·뉴스 기반 익일 시가 갭 예측</div>
+                      </div>
+                      <span style={{ fontSize: "0.75rem", padding: "3px 8px", borderRadius: "6px", background: "rgba(59,130,246,0.15)", color: "#60a5fa", fontWeight: 700 }}>분석 시작 →</span>
+                    </button>
+                  )}
+                  {/* loading */}
+                  {gapStatus === "loading" && (
+                    <div style={{ padding: "14px 16px", display: "flex", alignItems: "center", gap: "10px" }}>
+                      <Loader2 className="animate-spin" size={14} color="#60a5fa" />
+                      <span style={{ fontSize: "0.85rem", color: "var(--color-muted)" }}>{gapMsg}</span>
+                    </div>
+                  )}
+                  {/* error */}
+                  {gapStatus === "error" && (
+                    <div style={{ padding: "12px 16px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: "8px" }}>
+                      <span style={{ fontSize: "0.82rem", color: "#f87171" }}>{gapMsg}</span>
+                      <button onClick={() => runOvernightGapAnalysis(currentCode, stockName || currentCode, isKR ? "KR" : "US")} style={{ fontSize: "0.75rem", padding: "3px 8px", borderRadius: "6px", background: "rgba(239,68,68,0.15)", color: "#f87171", border: "1px solid rgba(239,68,68,0.3)", cursor: "pointer" }}>재시도</button>
+                    </div>
+                  )}
+                  {/* done */}
+                  {gapStatus === "done" && gapResult && (
+                    <div style={{ padding: "14px 16px", display: "flex", flexDirection: "column", gap: "10px" }}>
+                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "8px" }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                          <span style={{ fontSize: "1rem" }}>🌙</span>
+                          <div>
+                            <div style={{ fontSize: "0.88rem", fontWeight: 800, color: (gapResult.gap_direction || "").includes("갭상승") ? "#f87171" : (gapResult.gap_direction || "").includes("갭하락") ? "#60a5fa" : "var(--color-muted)" }}>AI 시간외 긴급 진단 &amp; 익일 갭 예측</div>
+                            {gapResult.gap_direction && (
+                              <div style={{ fontSize: "0.75rem", color: "var(--color-muted)", marginTop: "2px" }}>{gapResult.gap_direction}</div>
+                            )}
+                          </div>
+                        </div>
+                        <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                          {gapResult.gap_strength && (
+                            <span style={{ fontSize: "0.72rem", fontWeight: 800, padding: "2px 8px", borderRadius: "12px", background: (gapResult.gap_direction || "").includes("갭상승") ? "rgba(239,68,68,0.15)" : "rgba(59,130,246,0.15)", color: (gapResult.gap_direction || "").includes("갭상승") ? "#f87171" : "#60a5fa", border: `1px solid ${(gapResult.gap_direction || "").includes("갭상승") ? "rgba(239,68,68,0.3)" : "rgba(59,130,246,0.3)"}` }}>예상 폭: {gapResult.gap_strength}</span>
+                          )}
+                          <button onClick={() => { setGapStatus("idle"); setGapResult(null); }} style={{ fontSize: "0.72rem", padding: "2px 6px", borderRadius: "6px", background: "rgba(255,255,255,0.06)", color: "var(--color-muted)", border: "1px solid var(--color-border)", cursor: "pointer" }}>닫기</button>
+                        </div>
+                      </div>
+                      {/* 시간외 이슈 요약 */}
+                      {gapResult.overnight_issue_summary && (
+                        <div style={{ fontSize: "0.85rem", fontWeight: 700, color: "var(--color-text)", lineHeight: 1.5 }}>{gapResult.overnight_issue_summary}</div>
+                      )}
+                      {/* 대응 행동 수칙 */}
+                      {gapResult.trading_action_guide && (
+                        <div style={{ display: "flex", flexDirection: "column", gap: "6px", fontSize: "0.8rem", background: "rgba(255,255,255,0.02)", padding: "10px 12px", borderRadius: "8px", borderLeft: "3px solid rgba(59,130,246,0.4)" }}>
+                          <div style={{ fontWeight: 700, color: "var(--color-text)", marginBottom: "2px" }}>💡 시초가 대응 행동 수칙</div>
+                          <div style={{ color: "var(--color-subtle)", lineHeight: 1.6 }}>{gapResult.trading_action_guide}</div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
+
             </div>
           )}
 
@@ -1107,20 +1383,112 @@ function SearchPageInner() {
                       </tr>
                     </thead>
                     <tbody>
-                      {invData.map((row: any, i: number) => {
-                        const frgnColor = row.foreign > 0 ? "var(--color-danger)" : row.foreign < 0 ? "var(--color-primary)" : "var(--color-text)";
-                        const instColor = row.inst > 0 ? "var(--color-danger)" : row.inst < 0 ? "var(--color-primary)" : "var(--color-text)";
-                        const chgColor  = row.change_pct > 0 ? "var(--color-danger)" : row.change_pct < 0 ? "var(--color-primary)" : "var(--color-text)";
-                        return (
-                          <tr key={i} style={{ borderBottom: "1px solid rgba(255,255,255,0.05)" }}>
-                            <td style={{ padding: "8px", textAlign: "left" }}>{row.date}</td>
-                            <td style={{ padding: "8px" }}>₩{(row.close || 0).toLocaleString()}</td>
-                            <td style={{ padding: "8px", color: chgColor }}>{row.change_pct > 0 ? "▲" : row.change_pct < 0 ? "▼" : ""} {(row.change_pct || 0).toFixed(2)}%</td>
-                            <td style={{ padding: "8px", color: frgnColor, fontWeight: 600 }}>{(row.foreign || 0).toLocaleString()}</td>
-                            <td style={{ padding: "8px", color: instColor, fontWeight: 600 }}>{(row.inst || 0).toLocaleString()}</td>
-                          </tr>
+                      {(() => {
+                        // 10일간의 데이터 중 외국인/기관 순매수 절대값의 최대값을 찾아 비례 스케일 기준으로 설정
+                        const maxVal = Math.max(
+                          ...invData.map((row: any) => Math.max(Math.abs(row.foreign || 0), Math.abs(row.inst || 0))),
+                          1 // 0으로 나누기 방지
                         );
-                      })}
+
+                        return invData.map((row: any, i: number) => {
+                          const frgn = row.foreign || 0;
+                          const inst = row.inst || 0;
+                          
+                          const frgnColor = frgn > 0 ? "var(--color-danger)" : frgn < 0 ? "var(--color-primary)" : "var(--color-text)";
+                          const instColor = inst > 0 ? "var(--color-danger)" : inst < 0 ? "var(--color-primary)" : "var(--color-text)";
+                          const chgColor  = row.change_pct > 0 ? "var(--color-danger)" : row.change_pct < 0 ? "var(--color-primary)" : "var(--color-text)";
+
+                          // 만 주 단위 변환 함수 (소수점 1자리 반올림)
+                          const toManJu = (val: number) => {
+                            const man = val / 10000;
+                            return `${man >= 0 ? "+" : ""}${man.toFixed(1)}만 주`;
+                          };
+
+                          // Progress Bar 가로폭 비율 계산 (최대값 대비 절대값 비율)
+                          const frgnWidth = `${Math.min(100, (Math.abs(frgn) / maxVal) * 100)}%`;
+                          const instWidth = `${Math.min(100, (Math.abs(inst) / maxVal) * 100)}%`;
+
+                          return (
+                            <tr key={i} style={{ borderBottom: "1px solid rgba(255,255,255,0.05)", height: "42px" }}>
+                              <td style={{ padding: "8px", textAlign: "left" }}>{row.date}</td>
+                              <td style={{ padding: "8px" }}>₩{(row.close || 0).toLocaleString()}</td>
+                              <td style={{ padding: "8px", color: chgColor, fontWeight: 700 }}>
+                                {row.change_pct > 0 ? "▲" : row.change_pct < 0 ? "▼" : ""} {(row.change_pct || 0).toFixed(2)}%
+                              </td>
+                              
+                              {/* 외국인 순매수 Progress Bar */}
+                              <td style={{ padding: "6px 8px", position: "relative", width: "25%", minWidth: "120px" }}>
+                                <div style={{ position: "relative", width: "100%", height: "22px", background: "rgba(255,255,255,0.02)", borderRadius: "4px", overflow: "hidden" }}>
+                                  {frgn !== 0 && (
+                                    <div style={{
+                                      position: "absolute",
+                                      right: 0, // 우측 정렬로 채워지게 설계
+                                      top: 0,
+                                      height: "100%",
+                                      width: frgnWidth,
+                                      background: frgn > 0 
+                                        ? "linear-gradient(90deg, rgba(239, 68, 68, 0.05) 0%, rgba(239, 68, 68, 0.6) 100%)"
+                                        : "linear-gradient(90deg, rgba(59, 130, 246, 0.05) 0%, rgba(59, 130, 246, 0.6) 100%)",
+                                      borderRight: `2px solid ${frgn > 0 ? "#ef4444" : "#3b82f6"}`,
+                                      borderRadius: "2px",
+                                      transition: "width 0.4s ease-out"
+                                    }} />
+                                  )}
+                                  <div style={{
+                                    position: "absolute",
+                                    inset: 0,
+                                    display: "flex",
+                                    alignItems: "center",
+                                    justifyContent: "flex-end",
+                                    paddingRight: "8px",
+                                    fontSize: "0.78rem",
+                                    fontWeight: 700,
+                                    color: frgnColor,
+                                    zIndex: 2
+                                  }}>
+                                    {toManJu(frgn)}
+                                  </div>
+                                </div>
+                              </td>
+
+                              {/* 기관 순매수 Progress Bar */}
+                              <td style={{ padding: "6px 8px", position: "relative", width: "25%", minWidth: "120px" }}>
+                                <div style={{ position: "relative", width: "100%", height: "22px", background: "rgba(255,255,255,0.02)", borderRadius: "4px", overflow: "hidden" }}>
+                                  {inst !== 0 && (
+                                    <div style={{
+                                      position: "absolute",
+                                      left: 0, // 좌측 정렬로 채워지게 설계
+                                      top: 0,
+                                      height: "100%",
+                                      width: instWidth,
+                                      background: inst > 0 
+                                        ? "linear-gradient(90deg, rgba(239, 68, 68, 0.05) 0%, rgba(239, 68, 68, 0.6) 100%)"
+                                        : "linear-gradient(90deg, rgba(59, 130, 246, 0.05) 0%, rgba(59, 130, 246, 0.6) 100%)",
+                                      borderLeft: `2px solid ${inst > 0 ? "#ef4444" : "#3b82f6"}`,
+                                      borderRadius: "2px",
+                                      transition: "width 0.4s ease-out"
+                                    }} />
+                                  )}
+                                  <div style={{
+                                    position: "absolute",
+                                    inset: 0,
+                                    display: "flex",
+                                    alignItems: "center",
+                                    justifyContent: "flex-start",
+                                    paddingLeft: "8px",
+                                    fontSize: "0.78rem",
+                                    fontWeight: 700,
+                                    color: instColor,
+                                    zIndex: 2
+                                  }}>
+                                    {toManJu(inst)}
+                                  </div>
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        });
+                      })()}
                     </tbody>
                   </table>
                 </div>
@@ -1221,6 +1589,82 @@ function SearchPageInner() {
                         <ReactMarkdown>{aiResult.long_term_analysis || ""}</ReactMarkdown>
                       </div>
                     )}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* box-pattern RAG panel */}
+          {activeTab === "박스권" && (
+            <div className="stockcy-card" style={{ flex: 1, display: "flex", flexDirection: "column", padding: "1.5rem", gap: "1rem" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <h3 style={{ fontSize: "1.1rem", fontWeight: 700, margin: 0 }}>📈 AI 차트 박스권 & 세력 수급 패턴 분석</h3>
+                <button
+                  onClick={runBoxAnalysis}
+                  disabled={boxStatus === "loading"}
+                  className="stockcy-btn-primary"
+                  style={{ padding: "8px 16px", borderRadius: "6px", fontSize: "0.9rem", fontWeight: 600, display: "flex", gap: "6px", alignItems: "center" }}
+                >
+                  {boxStatus === "loading" ? <><Loader2 size={15} className="animate-spin" /> 분석 중...</> : <><Activity size={15} /> 정밀 진단</>}
+                </button>
+              </div>
+
+              {boxStatus === "idle" && (
+                <div style={{ color: "var(--color-muted)", textAlign: "center", padding: "3rem 0", fontSize: "0.9rem" }}>
+                  '정밀 진단' 버튼을 누르시면 RAG 엔진이 세력 수급과 지지/저항선을 정밀 스캔합니다.
+                </div>
+              )}
+
+              {boxStatus === "loading" && (
+                <div style={{ textAlign: "center", padding: "3rem 0" }}>
+                  <Loader2 size={36} className="animate-spin" color="var(--color-accent)" style={{ margin: "0 auto 1rem" }} />
+                  <div style={{ color: "var(--color-warning)", fontWeight: 600 }}>{boxMsg}</div>
+                </div>
+              )}
+
+              {boxStatus === "error" && (
+                <div style={{ color: "var(--color-danger)", padding: "1rem", textAlign: "center" }}>{boxMsg}</div>
+              )}
+
+              {boxStatus === "done" && boxResult && (
+                <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
+                  <div style={{ display: "flex", gap: "10px", alignItems: "center", flexWrap: "wrap" }}>
+                    <span style={{ fontWeight: 800, fontSize: "1rem", padding: "4px 12px", borderRadius: "6px", background: "rgba(99,102,241,0.15)", color: "#818cf8", border: "1px solid #818cf8" }}>
+                      패턴 등급: {boxResult.pattern_rating || "중립"}
+                    </span>
+                    <span style={{ fontWeight: 800, fontSize: "1rem", padding: "4px 12px", borderRadius: "6px", background: "rgba(0,200,83,0.15)", color: "#00c853", border: "1px solid #00c853" }}>
+                      상승 확률: {boxResult.bullish_probability || "-"}
+                    </span>
+                  </div>
+
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
+                    <div style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(239, 68, 68, 0.3)", borderRadius: "8px", padding: "12px" }}>
+                      <div style={{ fontSize: "0.75rem", color: "var(--color-muted)", marginBottom: "4px" }}>단기 저항선 (세력 매도 벽)</div>
+                      <div style={{ fontWeight: 800, fontSize: "1.1rem", color: "#ff4b4b" }}>
+                        {currSymbol}{(boxResult.resistance_line || 0).toLocaleString()}
+                      </div>
+                    </div>
+                    <div style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(16, 185, 129, 0.3)", borderRadius: "8px", padding: "12px" }}>
+                      <div style={{ fontSize: "0.75rem", color: "var(--color-muted)", marginBottom: "4px" }}>중요 지지선 (세력 매수 벽)</div>
+                      <div style={{ fontWeight: 800, fontSize: "1.1rem", color: "#10b981" }}>
+                        {currSymbol}{(boxResult.support_line || 0).toLocaleString()}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div style={{ display: "flex", flexDirection: "column", gap: "8px", fontSize: "0.85rem", background: "rgba(0,0,0,0.15)", padding: "14px", borderRadius: "8px", border: "1px solid var(--color-border)" }}>
+                    <div style={{ fontWeight: 700, borderBottom: "1px solid rgba(255,255,255,0.1)", paddingBottom: "6px", marginBottom: "4px" }}>📌 AI 차트 & 수급 진단 소견</div>
+                    <div style={{ lineHeight: 1.6, whiteSpace: "pre-wrap" }}>
+                      {boxResult.pattern_view}
+                    </div>
+                  </div>
+
+                  <div style={{ display: "flex", flexDirection: "column", gap: "8px", fontSize: "0.85rem", background: "rgba(245, 158, 11, 0.05)", padding: "14px", borderRadius: "8px", border: "1px dashed rgba(245, 158, 11, 0.3)" }}>
+                    <div style={{ fontWeight: 700, color: "#fbbf24", display: "flex", alignItems: "center", gap: "6px" }}>🎯 실시간 돌파 매매 가이드라인</div>
+                    <div style={{ lineHeight: 1.6, whiteSpace: "pre-wrap", color: "#fef08a" }}>
+                      {boxResult.trading_strategy}
+                    </div>
                   </div>
                 </div>
               )}

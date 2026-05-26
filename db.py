@@ -5,6 +5,10 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime, timedelta
 
+# 구글 스프레드시트 API 호출 429 초과 방지용 메모리 캐시 및 TTL(60초) 정의
+_GSHEET_CACHE = {}
+_GSHEET_CACHE_TTL = timedelta(seconds=60)
+
 @st.cache_resource
 def get_gsheet_client():
     """Google Sheets 클라이언트를 초기화하고 캐싱합니다."""
@@ -38,27 +42,46 @@ def _get_spreadsheet():
         return None, f"스프레드시트 접근 오류: {e}"
 
 def _get_or_create_worksheet(sh, title, headers):
-    """시트 탭이 없으면 생성하고 헤더를 추가합니다."""
     try:
         ws = sh.worksheet(title)
+        # 만약 탭은 존재하지만 내용이 완전히 비어있다면 헤더를 써줍니다
+        first_row = ws.row_values(1)
+        if not first_row:
+            ws.update("A1", [headers])
+        return ws
     except gspread.WorksheetNotFound:
         ws = sh.add_worksheet(title=title, rows=1000, cols=20)
-        ws.append_row(headers)
-    return ws
+        ws.update("A1", [headers])
+        return ws
 
-def save_portfolio_to_gsheet(portfolio_list, current_prices_df=None):
-    """현재 포트폴리오 스냅샷을 '현재포트폴리오' 탭에 저장합니다."""
+def save_portfolio_to_gsheet(portfolio_list, current_prices_df=None, owner="USER"):
+    """현재 포트폴리오 스냅샷을 '현재포트폴리오' 탭에 저장합니다. (Owner별 병합)"""
     sh, msg = _get_spreadsheet()
     if not sh:
         return False, msg
 
     try:
-        headers = ["저장시간", "티커", "종목명", "수량", "매수가($)", "현재가($)", "수익금($)", "수익률(%)", "등급"]
+        headers = ["소유자", "저장시간", "티커", "종목명", "수량", "매수가($)", "현재가($)", "수익금($)", "수익률(%)", "등급"]
         ws = _get_or_create_worksheet(sh, "현재포트폴리오", headers)
+        
+        # 기존 데이터 가져와서 다른 소유자 데이터만 유지
+        all_records = ws.get_all_records()
+        other_records = [r for r in all_records if str(r.get("소유자", "USER")).upper() != owner.upper()]
+        
         ws.clear()
         ws.append_row(headers)
 
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        
+        # 다른 소유자 데이터 복구
+        for r in other_records:
+            ws.append_row([
+                r.get("소유자", "USER"), r.get("저장시간", ""), r.get("티커", ""), r.get("종목명", ""),
+                r.get("수량", 0), r.get("매수가($)", 0), r.get("현재가($)", 0),
+                r.get("수익금($)", 0), r.get("수익률(%)", 0), r.get("등급", "-")
+            ])
+            
+        # 내 데이터 저장
         for item in portfolio_list:
             ticker = item["ticker"]
             bp = item["buy_price"]
@@ -75,16 +98,25 @@ def save_portfolio_to_gsheet(portfolio_list, current_prices_df=None):
                     profit = (cp * qty) - invested
                     profit_pct = (profit / invested * 100) if invested > 0 else 0
 
-            ws.append_row([now, ticker, name, qty,
+            ws.append_row([owner.upper(), now, ticker, name, qty,
                            round(bp, 2), round(cp, 2),
                            round(profit, 2), round(profit_pct, 2), rating])
 
+        # 캐시 무효화
+        _GSHEET_CACHE.pop(f"portfolio_{owner}", None)
         return True, f"'{sh.title}' > '현재포트폴리오' 탭에 {len(portfolio_list)}개 종목 저장 완료!"
     except Exception as e:
         return False, f"저장 오류: {e}"
 
-def load_portfolio_from_gsheet():
+def load_portfolio_from_gsheet(owner="USER"):
     """'현재포트폴리오' 탭에서 포트폴리오 목록을 불러옵니다."""
+    now = datetime.now()
+    cache_key = f"portfolio_{owner}"
+    if cache_key in _GSHEET_CACHE:
+        cached_data, cached_time = _GSHEET_CACHE[cache_key]
+        if now - cached_time < _GSHEET_CACHE_TTL:
+            return cached_data
+
     sh, msg = _get_spreadsheet()
     if not sh:
         return []
@@ -93,6 +125,8 @@ def load_portfolio_from_gsheet():
         records = ws.get_all_records()
         portfolio_list = []
         for r in records:
+            if str(r.get("소유자", "USER")).upper() != owner.upper():
+                continue
             ticker = str(r.get("티커", ""))
             if ticker.isdigit() and len(ticker) < 6:
                 ticker = ticker.zfill(6)
@@ -100,13 +134,17 @@ def load_portfolio_from_gsheet():
                 "ticker": ticker,
                 "name": str(r.get("종목명", "")),
                 "buy_price": float(r.get("매수가($)", 0) or 0),
-                "quantity": int(r.get("수량", 0) or 0),
+                "quantity": float(r.get("수량", 0) or 0),
                 "buy_date": str(r.get("저장시간", "")),
                 "rating": str(r.get("등급", "-")),
+                "owner": str(r.get("소유자", "USER")).upper()
             })
+        _GSHEET_CACHE[cache_key] = (portfolio_list, now)
         return portfolio_list
-    except Exception:
-        return []
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return [{"ticker": "ERROR", "name": f"에러: {str(e)}", "buy_price": 0, "quantity": 0}]
 
 def save_ai_portfolio_to_gsheet(portfolio_list):
     """AI 자동 추천 종목 목록을 'AI추천포트폴리오' 탭에 저장합니다."""
@@ -160,16 +198,17 @@ def load_ai_portfolio_from_gsheet():
         return []
 
 
-def save_trade_record(trade):
+def save_trade_record(trade, owner="USER"):
     """완료된 거래 1건을 '거래내역' 탭에 기록합니다."""
     sh, msg = _get_spreadsheet()
     if not sh:
         return False, msg
 
     try:
-        headers = ["매도시간", "티커", "종목명", "수량", "매수가($)", "매도가($)", "수익금($)", "수익률(%)", "결과"]
+        headers = ["소유자", "매도시간", "티커", "종목명", "수량", "매수가($)", "매도가($)", "수익금($)", "수익률(%)", "결과", "학습포인트"]
         ws = _get_or_create_worksheet(sh, "거래내역", headers)
         ws.append_row([
+            owner.upper(),
             trade.get("sell_date", datetime.now().strftime("%Y-%m-%d %H:%M:%S")),
             trade.get("ticker", ""),
             trade.get("name", ""),
@@ -178,7 +217,8 @@ def save_trade_record(trade):
             round(float(trade.get("sell_price", 0)), 2),
             round(float(trade.get("profit", 0)), 2),
             round(float(trade.get("profit_pct", 0)), 2),
-            trade.get("result", "")
+            trade.get("result", ""),
+            trade.get("learning_point", "")
         ])
         return True, "거래 내역이 구글 시트에 기록되었습니다."
     except Exception as e:
@@ -195,7 +235,7 @@ def delete_trade_from_gsheet(ticker: str, sell_date: str):
         # 헤더 제외, 역순으로 찾아서 삭제 (인덱스 밀림 방지)
         for i in range(len(rows) - 1, 0, -1):
             row = rows[i]
-            if len(row) >= 2 and str(row[0]).strip() == str(sell_date).strip() and str(row[1]).strip() == str(ticker).strip():
+            if len(row) >= 3 and str(row[1]).strip() == str(sell_date).strip() and str(row[2]).strip() == str(ticker).strip():
                 ws.delete_rows(i + 1)  # gspread는 1-indexed
                 return True, "구글 시트에서 삭제 완료"
         return False, "해당 거래를 구글 시트에서 찾지 못했습니다."
@@ -204,8 +244,31 @@ def delete_trade_from_gsheet(ticker: str, sell_date: str):
     except Exception as e:
         return False, f"삭제 오류: {e}"
 
+def update_trade_learning_point(ticker: str, sell_date: str, learning_point: str):
+    """'거래내역' 탭에서 특정 거래의 '학습포인트' 열을 업데이트합니다."""
+    sh, msg = _get_spreadsheet()
+    if not sh:
+        return False, msg
+    try:
+        ws = sh.worksheet("거래내역")
+        rows = ws.get_all_values()
+        headers = rows[0]
+        try:
+            lp_col_idx = headers.index("학습포인트") + 1
+        except ValueError:
+            return False, "'학습포인트' 컬럼이 없습니다."
 
-def load_trade_history_from_gsheet():
+        for i in range(len(rows) - 1, 0, -1):
+            row = rows[i]
+            if len(row) >= 3 and str(row[1]).strip() == str(sell_date).strip() and str(row[2]).strip() == str(ticker).strip():
+                ws.update_cell(i + 1, lp_col_idx, learning_point)
+                return True, "학습포인트 저장 완료"
+        return False, "해당 거래를 찾을 수 없습니다."
+    except Exception as e:
+        return False, f"업데이트 오류: {e}"
+
+
+def load_trade_history_from_gsheet(owner="USER"):
     """'거래내역' 탭에서 모든 거래 기록을 DataFrame으로 불러옵니다."""
     sh, msg = _get_spreadsheet()
     if not sh:
@@ -217,17 +280,77 @@ def load_trade_history_from_gsheet():
         if not records:
             return pd.DataFrame(), "구글 시트의 거래내역 탭이 비어있습니다."
         
-        # 티커 0 누락 보정
+        filtered = []
         for r in records:
+            if str(r.get("소유자", "USER")).upper() != owner.upper():
+                continue
             t = str(r.get("티커", ""))
             if t.isdigit() and len(t) < 6:
                 r["티커"] = t.zfill(6)
+            filtered.append(r)
                 
-        return pd.DataFrame(records), "성공"
+        return pd.DataFrame(filtered), "성공"
     except gspread.WorksheetNotFound:
         return pd.DataFrame(), "거래내역 탭이 아직 없습니다. 매도 기록 시 자동으로 생성됩니다."
     except Exception as e:
         return None, f"로드 오류: {e}"
+
+# ── 모의투자 계좌 잔고 관리 ──
+def load_virtual_balances():
+    """'모의투자계좌' 탭에서 소유자별 현금 잔고를 불러옵니다."""
+    now = datetime.now()
+    cache_key = "virtual_balances"
+    if cache_key in _GSHEET_CACHE:
+        cached_data, cached_time = _GSHEET_CACHE[cache_key]
+        if now - cached_time < _GSHEET_CACHE_TTL:
+            return cached_data
+
+    sh, msg = _get_spreadsheet()
+    if not sh:
+        return {"USER": 10000000, "AI": 10000000}
+    try:
+        ws = sh.worksheet("모의투자계좌")
+        records = ws.get_all_records()
+        balances = {"USER": 10000000, "AI": 10000000}
+        for r in records:
+            owner = str(r.get("소유자", "")).upper()
+            if owner:
+                balances[owner] = float(r.get("잔고(₩)", 10000000))
+        _GSHEET_CACHE[cache_key] = (balances, now)
+        return balances
+    except gspread.WorksheetNotFound:
+        return {"USER": 10000000, "AI": 10000000}
+    except Exception:
+        return {"USER": 10000000, "AI": 10000000}
+
+def save_virtual_balance(owner: str, balance: float):
+    """'모의투자계좌' 탭에 소유자의 현금 잔고를 저장합니다."""
+    sh, msg = _get_spreadsheet()
+    if not sh:
+        return False
+    try:
+        headers = ["소유자", "잔고(₩)", "최근업데이트"]
+        ws = _get_or_create_worksheet(sh, "모의투자계좌", headers)
+        records = ws.get_all_records()
+        
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        found = False
+        rows_to_update = []
+        
+        for idx, r in enumerate(records):
+            if str(r.get("소유자", "")).upper() == owner.upper():
+                found = True
+                ws.update_cell(idx + 2, 2, balance)
+                ws.update_cell(idx + 2, 3, now)
+                break
+        
+        if not found:
+            ws.append_row([owner.upper(), balance, now])
+            
+        _GSHEET_CACHE.pop("virtual_balances", None)
+        return True
+    except Exception:
+        return False
 
 def log_ai_recommendation(rec_type: str, ticker: str, name: str, rating: str,
                            buy_target: str, sell_target: str, stop_loss: str):
@@ -270,6 +393,7 @@ def save_favorite(market_type: str, ticker: str, name: str):
             datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             market_type, ticker, name
         ])
+        _GSHEET_CACHE.pop("favorites", None)
         return True, f"[{name}] 즐겨찾기에 추가되었습니다."
     except Exception as e:
         return False, f"저장 오류: {e}"
@@ -283,6 +407,7 @@ def remove_favorite(ticker: str):
         cells = ws.find(ticker)
         if cells:
             ws.delete_rows(cells.row)
+            _GSHEET_CACHE.pop("favorites", None)
             return True, "즐겨찾기에서 삭제되었습니다."
         return False, "목록에서 종목을 찾을 수 없습니다."
     except Exception as e:
@@ -290,6 +415,13 @@ def remove_favorite(ticker: str):
 
 def load_favorites():
     """'즐겨찾기' 탭에서 모든 종목을 불러옵니다."""
+    now = datetime.now()
+    cache_key = "favorites"
+    if cache_key in _GSHEET_CACHE:
+        cached_data, cached_time = _GSHEET_CACHE[cache_key]
+        if now - cached_time < _GSHEET_CACHE_TTL:
+            return cached_data, "성공"
+
     sh, msg = _get_spreadsheet()
     if not sh: return [], msg
     try:
@@ -299,6 +431,7 @@ def load_favorites():
         for r in records:
             t = str(r.get("티커", ""))
             r["티커"] = t.zfill(6) if t.isdigit() and len(t) <= 6 else t
+        _GSHEET_CACHE[cache_key] = (records, now)
         return records, "성공"
     except gspread.WorksheetNotFound:
         return [], "즐겨찾기 목록이 비어있습니다."
@@ -310,6 +443,61 @@ def is_favorite(ticker):
     """특정 종목이 즐겨찾기에 있는지 확인합니다."""
     favs, _ = load_favorites()
     return any(str(f.get('티커', '')) == str(ticker) for f in favs)
+
+
+def log_agent_scan(ticker: str, name: str, current_price: float, position: str, action: str, confidence: int, reason: str):
+    """AI 자율매매 에이전트의 고민/스캔 이력을 'AI스캔로그' 탭에 저장합니다."""
+    sh, msg = _get_spreadsheet()
+    if not sh:
+        return False, msg
+    try:
+        headers = ["스캔시간", "티커", "종목명", "현재가", "보유상태", "AI판단", "신뢰도(%)", "판단이유"]
+        ws = _get_or_create_worksheet(sh, "AI스캔로그", headers)
+        
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        ws.append_row([
+            now, ticker, name, round(float(current_price), 2),
+            position, action, int(confidence), reason
+        ])
+        
+        # 최대 100건만 유지 (구글 시트 성능 최적화)
+        rows = ws.get_all_values()
+        if len(rows) > 105:
+            ws.delete_rows(2, len(rows) - 101)
+            
+        return True, "성공"
+    except Exception as e:
+        return False, f"스캔로그 저장 실패: {e}"
+
+
+def load_agent_scan_logs_from_gsheet():
+    """'AI스캔로그' 탭에서 에이전트의 스캔 로그 목록을 불러옵니다."""
+    sh, msg = _get_spreadsheet()
+    if not sh:
+        return []
+    try:
+        ws = sh.worksheet("AI스캔로그")
+        records = ws.get_all_records()
+        scan_logs = []
+        for r in records:
+            ticker = str(r.get("티커", ""))
+            if ticker.isdigit() and len(ticker) < 6:
+                ticker = ticker.zfill(6)
+            scan_logs.append({
+                "scan_time": str(r.get("스캔시간", "")),
+                "ticker": ticker,
+                "name": str(r.get("종목명", "")),
+                "price": float(r.get("현재가", 0) or 0),
+                "position": str(r.get("보유상태", "NONE")),
+                "action": str(r.get("AI판단", "HOLD")),
+                "confidence": int(r.get("신뢰도(%)", 0) or 0),
+                "reason": str(r.get("판단이유", ""))
+            })
+        # 최신 순으로 정렬하여 반환
+        scan_logs.reverse()
+        return scan_logs
+    except Exception:
+        return []
 
 
 def _enrich_with_krx(raw_map: dict) -> dict:
@@ -1063,6 +1251,28 @@ def delete_price_alert(ticker: str, alert_type: str) -> tuple:
     except Exception as e:
         return False, f"삭제 오류: {e}"
 
+def update_price_alert_status(ticker: str, alert_type: str, new_status: str) -> bool:
+    """알림 상태를 업데이트합니다 (예: 활성 -> 완료)."""
+    sh, _ = _get_spreadsheet()
+    if not sh:
+        return False
+    try:
+        ws = sh.worksheet("알림설정")
+        records = ws.get_all_records()
+        for i, r in enumerate(records):
+            if str(r.get("티커")) == str(ticker) and r.get("알림유형") == alert_type:
+                # 상태 컬럼 찾기
+                header = ws.row_values(1)
+                try:
+                    status_col = header.index("상태") + 1
+                    ws.update_cell(i + 2, status_col, new_status)
+                    return True
+                except ValueError:
+                    return False
+        return False
+    except Exception:
+        return False
+
 
 def load_stock_analysis_history(ticker: str, limit: int = 10) -> list[dict]:
     """'종목분석이력' 탭에서 해당 티커의 최근 분석 기록을 반환합니다 (오래된→최신 순)."""
@@ -1076,3 +1286,46 @@ def load_stock_analysis_history(ticker: str, limit: int = 10) -> list[dict]:
         return hits[-limit:] if len(hits) > limit else hits
     except Exception:
         return []
+
+
+def save_telegram_config(token: str, chat_id: str) -> tuple[bool, str]:
+    """텔레그램 봇 토큰 및 Chat ID를 '텔레그램설정' 탭에 저장합니다 (기존 설정은 덮어씀)."""
+    sh, msg = _get_spreadsheet()
+    if not sh:
+        return False, msg
+    try:
+        headers = ["저장시간", "토큰", "챗아이디"]
+        ws = _get_or_create_worksheet(sh, "텔레그램설정", headers)
+        ws.clear()
+        ws.append_row(headers)
+        ws.append_row([
+            datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            token.strip(),
+            chat_id.strip()
+        ])
+        return True, "텔레그램 설정이 구글 시트에 성공적으로 저장되었습니다."
+    except Exception as e:
+        return False, f"텔레그램 설정 저장 중 오류 발생: {e}"
+
+
+def load_telegram_config() -> tuple[str, str]:
+    """'텔레그램설정' 탭에서 저장된 텔레그램 토큰과 챗아이디를 불러옵니다. 없으면 환경변수 fallback."""
+    sh, _ = _get_spreadsheet()
+    if sh:
+        try:
+            ws = sh.worksheet("텔레그램설정")
+            records = ws.get_all_records()
+            if records:
+                row = records[0]
+                token = str(row.get("토큰", "")).strip()
+                chat_id = str(row.get("챗아이디", "")).strip()
+                if token and chat_id:
+                    return token, chat_id
+        except Exception:
+            pass
+            
+    # 환경변수 fallback
+    token = os.getenv("TELEGRAM_BOT_TOKEN", "")
+    chat_id = os.getenv("TELEGRAM_CHAT_ID", "")
+    return token, chat_id
+

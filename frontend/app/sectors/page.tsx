@@ -1,590 +1,936 @@
 "use client";
+
 import { useState, useMemo } from "react";
+import { api, connectSSE } from "@/lib/api";
 import useSWR from "swr";
+import { 
+  Flame, Layers, Search, ChevronRight, Activity, TrendingUp, 
+  ChevronDown, Info, Network, GitBranch, ShieldAlert, Sparkles, Link2, HelpCircle 
+} from "lucide-react";
 import { useRouter } from "next/navigation";
-import { api } from "@/lib/api";
-import { useMarket } from "@/lib/market-context";
-import { Activity, Flame, ChevronRight, ChevronDown, Bot } from "lucide-react";
+import { StockModal } from "@/components/ui/StockModal";
+import type { StockInfo } from "@/components/ui/StockModal";
+
+// ── 기술적 AI 시그널 판독 헬퍼 ───────────────────────────────────────────────
+function getSignalBadge(changePct: number | null) {
+  if (changePct === null) return { label: "⚪ 관망", color: "text-zinc-400 bg-white/5 border-white/10" };
+  if (changePct >= 7) return { label: "🔥 강력 추천", color: "text-red-400 bg-red-500/10 border-red-500/20" };
+  if (changePct >= 2) return { label: "🟢 매수 추천", color: "text-emerald-400 bg-emerald-500/10 border-emerald-500/20" };
+  if (changePct <= -7) return { label: "🔵 매수 검토", color: "text-blue-400 bg-blue-500/10 border-blue-500/20" };
+  if (changePct <= -2) return { label: "🔴 비추천", color: "text-rose-400 bg-rose-500/10 border-rose-500/20" };
+  return { label: "⚪ 관망", color: "text-zinc-400 bg-white/5 border-white/10" };
+}
+
+
+// 세부 테마에 대한 간단한 설명 맵 (주요 테마 위주)
+const SUB_SECTOR_DESC: Record<string, string> = {
+  "반도체 공정": "반도체 제조 전반을 아우르는 종합 반도체 및 핵심 파운드리 관련 기업",
+  "HBM·메모리": "고대역폭 메모리(HBM) 및 차세대 D램/낸드 관련 핵심 밸류체인",
+  "유리기판·PCB": "차세대 반도체 패키징을 위한 유리기판 및 고다층 인쇄회로기판(PCB) 관련주",
+  "반도체 소재": "웨이퍼, 특수가스, 포토레지스트(PR) 등 반도체 제조 핵심 소재 관련주",
+  "반도체 장비": "노광, 식각, 증착 등 전공정 및 핵심 후공정 반도체 제조 설비 관련주",
+  "반도체 패키징": "첨단 패키징(OSAT) 및 후공정 테스팅 관련 핵심 기업",
+  "배터리 셀": "전기차 및 ESS용 2차전지 완제품을 생산하는 배터리 제조사",
+  "양극재": "배터리의 용량과 출력을 결정하는 2차전지 핵심 소재 관련주",
+  "음극재": "배터리의 수명과 충전 속도를 좌우하는 2차전지 소재 관련주",
+  "전해질·분리막": "리튬이온 이동 통로 및 안전성을 담당하는 배터리 핵심 소재",
+  "전지 장비·부품": "2차전지 전극/조립/화성 공정 장비 및 캔, 파우치 등 부품 관련주",
+  "신약 개발": "글로벌 임상 및 블록버스터급 혁신 신약 파이프라인 보유 기업",
+  "바이오벤처·신약": "ADC, 표적항암제 등 차세대 신약 플랫폼 기술을 보유한 벤처 기업",
+  "의료기기": "AI 진단, 임플란트, 미용 의료기기 등 고성장 헬스케어 디바이스 관련주",
+  "CMO 위탁생산": "글로벌 제약사의 바이오의약품을 위탁 생산하는 CMO/CDMO 기업",
+  "진단·헬스케어": "체외진단 기기 및 디지털 헬스케어 플랫폼 관련주",
+  "AI 플랫폼": "자체 거대언어모델(LLM) 및 대규모 AI 인프라를 구축하는 빅테크/소프트웨어 기업",
+  "AI 반도체·NPU": "AI 연산 및 추론에 특화된 신경망처리장치(NPU) 설계 및 팹리스 기업",
+  "AI 데이터센터": "폭증하는 AI 트래픽을 처리하기 위한 데이터센터 구축 및 서버 관련주",
+  "AI 소프트웨어·서비스": "의료, 금융, 공공 등 산업 맞춤형 AI 솔루션을 제공하는 B2B/B2C 기업",
+  "로봇": "협동로봇, 산업용 로봇 및 물류/서비스 로봇 핵심 부품 및 제조사",
+  "자율주행·전장": "자율주행 소프트웨어, 라이다/레이더 및 차량용 인포테인먼트 관련주",
+  "양자 보안·암호화": "양자내성암호(PQC) 및 양자키분배(QKD) 기술 기반 차세대 보안 관련주",
+  "양자 컴퓨팅·소재": "양자 컴퓨터 하드웨어 설계 및 초전도체 등 핵심 소재 관련주",
+  "포스트퀀텀·사이버보안": "기존 사이버 위협 방어 및 양자 기술 시대에 대응하는 정보보안 기업",
+  "육상무기·장갑차": "K-방산 수출을 견인하는 전차, 자주포, 장갑차 등 지상 무기체계 관련주",
+  "항공·우주": "전투기, 헬기 및 저궤도 위성통신 등 우주항공 산업 관련주",
+  "함정·레이더": "이지스함, 잠수함 등 특수선 건조 및 해양 방위 레이더 체계 관련주",
+  "대형 조선소": "LNG선, 컨테이너선 등 고부가가치 선박을 건조하는 국내 대형 조선 3사",
+  "기자재·부품": "조선 블록, 보냉재, 엔진 밸브 등 선박 건조에 필수적인 기자재 관련주",
+  "완성차": "내연기관 및 친환경 전기/수소차를 최종 조립 및 판매하는 완성차 제조사",
+  "전장·부품": "자동차 차체, 샤시, 모터 등 핵심 부품 및 전장 시스템 납품 기업",
+  "원전 운영·건설": "국내외 원자력 발전소 시공 및 전력 생산/유지보수 관련 핵심 대형사",
+  "원전 기자재": "원자로, 증기발생기, 펌프 등 원전 핵심 주기기 및 보조기기 관련주",
+  "SMR·차세대원전": "소형모듈원전(SMR) 설계 및 차세대 원자력 기술 투자 관련주",
+  "변압기": "북미 전력망 교체 및 AI 데이터센터 수요에 대응하는 초고압 변압기 관련주",
+  "차단기·배전기·케이블": "전력 송배전망 효율화를 위한 차단기 및 초고압 전력 케이블 관련주",
+  "PC·콘솔 게임": "글로벌 IP를 기반으로 한 대형 MMORPG 및 콘솔 신작 개발사",
+  "모바일 게임": "캐주얼 및 서브컬처 중심의 모바일 게임 서비스 기업",
+  "K-팝·엔터테인먼트": "글로벌 팬덤을 보유한 K-POP 아티스트 소속 대형 엔터테인먼트사",
+  "OTT·콘텐츠·미디어": "넷플릭스 등 글로벌 OTT향 드라마/영화 제작 및 배급사",
+  "화장품 대기업": "글로벌 브랜드를 보유한 국내 대표 럭셔리 및 매스 뷰티 기업",
+  "인디·ODM": "글로벌 K-뷰티 열풍을 주도하는 인디 브랜드 및 화장품 위탁생산(ODM) 기업",
+  "은행·지주": "안정적인 이자이익과 주주환원 정책이 돋보이는 대표 금융지주사",
+  "석유화학": "나프타 분해 등 에틸렌/프로필렌 계열 기초유분 및 합성수지 제조사",
+  "철강·금속": "자동차/조선/건설 향 열연/냉연강판 및 특수강 생산 철강 기업",
+  "대형 건설": "국내외 대규모 플랜트, 주택, 인프라 사업을 영위하는 1군 건설사",
+  "이동통신": "5G/6G 통신망을 기반으로 통신 및 미디어/AI 신사업을 영위하는 이통 3사"
+};
+
+// 10대 대표 쉐도우 섹터 앵커 사전 데이터
+interface ShadowStock {
+  name: string;
+  code: string;
+  market: string;
+  relation: string;
+  rate: string;
+  credibility: string;
+  risk: string;
+}
+
+interface ShadowAnchor {
+  id: string;
+  name: string;
+  desc: string;
+  stocks: ShadowStock[];
+}
+
+const SHADOW_ANCHORS: ShadowAnchor[] = [
+  {
+    id: "dunamu",
+    name: "⛓️ 두나무 & 비트코인",
+    desc: "국내 최대 가상자산 거래소 업비트 운영사 지분 연동 테마",
+    stocks: [
+      { name: "우리기술투자", code: "041190", market: "KR", relation: "두나무 지분 약 7.2% 보유", rate: "7.2%", credibility: "상", risk: "비트코인 시세 급등락에 본업 실적과 무관하게 동조하여 변동성 극대화" },
+      { name: "한화투자증권", code: "003530", market: "KR", relation: "두나무 지분 약 5.9% 보유", rate: "5.9%", credibility: "상", risk: "가상자산 열풍 시 수혜주로 엮이나 증권업 자체 실적 대조 필요" },
+      { name: "에이티넘인베스트", code: "021080", market: "KR", relation: "에이티넘고성장기업투자조합을 통해 두나무 간접 보유", rate: "간접", credibility: "상", risk: "창투사 특성상 펀드 만기 및 회수 시점에 따른 변동 요인 존재" }
+    ]
+  },
+  {
+    id: "spacex",
+    name: "🚀 스페이스X & 우주항공",
+    desc: "일론 머스크의 민간 우주기업 지분 투자 및 밸류체인 테마",
+    stocks: [
+      { name: "미래에셋증권", code: "006800", market: "KR", relation: "스페이스X에 펀드 등으로 1,000억 원 이상 지분 투자", rate: "투자참여", credibility: "상", risk: "비상장 지분 평가이익 반영이 제한적이므로 테마 과열 경계 필요" },
+      { name: "켄코아에어로스페이스", code: "274090", market: "KR", relation: "스페이스X에 우주 가공 원소재 공급 이력", rate: "공급", credibility: "상", risk: "실제 원소재 납품 규모 대비 주가 선반영 우려 주의" },
+      { name: "AP위성", code: "211050", market: "KR", relation: "글로벌 저궤도 위성 통신 밸류체인 연계", rate: "연계", credibility: "미확인", risk: "확정되지 않은 공급 찌라시에 대한 뇌동매매 주의" }
+    ]
+  },
+  {
+    id: "openai",
+    name: "🧠 오픈AI & 인공지능",
+    desc: "ChatGPT 서비스 연동 및 AI 솔루션 생태계 테마",
+    stocks: [
+      { name: "폴라리스오피스", code: "041020", market: "KR", relation: "오픈AI의 GPT Store 연동 및 오피스 AI 서비스 상용화", rate: "서비스연동", credibility: "상", risk: "AI 구독 모델의 실제 매출 전환 지표 확인 필수" },
+      { name: "이스트소프트", code: "047560", market: "KR", relation: "MS 및 오픈AI 파트너십 기반 AI 휴먼 사업 영위", rate: "파트너십", credibility: "상", risk: "실제 솔루션 공급 계약서 체결 및 로열티 정산 비율 확인 필요" }
+    ]
+  },
+  {
+    id: "toss",
+    name: "💳 토스 (비바리퍼블리카)",
+    desc: "종합 금융 플랫폼 토스 지분 보유 및 인터넷은행 연동 테마",
+    stocks: [
+      { name: "이월드", code: "084680", market: "KR", relation: "계열사 이랜드월드를 통해 토스뱅크 지분 약 7.5% 보유", rate: "7.5%", credibility: "상", risk: "본업(패션/쥬얼리)과 토스뱅크 지분 가치 괴리 발생 주의" },
+      { name: "한국정보인증", code: "053300", market: "KR", relation: "토스뱅크 주주사로서 지분 보유", rate: "주주", credibility: "상", risk: "토스 IPO 기대감 소멸 및 지분 보호예수 해제 여부 체크 필요" },
+      { name: "한화투자증권", code: "003530", market: "KR", relation: "토스 지분 보유", rate: "보유", credibility: "상", risk: "두나무 지분 테마와 겹쳐 변동성 증폭 가능성" }
+    ]
+  },
+  {
+    id: "kbank",
+    name: "🏦 케이뱅크",
+    desc: "인터넷전문은행 케이뱅크 IPO 상장설 및 지분 연동 테마",
+    stocks: [
+      { name: "브리지텍", code: "041270", market: "KR", relation: "케이뱅크 지분 보유 및 콜센터 솔루션 독점 공급", rate: "주주/공급", credibility: "상", risk: "상장 추진 일정 연기 시 단기 차익 실현 매물 출회 우려" },
+      { name: "KG이니시스", code: "035600", market: "KR", relation: "케이뱅크 지분 보유 및 간편결제 게이트웨이 연동", rate: "주주", credibility: "상", risk: "결제 수수료 인하 압박 및 인터넷은행 성장 정체성 대조 필요" }
+    ]
+  },
+  {
+    id: "yanolja",
+    name: "✈️ 야놀자 (나스닥)",
+    desc: "여가 플랫폼 야놀자의 나스닥 상장 수혜 및 투자 연동 테마",
+    stocks: [
+      { name: "한화투자증권", code: "003530", market: "KR", relation: "야놀자 지분 보유", rate: "보유", credibility: "상", risk: "두나무, 토스, 야놀자 3대 쉐도우 테마 동시 노출주로 복잡성 큼" },
+      { name: "SBI인베스트먼트", code: "019550", market: "KR", relation: "야놀자에 대규모 펀드 투자 집행", rate: "투자", credibility: "상", risk: "투자 지분 회수(엑시트)에 따른 일시적 차익 변동 주의" }
+    ]
+  },
+  {
+    id: "hyundai_robot",
+    name: "🤖 현대차 & 보스턴다이내믹스",
+    desc: "현대차그룹의 로봇 자회사 동조화 및 부품 납품 테마",
+    stocks: [
+      { name: "현대글로비스", code: "086280", market: "KR", relation: "보스턴 다이내믹스 지분 직접 보유 참여", rate: "보유", credibility: "상", risk: "종합물류 본업 대비 로봇 사업 기여도 미미, 중장기 접근 필요" },
+      { name: "로보티즈", code: "108490", market: "KR", relation: "현대차그룹 자율주행 로봇 실증 밸류체인 참여", rate: "협력", credibility: "상", risk: "연구 단계 실증 성과와 실제 대량 양산 주문서 대조 필요" }
+    ]
+  },
+  {
+    id: "superconductor",
+    name: "⚡ 초전도체 (퀀텀에너지)",
+    desc: "초전도체 개발사 퀀텀에너지연구소 간접 지분 연동 테마",
+    stocks: [
+      { name: "신성델타테크", code: "018670", market: "KR", relation: "L&S벤처캐피탈 지분을 통해 퀀텀에너지연구소 연동 보유", rate: "간접", credibility: "상", risk: "초전도성 검증 학계 공방에 따라 주가 하루 30% 급등락하는 하이리스크 종목" },
+      { name: "파워로직스", code: "047310", market: "KR", relation: "L&S벤처캐피탈 지분 보유로 초전도체 공동 테마 엮임", rate: "간접", credibility: "상", risk: "본업(카메라 모듈) 실적 대비 테마의 투기적 요인이 지배적" }
+    ]
+  },
+  {
+    id: "hlb",
+    name: "🧪 HLB & 항암제 신약",
+    desc: "항암제 리보세라닙 임상 승인에 따른 그룹사 순환 테마",
+    stocks: [
+      { name: "HLB제약", code: "047920", market: "KR", relation: "HLB 그룹사 지분 순환 및 리보세라닙 판권/제조 연계", rate: "계열/판권", credibility: "상", risk: "임상 진행 절차 지연 및 FDA 승인 여부에 따른 초고위험 변동성 보유" },
+      { name: "HLB글로벌", code: "003520", market: "KR", relation: "HLB 그룹사 순환 테마 및 헬스케어 유통", rate: "계열", credibility: "상", risk: "본업 실적 부진 요인과 바이오 테마의 오버랩 경계 필요" }
+    ]
+  },
+  {
+    id: "nvidia_hbm",
+    name: "🔌 엔비디아 & AI 가속기",
+    desc: "엔비디아의 AI 반도체 독점에 따른 핵심 서플라이 체인 테마",
+    stocks: [
+      { name: "SK하이닉스", code: "000660", market: "KR", relation: "엔비디아향 고대역폭 메모리 (HBM3E) 독점적 공급 밸류체인", rate: "핵심공급", credibility: "상", risk: "마이크론/삼성전자 HBM 진입 및 경쟁 가속화 우려 상존" },
+      { name: "한미반도체", code: "042700", market: "KR", relation: "HBM 패키징용 TC 본더 장비 엔비디아/하이닉스 공급", rate: "독점장비", credibility: "상", risk: "글로벌 경쟁사 장비 국산화 및 오버밸류에이션 논란 주의" }
+    ]
+  }
+];
 
 export default function SectorsPage() {
-  const { market } = useMarket();
-  const isKR = market === "KR";
+  const router = useRouter();
+  const [selectedStock, setSelectedStock] = useState<StockInfo | null>(null);
+  const [activeTab, setActiveTab] = useState<"hot" | "all" | "shadow">("hot");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [selectedSector, setSelectedSector] = useState<string>("전체");
+  const [expandedSubs, setExpandedSubs] = useState<Record<string, boolean>>({});
 
-  const [activeTab, setActiveTab] = useState<"hot" | "explore">("explore");
+  // 쉐도우 탭 상태
+  const [selectedAnchor, setSelectedAnchor] = useState<string>("dunamu");
+  const [shadowSearchQuery, setShadowSearchQuery] = useState("");
+  const [shadowDiscoverStatus, setShadowDiscoverStatus] = useState<"idle" | "loading" | "done" | "error">("idle");
+  const [shadowDiscoverMsg, setShadowDiscoverMsg] = useState("");
+  const [shadowDiscoverResult, setShadowDiscoverResult] = useState<any>(null);
 
-  // ── 섹터 맵 ──────────────────────────────────────────────────────────────────
-  const { data: krSectorMap } = useSWR<any>(
-    isKR ? "/api/kr/sector-map" : null,
-    () => api.kr.sectorMap()
+  // 전체 섹터 맵 로드
+  const { data: sectorMap, isLoading: mapLoading } = useSWR(
+    "/api/kr/sector-map",
+    () => api.kr.sectorMap(),
+    { revalidateOnFocus: false }
   );
-  const { data: usSectorMap } = useSWR<any>(
-    !isKR ? "/api/us/sector-map" : null,
-    () => api.us.sectorMap()
-  );
-  const sectorMap = isKR ? krSectorMap : usSectorMap;
 
-  // ── KR 핫 섹터 (AI 분석) ─────────────────────────────────────────────────────
-  const { data: cachedHotSectors, isLoading: hsLoading, mutate: mutateHs } = useSWR(
-    isKR ? "/api/kr/hot-sectors" : null,
+  // 오늘의 핫섹터 로드
+  const { data: hotSectors, isLoading: hotLoading } = useSWR(
+    "/api/kr/hot-sectors",
     () => api.kr.hotSectors(),
     { revalidateOnFocus: false }
   );
 
-  // ── 오늘의 시장 분석 (hot 탭 전용) ───────────────────────────────────────────
-  const { data: todayMarketData, isLoading: tmLoading, mutate: mutateTm } = useSWR(
-    isKR && activeTab === "hot" ? "/api/kr/today-market" : null,
-    () => api.kr.todayMarket(),
-    { revalidateOnFocus: false }
-  );
-
-  // ── 거래량 TOP 10 (hot 탭 전용) ──────────────────────────────────────────────
-  const { data: volumeRankData, isLoading: vrLoading, mutate: mutateVr } = useSWR(
-    isKR && activeTab === "hot" ? "/api/kr/volume-ranking" : null,
-    () => api.kr.volumeRanking(),
-    { revalidateOnFocus: false }
-  );
-
-  const handleRefresh = () => { mutateTm(); mutateVr(); mutateHs(); };
-
-  const hotKeywords = useMemo(() => {
-    const hs = cachedHotSectors as any;
-    if (!hs?.sectors) return [];
-    return (hs.sectors as any[]).map((s) => s.keyword as string);
-  }, [cachedHotSectors]);
-
-  // ── UI 상태 ───────────────────────────────────────────────────────────────
-  const [selectedMainSector, setSelectedMainSector] = useState<string>("");
-  const [expandedSubSectors, setExpandedSubSectors] = useState<Record<string, boolean>>({});
-
-  const toggleSubSector = (sub: string) => {
-    setExpandedSubSectors(prev => ({ ...prev, [sub]: !prev[sub] }));
+  const toggleSub = (subKey: string) => {
+    setExpandedSubs(prev => ({ ...prev, [subKey]: !prev[subKey] }));
   };
 
-  const mainSectors = sectorMap ? Object.keys(sectorMap) : [];
-  const activeMain = selectedMainSector && mainSectors.includes(selectedMainSector)
-    ? selectedMainSector
-    : (mainSectors[0] ?? "");
+  // 대분류 섹터 리스트
+  const sectorNames = useMemo(() => {
+    if (!sectorMap) return [];
+    return Object.keys(sectorMap as Record<string, any>).sort();
+  }, [sectorMap]);
 
-  const isHotMain = isKR && hotKeywords.includes(activeMain);
+  // 티커 코드를 종목명으로 변환하기 위한 맵 생성
+  const codeToNameMap = useMemo(() => {
+    const map: Record<string, string> = {};
+    if (sectorMap) {
+      Object.values(sectorMap as Record<string, any>).forEach(subMap => {
+        Object.values(subMap as Record<string, any[]>).forEach(stocks => {
+          stocks.forEach(s => {
+            if (s.code && s.name) {
+              map[s.code] = s.name;
+            }
+          });
+        });
+      });
+    }
+    return map;
+  }, [sectorMap]);
+
+  // 필터링된 섹터 데이터 계층 구조 생성
+  const filteredData = useMemo(() => {
+    if (!sectorMap) return [];
+    const query = searchQuery.trim().toLowerCase();
+    const result: Array<{ sector: string; subSectors: Array<{ name: string; stocks: any[] }> }> = [];
+
+    Object.entries(sectorMap as Record<string, any>).forEach(([sectorName, subMap]) => {
+      if (selectedSector !== "전체" && sectorName !== selectedSector && !query) return;
+
+      const matchedSubs: Array<{ name: string; stocks: any[] }> = [];
+
+      Object.entries(subMap as any).forEach(([subName, stocks]: [string, any]) => {
+        const sectorMatch = sectorName.toLowerCase().includes(query);
+        const subMatch = subName.toLowerCase().includes(query);
+        const matchedStocks = query ? stocks.filter((s: any) => s.name.toLowerCase().includes(query) || s.code.includes(query)) : stocks;
+
+        if (!query || sectorMatch || subMatch || matchedStocks.length > 0) {
+          matchedSubs.push({
+            name: subName,
+            stocks: (sectorMatch || subMatch) && query ? stocks : (query ? matchedStocks : stocks),
+          });
+        }
+      });
+
+      if (matchedSubs.length > 0) {
+        result.push({ sector: sectorName, subSectors: matchedSubs });
+      }
+    });
+
+    return result;
+  }, [sectorMap, searchQuery, selectedSector]);
+
+  // 스톡시 DB 전체 + 사전 쉐도우 앵커 + 실시간 RAG 결과 내의 모든 국내(KR) 고유 종목 코드 추출
+  const allCodes = useMemo(() => {
+    const codes = new Set<string>();
+    
+    // (1) sectorMap 전체 종목 수집
+    if (sectorMap) {
+      Object.values(sectorMap as Record<string, any>).forEach(subMap => {
+        Object.values(subMap as Record<string, any[]>).forEach(stocks => {
+          stocks.forEach(s => {
+            if (s.code) codes.add(s.code);
+          });
+        });
+      });
+    }
+
+    // (2) 사전 정의된 쉐도우 앵커 종목 중 국내 종목 수집
+    SHADOW_ANCHORS.forEach(anchor => {
+      anchor.stocks.forEach(s => {
+        if (s.market === "KR" && s.code) {
+          codes.add(s.code);
+        }
+      });
+    });
+
+    // (3) 실시간 RAG 쉐도우 발굴 결과 중 국내 종목 수집
+    if (shadowDiscoverResult?.stocks) {
+      shadowDiscoverResult.stocks.forEach((s: any) => {
+        if (s.market === "KR" && s.ticker) {
+          codes.add(s.ticker);
+        }
+      });
+    }
+
+    return Array.from(codes);
+  }, [sectorMap, shadowDiscoverResult]);
+
+  // 일괄 현재가 조회
+  const { data: bulkPrices } = useSWR(
+    allCodes.length > 0 ? ["stocks-bulk", allCodes] : null,
+    ([_, codes]) => api.kr.stocksBulk(codes),
+    { refreshInterval: 60000, revalidateOnFocus: false }
+  );
+
+  // 사전 쉐도우 앵커 + 실시간 RAG 결과 내의 모든 미국(US) 고유 종목 코드 추출
+  const usCodes = useMemo(() => {
+    const codes = new Set<string>();
+
+    // (1) 사전 정의된 쉐도우 앵커 종목 중 미국 종목 수집
+    SHADOW_ANCHORS.forEach(anchor => {
+      anchor.stocks.forEach(s => {
+        if (s.market === "US" && s.code) {
+          codes.add(s.code.toUpperCase());
+        }
+      });
+    });
+
+    // (2) 실시간 RAG 쉐도우 발굴 결과 중 미국 종목 수집
+    if (shadowDiscoverResult?.stocks) {
+      shadowDiscoverResult.stocks.forEach((s: any) => {
+        if (s.market === "US" && s.ticker) {
+          codes.add(s.ticker.toUpperCase());
+        }
+      });
+    }
+
+    return Array.from(codes);
+  }, [shadowDiscoverResult]);
+
+  // 미국 일괄 현재가 조회
+  const { data: usPrices } = useSWR(
+    usCodes.length > 0 ? ["us-stocks-bulk", usCodes] : null,
+    ([_, tickers]) => api.us.stocks(tickers),
+    { refreshInterval: 60000, revalidateOnFocus: false }
+  );
+
+  // 미국 종목 시세 조회 맵 파싱
+  const usPriceMap = useMemo(() => {
+    const map: Record<string, { price: number; change_pct: number }> = {};
+    if (usPrices) {
+      (usPrices as any[]).forEach(s => {
+        const ticker = s["심볼"] ?? s.ticker ?? "";
+        if (ticker) {
+          map[ticker.trim().toUpperCase()] = {
+            price: s["현재가($)"] ?? s.price ?? 0,
+            change_pct: s["등락률(%)"] ?? s.change_pct ?? 0
+          };
+        }
+      });
+    }
+    return map;
+  }, [usPrices]);
+
+  // 실시간 AI RAG 쉐도우 종목 발굴 즉석 탐색
+  const runShadowDiscover = async () => {
+    if (!shadowSearchQuery.trim()) return;
+    setShadowDiscoverStatus("loading");
+    setShadowDiscoverResult(null);
+    setShadowDiscoverMsg("📡 실시간 구글 RAG 정보망 수집 중...");
+
+    try {
+      await connectSSE<any>(
+        "/api/ai/shadow-discover",
+        (evt) => {
+          if (evt.status === "running") {
+            setShadowDiscoverMsg(evt.message ?? "분석 중...");
+          } else if (evt.status === "done" && evt.result) {
+            setShadowDiscoverResult(evt.result);
+            setShadowDiscoverStatus("done");
+          } else if (evt.status === "error") {
+            setShadowDiscoverMsg(evt.message ?? "오류 발생");
+            setShadowDiscoverStatus("error");
+          }
+        },
+        {
+          method: "POST",
+          body: {
+            keyword: shadowSearchQuery.trim()
+          }
+        }
+      );
+    } catch (err: any) {
+      setShadowDiscoverMsg(`❌ RAG 탐색 실패: ${err.message}`);
+      setShadowDiscoverStatus("error");
+    }
+  };
+
+  // 선택한 앵커 데이터
+  const activeAnchorData = useMemo(() => {
+    return SHADOW_ANCHORS.find(a => a.id === selectedAnchor);
+  }, [selectedAnchor]);
 
   return (
-    <div style={{ maxWidth: "1200px", margin: "0 auto", padding: "1.5rem" }}>
+    <div className="flex flex-col gap-6 animate-in fade-in duration-300">
+      <header className="border-b border-white/5 pb-4">
+        <h1 className="text-2xl font-bold tracking-tight text-white mb-2 flex items-center gap-3">
+          🔥 오늘의 이슈 섹터 & AI 쉐도우 맵
+        </h1>
+        <p className="text-zinc-400 text-sm">
+          시장 주도 테마 및 지분 보유·자회사 얽힘으로 연동된 숨겨진 족보를 완벽히 정복하세요.
+        </p>
+      </header>
 
-      <h1 style={{ fontSize: "1.8rem", fontWeight: 800, marginBottom: "1.5rem", display: "flex", alignItems: "center", gap: "8px" }}>
-        <Flame color="var(--color-danger)" />
-        {isKR ? "🇰🇷 국내 이슈 섹터" : "🇺🇸 미국 이슈 섹터"}
-      </h1>
-
-      {/* ── 상단 탭 ─────────────────────────────────────────────────────────── */}
-      <div style={{ display: "flex", gap: "1rem", marginBottom: "2rem" }}>
-        {isKR && (
-          <button
-            onClick={() => setActiveTab("hot")}
-            style={{ flex: 1, padding: "1rem", borderRadius: "8px", border: "1px solid", borderColor: activeTab === "hot" ? "var(--color-accent)" : "var(--color-border)", background: activeTab === "hot" ? "rgba(255,255,255,0.05)" : "var(--color-surface)", color: "var(--color-text)", fontWeight: 700, fontSize: "1rem", cursor: "pointer", transition: "0.2s" }}
-          >
-            🔥 오늘의 이슈섹터
-          </button>
-        )}
+      {/* 탭 네비게이션 */}
+      <div className="flex gap-2 bg-white/5 p-1 rounded-xl w-fit border border-white/10">
         <button
-          onClick={() => setActiveTab("explore")}
-          style={{ flex: 1, padding: "1rem", borderRadius: "8px", border: "1px solid", borderColor: activeTab === "explore" ? "var(--color-accent)" : "var(--color-border)", background: activeTab === "explore" ? "rgba(255,255,255,0.05)" : "var(--color-surface)", color: "var(--color-text)", fontWeight: 700, fontSize: "1rem", cursor: "pointer", transition: "0.2s" }}
+          onClick={() => setActiveTab("hot")}
+          className={`flex items-center gap-2 px-5 py-2 text-sm font-bold rounded-lg transition-all ${
+            activeTab === "hot" 
+              ? "bg-red-500/20 text-red-400 border border-red-500/20 shadow-lg shadow-red-500/5" 
+              : "text-zinc-400 hover:bg-white/5"
+          }`}
         >
-          🗺️ 전체 섹터 탐색
+          <Flame size={16} /> AI 핫 섹터
+        </button>
+        <button
+          onClick={() => setActiveTab("all")}
+          className={`flex items-center gap-2 px-5 py-2 text-sm font-bold rounded-lg transition-all ${
+            activeTab === "all" 
+              ? "bg-indigo-500/20 text-indigo-400 border border-indigo-500/20 shadow-lg shadow-indigo-500/5" 
+              : "text-zinc-400 hover:bg-white/5"
+          }`}
+        >
+          <Layers size={16} /> 전체 섹터 지도
+        </button>
+        <button
+          onClick={() => setActiveTab("shadow")}
+          className={`flex items-center gap-2 px-5 py-2 text-sm font-bold rounded-lg transition-all ${
+            activeTab === "shadow" 
+              ? "bg-amber-500/20 text-amber-400 border border-amber-500/20 shadow-lg shadow-amber-500/5" 
+              : "text-zinc-400 hover:bg-white/5"
+          }`}
+        >
+          <Network size={16} /> AI 쉐도우 & 지분 맵
         </button>
       </div>
 
-      {/* ── 오늘의 이슈섹터 (KR 전용) ──────────────────────────────────────── */}
-      {activeTab === "hot" && isKR && (
-        <div>
-          {/* 새로고침 버튼 */}
-          <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: "1rem" }}>
-            <button
-              className="stockcy-btn stockcy-btn-primary"
-              onClick={handleRefresh}
-              disabled={tmLoading || vrLoading || hsLoading}
-            >
-              {(tmLoading || vrLoading || hsLoading) ? "분석 중..." : "🔄 새로고침"}
-            </button>
+      {/* ── 핫 섹터 탭 ──────────────────────────────────────────────────────── */}
+      {activeTab === "hot" && (
+        <div className="flex flex-col gap-6">
+          {hotLoading ? (
+            <div className="stockcy-card p-10 flex flex-col items-center justify-center text-red-400 gap-4">
+              <Activity size={32} className="animate-spin opacity-50" />
+              <p className="text-sm font-medium animate-pulse">AI가 오늘의 핫 섹터를 분석 중입니다...</p>
+            </div>
+          ) : !(hotSectors as any)?.sectors ? (
+            <div className="stockcy-card p-10 text-center text-zinc-400">데이터를 불러오지 못했습니다.</div>
+          ) : (
+            <div className="grid grid-cols-1 gap-6">
+              {(hotSectors as any).sectors.map((sec: any, idx: number) => (
+                <div key={idx} className="stockcy-card p-6 border-l-4 border-l-red-500 flex flex-col gap-4 hover:bg-white/5 transition-colors">
+                  <div className="flex justify-between items-start">
+                    <div>
+                      <div className="flex items-center gap-3 mb-2">
+                        <span className="text-xl font-black text-white">{sec.keyword}</span>
+                        <span className="px-2 py-1 bg-red-500/20 text-red-400 text-xs font-bold rounded border border-red-500/30">
+                          Hot Score: {sec.hot_score}/10
+                        </span>
+                      </div>
+                      <p className="text-sm text-zinc-300 leading-relaxed">{sec.reason}</p>
+                    </div>
+                  </div>
+
+                  {sec.dynamic_subsectors && sec.dynamic_subsectors.length > 0 && (
+                    <div className="flex flex-wrap gap-2 mt-2">
+                      {sec.dynamic_subsectors.map((sub: any, i: number) => {
+                        const subName = typeof sub === "string" ? sub : sub.name;
+                        return subName ? (
+                          <span key={i} className="px-2.5 py-1 bg-white/5 text-zinc-300 text-xs rounded-full border border-white/10 font-medium">
+                            #{subName}
+                          </span>
+                        ) : null;
+                      })}
+                    </div>
+                  )}
+                  
+                  {sec.hot_codes && sec.hot_codes.length > 0 && (
+                    <div className="mt-3 pt-3 border-t border-white/5">
+                      <div className="text-[0.7rem] font-bold text-zinc-500 uppercase tracking-wider mb-2">주도 종목</div>
+                      <div className="flex flex-wrap gap-2">
+                        {sec.hot_codes.map((code: string, i: number) => {
+                          const stockName = codeToNameMap[code] || code;
+                          const priceData = bulkPrices ? (bulkPrices as any)[code] : null;
+                          const signal = priceData ? getSignalBadge(priceData.change_pct) : getSignalBadge(null);
+                          return (
+                            <button
+                              key={i}
+                              onClick={() => setSelectedStock({ code, name: stockName, market: "국내" })}
+                              className="text-xs px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 hover:text-white rounded transition-all font-medium border border-white/5 flex items-center gap-1.5 hover:scale-[1.03] active:scale-95 shadow-sm"
+                              title={`${stockName} (${code}) - 클릭 시 AI 타점 상세 분석 모달 오픈`}
+                            >
+                              <span className="font-extrabold">{stockName}</span>
+                              {priceData && (
+                                <span className={`text-[0.65rem] font-bold ${priceData.change_pct > 0 ? 'text-red-400' : priceData.change_pct < 0 ? 'text-blue-400' : 'text-zinc-500'}`}>
+                                  {priceData.change_pct > 0 ? '+' : ''}{priceData.change_pct.toFixed(1)}%
+                                </span>
+                              )}
+                              <span className={`text-[0.58rem] px-1.5 py-0.5 rounded font-black border scale-90 ${signal.color}`}>
+                                {signal.label}
+                              </span>
+                              <ChevronRight size={11} className="opacity-40" />
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── 전체 섹터 탭 ──────────────────────────────────────────────────────── */}
+      {activeTab === "all" && (
+        <div className="flex flex-col gap-6">
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400" size={18} />
+            <input
+              type="text"
+              placeholder="종목명, 섹터명 검색 (예: 한미반도체, HBM)"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="stockcy-input w-full pl-10 py-3 text-sm bg-white/5 border border-white/10 rounded-lg focus:outline-none focus:border-indigo-500 transition-colors"
+            />
           </div>
 
-          {/* 로딩 */}
-          {(tmLoading || (hsLoading && !cachedHotSectors)) && (
-            <div className="stockcy-card" style={{ height: "300px", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", color: "var(--color-muted)" }}>
-              <div style={{ fontSize: "2.5rem", marginBottom: "1rem" }}>⏳</div>
-              <div>AI 섹터 분석 중... (1~2분 소요)</div>
+          {!searchQuery && (
+            <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide snap-x">
+              <button
+                onClick={() => setSelectedSector("전체")}
+                className={`flex-shrink-0 px-4 py-2 rounded-full text-sm font-bold transition-all snap-start ${
+                  selectedSector === "전체" ? "bg-indigo-500 text-white shadow-md shadow-indigo-500/20" : "bg-white/5 text-zinc-400 hover:bg-white/10"
+                }`}
+              >
+                전체
+              </button>
+              {sectorNames.map((name) => (
+                <button
+                  key={name}
+                  onClick={() => setSelectedSector(name)}
+                  className={`flex-shrink-0 px-4 py-2 rounded-full text-sm font-bold transition-all snap-start ${
+                    selectedSector === name ? "bg-indigo-500 text-white shadow-md shadow-indigo-500/20" : "bg-white/5 text-zinc-400 hover:bg-white/10"
+                  }`}
+                >
+                  {name}
+                </button>
+              ))}
             </div>
           )}
 
-          {/* 오류 */}
-          {(todayMarketData as any)?.error && (
-            <div style={{ background: "rgba(255,75,75,0.08)", border: "1px solid rgba(255,75,75,0.3)", borderRadius: "8px", padding: "12px 16px", marginBottom: "12px", color: "#ff6b6b" }}>
-              ⚠️ {(todayMarketData as any).error}
+          {mapLoading ? (
+            <div className="stockcy-card p-10 text-center text-zinc-400">섹터 지도를 불러오는 중...</div>
+          ) : filteredData.length === 0 ? (
+            <div className="stockcy-card p-10 text-center text-zinc-500">
+              검색 결과가 없습니다.
+            </div>
+          ) : (
+            <div className="flex flex-col gap-8">
+              {filteredData.map((item, idx) => (
+                <div key={idx} className="flex flex-col gap-4 animate-in slide-in-from-bottom-2 duration-300">
+                  <h2 className="text-xl font-bold text-indigo-300 border-b border-indigo-500/20 pb-2 flex items-center gap-2">
+                    <Layers size={20} className="text-indigo-400" /> {item.sector}
+                  </h2>
+                  
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {item.subSectors.map((sub, sIdx) => {
+                      const subKey = `${item.sector}-${sub.name}`;
+                      const isExpanded = expandedSubs[subKey] !== false;
+                      
+                      return (
+                        <div key={sIdx} className="stockcy-card border border-white/5 overflow-hidden flex flex-col bg-zinc-900/50">
+                          <div 
+                            className="p-3 bg-white/5 flex flex-col cursor-pointer hover:bg-white/10 transition-colors"
+                            onClick={() => toggleSub(subKey)}
+                          >
+                            <div className="flex justify-between items-center">
+                              <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                                {sub.name}
+                                <span className="text-[0.65rem] font-normal bg-black/30 text-zinc-400 px-2 py-0.5 rounded-full">
+                                  {sub.stocks.length}종목
+                                </span>
+                              </h3>
+                              <ChevronDown size={16} className={`text-zinc-500 transition-transform ${isExpanded ? "rotate-180" : ""}`} />
+                            </div>
+                            
+                            {SUB_SECTOR_DESC[sub.name] && (
+                              <p className="text-[0.7rem] text-zinc-400 mt-2 leading-relaxed flex items-start gap-1">
+                                <Info size={12} className="text-indigo-400 mt-0.5 flex-shrink-0" />
+                                {SUB_SECTOR_DESC[sub.name]}
+                              </p>
+                            )}
+                          </div>
+
+                          {isExpanded && (
+                            <div className="p-3 grid grid-cols-1 sm:grid-cols-2 gap-2">
+                              {sub.stocks.map((s: any, i: number) => {
+                                const priceData = bulkPrices ? (bulkPrices as any)[s.code] : null;
+                                const signal = priceData ? getSignalBadge(priceData.change_pct) : getSignalBadge(null);
+                                return (
+                                  <div 
+                                    key={i}
+                                    onClick={() => setSelectedStock({ code: s.code, name: s.name, market: "국내" })}
+                                    className="group flex justify-between items-center p-2.5 rounded bg-black/20 hover:bg-indigo-500/10 border border-transparent hover:border-indigo-500/30 cursor-pointer transition-all hover:scale-[1.02] active:scale-98"
+                                    title={`${s.name} (${s.code}) - 클릭 시 AI 타점 상세 분석 모달 오픈`}
+                                  >
+                                    <div className="flex flex-col overflow-hidden mr-2">
+                                      <div className="flex items-center gap-1.5 flex-wrap">
+                                        <span className="text-[0.85rem] font-bold text-zinc-300 group-hover:text-indigo-300 truncate" title={s.name}>
+                                          {s.name}
+                                        </span>
+                                        <span className={`text-[0.55rem] px-1.5 py-0.2 rounded font-black border scale-[0.85] origin-left ${signal.color}`}>
+                                          {signal.label}
+                                        </span>
+                                      </div>
+                                      <span className="text-[0.65rem] text-zinc-500 font-mono mt-0.5">
+                                        {s.code}
+                                      </span>
+                                    </div>
+                                    {priceData ? (
+                                      <div className="flex flex-col items-end flex-shrink-0">
+                                        <span className="text-[0.8rem] font-bold text-white">
+                                          ₩{priceData.price.toLocaleString()}
+                                        </span>
+                                        <span className={`text-[0.65rem] font-bold mt-0.5 ${priceData.change_pct > 0 ? 'text-red-400' : priceData.change_pct < 0 ? 'text-blue-400' : 'text-zinc-500'}`}>
+                                          {priceData.change_pct > 0 ? '+' : ''}{priceData.change_pct.toFixed(2)}%
+                                        </span>
+                                      </div>
+                                    ) : (
+                                      <span className="text-[0.65rem] text-zinc-600 flex-shrink-0 animate-pulse">로딩중...</span>
+                                    )}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
             </div>
           )}
+        </div>
+      )}
 
-          {/* ── 시장 요약 배너 ── */}
-          {(todayMarketData as any)?.market_summary && (
-            <div style={{ background: "rgba(255,152,0,0.06)", borderLeft: "3px solid #ff9800", padding: "8px 14px", borderRadius: "4px", marginBottom: "12px" }}>
-              <div style={{ color: "#ff9800", fontWeight: 700, fontSize: "0.94rem", marginBottom: "4px" }}>📌 오늘 시장 요약</div>
-              <div style={{ color: "#ccc", fontSize: "0.95rem", lineHeight: 1.6 }}>{(todayMarketData as any).market_summary}</div>
+      {/* ── AI 쉐도우 & 지분 맵 탭 ─────────────────────────────────────────────────── */}
+      {activeTab === "shadow" && (
+        <div className="flex flex-col gap-8 animate-in slide-in-from-bottom-2 duration-300">
+          
+          {/* 1. 실시간 RAG 즉석 쉐도우 검색기 (Shadow Searcher) */}
+          <div className="stockcy-card p-6 border border-amber-500/10 bg-amber-500/5 shadow-lg shadow-amber-500/5 relative overflow-hidden">
+            <div className="absolute top-0 right-0 p-4 opacity-5 pointer-events-none">
+              <Sparkles size={100} className="text-amber-400" />
             </div>
-          )}
+            <div className="flex items-center gap-2 mb-3">
+              <Sparkles className="text-amber-400 animate-pulse" size={20} />
+              <h2 className="text-lg font-black text-amber-300">실시간 AI 쉐도우 즉석 탐색기 (Shadow Searcher)</h2>
+            </div>
+            <p className="text-xs text-zinc-400 mb-4 leading-relaxed">
+              임의의 비상장사, 글로벌 기업, 인물 또는 메가 트렌드 키워드(예: <b>트럼프</b>, <b>스타링크</b>, <b>컬리</b>, <b>토스 IPO</b> 등)를 입력하세요.<br />
+              AI가 실시간 구글 뉴스 및 DART 공시 RAG 검색을 통해 **숨겨진 지분 관계를 가진 국내/미국 상장 수혜주 족보**를 즉석 발굴해 냅니다.
+            </p>
+            <div className="flex gap-2">
+              <div className="relative flex-1">
+                <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-zinc-500" size={18} />
+                <input
+                  type="text"
+                  placeholder="발굴하고 싶은 쉐도우 키워드를 입력하세요... (예: 트럼프, 스타링크, 토스)"
+                  value={shadowSearchQuery}
+                  onChange={(e) => setShadowSearchQuery(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && runShadowDiscover()}
+                  className="stockcy-input w-full py-3 text-sm bg-black/40 border border-white/10 rounded-lg focus:outline-none focus:border-amber-500 transition-colors text-white"
+                  style={{ paddingLeft: "42px" }}
+                />
+              </div>
+              <button
+                onClick={runShadowDiscover}
+                disabled={shadowDiscoverStatus === "loading" || !shadowSearchQuery.trim()}
+                className="px-6 py-3 bg-amber-500 hover:bg-amber-400 text-black font-black text-sm rounded-lg transition-colors flex items-center gap-2 shadow-lg shadow-amber-500/20 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {shadowDiscoverStatus === "loading" ? (
+                  <>
+                    <Activity size={16} className="animate-spin" />
+                    RAG 분석중...
+                  </>
+                ) : (
+                  <>
+                    <Search size={16} />
+                    쉐도우 탐색
+                  </>
+                )}
+              </button>
+            </div>
 
-          {/* ── 주도 테마 태그 ── */}
-          {(todayMarketData as any)?.leading_themes?.length > 0 && (
-            <div style={{ marginBottom: "14px", display: "flex", flexWrap: "wrap", gap: "6px", alignItems: "center" }}>
-              <span style={{ fontSize: "0.9rem", color: "#aaa" }}>🔥 주도 테마:</span>
-              {((todayMarketData as any).leading_themes as string[]).map((t) => {
-                const isTop = t === (todayMarketData as any).top_theme;
+            {/* 1-1. 실시간 RAG 검색 진행 & 결과 노출 패널 */}
+            {shadowDiscoverStatus !== "idle" && (
+              <div className="mt-4 pt-4 border-t border-white/5 animate-in fade-in duration-300">
+                {shadowDiscoverStatus === "loading" ? (
+                  <div className="flex flex-col items-center justify-center py-6 text-amber-400/80 gap-3 bg-black/30 rounded-lg border border-white/5">
+                    <Activity size={24} className="animate-spin text-amber-500" />
+                    <span className="text-xs font-bold animate-pulse text-zinc-300">{shadowDiscoverMsg}</span>
+                  </div>
+                ) : shadowDiscoverStatus === "error" ? (
+                  <div className="p-4 bg-red-500/10 border border-red-500/20 text-red-400 text-xs rounded-lg flex items-start gap-2">
+                    <ShieldAlert size={16} className="flex-shrink-0 mt-0.5" />
+                    <div>{shadowDiscoverMsg}</div>
+                  </div>
+                ) : shadowDiscoverResult ? (
+                  <div className="flex flex-col gap-4 animate-in slide-in-from-top-2 duration-300">
+                    <div className="bg-black/30 p-3 rounded-lg border border-white/5 flex justify-between items-center text-xs">
+                      <div className="text-zinc-300">
+                        발굴 키워드: <span className="text-amber-400 font-bold">"{shadowDiscoverResult.anchor_keyword}"</span>
+                        <p className="text-[0.7rem] text-zinc-400 mt-1 leading-relaxed">{shadowDiscoverResult.discovery_summary}</p>
+                      </div>
+                      <span className="px-2 py-0.5 bg-amber-500/10 text-amber-400 rounded-full text-[0.6rem] font-bold border border-amber-500/20">
+                        AI RAG Live
+                      </span>
+                    </div>
+
+                    {/* 발굴된 종목 그리드 */}
+                    {shadowDiscoverResult.stocks && shadowDiscoverResult.stocks.length > 0 ? (
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {shadowDiscoverResult.stocks.map((s: any, idx: number) => {
+                          const priceData = s.market === "KR" 
+                            ? (bulkPrices ? (bulkPrices as any)[s.ticker] : null)
+                            : (usPriceMap ? usPriceMap[s.ticker.toUpperCase()] : null);
+                          const signal = priceData ? getSignalBadge(priceData.change_pct) : getSignalBadge(null);
+                          return (
+                            <div 
+                              key={idx}
+                              onClick={() => setSelectedStock({ code: s.ticker, name: s.name, market: s.market === "KR" ? "국내" : "미국" })}
+                              className="stockcy-card p-4 border border-white/5 bg-zinc-950/40 hover:bg-amber-500/5 hover:border-amber-500/20 transition-all cursor-pointer group flex flex-col gap-2 relative hover:scale-[1.02] active:scale-98"
+                              title={`${s.name} (${s.ticker}) - 클릭 시 AI 타점 상세 분석 모달 오픈`}
+                            >
+                              <div className="flex justify-between items-start">
+                                <div>
+                                  <div className="flex items-center gap-2 flex-wrap">
+                                    <span className="text-sm font-bold text-white group-hover:text-amber-400 transition-colors">{s.name}</span>
+                                    <span className="text-[0.65rem] font-mono bg-black/40 text-zinc-500 px-1.5 py-0.5 rounded">
+                                      {s.ticker}
+                                    </span>
+                                    <span className={`text-[0.55rem] font-bold px-1.5 py-0.5 rounded ${s.market === 'KR' ? 'bg-red-500/10 text-red-400' : 'bg-blue-500/10 text-blue-400'}`}>
+                                      {s.market === 'KR' ? '국내' : '미국'}
+                                    </span>
+                                    {priceData && (
+                                      <span className="text-xs font-mono font-bold text-zinc-300 ml-1">
+                                        {s.market === 'KR' ? `₩${priceData.price.toLocaleString()}` : `$${priceData.price.toFixed(2)}`}
+                                        <span className={`ml-1.5 text-[0.7rem] ${priceData.change_pct > 0 ? 'text-red-400' : priceData.change_pct < 0 ? 'text-blue-400' : 'text-zinc-500'}`}>
+                                          {priceData.change_pct > 0 ? '+' : ''}{priceData.change_pct.toFixed(1)}%
+                                        </span>
+                                      </span>
+                                    )}
+                                    <span className={`text-[0.55rem] px-1.5 py-0.2 rounded font-black border scale-[0.85] origin-left ${signal.color}`}>
+                                      {signal.label}
+                                    </span>
+                                  </div>
+                                  <p className="text-[0.75rem] text-zinc-300 mt-1.5 font-medium leading-relaxed flex items-center gap-1">
+                                    <GitBranch size={12} className="text-amber-500" />
+                                    {s.relationship}
+                                  </p>
+                                </div>
+                                <span className={`px-1.5 py-0.5 text-[0.55rem] font-bold rounded flex items-center gap-0.5 ${s.credibility === '상' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'bg-yellow-500/10 text-yellow-400 border border-yellow-500/20'}`}>
+                                  팩트: {s.credibility === '상' ? '공식' : '미확인'}
+                                </span>
+                              </div>
+                              
+                              {s.risk_guide && (
+                                <div className="mt-2 pt-2 border-t border-white/5 text-[0.65rem] text-zinc-400 flex items-start gap-1 bg-black/20 p-2 rounded">
+                                  <ShieldAlert size={12} className="text-amber-500 mt-0.5 flex-shrink-0" />
+                                  <span className="leading-normal">{s.risk_guide}</span>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <div className="p-6 text-center text-xs text-zinc-500 bg-black/20 rounded-lg">
+                        해당 키워드와 연동된 쉐도우 종목을 발굴하지 못했습니다. 다른 키워드를 입력해 보세요.
+                      </div>
+                    )}
+                  </div>
+                ) : null}
+              </div>
+            )}
+          </div>
+
+          {/* 2. 10대 대표 지분연동 앵커 셀렉터 */}
+          <div className="flex flex-col gap-3">
+            <h3 className="text-sm font-bold text-zinc-400 uppercase tracking-wider flex items-center gap-2">
+              <Network size={16} className="text-amber-500" /> 10대 시장 주도 쉐도우 앵커 선택
+            </h3>
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3">
+              {SHADOW_ANCHORS.map((anchor) => {
+                const isActive = selectedAnchor === anchor.id;
                 return (
-                  <span key={t} style={{
-                    background: isTop ? "rgba(255,75,75,0.2)" : "rgba(255,255,255,0.06)",
-                    border: `1px solid ${isTop ? "#ff4b4b" : "rgba(255,255,255,0.15)"}`,
-                    borderRadius: "12px", padding: "2px 10px", fontSize: "0.88rem",
-                    color: isTop ? "#ff4b4b" : "#aaa", fontWeight: 700,
-                  }}>{t}</span>
+                  <button
+                    key={anchor.id}
+                    onClick={() => setSelectedAnchor(anchor.id)}
+                    className={`p-4 rounded-xl border flex flex-col text-left transition-all ${
+                      isActive 
+                        ? "bg-amber-500/10 border-amber-500/30 shadow-lg shadow-amber-500/5" 
+                        : "bg-white/5 border-white/5 hover:bg-white/10 hover:border-white/10"
+                    }`}
+                  >
+                    <span className={`text-[0.8rem] font-bold transition-colors ${isActive ? 'text-amber-400' : 'text-zinc-200'}`}>
+                      {anchor.name}
+                    </span>
+                    <span className="text-[0.6rem] text-zinc-400 mt-1 line-clamp-1">
+                      {anchor.desc}
+                    </span>
+                  </button>
                 );
               })}
             </div>
-          )}
-
-          {/* ── 💎 AI 선정 핫 섹터 & 종목 제목 ── */}
-          {(cachedHotSectors || todayMarketData) && !hsLoading && (
-            <div style={{ fontWeight: 800, fontSize: "1.05rem", marginBottom: "12px", color: "var(--color-text)" }}>
-              💎 AI 선정 핫 섹터 &amp; 종목
-            </div>
-          )}
-
-          {/* ── 거래량 TOP 10 ── */}
-          {Array.isArray(volumeRankData) && volumeRankData.length > 0 && (
-            <VolumeTop10Table data={(volumeRankData as any[]).slice(0, 10)} />
-          )}
-
-          {/* ── 오늘의 급등 종목 ── */}
-          {(todayMarketData as any)?.stocks?.length > 0 && (
-            <div style={{ marginBottom: "20px" }}>
-              <div style={{ fontWeight: 700, color: "#aaa", marginBottom: "8px", fontSize: "1.01rem" }}>📈 오늘의 급등 종목</div>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: "10px" }}>
-                {((todayMarketData as any).stocks as any[]).map((stk: any) => (
-                  <RisingStockCard key={stk.code} stock={stk} />
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* ── AI 핫 섹터 ── */}
-          {(cachedHotSectors as any)?.sectors?.length > 0 && (
-            <div>
-              <div style={{ fontWeight: 700, color: "#aaa", marginBottom: "10px", fontSize: "1.01rem" }}>🔥 AI 핫 섹터</div>
-
-              {/* 신규 이슈 섹터 패널 */}
-              {(() => {
-                const sectors: any[] = (cachedHotSectors as any).sectors ?? [];
-                const newSecs = sectors.filter((s: any) =>
-                  !krSectorMap || !Object.keys(krSectorMap).includes(s.keyword)
-                );
-                if (newSecs.length === 0) return null;
-                return (
-                  <div style={{ marginBottom: "12px" }}>
-                    <div style={{ fontWeight: 700, color: "#4caf50", fontSize: "0.95rem", marginBottom: "6px" }}>⚡ 오늘의 신규 이슈 감지</div>
-                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: "8px" }}>
-                      {newSecs.map((s: any, i: number) => (
-                        <div key={i} style={{ background: "rgba(76,175,80,0.1)", border: "1px solid #4caf50", borderRadius: "8px", padding: "8px 12px" }}>
-                          <div style={{ fontWeight: 700, color: "#4caf50", fontSize: "0.9rem" }}>🆕 {s.keyword}</div>
-                          <div style={{ fontSize: "0.82rem", color: "#aaa", marginTop: "2px" }}>{String(s.reason ?? "").slice(0, 50)}...</div>
-                        </div>
-                      ))}
-                    </div>
-                    <div style={{ height: "1px", background: "var(--color-border)", marginTop: "12px" }} />
-                  </div>
-                );
-              })()}
-
-              <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
-                {[...((cachedHotSectors as any).sectors as any[])]
-                  .sort((a, b) => (b.hot_score ?? 0) - (a.hot_score ?? 0))
-                  .map((sector: any, i: number) => (
-                    <HotSectorCard key={i} sector={sector} sectorMap={krSectorMap} />
-                  ))}
-              </div>
-            </div>
-          )}
-
-          {/* 데이터 없음 */}
-          {!tmLoading && !hsLoading && !todayMarketData && !cachedHotSectors && (
-            <div className="stockcy-card" style={{ padding: "3rem", textAlign: "center", color: "var(--color-muted)" }}>
-              <Flame size={48} style={{ marginBottom: "1rem", opacity: 0.4 }} />
-              <div>데이터를 불러올 수 없습니다. 새로고침 버튼을 눌러 다시 시도하세요.</div>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* ── 전체 섹터 탐색 ─────────────────────────────────────────────────── */}
-      {activeTab === "explore" && (
-        <div>
-          {/* HOT / 관심 섹터 박스 (KR only, 캐시 결과) */}
-          {isKR && (() => {
-            const sectors: any[] = (cachedHotSectors as any)?.sectors ?? [];
-            const hot  = sectors.filter((s: any) => (s.hot_score ?? 0) >= 8);
-            const star = sectors.filter((s: any) => (s.hot_score ?? 0) >= 5 && (s.hot_score ?? 0) < 8);
-            if (sectors.length === 0) return null;
-            return (
-              <div style={{ display: "flex", flexDirection: "column", gap: "12px", marginBottom: "1.5rem" }}>
-                {hot.length > 0 && (
-                  <>
-                    <div style={{ fontSize: "0.95rem", fontWeight: 800, color: "var(--color-danger)", display: "flex", alignItems: "center", gap: "6px" }}>
-                      <Flame size={16} /> 🔥 HOT 섹터
-                    </div>
-                    {hot.map((sec: any, i: number) => (
-                      <div key={i} className="stockcy-card hover-highlight" onClick={() => { setSelectedMainSector(sec.keyword); setExpandedSubSectors({}); }} style={{ padding: "12px 16px", border: "1px solid rgba(255,60,60,0.35)", background: "rgba(255,60,60,0.04)", cursor: "pointer" }}>
-                        <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "4px" }}>
-                          <span>🔥</span>
-                          <span style={{ fontWeight: 800 }}>{sec.keyword}</span>
-                          <span style={{ fontSize: "0.8rem", fontWeight: 700, color: "var(--color-warning)" }}>[{sec.hot_score}점]</span>
-                        </div>
-                        {sec.reason && <div style={{ fontSize: "0.78rem", color: "var(--color-muted)", lineHeight: 1.5 }}>{String(sec.reason).slice(0, 100)}{String(sec.reason).length > 100 ? "…" : ""}</div>}
-                      </div>
-                    ))}
-                  </>
-                )}
-                {star.length > 0 && (
-                  <>
-                    <div style={{ fontSize: "0.95rem", fontWeight: 800, color: "var(--color-warning)", display: "flex", alignItems: "center", gap: "6px" }}>
-                      ⭐ 관심 섹터
-                    </div>
-                    {star.map((sec: any, i: number) => (
-                      <div key={i} className="stockcy-card hover-highlight" onClick={() => { setSelectedMainSector(sec.keyword); setExpandedSubSectors({}); }} style={{ padding: "12px 16px", border: "1px solid rgba(255,180,50,0.25)", background: "rgba(255,180,50,0.03)", cursor: "pointer" }}>
-                        <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "4px" }}>
-                          <span>⭐</span>
-                          <span style={{ fontWeight: 700 }}>{sec.keyword}</span>
-                          <span style={{ fontSize: "0.8rem", fontWeight: 700, color: "var(--color-warning)" }}>[{sec.hot_score}점]</span>
-                        </div>
-                        {sec.reason && <div style={{ fontSize: "0.78rem", color: "var(--color-muted)", lineHeight: 1.5 }}>{String(sec.reason).slice(0, 100)}{String(sec.reason).length > 100 ? "…" : ""}</div>}
-                      </div>
-                    ))}
-                  </>
-                )}
-                <div style={{ height: "1px", background: "var(--color-border)" }} />
-              </div>
-            );
-          })()}
-
-          <div style={{ fontSize: "0.9rem", color: "var(--color-muted)", marginBottom: "0.75rem" }}>
-            섹터를 클릭해 종목을 탐색하세요{isKR ? " · 🔥 = 오늘의 이슈 섹터" : ""}
           </div>
 
-          <div style={{ marginBottom: "0.5rem", fontWeight: 700 }}>섹터 선택 (직접 선택)</div>
-          <select
-            value={activeMain}
-            onChange={(e) => { setSelectedMainSector(e.target.value); setExpandedSubSectors({}); }}
-            style={{ width: "100%", padding: "1rem", borderRadius: "8px", border: `1px solid ${isHotMain ? "rgba(255,75,75,0.5)" : "var(--color-border)"}`, background: "var(--color-surface)", color: "var(--color-text)", fontSize: "1rem", marginBottom: "1.5rem", outline: "none", cursor: "pointer" }}
-          >
-            {mainSectors.map(s => (
-              <option key={s} value={s}>
-                {hotKeywords.includes(s) ? "🔥 " : ""}{s}
-              </option>
-            ))}
-          </select>
-
-          <div style={{ display: "grid", gridTemplateColumns: "60px 2fr 1fr 1fr 100px", padding: "10px 1rem", borderBottom: "1px solid var(--color-border)", fontSize: "0.85rem", color: "var(--color-muted)", fontWeight: 600 }}>
-            <div>단타</div>
-            <div>종목명</div>
-            <div style={{ textAlign: "right" }}>현재가</div>
-            <div style={{ textAlign: "right" }}>등락률</div>
-            <div></div>
-          </div>
-
-          {sectorMap && sectorMap[activeMain] && Object.entries(sectorMap[activeMain]).map(([subSector, stocks]: [string, any]) => {
-            const isHot = isKR && hotKeywords.includes(activeMain);
-            const isOpen = expandedSubSectors[subSector];
-            return (
-              <div key={subSector} style={{ borderBottom: "1px solid rgba(255,255,255,0.05)" }}>
-                <div
-                  onClick={() => toggleSubSector(subSector)}
-                  style={{ display: "grid", gridTemplateColumns: "60px 2fr 1fr 1fr 100px", padding: "1rem", alignItems: "center", background: "var(--color-surface)", cursor: "pointer", transition: "0.2s" }}
-                  className="hover-highlight"
-                >
-                  <div style={{ display: "flex", justifyContent: "center" }}>
-                    {isOpen ? <ChevronDown size={18} /> : <ChevronRight size={18} />}
+          {/* 3. 앵커 하위 쉐도우 연관 종목 네트워크 맵 */}
+          {activeAnchorData && (
+            <div className="stockcy-card p-6 border border-white/5 bg-zinc-950/40 animate-in fade-in duration-300">
+              <div className="flex flex-col md:flex-row md:justify-between md:items-start gap-4 mb-6 pb-4 border-b border-white/5">
+                <div>
+                  <div className="flex items-center gap-2 mb-1.5">
+                    <span className="text-lg font-black text-white">{activeAnchorData.name}</span>
+                    <span className="px-2 py-0.5 bg-amber-500/10 text-amber-400 text-[0.65rem] font-bold rounded border border-amber-500/20">
+                      Anchor Ecosystem
+                    </span>
                   </div>
-                  <div style={{ display: "flex", alignItems: "center", gap: "8px", fontWeight: 700, fontSize: "1.05rem" }}>
-                    📌 {subSector}
-                    <span style={{ fontSize: "0.85rem", color: "var(--color-muted)", fontWeight: 500 }}>{stocks.length}개</span>
-                    {isHot && <Flame size={14} color="var(--color-danger)" style={{ marginLeft: "4px" }} />}
-                  </div>
-                  <div style={{ textAlign: "right", color: "var(--color-muted)" }}>-</div>
-                  <div style={{ textAlign: "right", fontWeight: 700, color: "var(--color-danger)" }}>-</div>
-                  <div style={{ display: "flex", justifyContent: "flex-end" }}>
-                    <button
-                      onClick={(e) => { e.stopPropagation(); alert(`${subSector} AI 분석 시작`); }}
-                      style={{ padding: "4px 12px", background: "transparent", border: "1px solid var(--color-border)", borderRadius: "4px", color: "var(--color-text)", fontWeight: 600, display: "flex", alignItems: "center", gap: "4px", cursor: "pointer" }}
-                    >
-                      <Bot size={14} /> AI
-                    </button>
-                  </div>
+                  <p className="text-xs text-zinc-400">{activeAnchorData.desc}</p>
                 </div>
-
-                {isOpen && (
-                  <div style={{ background: "rgba(0,0,0,0.2)", padding: "0" }}>
-                    {stocks.map((stock: any, i: number) => (
-                      <SubSectorStockRow key={i} stock={stock} market={market} />
-                    ))}
-                  </div>
-                )}
+                <div className="text-right text-[0.65rem] text-zinc-500 leading-normal max-w-xs bg-black/20 p-2.5 rounded border border-white/5 flex items-start gap-1.5">
+                  <HelpCircle size={14} className="text-amber-500 flex-shrink-0 mt-0.5" />
+                  <span>
+                    지분 보유 및 밸류체인 관계는 공식 분기보고서 및 공시 데이터를 바탕으로 도출되었습니다. 찌라시/루머의 경우 극도 경계가 필요합니다.
+                  </span>
+                </div>
               </div>
-            );
-          })}
-        </div>
-      )}
-    </div>
-  );
-}
 
-// ── 거래량 TOP 10 테이블 ─────────────────────────────────────────────────────
-function VolumeTop10Table({ data }: { data: any[] }) {
-  return (
-    <div style={{ marginBottom: "20px" }}>
-      <div style={{ fontWeight: 700, color: "#aaa", marginBottom: "6px", fontSize: "1.01rem" }}>📊 거래량 TOP 10</div>
-      <div className="stockcy-card" style={{ overflow: "auto" }}>
-        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.88rem" }}>
-          <thead>
-            <tr style={{ color: "var(--color-muted)", borderBottom: "1px solid rgba(255,255,255,0.07)" }}>
-              <th style={{ padding: "6px 10px", textAlign: "left", fontWeight: 600 }}>#</th>
-              <th style={{ padding: "6px 10px", textAlign: "left", fontWeight: 600 }}>종목명</th>
-              <th style={{ padding: "6px 10px", textAlign: "right", fontWeight: 600 }}>현재가</th>
-              <th style={{ padding: "6px 10px", textAlign: "right", fontWeight: 600 }}>등락률</th>
-              <th style={{ padding: "6px 10px", textAlign: "right", fontWeight: 600 }}>거래량</th>
-            </tr>
-          </thead>
-          <tbody>
-            {data.map((row: any, i: number) => {
-              const pct = row["등락률(%)"] ?? 0;
-              const color = pct > 0 ? "#ff4b4b" : pct < 0 ? "#2b7cff" : "#888";
-              const price = row["현재가"] ?? 0;
-              const vol = row["거래량"] ?? 0;
-              return (
-                <tr key={i} style={{ borderBottom: "1px solid rgba(255,255,255,0.04)" }}>
-                  <td style={{ padding: "5px 10px", color: "var(--color-muted)" }}>{i + 1}</td>
-                  <td style={{ padding: "5px 10px", fontWeight: 600 }}>{row["종목명"] ?? "-"}</td>
-                  <td style={{ padding: "5px 10px", textAlign: "right" }}>
-                    {price > 0 ? `₩${price.toLocaleString()}` : "-"}
-                  </td>
-                  <td style={{ padding: "5px 10px", textAlign: "right", color, fontWeight: 700 }}>
-                    {typeof pct === "number" ? `${pct > 0 ? "+" : ""}${pct.toFixed(2)}%` : "-"}
-                  </td>
-                  <td style={{ padding: "5px 10px", textAlign: "right", color: "var(--color-muted)" }}>
-                    {typeof vol === "number" ? vol.toLocaleString() : "-"}
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  );
-}
+              {/* 종목 연결 네트워크 그리드 */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6 relative">
+                {activeAnchorData.stocks.map((stock, idx) => {
+                  const priceData = stock.market === "KR" 
+                    ? (bulkPrices ? (bulkPrices as any)[stock.code] : null)
+                    : (usPriceMap ? usPriceMap[stock.code.toUpperCase()] : null);
+                  const signal = priceData ? getSignalBadge(priceData.change_pct) : getSignalBadge(null);
+                  return (
+                    <div 
+                      key={idx} 
+                      onClick={() => setSelectedStock({ code: stock.code, name: stock.name, market: stock.market === "KR" ? "국내" : "미국" })}
+                      className="stockcy-card p-5 border border-white/5 bg-black/30 hover:bg-amber-500/5 hover:border-amber-500/20 cursor-pointer group transition-all flex flex-col gap-3 relative overflow-hidden hover:scale-[1.02] active:scale-98"
+                      title={`${stock.name} (${stock.code}) - 클릭 시 AI 타점 상세 분석 모달 오픈`}
+                    >
+                      <div className="absolute top-0 right-0 p-2 opacity-5">
+                        <Link2 size={60} />
+                      </div>
 
-// ── 오늘의 급등 종목 카드 ────────────────────────────────────────────────────
-function RisingStockCard({ stock }: { stock: any }) {
-  const router = useRouter();
-  const pct = stock.change_pct ?? 0;
-  const pctColor = pct > 0 ? "#ff4b4b" : pct < 0 ? "#2b7cff" : "#888";
-  const label = pct >= 5 ? "🔥 급등" : pct >= 2 ? "▲ 상승" : pct <= -2 ? "▼ 하락" : "⚪ 보합";
-  const labelColor = pct >= 2 ? "#ff4b4b" : pct <= -2 ? "#2b7cff" : "#888";
+                      <div className="flex justify-between items-start">
+                        <div>
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="text-[0.95rem] font-extrabold text-white group-hover:text-amber-400 transition-colors">
+                              {stock.name}
+                            </span>
+                            <span className="text-[0.65rem] font-mono text-zinc-500 bg-black/40 px-1 py-0.5 rounded">
+                              {stock.code}
+                            </span>
+                            {priceData && (
+                              <span className="text-xs font-mono font-bold text-zinc-300 ml-1">
+                                {stock.market === 'KR' ? `₩${priceData.price.toLocaleString()}` : `$${priceData.price.toFixed(2)}`}
+                                <span className={`ml-1.5 text-[0.7rem] ${priceData.change_pct > 0 ? 'text-red-400' : priceData.change_pct < 0 ? 'text-blue-400' : 'text-zinc-500'}`}>
+                                  {priceData.change_pct > 0 ? '+' : ''}{priceData.change_pct.toFixed(1)}%
+                                </span>
+                              </span>
+                            )}
+                            <span className={`text-[0.55rem] px-1.5 py-0.2 rounded font-black border scale-[0.85] origin-left ${signal.color}`}>
+                              {signal.label}
+                            </span>
+                          </div>
+                          <span className={`inline-block text-[0.55rem] font-bold px-1.5 py-0.5 rounded mt-1 bg-red-500/10 text-red-400`}>
+                            {stock.market === 'KR' ? '국내상장' : '미국상장'}
+                          </span>
+                        </div>
 
-  return (
-    <div className="stockcy-card" style={{ padding: "10px 14px" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-        <div>
-          <span style={{ fontWeight: 700, fontSize: "1.05rem" }}>{stock.name}</span>
-          <span style={{ fontSize: "0.78rem", color: "#888", marginLeft: "6px" }}>{stock.market}</span>
-          <span style={{ fontSize: "0.78rem", color: "#555", marginLeft: "4px" }}>{stock.code}</span>
-        </div>
-        <span style={{ fontWeight: 700, color: pctColor, fontSize: "1.05rem" }}>
-          {pct > 0 ? "+" : ""}{pct.toFixed(1)}%
-        </span>
-      </div>
-      <div style={{ marginTop: "6px", display: "flex", gap: "6px", flexWrap: "wrap", alignItems: "center" }}>
-        <span style={{ padding: "1px 7px", borderRadius: "4px", background: `${labelColor}22`, border: `1px solid ${labelColor}55`, color: labelColor, fontSize: "0.78rem", fontWeight: 700 }}>
-          {label}
-        </span>
-        {stock.theme && (
-          <span style={{ background: "rgba(255,152,0,0.15)", borderRadius: "10px", padding: "1px 8px", color: "#ff9800", fontSize: "0.78rem" }}>
-            #{stock.theme}
-          </span>
-        )}
-      </div>
-      {stock.reason && (
-        <div style={{ fontSize: "0.85rem", color: "#bbb", marginTop: "6px", lineHeight: 1.45 }}>{stock.reason}</div>
-      )}
-      {stock.code && (
-        <button
-          onClick={() => router.push(`/search?q=${stock.code}`)}
-          style={{ marginTop: "8px", padding: "3px 10px", background: "transparent", border: "1px solid var(--color-border)", borderRadius: "4px", color: "var(--color-muted)", fontSize: "0.8rem", cursor: "pointer" }}
-        >
-          ▶ 차트
-        </button>
-      )}
-    </div>
-  );
-}
+                        <span className={`px-2 py-0.5 rounded text-[0.6rem] font-extrabold flex items-center gap-0.5 ${stock.credibility === '상' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'bg-yellow-500/10 text-yellow-400 border border-yellow-500/20'}`}>
+                          팩트: {stock.credibility === '상' ? '공식' : '미확인'}
+                        </span>
+                      </div>
 
-// ── AI 핫 섹터 카드 ──────────────────────────────────────────────────────────
-function HotSectorCard({ sector, sectorMap }: { sector: any; sectorMap: any }) {
-  const allStocks = useMemo(() => {
-    if (!sectorMap) return [];
-    const subSectors = sectorMap[sector.keyword] ?? {};
-    const all: any[] = [];
-    Object.values(subSectors).forEach((stocks: any) => all.push(...(stocks as any[])));
-    return all;
-  }, [sectorMap, sector.keyword]);
+                      {/* 지분 구조 및 관계 파스 */}
+                      <div className="bg-black/40 p-3 rounded-lg flex flex-col gap-1.5 border border-white/5">
+                        <div className="flex justify-between text-xs">
+                          <span className="text-zinc-500">지분/투자 형태</span>
+                          <span className="text-amber-400 font-extrabold">{stock.rate}</span>
+                        </div>
+                        <p className="text-[0.7rem] text-zinc-300 leading-normal flex items-start gap-1 mt-1">
+                          <GitBranch size={12} className="text-amber-500 mt-0.5 flex-shrink-0" />
+                          <span>{stock.relation}</span>
+                        </p>
+                      </div>
 
-  const displayStocks = useMemo(() => {
-    const hotCodes: string[] = sector.hot_codes ?? [];
-    if (hotCodes.length > 0) {
-      const filtered = allStocks.filter((s: any) => hotCodes.includes(s.code));
-      return (filtered.length > 0 ? filtered : allStocks).slice(0, 10);
-    }
-    return allStocks.slice(0, 10);
-  }, [allStocks, sector.hot_codes]);
-
-  const isNew = allStocks.length === 0;
-  const score = sector.hot_score ?? 0;
-  const fires = "🔥".repeat(Math.max(1, Math.min(Math.floor(score / 2.5), 4)));
-
-  return (
-    <div className="stockcy-card" style={{ padding: "12px 16px" }}>
-      {/* 헤더 */}
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "4px" }}>
-        <span style={{ fontWeight: 800, fontSize: "1.1rem" }}>
-          {sector.keyword}
-          {isNew && (
-            <span style={{ fontSize: "0.75rem", color: "#4caf50", border: "1px solid #4caf50", borderRadius: "3px", padding: "1px 5px", marginLeft: "8px" }}>NEW</span>
+                      {/* 리스크 가이드 */}
+                      <div className="text-[0.65rem] text-zinc-400 flex items-start gap-1 p-2 bg-red-500/5 rounded border border-red-500/10">
+                        <ShieldAlert size={12} className="text-red-400 mt-0.5 flex-shrink-0" />
+                        <span className="leading-relaxed font-medium">{stock.risk}</span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
           )}
-        </span>
-        <span style={{ color: "#ff9800", fontSize: "0.95rem" }}>{fires} {score}/10</span>
-      </div>
-
-      {sector.reason && (
-        <div style={{ fontSize: "0.88rem", color: "#aaa", marginBottom: "4px", lineHeight: 1.5 }}>{sector.reason}</div>
-      )}
-      {sector.news_title && (
-        <div style={{ fontSize: "0.82rem", color: "#666", marginBottom: "8px" }}>📰 {sector.news_title}</div>
-      )}
-
-      {/* 종목 목록 */}
-      {displayStocks.length > 0 && (
-        <div style={{ borderTop: "1px solid rgba(255,255,255,0.07)", paddingTop: "8px" }}>
-          {displayStocks.map((stk: any) => (
-            <HotSectorStockRow key={stk.code} stock={stk} />
-          ))}
         </div>
       )}
-
-      {/* AI 신규 종목 */}
-      {sector.new_stocks?.length > 0 && (
-        <div style={{ borderTop: "1px solid rgba(255,255,255,0.06)", paddingTop: "6px", marginTop: "4px" }}>
-          {(sector.new_stocks as any[]).slice(0, 2).map((ns: any, i: number) => (
-            <div key={i} style={{ fontSize: "0.82rem", color: "#aaa", padding: "2px 0" }}>
-              🤖 {ns.name} — {ns.reason}
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* 동적 서브섹터 */}
-      {sector.dynamic_subsectors?.length > 0 && (
-        <div style={{ borderTop: "1px solid rgba(255,152,0,0.2)", marginTop: "8px", paddingTop: "6px" }}>
-          {(sector.dynamic_subsectors as any[]).map((ds: any, i: number) => (
-            <div key={i} style={{ padding: "4px 8px", background: "rgba(255,152,0,0.07)", borderLeft: "2px solid #ff9800", borderRadius: "0 4px 4px 0", marginBottom: "4px" }}>
-              <span style={{ fontSize: "0.88rem", color: "#ff9800", fontWeight: 700 }}>📡 {ds.name}</span>
-              {ds.reason && <span style={{ fontSize: "0.82rem", color: "#aaa", marginLeft: "8px" }}>{ds.reason}</span>}
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ── 핫 섹터 내 종목 행 ────────────────────────────────────────────────────────
-function HotSectorStockRow({ stock }: { stock: any }) {
-  const router = useRouter();
-  const { data } = useSWR(
-    stock.code ? `/api/kr/stocks/${stock.code}` : null,
-    () => api.kr.stockPrice(stock.code),
-    { revalidateOnFocus: false }
-  ) as { data: any };
-
-  const price = data?.price ?? 0;
-  const pct = data?.change_pct ?? 0;
-  const isCore = stock.r === "core";
-  const pctColor = pct > 0 ? "#ff4b4b" : pct < 0 ? "#2b7cff" : "#888";
-
-  return (
-    <div
-      onClick={() => router.push(`/search?q=${stock.code}`)}
-      className="hover-highlight"
-      style={{ display: "flex", alignItems: "center", gap: "8px", padding: "4px 0", cursor: "pointer", fontSize: "0.9rem", borderBottom: "1px solid rgba(255,255,255,0.03)" }}
-    >
-      <span style={{ minWidth: "1.4rem", fontSize: "0.8rem" }}>{pct >= 3 ? "✅" : ""}</span>
-      <span style={{ flex: 1 }}>{isCore ? "🔑 " : ""}{stock.name}</span>
-      <span style={{ color: "var(--color-text)" }}>{price > 0 ? `₩${price.toLocaleString()}` : "---"}</span>
-      <span style={{ color: pctColor, fontWeight: 700, minWidth: "64px", textAlign: "right" }}>
-        {data ? `${pct > 0 ? "+" : ""}${pct.toFixed(2)}%` : "..."}
-      </span>
-    </div>
-  );
-}
-
-// ── 개별 종목 행 (KR / US 분기) ─────────────────────────────────────────────
-function SubSectorStockRow({ stock, market }: { stock: any; market: "KR" | "US" }) {
-  const router = useRouter();
-  const isKR = market === "KR";
-
-  const { data: krData } = useSWR<any>(
-    isKR && stock.code ? `/api/kr/stocks/${stock.code}` : null,
-    () => api.kr.stockPrice(stock.code),
-    { refreshInterval: 30000 }
-  );
-  const { data: usData } = useSWR<any>(
-    !isKR && stock.ticker ? `/api/us/stocks/${stock.ticker}` : null,
-    () => api.us.stockDetail(stock.ticker),
-    { refreshInterval: 30000 }
-  );
-
-  const data = isKR ? krData : usData;
-  const price  = (data?.price  ?? 0) as number;
-  const change = (data?.change_pct ?? 0) as number;
-  const isUp   = change > 0;
-  const isDown = change < 0;
-  const color  = isUp ? "var(--color-danger)" : isDown ? "var(--color-primary)" : "var(--color-text)";
-
-  const identifier = isKR ? stock.code : stock.ticker;
-  const marketParam = isKR ? "" : "&market=US";
-
-  return (
-    <div
-      onClick={() => router.push(`/search?q=${identifier}${marketParam}`)}
-      className="hover-highlight"
-      style={{ display: "grid", gridTemplateColumns: "60px 2fr 1fr 1fr 100px", padding: "12px 1rem", borderBottom: "1px solid rgba(255,255,255,0.03)", fontSize: "0.95rem", alignItems: "center", cursor: "pointer" }}
-    >
-      <div style={{ textAlign: "center" }} onClick={(e) => e.stopPropagation()}>
-        <input type="checkbox" />
-      </div>
-      <div style={{ fontWeight: 600 }}>
-        {stock.name}
-        {!isKR && <span style={{ fontSize: "0.75rem", color: "var(--color-muted)", marginLeft: "4px" }}>({stock.ticker})</span>}
-      </div>
-      <div style={{ textAlign: "right" }}>
-        {data ? (isKR ? price.toLocaleString() : `$${price.toFixed(2)}`) : "..."}
-      </div>
-      <div style={{ textAlign: "right", color, fontWeight: 700 }}>
-        {data ? `${change > 0 ? "+" : ""}${change.toFixed(2)}%` : "..."}
-      </div>
-      <div></div>
+      {selectedStock && <StockModal stock={selectedStock} onClose={() => setSelectedStock(null)} />}
     </div>
   );
 }

@@ -2,17 +2,49 @@
 import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { BarChart2, TrendingUp, GitBranch, Star, Layers } from "lucide-react";
+import { BarChart2, TrendingUp, GitBranch, Star, Layers, FlaskConical, Brain, Filter } from "lucide-react";
 import { BriefingModal } from "@/components/ui/BriefingModal";
 import { useMarket } from "@/lib/market-context";
 import { useAnalysisReady } from "@/lib/analysis-ready-context";
+import { useAiTask } from "@/contexts/AiTaskContext";
+import { Loader2, CheckCircle2 } from "lucide-react";
+
+function AiTaskIndicator() {
+  const { tasks, clearTask } = useAiTask();
+  const taskList = Object.values(tasks);
+  if (taskList.length === 0) return null;
+
+  const runningCount = taskList.filter(t => t.status === "running").length;
+  const doneCount = taskList.filter(t => t.status === "done").length;
+  
+  return (
+    <div style={{ position: "relative", display: "flex", alignItems: "center", gap: "6px", background: "var(--color-surface)", padding: "4px 10px", borderRadius: "20px", border: "1px solid var(--color-border)", fontSize: "0.75rem", fontWeight: 600 }}>
+      {runningCount > 0 ? (
+        <>
+          <Loader2 className="stockcy-spin" size={12} color="var(--color-primary)" />
+          <span>AI 분석 중 ({runningCount})</span>
+        </>
+      ) : doneCount > 0 ? (
+        <>
+          <div style={{ width: 8, height: 8, borderRadius: "50%", background: "var(--color-up)", boxShadow: "0 0 6px var(--color-up)" }} />
+          <span style={{ color: "var(--color-up)" }}>분석 완료 ({doneCount})</span>
+          <button onClick={() => taskList.forEach(t => clearTask(t.id))} style={{ background: "none", border: "none", cursor: "pointer", marginLeft: "4px", color: "var(--color-muted)", fontSize: "0.8rem" }}>&times;</button>
+        </>
+      ) : (
+        <span style={{ color: "var(--color-danger)" }}>에러 발생</span>
+      )}
+    </div>
+  );
+}
 
 const TABS = [
-  { href: "/picks",     label: "🎯 AI 타점 보드",    icon: <TrendingUp size={15} />, readyKey: "picks"     as const },
-  { href: "/search",    label: "📊 종목 종합 검색",  icon: <BarChart2 size={15} />,  readyKey: null },
-  { href: "/sectors",   label: "🔥 이슈 섹터 탐색",  icon: <GitBranch size={15} />,  readyKey: null },
-  { href: "/favorites", label: "⭐ 즐겨찾기",        icon: <Star size={15} />,       readyKey: null },
-  { href: "/scenarios", label: "📈 시나리오",         icon: <Layers size={15} />,     readyKey: "scenarios" as const },
+  { href: "/",          label: "🔥 대시보드",        exact: true,  icon: <TrendingUp size={15} />, readyKey: "picks"     as const },
+  { href: "/search",    label: "📊 종합 검색",       exact: false, icon: <BarChart2 size={15} />,  readyKey: null },
+  { href: "/screener",  label: "🔍 복합 스크리너",   exact: false, icon: <Filter size={15} />,     readyKey: null },
+  { href: "/sectors",   label: "🌐 이슈 섹터",       exact: false, icon: <GitBranch size={15} />,  readyKey: null },
+  { href: "/favorites", label: "💼 포트폴리오 관리", exact: false, icon: <Star size={15} />,       readyKey: null },
+  { href: "/agent",     label: "🤖 AI 에이전트",      exact: false, icon: <Brain size={15} />,      readyKey: null },
+  { href: "/scenarios", label: "📈 시나리오",        exact: false, icon: <Layers size={15} />,     readyKey: "scenarios" as const },
 ];
 
 export function TopNav() {
@@ -63,7 +95,7 @@ export function TopNav() {
         {/* 탭 목록 */}
         <nav style={{ display: "flex", flex: 1 }}>
           {TABS.map((tab) => {
-            const active = pathname.startsWith(tab.href);
+            const active = tab.exact ? pathname === tab.href : pathname.startsWith(tab.href);
             const isReady = tab.readyKey ? ready[tab.readyKey] : false;
             return (
               <Link
@@ -100,6 +132,10 @@ export function TopNav() {
         </nav>
         {/* 우측 유틸리티 영역 */}
         <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", marginLeft: "auto", paddingLeft: "1rem" }}>
+          
+          {/* AI 태스크 인디케이터 */}
+          <AiTaskIndicator />
+
           {/* 브리핑 버튼 (팝업 오픈용) */}
           <button 
             className="stockcy-btn stockcy-btn-primary" 

@@ -155,8 +155,8 @@ export default function LeadingPage() {
   const { data: chgR } = useSWR("kr-chg-rank",  () => api.kr.changeRanking(), { refreshInterval: 60000 });
   const { data: inv }  = useSWR("kr-investor",  () => api.kr.investorTrend(), { refreshInterval: 120000 });
 
-  const picks    = useSSE<{ picks: RealtimePick[]; market_condition: string; market_comment: string }>("/api/ai/realtime-picks-kr", { method: "POST" });
-  const rotation = useSSE<string>("/api/ai/sector-rotation");
+  const picks    = useSSE<{ picks: RealtimePick[]; market_condition: string; market_comment: string }>("/api/ai/realtime-picks-kr", { method: "POST", globalId: "realtime-picks", globalTitle: "실시간 단타 전략" });
+  const rotation = useSSE<string>("/api/ai/sector-rotation", { globalId: "sector-rotation", globalTitle: "섹터 순환 분석" });
 
   const handlePickStart = () => {
     const marketData = {

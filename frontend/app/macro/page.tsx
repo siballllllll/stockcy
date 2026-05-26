@@ -94,7 +94,7 @@ function SectorCard({ sector, rank, onStockClick }: {
 
 // ── 미국 단타 핫 종목 결과 ────────────────────────────────────────────────────
 function HotStockCard({ data, onAnalyze }: { data: HotStockUs; onAnalyze: () => void }) {
-  const analysis = useSSE<StockReport>("/api/ai/stock-report", { method: "POST" });
+  const analysis = useSSE<StockReport>("/api/ai/stock-report", { method: "POST", globalId: `report-${data.ticker}`, globalTitle: `${data.verified_name || data.ticker} 시나리오 분석` });
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
       {data.error && <StatusBox type="danger">{data.error}</StatusBox>}
@@ -132,7 +132,7 @@ function HotStockCard({ data, onAnalyze }: { data: HotStockUs; onAnalyze: () => 
 
 // ── 마인드맵 패널 ─────────────────────────────────────────────────────────────
 function MindmapPanel() {
-  const { status, message, result, start } = useSSE<{ mermaid: string }>("/api/ai/mindmap");
+  const { status, message, result, start } = useSSE<{ mermaid: string }>("/api/ai/mindmap", { globalId: "macro-mindmap", globalTitle: "거시경제 마인드맵" });
   return (
     <SSEPanel<{ mermaid: string }>
       status={status} message={message} result={result}
@@ -154,8 +154,8 @@ function MindmapPanel() {
 export default function MacroPage() {
   const [selectedStock, setSelectedStock] = useState<StockInfo | null>(null);
   const { data: indices } = useSWR<UsIndices>("us-indices", () => api.us.indices() as Promise<UsIndices>, { refreshInterval: 60000 });
-  const briefing = useSSE<DailyBriefing>("/api/ai/daily-briefing");
-  const hotStock = useSSE<HotStockUs>("/api/ai/hot-stock-us", { method: "POST" });
+  const briefing = useSSE<DailyBriefing>("/api/ai/daily-briefing", { globalId: "daily-brief", globalTitle: "데일리 매크로 브리핑" });
+  const hotStock = useSSE<HotStockUs>("/api/ai/hot-stock-us", { method: "POST", globalId: "hot-stock", globalTitle: "오늘의 핫스톡" });
 
   // 단타 핫 종목 — 주도 섹터 컨텍스트 함께 전달
   const handleHotStock = () => {
