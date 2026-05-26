@@ -19,7 +19,7 @@ if not errorlevel 1 (
     echo [SKIP] Port 8000 already in use.
 ) else (
     echo [+] Starting FastAPI backend on port 8000...
-    start "Stockcy_Backend" cmd /k %ROOT%_start_backend.bat
+    wscript.exe "%ROOT%_run_hidden.vbs" "cmd.exe /c cd /d ""%ROOT%"" && .\venv\Scripts\python.exe -m uvicorn api.main:app --host 0.0.0.0 --port 8000 --reload"
 )
 
 netstat -ano | findstr ":3000 " | findstr "LISTENING" >nul 2>&1
@@ -27,14 +27,14 @@ if not errorlevel 1 (
     echo [SKIP] Port 3000 already in use.
 ) else (
     echo [+] Starting Next.js frontend on port 3000...
-    start "Stockcy_Frontend" cmd /k %ROOT%_start_frontend.bat
+    wscript.exe "%ROOT%_run_hidden.vbs" "cmd.exe /c set PATH=%%PATH%%;C:\Program Files\nodejs\ && cd /d ""%ROOT%frontend"" && call npm run dev"
 )
 
 if exist "%ROOT%scratch\dev_proxy.js" (
     netstat -ano | findstr ":3500 " | findstr "LISTENING" >nul 2>&1
     if errorlevel 1 (
         echo [+] Starting proxy on port 3500...
-        start "Stockcy_Proxy" cmd /k "title Stockcy Proxy (3500) && cd /d %ROOT% && node scratch\dev_proxy.js"
+        wscript.exe "%ROOT%_run_hidden.vbs" "cmd.exe /c set PATH=%%PATH%%;C:\Program Files\nodejs\ && cd /d ""%ROOT%"" && node scratch\dev_proxy.js"
     ) else (
         echo [SKIP] Port 3500 already in use.
     )
@@ -42,11 +42,11 @@ if exist "%ROOT%scratch\dev_proxy.js" (
 
 if exist "%ROOT%scratch\run_tunnel.py" (
     echo [+] Starting ngrok tunnel...
-    start "Stockcy_Tunnel" cmd /k "title Stockcy Mobile Tunnel && cd /d %ROOT% && .\venv\Scripts\python.exe scratch\run_tunnel.py"
+    wscript.exe "%ROOT%_run_hidden.vbs" "cmd.exe /c cd /d ""%ROOT%"" && .\venv\Scripts\python.exe scratch\run_tunnel.py"
 )
 
 echo.
-echo [DONE] All services launched.
+echo [DONE] All services launched in background.
 echo [INFO] Backend:  http://localhost:8000
 echo [INFO] Frontend: http://localhost:3000
 timeout /t 3 >nul
