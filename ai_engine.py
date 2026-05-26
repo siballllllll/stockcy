@@ -48,51 +48,120 @@ def _override_targets(res: dict) -> dict:
     def _is_kr(tk):
         return str(tk).strip().isdigit() and len(str(tk).strip()) == 6
 
-    def _get_price(tk: str, is_kr: bool) -> float:
-        try:
-            if is_kr:
-                from data_kr import get_kr_stock_price
-                d = get_kr_stock_price(tk)
-                price = float((d or {}).get("price", 0) or 0)
-                if price > 0:
-                    return price
-                # KIS API 실패 시 yfinance 백업
-                import yfinance as yf
-                for suffix in (".KS", ".KQ"):
-                    try:
-                        fi = yf.Ticker(tk + suffix).fast_info
-                        p = float(fi.get("regularMarketPrice", 0) or fi.get("lastPrice", 0) or 0)
-                        if p > 0:
-                            return p
-                    except Exception:
-                        pass
-                return 0.0
-            else:
-                import yfinance as yf
-                fi = yf.Ticker(tk).fast_info
-                return round(float(fi.get("regularMarketPrice", 0) or fi.get("lastPrice", 0) or 0), 2)
-        except Exception:
-            return 0.0
+    # 1. 시나리오 내부의 모든 티커 수집
+    tickers = set()
+    for issue in res.get("issues", [res]):
+        for sc in issue.get("scenarios", []):
+            for group in ["rising_stocks", "falling_stocks", "theme_stocks"]:
+                for s in sc.get(group, []):
+                    tk = str(s.get("ticker", "")).strip()
+                    if tk:
+                        tickers.add(tk)
 
+    # 2. 티커 분류 및 가격 일괄 조회
+    price_map = {}
+    if tickers:
+        kr_tickers = [tk for tk in tickers if _is_kr(tk)]
+        us_tickers = [tk for tk in tickers if not _is_kr(tk)]
+        
+        # 2.1 미국 주식 배치 조회 (yfinance + KIS API 하이브리드)
+        if us_tickers:
+            try:
+                import yfinance as yf
+                data = yf.download(us_tickers, period="2d", interval="1d", progress=False, auto_adjust=True, timeout=1.5)
+                if not data.empty:
+                    close_df = data["Close"]
+                    for tk in us_tickers:
+                        try:
+                            if len(us_tickers) == 1:
+                                closes = close_df.dropna()
+                            else:
+                                closes = close_df[tk].dropna()
+                            if not closes.empty:
+                                price_map[tk] = round(float(closes.iloc[-1]), 2)
+                        except Exception:
+                            pass
+            except Exception as e:
+                print(f"[Override Targets] US yfinance batch failed: {e}")
+
+            # yfinance 실패했거나 누락된 미국 티커에 대한 KIS API 고속 폴백
+            from data_kr import get_us_stock_price_kis
+            for tk in us_tickers:
+                if tk not in price_map or price_map[tk] <= 0:
+                    for exch in ["NASDAQ", "NYSE", "AMEX"]:
+                        try:
+                            kis_res = get_us_stock_price_kis(tk, exch)
+                            if kis_res and kis_res.get("price", 0) > 0:
+                                price_map[tk] = float(kis_res["price"])
+                                break
+                        except Exception:
+                            pass
+
+        # 2.2 국내 주식 배치 조회 (KIS API 우선 후 yfinance 폴백)
+        if kr_tickers:
+            from data_kr import get_kr_stock_price
+            missing_kr = []
+            for tk in kr_tickers:
+                try:
+                    d = get_kr_stock_price(tk)
+                    price = float((d or {}).get("price", 0) or 0)
+                    if price > 0:
+                        price_map[tk] = price
+                    else:
+                        missing_kr.append(tk)
+                except Exception:
+                    missing_kr.append(tk)
+            
+            # KIS 조회에 실패한 한국 티커들은 yfinance 배치로 일괄 회수
+            if missing_kr:
+                try:
+                    import yfinance as yf
+                    yf_kr_tickers = []
+                    for tk in missing_kr:
+                        yf_kr_tickers.append(tk + ".KS")
+                        yf_kr_tickers.append(tk + ".KQ")
+                    
+                    data = yf.download(yf_kr_tickers, period="2d", interval="1d", progress=False, auto_adjust=True, timeout=1.5)
+                    if not data.empty:
+                        close_df = data["Close"]
+                        for tk in missing_kr:
+                            price = 0.0
+                            for suffix in [".KS", ".KQ"]:
+                                try:
+                                    full_tk = tk + suffix
+                                    if len(yf_kr_tickers) == 1:
+                                        closes = close_df.dropna()
+                                    else:
+                                        closes = close_df[full_tk].dropna()
+                                    if not closes.empty:
+                                        price = float(closes.iloc[-1])
+                                        break
+                                except Exception:
+                                    pass
+                            if price > 0:
+                                price_map[tk] = price
+                except Exception as e:
+                    print(f"[Override Targets] KR yfinance batch failed: {e}")
+
+    # 3. O(1) 매핑을 통한 가격 덮어쓰기 및 타점 산정
     def _process_group(stocks: list):
         for s in stocks:
             tk = str(s.get("ticker", "")).strip()
             if not tk:
                 continue
             is_kr = _is_kr(tk)
-            cp = _get_price(tk, is_kr)
+            cp = price_map.get(tk, 0.0)
             rating = str(s.get("signal", ""))
+            
             if cp > 0:
                 if rating in ("추천", "매우 강력 추천"):
-                    # AI 예측 단기 목표 수익률 파싱 (Fallback: +6%)
                     try:
                         gain = float(str(s.get("expected_gain_pct", "6.0")).strip().replace("%", "").replace("+", ""))
                     except Exception:
                         gain = 6.0
-                    # AI 예측 단기 손절 리스크 파싱 (Fallback: -2%)
                     try:
                         loss = float(str(s.get("expected_loss_pct", "-2.0")).strip().replace("%", ""))
-                        if loss > 0: loss = -loss # 양수로 오면 음수로 교정
+                        if loss > 0: loss = -loss
                     except Exception:
                         loss = -2.0
 
@@ -124,6 +193,7 @@ def _override_targets(res: dict) -> dict:
             _process_group(sc.get("rising_stocks", []))
             _process_group(sc.get("falling_stocks", []))
             _process_group(sc.get("theme_stocks", []))
+            
     return res
 
 
@@ -856,7 +926,9 @@ def analyze_autonomous_trading(ticker: str, name: str, current_price: float, mar
         from db import load_ai_cache, save_ai_cache
         
         # [초정밀 비용 세이브 락] 1차 캐시 확인 (NONE 종목은 4시간, HOLDING 종목은 30분 유효)
-        cache_key = f"auto_trade_{ticker}_{position}_{market}"
+        # 가격 버킷: 현재가를 2% 단위로 반올림하여 캐시 키에 포함 → 가격 크게 변동 시 캐시 무효화
+        price_bucket = round(current_price / max(current_price * 0.02, 1)) if current_price > 0 else 0
+        cache_key = f"auto_trade_{ticker}_{position}_{market}_{price_bucket}"
         cached_res = load_ai_cache(cache_key)
         if cached_res:
             return cached_res
@@ -910,21 +982,43 @@ def analyze_autonomous_trading(ticker: str, name: str, current_price: float, mar
             
         client = genai.Client(api_key=api_key, http_options={"api_version": "v1alpha"})
             
+        # 수수료 정보 계산 (AI에게 실질 손익 기준 제시)
+        if market == "국내":
+            fee_roundtrip_pct = 0.21   # 매수 0.015% + 매도 0.015% + 거래세 0.18%
+            min_profit_pct    = 0.35   # 수수료(0.21%) + 기대수익 마진(0.14%) = 최소 0.35% 이상이어야 SELL 고려
+        else:
+            fee_roundtrip_pct = 0.15   # 매수 0.07% + 매도 0.07% + SEC Fee 0.01%
+            min_profit_pct    = 0.25   # 수수료(0.15%) + 기대수익 마진(0.10%) = 최소 0.25% 이상이어야 SELL 고려
+
+        # 현재 실질 손익률 계산 (수수료 공제 후)
+        net_pct = 0.0
+        if avg_price > 0:
+            gross_pct = (current_price - avg_price) / avg_price * 100
+            net_pct = gross_pct - fee_roundtrip_pct  # 왕복 수수료 차감
+        
         system_instruction = f"""당신은 월스트리트 출신의 냉철한 AI 퀀트 트레이더입니다.{shadow_warning}
 지금 당신은 [{name} ({ticker})] 종목에 대해 {position} 상태입니다.
 시장: {market}
-현재가: {current_price}
+현재가: {current_price:,} | 평단가: {avg_price:,}
+수수료 구조: 왕복 {fee_roundtrip_pct:.2f}% (매수+매도+거래세 합산)
+수수료 공제 후 실질 손익률: {net_pct:+.2f}%
 추가정보: {info}
 
+[핵심 규칙 - 반드시 준수]
+- 당신은 스캘핑(초단타)을 절대 하지 않으며, 하루 1~3회 내외로 극도로 신중하게 매매하는 중단기/스윙 트레이더입니다. 잦은 거래는 잦은 수수료와 슬리피지 손실을 부릅니다.
+- SELL은 수수료 공제 후 실질 손익률이 최소 +2.50% 이상(안정적인 스윙 수익실현) 또는 -3.0% 이하(안정적인 스윙 손절)일 때만 고려하세요. (0.3% 내외의 이익으로 조기 청산하는 단타성 매도는 엄격히 금지됩니다.)
+- BUY는 1분/5분 차트의 일시적 노이즈에 유혹당하지 말고, 일봉/시간봉 상 확실한 눌림목이나 바닥 다지기가 확인되어 최소 몇 시간에서 며칠간 진득하게 보유할 만한 가치가 있는 강력한 타점에서만 결정하세요. 확신이 없다면 무조건 HOLD하세요.
+- 보유 중(HOLDING)일 때, 뚜렷한 추세 이탈이 없고 실질 손익률이 목표 청산 구간(+2.50% 이상 또는 -3.0% 이하)에 도달하지 않았다면 차분하게 추세를 길러가며 보유(HOLD) 상태를 유지하세요.
+
 만약 미보유(NONE) 상태라면, 지금이 매수 적기인지(BUY) 아니면 관망할지(HOLD) 결정하세요.
-만약 보유중(HOLDING) 상태라면 (평단가: {avg_price}), 지금이 수익실현/손절매의 매도 적기인지(SELL) 아니면 더 들고 갈지(HOLD) 결정하세요.
+만약 보유중(HOLDING) 상태라면, 위 스윙 트레이더 핵심 규칙을 완벽히 엄수하여 SELL 또는 HOLD를 결정하세요.
 
 당신의 결정을 반드시 다음 JSON 형식으로만 응답하세요:
-{{
+{{{{
   "action": "BUY" 또는 "SELL" 또는 "HOLD",
   "confidence": 1에서 100 사이의 확신도 (정수),
-  "reason": "결정에 대한 명확한 사유 (1-2문장 이내)"
-}}
+  "reason": "결정에 대한 명확한 사유 (1-2문장 이내)"{lp_field}
+}}}}
 절대 다른 마크다운이나 설명을 덧붙이지 마세요."""
 
         response = client.models.generate_content(

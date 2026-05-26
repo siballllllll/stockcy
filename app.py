@@ -9614,21 +9614,38 @@ def main():
 
                 st.divider()
                 if st.button("🗑️ 거래 내역 전체 초기화", type="secondary"):
+                    # 1. 로컬 SQLite DB 초기화
                     try:
-                        from db import _get_spreadsheet
-                        _sh, _ = _get_spreadsheet()
-                        if _sh:
-                            import gspread as _gs
-                            try:
-                                _ws = _sh.worksheet("거래내역")
-                                _hdr = _ws.row_values(1)
-                                _ws.clear()
-                                if _hdr:
-                                    _ws.append_row(_hdr)
-                            except _gs.WorksheetNotFound:
-                                pass
-                    except Exception:
-                        pass
+                        from db import get_db_conn
+                        conn = get_db_conn()
+                        cursor = conn.cursor()
+                        cursor.execute("DELETE FROM trade_history")
+                        conn.commit()
+                        conn.close()
+                    except Exception as e:
+                        print(f"Failed to clear local trade history: {e}")
+
+                    # 2. 구글 시트 백업은 비동기 백그라운드 처리로 429 및 화면 지연 차단
+                    def bg_clear_gsheet():
+                        try:
+                            from db import _get_spreadsheet
+                            _sh, _ = _get_spreadsheet()
+                            if _sh:
+                                import gspread as _gs
+                                try:
+                                    _ws = _sh.worksheet("거래내역")
+                                    _hdr = _ws.row_values(1)
+                                    _ws.clear()
+                                    if _hdr:
+                                        _ws.append_row(_hdr)
+                                except _gs.WorksheetNotFound:
+                                    pass
+                        except Exception:
+                            pass
+                    
+                    from db import run_background_backup
+                    run_background_backup(bg_clear_gsheet)
+
                     st.session_state.trade_history = []
                     st.rerun()
 

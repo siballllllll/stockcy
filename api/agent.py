@@ -11,7 +11,7 @@ from db import (
     log_agent_scan
 )
 from ai_engine import analyze_autonomous_trading
-from telegram_bot import send_price_alert
+from telegram_bot import send_message as send_price_alert
 
 logger = logging.getLogger("ai_agent")
 logger.setLevel(logging.INFO)
@@ -20,12 +20,24 @@ logger.setLevel(logging.INFO)
 AI_OWNER_NAME = "AI_AGENT"
 
 def _get_usd_krw_rate() -> float:
+    """USD/KRW 환율 조회: SQLite 캐시 → KIS API → yfinance(timeout=1.5) 폴백 순서."""
+    # 1차: data.py 환율 함수 우선 사용 (SQLite 캐시 내장)
+    try:
+        from data import get_usdkrw_rate
+        rate = get_usdkrw_rate()
+        if rate and rate > 0:
+            return float(rate)
+    except Exception:
+        pass
+    
+    # 2차: yfinance 폴백 (타임아웃 1.5초 강제 지정)
     try:
         import yfinance as yf
-        fi = yf.Ticker("USDKRW=X").fast_info
-        rate = float(fi.get("regularMarketPrice", 0) or fi.get("lastPrice", 0) or 0)
-        if rate > 0:
-            return rate
+        raw = yf.download("USDKRW=X", period="2d", progress=False, timeout=1.5)
+        if not raw.empty:
+            rate = float(raw["Close"].dropna().iloc[-1])
+            if rate > 0:
+                return rate
     except Exception:
         pass
     return 1350.0
@@ -144,12 +156,31 @@ def _is_market_open(market: str) -> bool:
         
     return False
 
+def _get_today_buy_count() -> int:
+    """KST 기준 오늘(당일) AI 에이전트가 실제로 실행한 매수(BUY) 성공 건수를 조회합니다."""
+    try:
+        from db import get_db_conn
+        conn = get_db_conn()
+        cursor = conn.cursor()
+        today_str = datetime.now().strftime("%Y-%m-%d")
+        cursor.execute(
+            "SELECT COUNT(*) as cnt FROM ai_scan_logs WHERE SUBSTR(scan_time, 1, 10) = ? AND action = 'BUY' AND reason NOT LIKE '%자금 부족%' AND reason NOT LIKE '%보류%'",
+            (today_str,)
+        )
+        row = cursor.fetchone()
+        count = row["cnt"] if row else 0
+        conn.close()
+        return count
+    except Exception as e:
+        logger.error(f"Failed to get today's buy count: {e}")
+        return 0
+
 async def ai_trading_loop():
     """AI 자율 매매 에이전트 메인 루프 (주기적 실행)"""
     logger.info("🤖 AI Trading Agent Loop Started")
     
-    # 처음에는 1분 간격으로 테스트, 나중에 1시간 등으로 늘림
-    INTERVAL_SECONDS = 60
+    # 30분 주기로 관찰하여 단기 시장 노이즈 배제 (스윙/데이 트레이딩 템포)
+    INTERVAL_SECONDS = 1800  
     
     while True:
         try:
@@ -330,14 +361,33 @@ async def ai_trading_loop():
                     logger.error(f"Failed to save scan log: {ex}")
                 
                 if action == "BUY" and position == "NONE" and confidence >= 60:
+                    # 하루 매수 한도(3회) 검증 (과도한 매매 제한)
+                    today_buy_count = _get_today_buy_count()
+                    if today_buy_count >= 3:
+                        logger.info(f"AI Agent: {name} 매수 제한 - 하루 매수 한도(3회) 초과. (오늘 매수: {today_buy_count}회)")
+                        try:
+                            await asyncio.to_thread(
+                                log_agent_scan,
+                                ticker, name, current_price, position, "HOLD", confidence, 
+                                f"[{source_korean}] AI는 BUY 결정을 내렸으나 하루 최대 매수 제한(3회) 도달로 신규 매수를 차단합니다. (오늘 매수: {today_buy_count}회)"
+                            )
+                        except Exception:
+                            pass
+                        continue
+
+                    # 이미 이번 루프에서 매수한 종목은 스킵 (중복 매수 방지)
+                    if ticker in ai_holdings:
+                        logger.info(f"AI Agent: {name} 이미 보유중(이번 루프 매수). 중복 매수 스킵.")
+                        continue
+                    
                     # 1. 예수금 조회 및 검증
                     from db import load_virtual_balances, save_virtual_balance
                     balances = load_virtual_balances()
                     ai_cash = balances.get("AI", 10000000.0)
                     
-                    qty = 10 # 테스트용 고정 10주 매수
+                    qty = 10  # 국내 10주
                     if market == "미국":
-                        qty = 1 # 미국 주식은 1주
+                        qty = 1  # 미국 1주
                     
                     # 매매 대금 및 매수 수수료 계산 (온라인 기본 수수료 적용)
                     base_cost = current_price * qty
@@ -354,7 +404,6 @@ async def ai_trading_loop():
                         
                     if ai_cash < trade_cost:
                         logger.info(f"AI Agent: {name} 매수 자금 부족 (잔고: {ai_cash:,.0f}원, 필요: {trade_cost:,.0f}원). 매매 보류.")
-                        # 고민 일지에 한도 초과로 인한 보류 로그 남김
                         try:
                             await asyncio.to_thread(
                                 log_agent_scan,
@@ -368,23 +417,52 @@ async def ai_trading_loop():
                     new_ai_cash = ai_cash - trade_cost
                     save_virtual_balance("AI", new_ai_cash)
                     
-                    # 3. 포트폴리오 반영
+                    # 3. 포트폴리오 반영 + ai_holdings 즉시 동기화 (중복 매수 방지)
                     new_item = {
                         "ticker": ticker,
                         "name": name,
                         "buy_price": current_price,
                         "quantity": qty,
+                        "buy_date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                         "rating": f"AI 자동 매수 ({source_korean})"
                     }
                     ai_portfolio.append(new_item)
+                    ai_holdings[ticker] = new_item  # 즉시 동기화
                     save_portfolio_to_gsheet(ai_portfolio, owner=AI_OWNER_NAME)
                     
                     # 텔레그램 알림
                     currency = "$" if market == "미국" else "₩"
-                    msg = f"🤖 [AI 매수 진입]\n출처: {source_korean}\n종목: {name} ({ticker})\n매수가: {currency}{current_price:,.2f}\n수량: {qty}주\n수수료(원화 환산): {fee_krw:,.1f}원\n사용 예수금(수수료 포함): {trade_cost:,.0f}원\n남은 예수금: {new_ai_cash:,.0f}원\n사유: {reason}"
+                    msg = f"[AI 매수 진입] 출처:{source_korean} | 종목:{name}({ticker}) | 매수가:{currency}{current_price:,.0f} | 수량:{qty}주 | 수수료:{fee_krw:,.0f}원 | 잔고:{new_ai_cash:,.0f}원 | 사유:{reason}"
                     send_price_alert(msg)
                     
                 elif action == "SELL" and position == "HOLDING" and confidence >= 60:
+                    # 최소 4시간 이상 보유 여부 검증 (초단타/스캘핑 강력 방어 가드)
+                    buy_date_str = holding.get("buy_date") or holding.get("updated_time")
+                    is_holding_time_valid = True
+                    holding_hours = 0.0
+                    
+                    if buy_date_str:
+                        try:
+                            buy_dt = datetime.strptime(buy_date_str, "%Y-%m-%d %H:%M:%S")
+                            elapsed_seconds = (datetime.now() - buy_dt).total_seconds()
+                            holding_hours = elapsed_seconds / 3600.0
+                            if elapsed_seconds < 14400: # 4시간 미만 (4 * 3600 = 14400)
+                                is_holding_time_valid = False
+                        except Exception as parse_err:
+                            logger.error(f"Failed to parse buy_date '{buy_date_str}': {parse_err}")
+                            
+                    if not is_holding_time_valid:
+                        logger.info(f"AI Agent: {name} 매도 제한 - 최소 보유 시간(4시간) 미달. (현재 보유 시간: {holding_hours:.1f}시간)")
+                        try:
+                            await asyncio.to_thread(
+                                log_agent_scan,
+                                ticker, name, current_price, position, "HOLD", confidence, 
+                                f"[{source_korean}] AI는 SELL 신호를 보냈으나, 최소 보유 시간(4시간) 미달로 매도를 보류하고 HOLD를 강제 유지합니다. (보유 시간: {holding_hours:.1f}시간)"
+                            )
+                        except Exception:
+                            pass
+                        continue
+
                     # 매도 체결 로직 및 거래세/수수료 공제
                     qty = holding["quantity"]
                     bp = holding["buy_price"]
@@ -420,6 +498,8 @@ async def ai_trading_loop():
                     save_virtual_balance("AI", new_ai_cash)
                     
                     # 2. 거래내역(AI) 기록
+                    # learning_point: SELL 결정 시 AI가 직접 생성한 교훈 우선 사용, 없으면 reason 사용
+                    learning_point = decision.get("learning_point", "").strip() or reason
                     trade_record = {
                         "ticker": ticker,
                         "name": name,
@@ -429,17 +509,18 @@ async def ai_trading_loop():
                         "profit": profit,
                         "profit_pct": profit_pct,
                         "result": "수익" if profit >= 0 else "손실",
-                        "learning_point": reason
+                        "learning_point": learning_point
                     }
                     save_trade_record(trade_record, owner=AI_OWNER_NAME)
                     
-                    # 3. 보유종목(AI)에서 삭제
+                    # 3. 보유종목(AI)에서 삭제 + ai_holdings 즉시 동기화 (매도 후 재매수 방지)
                     ai_portfolio = [p for p in ai_portfolio if p["ticker"] != ticker]
+                    ai_holdings.pop(ticker, None)  # 즉시 동기화
                     save_portfolio_to_gsheet(ai_portfolio, owner=AI_OWNER_NAME)
                     
                     # 텔레그램 알림
                     currency = "$" if market == "미국" else "₩"
-                    msg = f"🤖 [AI 매도 청산]\n종목: {name}\n매도가: {currency}{sp:,.2f}\n실질 손익(수수료/세금 공제): {currency}{profit:+,.2f} ({profit_pct:+.2f}%)\n회수 예수금(원화 환산): {trade_revenue:,.0f}원\n현재 예수금: {new_ai_cash:,.0f}원\n사유: {reason}"
+                    msg = f"[AI 매도 청산] 종목:{name}({ticker}) | 매도가:{currency}{sp:,.0f} | 손익:{profit:+,.0f}원({profit_pct:+.2f}%) | 잔고:{new_ai_cash:,.0f}원 | 사유:{reason}"
                     send_price_alert(msg)
                     
             logger.info(f"AI Agent: 1주기 스캔 완료. {INTERVAL_SECONDS}초 대기...")
@@ -448,3 +529,36 @@ async def ai_trading_loop():
             logger.error(f"AI Trading Loop Error: {e}")
             
         await asyncio.sleep(INTERVAL_SECONDS)
+
+if __name__ == "__main__":
+    import sys
+    # Windows cp949 인코딩 오류 방지 및 출력 안정화
+    try:
+        sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+    except Exception:
+        pass
+        
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+        handlers=[
+            logging.StreamHandler(sys.stdout)
+        ]
+    )
+    
+    # 데이터베이스 초기화 및 정합성 체크
+    try:
+        from db import init_local_db
+        init_local_db()
+        logger.info("Local SQLite DB Checked and Initialized.")
+    except Exception as e:
+        logger.error(f"Local DB check failed: {e}")
+        
+    logger.info("====================================================")
+    logger.info("🚀 Starting Autonomous Trading Agent in Standalone Mode...")
+    logger.info("====================================================")
+    
+    try:
+        asyncio.run(ai_trading_loop())
+    except KeyboardInterrupt:
+        logger.info("Agent execution terminated by user.")

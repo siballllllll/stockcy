@@ -117,7 +117,8 @@ async def debug_portfolio():
         worksheets = await asyncio.to_thread(lambda: [ws.title for ws in sh.worksheets()])
         try:
             ws = sh.worksheet("현재포트폴리오")
-            records = await asyncio.to_thread(ws.get_all_records)
+            from db import safe_get_all_records
+            records = await asyncio.to_thread(safe_get_all_records, ws)
             return {"worksheets": worksheets, "record_count": len(records), "sample": records[:2] if records else []}
         except Exception as e:
             return {"worksheets": worksheets, "error": str(e), "trace": traceback.format_exc()}

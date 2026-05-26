@@ -9,45 +9,93 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 @st.cache_data(ttl=60) # 1분 단위 캐싱
 def get_us_stock_data(tickers):
     """
-    Yahoo Finance API를 사용하여 미국 주식 티커의 실시간 가격 및 등락률 데이터를 가져옵니다.
+    Yahoo Finance API를 사용하여 미국 주식 티커의 실시간 가격 및 등락률 데이터를 일괄적으로(Batch) 가져옵니다.
     """
     if not tickers:
         return pd.DataFrame()
 
+    # 중복 제거 및 리스트화
+    tickers_list = list(set([str(t).strip().upper() for t in tickers if str(t).strip()]))
+    if not tickers_list:
+        return pd.DataFrame()
+
     data = []
-    
-    for ticker in tickers:
-        try:
-            stock = yf.Ticker(ticker)
-            info = stock.fast_info
+    try:
+        # 단 한 번의 yf.download 호출로 병렬 다운로드 (극단적 네트워크 지연 방지를 위해 timeout=1.5초 제한)
+        raw = yf.download(tickers_list, period="2d", interval="1d", progress=False, auto_adjust=True, timeout=1.5)
+        if not raw.empty:
+            close_df = raw["Close"]
             
-            # 실시간 가격 (정규장/프리/애프터 자동 전환)
-            current_price = info.get('lastPrice', 0) or 0
-            prev_close = info.get('previousClose', 0) or 0
-            
-            # 프리/애프터마켓 가격 확인
-            ext_price = info.get('preMarketPrice', 0) or info.get('postMarketPrice', 0) or 0
-            
-            # 연장 거래 가격이 있으면 이를 현재가로 우선 사용 (등락률 계산도 반영)
-            if ext_price > 0:
-                current_price = ext_price
-            
-            if current_price > 0 and prev_close > 0:
-                change_pct = ((current_price - prev_close) / prev_close) * 100
+            # 단일 티커면 Series → DataFrame 변환
+            if len(tickers_list) == 1:
+                t = tickers_list[0]
+                closes = close_df.dropna()
+                if len(closes) >= 2:
+                    current_price = float(closes.iloc[-1])
+                    prev_close = float(closes.iloc[-2])
+                    change_pct = ((current_price - prev_close) / prev_close) * 100
+                    status_icon = "상승 🟢" if change_pct > 0 else ("하락 🔴" if change_pct < 0 else "보합 ⚪")
+                    data.append({
+                        "심볼": t,
+                        "현재가($)": round(current_price, 2),
+                        "등락률(%)": round(change_pct, 2),
+                        "상태": status_icon
+                    })
+            else:
+                for t in tickers_list:
+                    try:
+                        closes = close_df[t].dropna()
+                        if len(closes) >= 2:
+                            current_price = float(closes.iloc[-1])
+                            prev_close = float(closes.iloc[-2])
+                            change_pct = ((current_price - prev_close) / prev_close) * 100
+                            status_icon = "상승 🟢" if change_pct > 0 else ("하락 🔴" if change_pct < 0 else "보합 ⚪")
+                            data.append({
+                                "심볼": t,
+                                "현재가($)": round(current_price, 2),
+                                "등락률(%)": round(change_pct, 2),
+                                "상태": status_icon
+                            })
+                        elif len(closes) == 1:
+                            current_price = float(closes.iloc[-1])
+                            data.append({
+                                "심볼": t,
+                                "현재가($)": round(current_price, 2),
+                                "등락률(%)": 0.0,
+                                "상태": "보합 ⚪"
+                            })
+                    except Exception:
+                        pass
+    except Exception as e:
+        print(f"[get_us_stock_data] yfinance batch download failed: {e}")
+
+    # 3. yfinance 일괄 조회가 실패했을 때의 KIS API 개별 조회 폴백 (방화벽/SSL 차단 우회 보장)
+    if not data:
+        for ticker in tickers_list:
+            try:
+                from data_kr import get_us_stock_price_kis
+                kis_res = None
+                for exch in ["NASDAQ", "NYSE", "AMEX"]:
+                    try:
+                        kis_res = get_us_stock_price_kis(ticker, exch)
+                        if kis_res and kis_res.get("price", 0) > 0:
+                            break
+                    except Exception:
+                        pass
                 
-                status_icon = "상승 🟢" if change_pct > 0 else ("하락 🔴" if change_pct < 0 else "보합 ⚪")
-                if ext_price > 0:
-                    status_icon = "연장 ⏱"
-                
-                data.append({
-                    "심볼": ticker,
-                    "현재가($)": round(current_price, 2),
-                    "등락률(%)": round(change_pct, 2),
-                    "상태": status_icon
-                })
-        except Exception as e:
-            continue
-            
+                if kis_res and kis_res.get("price", 0) > 0:
+                    price = float(kis_res["price"])
+                    change_pct = float(kis_res.get("change_pct", 0) or 0)
+                    status_icon = "상승 🟢" if change_pct > 0 else ("하락 🔴" if change_pct < 0 else "보합 ⚪")
+                    data.append({
+                        "심볼": ticker,
+                        "현재가($)": round(price, 2),
+                        "등락률(%)": round(change_pct, 2),
+                        "상태": status_icon
+                    })
+            except Exception:
+                continue
+
     if not data:
         return pd.DataFrame()
 
@@ -199,34 +247,120 @@ def get_us_market_session() -> dict:
         return {"session": "closed",  "label": "⛔ 장 마감",     "color": "#555",    "et_time": et_str}
 
 
-@st.cache_data(ttl=3600)
 def get_usdkrw_rate(date_str: str) -> float:
-    """특정 날짜(YYYY-MM-DD)의 USD/KRW 종가 환율 반환. 실패 시 1300.0 반환."""
+    """로컬 SQLite 'exchange_rates'에서 환율을 우선 룩업하고, 캐시 미스 시에만 yfinance로 딱 1회 다운로드하여 로컬 DB에 영구 보존합니다."""
+    target_date = date_str[:10]
+    
+    # 1. 로컬 SQLite DB에서 먼저 룩업
     try:
+        from db import get_db_conn
+        conn = get_db_conn()
+        cursor = conn.cursor()
+        cursor.execute("SELECT rate FROM exchange_rates WHERE date_str = ?", (target_date,))
+        row = cursor.fetchone()
+        conn.close()
+        if row:
+            return float(row["rate"])
+    except Exception as e:
+        print(f"Error reading exchange rate from local SQLite: {e}")
+        
+    # 2. 캐시 미스 시, yfinance를 이용해 특정 날짜 환율 단 1건만 조회
+    rate = 1300.0
+    try:
+        import yfinance as yf
         from datetime import datetime, timedelta
-        d = datetime.strptime(date_str[:10], "%Y-%m-%d")
+        d = datetime.strptime(target_date, "%Y-%m-%d")
         end = (d + timedelta(days=5)).strftime("%Y-%m-%d")
-        hist = yf.Ticker("USDKRW=X").history(start=date_str[:10], end=end, interval="1d")
+        hist = yf.Ticker("USDKRW=X").history(start=target_date, end=end, interval="1d")
         if not hist.empty:
-            return float(hist["Close"].iloc[0])
-    except Exception:
-        pass
-    return 1300.0
+            rate = float(hist["Close"].iloc[0])
+        else:
+            # 딕셔너리에 정확히 날짜가 없다면, 가장 가까운 이전 날짜 검색 시도 (최근 10일 탐색)
+            hist_fallback = yf.Ticker("USDKRW=X").history(period="10d", interval="1d")
+            if not hist_fallback.empty:
+                rate = float(hist_fallback["Close"].iloc[-1])
+    except Exception as e:
+        print(f"Failed to fetch USD/KRW rate from yfinance: {e}")
+        
+    # 3. 조회한 환율을 로컬 SQLite DB에 기록하여 영구 보존 (다음번 조회 시 0.00001초 소요)
+    try:
+        from db import get_db_conn
+        conn = get_db_conn()
+        cursor = conn.cursor()
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        cursor.execute(
+            "INSERT OR REPLACE INTO exchange_rates (date_str, rate, updated_time) VALUES (?, ?, ?)",
+            (target_date, float(rate), now)
+        )
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"Error saving exchange rate to local SQLite: {e}")
+        
+    return rate
 
 
 @st.cache_data(ttl=60)
 def get_us_prices_bulk(tickers_tuple: tuple) -> dict:
     """섹터 패널용 미국 종목 일괄 시세 조회 (ticker → {price, change_pct})"""
+    tickers_list = list(set([str(t).strip().upper() for t in tickers_tuple if str(t).strip()]))
+    if not tickers_list:
+        return {}
+        
     results = {}
-    for ticker in tickers_tuple:
-        try:
-            fi = yf.Ticker(ticker).fast_info
-            price = round(fi.get("lastPrice", 0) or 0, 2)
-            reg_price = round(fi.get("regularMarketPrice", 0) or price, 2)
-            prev = fi.get("regularMarketPreviousClose", 0) or fi.get("previousClose", 0) or 0
-            change = round(reg_price - prev, 2) if prev > 0 else 0.0
-            change_pct = round(((reg_price - prev) / prev * 100) if prev > 0 else 0.0, 2)
-            results[ticker] = {"price": price, "change": change, "change_pct": change_pct}
-        except Exception:
-            results[ticker] = {"price": 0.0, "change": 0.0, "change_pct": 0.0}
+    try:
+        raw = yf.download(tickers_list, period="2d", interval="1d", progress=False, auto_adjust=True, timeout=1.5)
+        if not raw.empty:
+            close_df = raw["Close"]
+            for t in tickers_list:
+                try:
+                    if len(tickers_list) == 1:
+                        closes = close_df.dropna()
+                    else:
+                        closes = close_df[t].dropna()
+                    if len(closes) >= 2:
+                        current_price = float(closes.iloc[-1])
+                        prev_close = float(closes.iloc[-2])
+                        change_pct = ((current_price - prev_close) / prev_close) * 100
+                        results[t] = {
+                            "price": round(current_price, 2),
+                            "change": round(current_price - prev_close, 2),
+                            "change_pct": round(change_pct, 2)
+                        }
+                    elif len(closes) == 1:
+                        current_price = float(closes.iloc[-1])
+                        results[t] = {
+                            "price": round(current_price, 2),
+                            "change": 0.0,
+                            "change_pct": 0.0
+                        }
+                except Exception:
+                    results[t] = {"price": 0.0, "change": 0.0, "change_pct": 0.0}
+    except Exception as e:
+        print(f"[get_us_prices_bulk] Batch download failed: {e}")
+        # 폴백: 배치 다운로드 실패 시 KIS API 미국 시세 고속 조회 폴백 (방화벽/SSL 차단 우회)
+        from data_kr import get_us_stock_price_kis
+        for ticker in tickers_list:
+            try:
+                kis_res = None
+                for exch in ["NASDAQ", "NYSE", "AMEX"]:
+                    try:
+                        kis_res = get_us_stock_price_kis(ticker, exch)
+                        if kis_res and kis_res.get("price", 0) > 0:
+                            break
+                    except Exception:
+                        pass
+                if kis_res and kis_res.get("price", 0) > 0:
+                    price = float(kis_res["price"])
+                    change_pct = float(kis_res.get("change_pct", 0) or 0)
+                    results[ticker] = {
+                        "price": round(price, 2),
+                        "change": round(kis_res.get("change", 0.0), 2),
+                        "change_pct": round(change_pct, 2)
+                    }
+                else:
+                    results[ticker] = {"price": 0.0, "change": 0.0, "change_pct": 0.0}
+            except Exception:
+                results[ticker] = {"price": 0.0, "change": 0.0, "change_pct": 0.0}
+                
     return results

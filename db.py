@@ -435,14 +435,26 @@ def save_portfolio_to_gsheet(portfolio_list, current_prices_df=None, owner="USER
         conn = get_db_conn()
         cursor = conn.cursor()
         
+        # 기존 DB의 포트폴리오 종목별 최초 매수 시각(updated_time) 조회하여 백업
+        existing_times = {}
+        cursor.execute("SELECT ticker, updated_time FROM portfolio WHERE UPPER(owner) = ?", (owner.upper(),))
+        for r in cursor.fetchall():
+            existing_times[str(r["ticker"])] = str(r["updated_time"])
+            
         # 해당 owner의 기존 포트폴리오를 지우고 새로 채움
         cursor.execute("DELETE FROM portfolio WHERE UPPER(owner) = ?", (owner.upper(),))
         
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         for item in portfolio_list:
+            ticker = str(item["ticker"])
+            # 1순위: item 자체에 명시된 buy_date
+            # 2순위: 기존 DB에 저장되어 있던 최초 매수 시간
+            # 3순위: 신규 등록이므로 현재 시간
+            buy_time = item.get("buy_date") or item.get("updated_time") or existing_times.get(ticker) or now
+            
             cursor.execute(
                 "INSERT OR REPLACE INTO portfolio (owner, ticker, name, quantity, buy_price, rating, updated_time) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (owner.upper(), str(item["ticker"]), str(item.get("name", item["ticker"])), float(item["buy_price"]), float(item["quantity"]), str(item.get("rating", "-")), now)
+                (owner.upper(), ticker, str(item.get("name", item["ticker"])), float(item["quantity"]), float(item["buy_price"]), str(item.get("rating", "-")), buy_time)
             )
         conn.commit()
         conn.close()

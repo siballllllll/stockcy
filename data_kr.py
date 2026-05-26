@@ -107,11 +107,24 @@ def get_kr_name_to_code_map() -> dict:
     """전체 KOSPI+KOSDAQ 종목 이름→{code, suffix} 맵 반환 (24시간 캐시).
 
     정적 JSON → FinanceDataReader → pykrx → KRX 직접 API 순으로 시도.
-    해외 서버(Streamlit Cloud)에서도 동작하도록 여러 소스를 시도한다.
+    네트워크 장애나 KRX 방화벽 차단 환경에서도 0.001초 만에 즉시 실행을 보장하기 위해
+    로컬에 내장된 정적 JSON 로드(최후의 보루였으나 최선의 성능 보장)를 1순위로 배치합니다.
     """
     result: dict = {}
 
-    # 1차: pykrx (가장 정확)
+    # 1차: 번들된 정적 JSON (네트워크 불필요, 차단 환경 극복 1순위)
+    try:
+        import json, os
+        _static = os.path.join(os.path.dirname(__file__), "kr_stocks_static.json")
+        if os.path.exists(_static):
+            with open(_static, "r", encoding="utf-8") as f:
+                result = json.load(f)
+            if result:
+                return result
+    except Exception:
+        pass
+
+    # 2차: pykrx (정적 파일이 없거나 누락 시 폴백)
     try:
         from pykrx import stock as _pykrx
         import datetime
@@ -127,7 +140,7 @@ def get_kr_name_to_code_map() -> dict:
     except Exception:
         pass
 
-    # 2차: FinanceDataReader
+    # 3차: FinanceDataReader
     try:
         import FinanceDataReader as fdr
         for market, suffix in [("KOSPI", ".KS"), ("KOSDAQ", ".KQ")]:
@@ -142,7 +155,7 @@ def get_kr_name_to_code_map() -> dict:
     except Exception:
         pass
 
-    # 3차: KRX 공개 API
+    # 4차: KRX 공개 API
     try:
         for mkt_id, suffix in [("STK", ".KS"), ("KSQ", ".KQ")]:
             resp = requests.post(
@@ -173,18 +186,7 @@ def get_kr_name_to_code_map() -> dict:
     except Exception:
         pass
 
-    # 4차: 번들된 정적 JSON (네트워크 불필요, 최후의 보루)
-    try:
-        import json, os
-        _static = os.path.join(os.path.dirname(__file__), "kr_stocks_static.json")
-        with open(_static, "r", encoding="utf-8") as f:
-            result = json.load(f)
-        if result:
-            return result
-    except Exception:
-        pass
-
-    raise RuntimeError("전종목 맵 로딩 실패 (FDR·pykrx·KRX·정적JSON 모두 실패)")
+    raise RuntimeError("전종목 맵 로딩 실패 (정적JSON·pykrx·FDR·KRX 모두 실패)")
 
 @st.cache_data(ttl=86400)
 def get_kr_code_to_name_map() -> dict:
@@ -280,17 +282,31 @@ def get_kr_stock_price(stock_code: str):
     import yfinance as yf
     for suffix in [".KS", ".KQ"]:
         try:
-            tk = yf.Ticker(f"{stock_code}{suffix}")
-            fi = tk.fast_info
-            info = tk.info
-            price = round(fi.get("lastPrice", 0) or 0)
-            prev  = fi.get("previousClose", 0) or 0
-            if price <= 0:
+            ticker = f"{stock_code}{suffix}"
+            raw = yf.download(ticker, period="2d", progress=False, timeout=1.5)
+            if raw.empty:
                 continue
-            change     = round(price - prev)
+            closes = raw["Close"].dropna()
+            if closes.empty:
+                continue
+            price = round(float(closes.iloc[-1]))
+            prev = round(float(closes.iloc[-2])) if len(closes) >= 2 else price
+            change = round(price - prev)
             change_pct = round(((price - prev) / prev * 100) if prev > 0 else 0.0, 2)
             sign = "2" if change > 0 else "4" if change < 0 else "3"
-            name = (info.get("shortName") or info.get("longName") or stock_code)
+            
+            # Ticker 메타 데이터 수집 시도 (실패 시 기본 정보로 우회)
+            tk = yf.Ticker(ticker)
+            try:
+                info = tk.info
+                name = info.get("shortName") or info.get("longName") or stock_code
+                per = round(info.get("trailingPE", 0) or info.get("forwardPE", 0) or 0, 1) or "-"
+                pbr = round(info.get("priceToBook", 0) or 0, 2) or "-"
+                market_cap = _format_market_cap(info.get("marketCap", 0) // 100000000) if info.get("marketCap") else "-"
+            except Exception:
+                name = stock_code
+                per, pbr, market_cap = "-", "-", "-"
+                
             return {
                 "code": stock_code,
                 "name": name,
@@ -298,16 +314,16 @@ def get_kr_stock_price(stock_code: str):
                 "change": change,
                 "change_pct": change_pct,
                 "sign": sign,
-                "volume": int(fi.get("lastVolume", 0) or 0),
+                "volume": int(raw["Volume"].iloc[-1]) if "Volume" in raw.columns else 0,
                 "amount": 0,
-                "open":     round(fi.get("open", 0) or 0),
-                "high":     round(fi.get("dayHigh", 0) or 0),
-                "low":      round(fi.get("dayLow", 0) or 0),
-                "w52_high": round(fi.get("yearHigh", 0) or info.get("fiftyTwoWeekHigh", 0) or 0),
-                "w52_low":  round(fi.get("yearLow",  0) or info.get("fiftyTwoWeekLow",  0) or 0),
-                "per": round(info.get("trailingPE", 0) or info.get("forwardPE", 0) or 0, 1) or "-",
-                "pbr": round(info.get("priceToBook", 0) or 0, 2) or "-",
-                "market_cap": _format_market_cap(info.get("marketCap", 0) // 100000000) if info.get("marketCap") else "-",
+                "open": round(float(raw["Open"].iloc[-1])) if "Open" in raw.columns else price,
+                "high": round(float(raw["High"].iloc[-1])) if "High" in raw.columns else price,
+                "low": round(float(raw["Low"].iloc[-1])) if "Low" in raw.columns else price,
+                "w52_high": price,
+                "w52_low": price,
+                "per": per,
+                "pbr": pbr,
+                "market_cap": market_cap,
                 "_source": "yfinance",
             }
         except Exception:
@@ -547,17 +563,34 @@ def get_kr_market_index():
     # KIS 실패 시 yfinance 폴백 (^KS11=KOSPI, ^KQ11=KOSDAQ)
     if len(result) < 2:
         import yfinance as yf
-        for _idx_name, _yf_sym in [("KOSPI", "^KS11"), ("KOSDAQ", "^KQ11")]:
-            if _idx_name in result:
-                continue
+        needed_syms = []
+        sym_to_name = {}
+        if "KOSPI" not in result:
+            needed_syms.append("^KS11")
+            sym_to_name["^KS11"] = "KOSPI"
+        if "KOSDAQ" not in result:
+            needed_syms.append("^KQ11")
+            sym_to_name["^KQ11"] = "KOSDAQ"
+            
+        if needed_syms:
             try:
-                _fi = yf.Ticker(_yf_sym).fast_info
-                _price = _fi.get("lastPrice", 0) or 0
-                _prev = _fi.get("previousClose", 0) or 0
-                if _price > 0:
-                    _chg = round(_price - _prev, 2)
-                    _pct = round(_chg / _prev * 100, 2) if _prev > 0 else 0.0
-                    result[_idx_name] = {"index": _price, "change": _chg, "change_pct": _pct}
+                raw = yf.download(needed_syms, period="2d", progress=False, timeout=1.5)
+                if not raw.empty:
+                    close_df = raw["Close"]
+                    for sym in needed_syms:
+                        try:
+                            if len(needed_syms) == 1:
+                                closes = close_df.dropna()
+                            else:
+                                closes = close_df[sym].dropna()
+                            if not closes.empty and len(closes) >= 2:
+                                price = float(closes.iloc[-1])
+                                prev = float(closes.iloc[-2])
+                                chg = round(price - prev, 2)
+                                pct = round(chg / prev * 100, 2) if prev > 0 else 0.0
+                                result[sym_to_name[sym]] = {"index": price, "change": chg, "change_pct": pct}
+                        except Exception:
+                            pass
             except Exception:
                 pass
     return result
@@ -727,7 +760,7 @@ def get_kr_minute_chart(stock_code: str, interval: int = 5):
     for suffix in [".KS", ".KQ"]:
         try:
             raw = yf.Ticker(f"{stock_code}{suffix}").history(
-                period=period, interval=yf_interval, auto_adjust=True
+                period=period, interval=yf_interval, auto_adjust=True, timeout=1.5
             )
             if raw.empty:
                 continue
@@ -882,9 +915,13 @@ def get_kr_prices_bulk(tickers_tuple: tuple) -> dict:
     """섹터 패널용 종목 일괄 시세 조회 (code → {price, change_pct, + 거래상태 필드}).
     KIS API inquire-price 우선, 실패 시 yfinance 폴백."""
     import yfinance as yf
+    import pandas as pd
     results = {}
+    
+    # 1차 KIS 조회 시도 및 yfinance 폴백 대상 티커 수집
+    yf_tickers = []
+    _mkt_statuses = {}
     for code, yf_ticker in tickers_tuple:
-        # 1차: KIS API (캐시 활용 — get_kr_stock_price 내부에 @st.cache_data 있음)
         kis = get_kr_stock_price(code)
         _kis_status = {}
         if kis:
@@ -897,19 +934,45 @@ def get_kr_prices_bulk(tickers_tuple: tuple) -> dict:
                 "vi_type":     kis.get("vi_type", "N"),
                 "vi_ovtm":     kis.get("vi_ovtm", "N"),
             }
+            _mkt_statuses[code] = _kis_status
             if kis.get("price", 0) > 0:
                 results[code] = {"price": kis["price"], "change_pct": kis["change_pct"], **_kis_status}
                 continue
-        # 2차: yfinance 폴백 (거래정지 등 price=0 포함, KIS 상태 필드는 유지)
+        yf_tickers.append(yf_ticker)
+        
+    # 2차: yfinance 일괄 다운로드 폴백
+    if yf_tickers:
         try:
-            fi = yf.Ticker(yf_ticker).fast_info
-            price = round(fi.get("lastPrice", 0) or 0)
-            reg_price = round(fi.get("regularMarketPrice", 0) or price)
-            prev = fi.get("regularMarketPreviousClose", 0) or fi.get("previousClose", 0) or 0
-            change_pct = round(((reg_price - prev) / prev * 100) if prev > 0 else 0.0, 2)
-            results[code] = {"price": price, "change_pct": change_pct, **_kis_status}
+            raw = yf.download(yf_tickers, period="2d", progress=False, timeout=1.5)
+            if not raw.empty:
+                close_df = raw["Close"]
+                is_multi = isinstance(raw.columns, pd.MultiIndex)
+                for code, yf_ticker in tickers_tuple:
+                    if code in results:
+                        continue
+                    try:
+                        closes = close_df[yf_ticker].dropna() if is_multi and yf_ticker in close_df.columns else raw["Close"].dropna() if len(yf_tickers) == 1 else pd.Series(dtype=float)
+                        if not closes.empty and len(closes) >= 2:
+                            price = round(float(closes.iloc[-1]))
+                            prev = float(closes.iloc[-2])
+                            change_pct = round(((price - prev) / prev * 100) if prev > 0 else 0.0, 2)
+                            _kis_status = _mkt_statuses.get(code, {
+                                "status_code": "55", "mrkt_warn": "00", "short_over": "N", "managed": "N", "halt": "N", "vi_type": "N", "vi_ovtm": "N"
+                            })
+                            results[code] = {"price": price, "change_pct": change_pct, **_kis_status}
+                    except Exception:
+                        pass
         except Exception:
+            pass
+            
+    # 최종 실패 건 처리
+    for code, yf_ticker in tickers_tuple:
+        if code not in results:
+            _kis_status = _mkt_statuses.get(code, {
+                "status_code": "55", "mrkt_warn": "00", "short_over": "N", "managed": "N", "halt": "N", "vi_type": "N", "vi_ovtm": "N"
+            })
             results[code] = {"price": 0, "change_pct": 0.0, **_kis_status}
+            
     return results
 
 
@@ -1230,7 +1293,7 @@ def get_kr_daily_chart(stock_code: str, period: str = "3mo", unit: str = "D") ->
     for suffix in [".KS", ".KQ"]:
         try:
             raw = yf.Ticker(f"{stock_code}{suffix}").history(
-                **_hist_kw, interval=_yf_iv, auto_adjust=True
+                **_hist_kw, interval=_yf_iv, auto_adjust=True, timeout=1.5
             )
             if raw.empty:
                 continue
@@ -1268,7 +1331,7 @@ def get_kr_index_history(symbol: str, period: str = "1d") -> pd.DataFrame:
     interval = _interval_map.get(period, "1d")
     for _attempt in range(2):
         try:
-            df = yf.Ticker(symbol).history(period=period, interval=interval, auto_adjust=True)
+            df = yf.Ticker(symbol).history(period=period, interval=interval, auto_adjust=True, timeout=1.5)
             if not df.empty:
                 if df.index.tz is not None:
                     df.index = df.index.tz_convert("Asia/Seoul").tz_localize(None)
@@ -1283,7 +1346,7 @@ def get_kr_index_history(symbol: str, period: str = "1d") -> pd.DataFrame:
 
 @st.cache_data(ttl=60, show_spinner=False)
 def get_kr_major_tickers() -> list:
-    """상단 티커 표시용 주요 국내 종목 시세 (yfinance, 60초 캐시)"""
+    """상단 티커 표시용 주요 국내 종목 시세 (yfinance 배치 최적화, 60초 캐시)"""
     import yfinance as yf
     stocks = [
         ("005930", "삼성전자", ".KS"),
@@ -1295,18 +1358,25 @@ def get_kr_major_tickers() -> list:
         ("068270", "셀트리온", ".KS"),
         ("207940", "삼성바이오", ".KS"),
     ]
+    tickers = [f"{code}{suffix}" for code, _, suffix in stocks]
     results = []
-    for code, name, suffix in stocks:
-        try:
-            fi = yf.Ticker(f"{code}{suffix}").fast_info
-            price = round(fi.get("lastPrice") or 0)
-            prev  = fi.get("previousClose") or 0
-            if price <= 0:
-                continue
-            pct = round(((price - prev) / prev * 100) if prev > 0 else 0.0, 2)
-            results.append({"name": name, "price": price, "pct": pct})
-        except Exception:
-            continue
+    try:
+        raw = yf.download(tickers, period="2d", progress=False, timeout=1.5)
+        if not raw.empty:
+            close_df = raw["Close"]
+            for code, name, suffix in stocks:
+                try:
+                    sym = f"{code}{suffix}"
+                    closes = close_df[sym].dropna() if sym in close_df.columns else raw["Close"].dropna() if len(tickers) == 1 else None
+                    if closes is not None and len(closes) >= 2:
+                        price = round(float(closes.iloc[-1]))
+                        prev = float(closes.iloc[-2])
+                        pct = round(((price - prev) / prev * 100) if prev > 0 else 0.0, 2)
+                        results.append({"name": name, "price": price, "pct": pct})
+                except Exception:
+                    pass
+    except Exception:
+        pass
     return results
 
 
@@ -1318,56 +1388,81 @@ _US_WATCHLIST = [
 ]
 
 
+def _fetch_us_watchlist_data() -> list:
+    import yfinance as yf
+    import pandas as pd
+    results = []
+    try:
+        raw = yf.download(_US_WATCHLIST, period="2d", progress=False, timeout=1.5)
+        if not raw.empty:
+            close_df = raw["Close"]
+            volume_df = raw["Volume"] if "Volume" in raw.columns else None
+            is_multi = isinstance(raw.columns, pd.MultiIndex)
+            for ticker in _US_WATCHLIST:
+                try:
+                    if is_multi:
+                        closes = close_df[ticker].dropna() if ticker in close_df.columns else pd.Series(dtype=float)
+                        vols = volume_df[ticker].dropna() if volume_df is not None and ticker in volume_df.columns else pd.Series(dtype=int)
+                    else:
+                        closes = close_df.dropna() if len(_US_WATCHLIST) == 1 else pd.Series(dtype=float)
+                        vols = volume_df.dropna() if volume_df is not None and len(_US_WATCHLIST) == 1 else pd.Series(dtype=int)
+                    if not closes.empty:
+                        price = round(float(closes.iloc[-1]), 2)
+                        prev = round(float(closes.iloc[-2]), 2) if len(closes) >= 2 else price
+                        chg = round(((price - prev) / prev * 100) if prev > 0 else 0.0, 2)
+                        vol = int(vols.iloc[-1]) if not vols.empty else 0
+                        results.append({
+                            "티커":       ticker,
+                            "현재가($)":  price,
+                            "등락률(%)":  chg,
+                            "거래량":     vol,
+                            "거래량_비율": 1.0,
+                        })
+                except Exception:
+                    pass
+    except Exception:
+        pass
+
+    if not results:
+        # yfinance 실패 시 KIS API 고속 폴백 (중요 10개만)
+        from data_kr import get_us_stock_price_kis
+        for ticker in _US_WATCHLIST[:10]:
+            try:
+                kis_res = None
+                for exch in ["NASDAQ", "NYSE", "AMEX"]:
+                    try:
+                        kis_res = get_us_stock_price_kis(ticker, exch)
+                        if kis_res and kis_res.get("price", 0) > 0:
+                            break
+                    except Exception:
+                        pass
+                if kis_res and kis_res.get("price", 0) > 0:
+                    price = float(kis_res["price"])
+                    chg = float(kis_res.get("change_pct", 0) or 0)
+                    results.append({
+                        "티커":       ticker,
+                        "현재가($)":  price,
+                        "등락률(%)":  chg,
+                        "거래량":     int(kis_res.get("volume", 0) or 0),
+                        "거래량_비율": 1.0,
+                    })
+            except Exception:
+                continue
+    return results
+
+
 @st.cache_data(ttl=300, show_spinner=False)
 def get_us_volume_ranking() -> list:
-    """US 거래량 상위 종목 — watchlist yfinance 배치 조회"""
-    import yfinance as yf
-    results = []
-    for ticker in _US_WATCHLIST:
-        try:
-            fi = yf.Ticker(ticker).fast_info
-            price   = round(fi.get("lastPrice",              0) or 0, 2)
-            prev    = fi.get("previousClose",                0) or 0
-            vol     = int(fi.get("lastVolume",               0) or 0)
-            avg_vol = int(fi.get("threeMonthAverageVolume",  0) or 0)
-            if price <= 0 or vol <= 0:
-                continue
-            chg = round(((price - prev) / prev * 100) if prev > 0 else 0, 2)
-            results.append({
-                "티커":       ticker,
-                "현재가($)":  price,
-                "등락률(%)":  chg,
-                "거래량":     vol,
-                "거래량_비율": round(vol / avg_vol, 2) if avg_vol > 0 else 0,
-            })
-        except Exception:
-            continue
+    """US 거래량 상위 종목 — watchlist yfinance 일괄 배치 조회"""
+    results = _fetch_us_watchlist_data()
     results.sort(key=lambda x: x["거래량"], reverse=True)
     return results[:15]
 
 
 @st.cache_data(ttl=300, show_spinner=False)
 def get_us_change_ranking() -> list:
-    """US 등락률 상위 종목 — watchlist yfinance 배치 조회"""
-    import yfinance as yf
-    results = []
-    for ticker in _US_WATCHLIST:
-        try:
-            fi = yf.Ticker(ticker).fast_info
-            price = round(fi.get("lastPrice",     0) or 0, 2)
-            prev  = fi.get("previousClose",       0) or 0
-            vol   = int(fi.get("lastVolume",      0) or 0)
-            if price <= 0:
-                continue
-            chg = round(((price - prev) / prev * 100) if prev > 0 else 0, 2)
-            results.append({
-                "티커":      ticker,
-                "현재가($)": price,
-                "등락률(%)": chg,
-                "거래량":    vol,
-            })
-        except Exception:
-            continue
+    """US 등락률 상위 종목 — watchlist yfinance 일괄 배치 조회"""
+    results = _fetch_us_watchlist_data()
     results.sort(key=lambda x: x["등락률(%)"], reverse=True)
     return results
 
@@ -1522,7 +1617,7 @@ def get_us_daily_chart(ticker: str, period: str = "3mo", unit: str = "D") -> pd.
         _hist_kw = {"period": period}
     _yf_iv = "1d" if unit == "D" else "1wk" if unit == "W" else "1mo"
     try:
-        raw = yf.Ticker(ticker).history(**_hist_kw, interval=_yf_iv, auto_adjust=True)
+        raw = yf.Ticker(ticker).history(**_hist_kw, interval=_yf_iv, auto_adjust=True, timeout=1.5)
         if raw.empty:
             return pd.DataFrame()
         df = raw.reset_index()
@@ -1551,7 +1646,7 @@ def get_us_minute_chart(ticker: str, interval: int = 5) -> pd.DataFrame:
     # yfinance의 1분봉(1m)은 7일이 한계이며, 5분봉(5m) 이상은 60일이 물리적 제공 한계입니다.
     period = "7d" if yf_interval == "1m" else "60d"
     try:
-        raw = yf.Ticker(ticker).history(period=period, interval=yf_interval, auto_adjust=True, prepost=True)
+        raw = yf.Ticker(ticker).history(period=period, interval=yf_interval, auto_adjust=True, prepost=True, timeout=1.5)
         if raw.empty:
             return pd.DataFrame()
         df = raw.reset_index()
