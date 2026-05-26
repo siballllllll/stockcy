@@ -2,7 +2,7 @@
 import { useRef, useEffect } from "react";
 import useSWR from "swr";
 import { api } from "@/lib/api";
-import type { UsIndices, KrIndices } from "@/lib/types";
+import type { UsIndices, KrIndices, Favorite } from "@/lib/types";
 import { useRouter } from "next/navigation";
 import { useMarket } from "@/lib/market-context";
 
@@ -105,9 +105,23 @@ export function MarketTickerBar() {
   const { data: btc }     = useSWR("btc-price",                () => api.us.crypto("BTC"),                         { refreshInterval: 120000, revalidateOnFocus: false });
   const { data: fx }      = useSWR("usd-krw-rate",             () => api.us.exchangeRate(),                        { refreshInterval: 300000, revalidateOnFocus: false });
   const { data: gainers } = useSWR("kr-top-gainers",           () => api.kr.changeRanking("KOSPI", "up") as Promise<any[]>, { refreshInterval: 300000, revalidateOnFocus: false });
-  const { data: volumes } = useSWR("kr-top-volumes",           () => api.kr.volumeRanking("ALL")         as Promise<any[]>, { refreshInterval: 300000, revalidateOnFocus: false });
   const { data: krReps }  = useSWR("kr-rep-stocks",            () => api.kr.stocksBulk(KR_REPS)          as Promise<Record<string, any>>, { refreshInterval: 60000,  revalidateOnFocus: false });
   const { data: usReps }  = useSWR("us-rep-stocks",            () => api.us.stocks(US_REPS)               as Promise<any[]>, { refreshInterval: 60000,  revalidateOnFocus: false });
+  const { data: favList } = useSWR("favorites",                () => api.portfolio.loadFavorites(),        { refreshInterval: 300000, revalidateOnFocus: false });
+
+  const krFavCodes = (favList ?? []).filter((f: Favorite) => f["시장"] === "국내").map((f: Favorite) => f["티커"]);
+  const usFavTickers = (favList ?? []).filter((f: Favorite) => f["시장"] === "미국").map((f: Favorite) => f["티커"]);
+
+  const { data: krFavPrices } = useSWR(
+    krFavCodes.length > 0 ? ["kr-fav-prices", krFavCodes.join(",")] : null,
+    () => api.kr.stocksBulk(krFavCodes) as Promise<Record<string, any>>,
+    { refreshInterval: 60000, revalidateOnFocus: false }
+  );
+  const { data: usFavPrices } = useSWR(
+    usFavTickers.length > 0 ? ["us-fav-prices", usFavTickers.join(",")] : null,
+    () => api.us.stocks(usFavTickers) as Promise<any[]>,
+    { refreshInterval: 60000, revalidateOnFocus: false }
+  );
 
   const topGainers = Array.isArray(gainers)
     ? gainers.slice(0, 8).map((g: any) => ({
@@ -116,12 +130,35 @@ export function MarketTickerBar() {
       }))
     : [];
 
-  const topVolumes = Array.isArray(volumes)
-    ? volumes.slice(0, 8).map((v: any) => ({
-        name: v.name ?? v.종목명, code: v.code ?? v.종목코드,
-        change_pct: v.change_pct ?? v["등락률(%)"] ?? 0, price: v.price ?? v.현재가 ?? 0,
-      }))
-    : [];
+  // 즐겨찾기 KR — bulk 응답은 { [code]: { name, price, change_pct, ... } } 형태
+  const krFavItems = krFavCodes
+    .map(code => {
+      const d = (krFavPrices as any)?.[code];
+      if (!d) return null;
+      const fav = (favList ?? []).find((f: Favorite) => f["티커"] === code);
+      return {
+        code,
+        name: d.name ?? d["종목명"] ?? fav?.["종목명"] ?? code,
+        price: d.price ?? d["현재가"] ?? 0,
+        change_pct: d.change_pct ?? d["등락률(%)"] ?? 0,
+      };
+    })
+    .filter(Boolean) as { code: string; name: string; price: number; change_pct: number }[];
+
+  // 즐겨찾기 US — /api/us/stocks 응답은 [{ 심볼, 현재가($), 등락률(%) }] 형태
+  const usFavItems = usFavTickers
+    .map(ticker => {
+      const d = Array.isArray(usFavPrices)
+        ? usFavPrices.find((r: any) => (r["심볼"] ?? r.ticker ?? "").toUpperCase() === ticker.toUpperCase())
+        : null;
+      const fav = (favList ?? []).find((f: Favorite) => f["티커"] === ticker);
+      return {
+        ticker,
+        name: fav?.["종목명"] ?? ticker,
+        price: d?.["현재가($)"] ?? d?.price ?? 0,
+        change_pct: d?.["등락률(%)"] ?? d?.change_pct ?? 0,
+      };
+    });
 
   return (
     <div style={{ background: "var(--color-surface)", borderBottom: "1px solid var(--color-border)" }}>
@@ -200,14 +237,20 @@ export function MarketTickerBar() {
           </>
         )}
 
-        {topVolumes.length > 0 && (
+        {(krFavItems.length > 0 || usFavItems.length > 0) && (
           <>
             {SEP}
-            <span style={{ color: "var(--color-primary)", fontSize: "0.7rem", fontWeight: 700, flexShrink: 0 }}>💰 거래대금</span>
-            {topVolumes.map((v, i) => (
-              <span key={i} style={{ display: "inline-flex", alignItems: "center", gap: "1.5rem" }}>
-                <StockItem name={v.name} code={v.code} changePct={v.change_pct} price={v.price} />
-                {i < topVolumes.length - 1 && DOT}
+            <span style={{ color: "var(--color-accent)", fontSize: "0.7rem", fontWeight: 700, flexShrink: 0 }}>⭐ 즐겨찾기</span>
+            {krFavItems.map((f, i) => (
+              <span key={f.code} style={{ display: "inline-flex", alignItems: "center", gap: "1.5rem" }}>
+                <StockItem name={f.name} code={f.code} changePct={f.change_pct} price={f.price} />
+                {(i < krFavItems.length - 1 || usFavItems.length > 0) && DOT}
+              </span>
+            ))}
+            {usFavItems.map((f, i) => (
+              <span key={f.ticker} style={{ display: "inline-flex", alignItems: "center", gap: "1.5rem" }}>
+                <IdxItem name={f.name} price={f.price} changePct={f.change_pct} />
+                {i < usFavItems.length - 1 && DOT}
               </span>
             ))}
           </>
