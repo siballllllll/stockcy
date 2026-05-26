@@ -7,9 +7,33 @@ import urllib3
 import json
 import re
 import time
+import threading
 
 # SSL 경고 무시 (방화벽 우회)
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+# ── 핫 섹터 모듈 레벨 캐시 (Streamlit 락 우회용) ─────────────────────────────
+# asyncio.wait_for로 @st.cache_data 함수를 캔슬했을 때 락이 남아
+# 다음 요청 스레드가 무기한 대기하는 문제를 방지한다.
+_HS_CACHE_LOCK = threading.Lock()
+_HS_CACHE_DATA: dict | None = None
+_HS_CACHE_TS: float = 0.0
+_HS_CACHE_TTL = 3600  # 1시간
+
+
+def get_hot_sectors_nowait() -> dict | None:
+    """캐시된 핫 섹터를 즉시(락 없이) 반환. 캐시 미스·만료 시 None."""
+    if _HS_CACHE_DATA and (time.time() - _HS_CACHE_TS) < _HS_CACHE_TTL:
+        return _HS_CACHE_DATA
+    return None
+
+
+def _update_hs_cache(result: dict):
+    global _HS_CACHE_DATA, _HS_CACHE_TS
+    if isinstance(result, dict) and "sectors" in result:
+        with _HS_CACHE_LOCK:
+            _HS_CACHE_DATA = result
+            _HS_CACHE_TS = time.time()
 
 
 def _fix_kr_stock_names(stocks: list) -> list:
@@ -1361,15 +1385,33 @@ def _compute_prebreakout_signals(volume_rank: list, change_rank: list) -> tuple:
         elif 1 <= _chg(s) <= 8:
             prebreakout.append(s)
 
-    # 상위 6종목에 분봉 시그널 계산 (API 과호출 방지)
+    # 상위 6종목에 분봉 시그널 계산 — 병렬 호출 (순차 최대 60초 → 병렬 최대 15초)
+    from concurrent.futures import ThreadPoolExecutor, as_completed, TimeoutError as _FutTimeout
     enriched = []
-    for s in prebreakout[:6]:
-        code = str(s.get("종목코드", ""))
+    candidates = prebreakout[:6]
+    _FALLBACK_SIG = {"signal_score": 0, "signal_label": "-", "vol_accel": 0}
+    _pool = ThreadPoolExecutor(max_workers=6)
+    try:
+        fut_map = {
+            _pool.submit(get_kr_prebreakout_signal, str(s.get("종목코드", ""))): s
+            for s in candidates
+        }
         try:
-            sig = get_kr_prebreakout_signal(code)
-        except Exception:
-            sig = {"signal_score": 0, "signal_label": "-", "vol_accel": 0}
-        enriched.append({**s, "_signal": sig})
+            for fut in as_completed(fut_map, timeout=15):
+                s = fut_map[fut]
+                try:
+                    sig = fut.result()
+                except Exception:
+                    sig = _FALLBACK_SIG
+                enriched.append({**s, "_signal": sig})
+        except _FutTimeout:
+            # 15초 내 완료된 것만 사용, 나머지는 fallback
+            done_stocks = {id(fut_map[f]) for f in fut_map if f.done()}
+            for s in candidates:
+                if id(s) not in done_stocks:
+                    enriched.append({**s, "_signal": _FALLBACK_SIG})
+    finally:
+        _pool.shutdown(wait=False)  # 미완료 스레드를 기다리지 않고 즉시 반환
 
     # 시그널 점수 높은 순 정렬
     enriched.sort(key=lambda x: x["_signal"].get("signal_score", 0), reverse=True)
@@ -1973,7 +2015,9 @@ def analyze_kr_hot_sectors() -> dict:
 
     try:
         response = _call_gemini(prompt, use_search=True, temperature=0.5)
-        return _parse_json_response(response)
+        result = _parse_json_response(response)
+        _update_hs_cache(result)  # 모듈 레벨 캐시도 갱신
+        return result
     except Exception as e:
         err_str = str(e)
         if "QUOTA" in err_str or "429" in err_str or "RESOURCE_EXHAUSTED" in err_str:

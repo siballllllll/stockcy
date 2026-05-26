@@ -11,6 +11,7 @@ SSE 이벤트 형식:
 """
 import asyncio
 import json
+import time
 from fastapi import APIRouter, Body, Query
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
@@ -421,7 +422,7 @@ async def realtime_picks_kr(req: RealtimePicksRequest):
                         get_kr_market_index, get_kr_volume_ranking,
                         get_kr_change_ranking, get_kr_frgn_inst_rank
                     )
-                    from ai_engine import analyze_kr_hot_sectors
+                    from ai_engine import analyze_kr_hot_sectors  # 백그라운드 갱신용
 
                     # 시장 데이터 병렬 수집 (각 태스크에 개별 타임아웃 → KIS API 무응답 시 영구 대기 방지)
                     mkt_task   = asyncio.wait_for(asyncio.to_thread(get_kr_market_index),          timeout=20)
@@ -436,22 +437,28 @@ async def realtime_picks_kr(req: RealtimePicksRequest):
                     vol_rank = vol_res if isinstance(vol_res, list) else []
                     chg_rank = (chg_j if isinstance(chg_j, list) else []) + (chg_q if isinstance(chg_q, list) else [])
 
-                    # 핫 섹터 AI + 수급 데이터 병렬 (수급 API도 타임아웃 추가)
-                    yield _sse({"status": "running", "message": "🔥 핫 섹터 분석 및 수급 데이터 수집 중..."})
-                    hs_task    = asyncio.wait_for(asyncio.to_thread(analyze_kr_hot_sectors),          timeout=95)
+                    # 핫 섹터: 캐시 즉시 확인 (블로킹 없음)
+                    # 캐시 미스면 AI가 직접 구글 검색으로 핫 섹터를 파악하므로 생략해도 무방
+                    from ai_engine import get_hot_sectors_nowait
+                    hs_cached = await asyncio.to_thread(get_hot_sectors_nowait)
+                    if hs_cached:
+                        hot_secs = hs_cached.get("sectors", [])
+                        yield _sse({"status": "running", "message": "✅ 핫 섹터 캐시 적중 — 수급 데이터 수집 중..."})
+                    else:
+                        # 캐시 없음 → 백그라운드에서 갱신 (다음 요청 때 활용)
+                        asyncio.create_task(asyncio.to_thread(analyze_kr_hot_sectors))
+                        yield _sse({"status": "running", "message": "⚡ 수급 데이터 수집 중 (핫 섹터는 AI가 직접 검색)..."})
+
+                    # 수급 데이터 수집
                     inv_j_task = asyncio.wait_for(asyncio.to_thread(get_kr_frgn_inst_rank, "J", 30), timeout=25)
                     inv_q_task = asyncio.wait_for(asyncio.to_thread(get_kr_frgn_inst_rank, "Q", 30), timeout=25)
-                    hs_res, inv_j, inv_q = await asyncio.gather(
-                        hs_task, inv_j_task, inv_q_task,
-                        return_exceptions=True
-                    )
-                    if isinstance(hs_res, dict):
-                        hot_secs = hs_res.get("sectors", [])
+                    inv_j, inv_q = await asyncio.gather(inv_j_task, inv_q_task, return_exceptions=True)
                     inv_rank = (inv_j if isinstance(inv_j, list) else []) + (inv_q if isinstance(inv_q, list) else [])
                 except Exception as e:
                     yield _sse({"status": "running", "message": f"⚠️ 데이터 수집 지연: {str(e)[:60]}"})
 
-            yield _sse({"status": "running", "message": "🤖 AI 타점 및 매매 전략 생성 중 (최대 90초)..."})
+            t0_picks = time.monotonic()
+            yield _sse({"status": "running", "message": "🤖 AI 타점 및 매매 전략 생성 중 (최대 3분)..."})
             try:
                 result = await asyncio.wait_for(
                     asyncio.to_thread(
@@ -462,11 +469,13 @@ async def realtime_picks_kr(req: RealtimePicksRequest):
                         hot_secs or None,
                         inv_rank or None,
                     ),
-                    timeout=100,
+                    timeout=240,
                 )
             except asyncio.TimeoutError:
-                yield _sse({"status": "error", "message": "AI 분석 시간이 초과됐습니다 (100초). 잠시 후 다시 시도해주세요."})
+                yield _sse({"status": "error", "message": "AI 분析 시간이 초과됐습니다 (3분). 잠시 후 다시 시도해주세요."})
                 return
+            elapsed = time.monotonic() - t0_picks
+            print(f"[KR-picks] generate_realtime_picks: {elapsed:.1f}s")
             yield _sse({"status": "done", "result": result})
         except Exception as e:
             yield _sse({"status": "error", "message": str(e)})
