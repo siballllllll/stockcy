@@ -53,37 +53,41 @@ const SEP = <span style={{ color: "var(--color-border)", fontSize: "0.75rem", fl
 
 function TickerRow({ children }: { children: React.ReactNode }) {
   const firstRef = useRef<HTMLSpanElement>(null);
+  const trackRef = useRef<HTMLDivElement>(null);
   const [duration, setDuration] = useState(30);
 
   useEffect(() => {
     const el = firstRef.current;
     if (!el) return;
     const measure = () => {
-      const w = el.offsetWidth;
-      if (w > 0) setDuration(Math.round(w / PX_PER_SEC));
+      const w = el.scrollWidth;
+      if (w > 50) setDuration(Math.max(3, w / PX_PER_SEC));
     };
-    measure();
     const obs = new ResizeObserver(measure);
     obs.observe(el);
+    measure();
     return () => obs.disconnect();
   }, []);
 
   return (
     <div style={{ overflow: "hidden", padding: "4px 0" }}>
       <div
+        ref={trackRef}
         style={{
-          display: "inline-flex",
+          display: "flex",
+          width: "max-content",
           alignItems: "center",
           whiteSpace: "nowrap",
+          willChange: "transform",
           animation: `marquee-seamless ${duration}s linear infinite`,
         }}
         onMouseEnter={e => (e.currentTarget.style.animationPlayState = "paused")}
         onMouseLeave={e => (e.currentTarget.style.animationPlayState = "running")}
       >
-        <span ref={firstRef} style={{ display: "inline-flex", alignItems: "center", gap: "1.5rem", paddingRight: "3rem" }}>
+        <span ref={firstRef} style={{ display: "inline-flex", alignItems: "center", gap: "1.5rem", paddingRight: "4rem" }}>
           {children}
         </span>
-        <span style={{ display: "inline-flex", alignItems: "center", gap: "1.5rem", paddingRight: "3rem" }}>
+        <span aria-hidden style={{ display: "inline-flex", alignItems: "center", gap: "1.5rem", paddingRight: "4rem" }}>
           {children}
         </span>
       </div>
