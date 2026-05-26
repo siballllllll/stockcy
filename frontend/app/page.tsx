@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { Activity, TrendingUp, ChevronRight, Zap, Target, Shield, Clock, Star, CheckCircle, Pin } from "lucide-react";
 import { api, connectSSE } from "@/lib/api";
 import { useRouter } from "next/navigation";
@@ -48,6 +48,27 @@ export default function RealtimePicksBoard() {
   const [marketComment, setMarketComment] = useState("");
   const [toast, setToast] = useState<{ message: string; type: "success" | "info" } | null>(null);
   const [favLoading, setFavLoading] = useState<string | null>(null);
+  const [lastUpdated, setLastUpdated] = useState<string | null>(null);
+
+  const HOT_KEY    = "stockcy_hot_picks";
+  const HOT_TS_KEY = "stockcy_hot_picks_ts";
+
+  // 마운트 시 localStorage에서 이전 결과 복원
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(HOT_KEY);
+      const ts    = localStorage.getItem(HOT_TS_KEY);
+      if (saved) {
+        const d = JSON.parse(saved);
+        setMarketCond(d.market_condition || "");
+        setMarketComment(d.market_comment || "");
+        setPicks(d.picks || []);
+        if (d.picks?.length > 0) setSelectedPick(d.picks[0]);
+        setStatus("done");
+      }
+      if (ts) setLastUpdated(ts);
+    } catch {}
+  }, []);
 
   // 현재 즐겨찾기 목록 (SWR)
   const { data: favorites, mutate: mutateFavs } = useSWR(
@@ -129,6 +150,16 @@ export default function RealtimePicksBoard() {
             setSelectedPick(res.picks[0]);
           }
           setStatus("done");
+          const ts = new Date().toLocaleString("ko-KR");
+          setLastUpdated(ts);
+          try {
+            localStorage.setItem(HOT_KEY, JSON.stringify({
+              market_condition: res.market_condition || "",
+              market_comment:   res.market_comment   || "",
+              picks:            res.picks            || [],
+            }));
+            localStorage.setItem(HOT_TS_KEY, ts);
+          } catch {}
         } else if (parsed.status === "error") {
           setMsg(`❌ 오류: ${parsed.message}`);
           setStatus("error");
@@ -190,9 +221,14 @@ export default function RealtimePicksBoard() {
             )}
           </div>
           <div className="flex justify-between items-end">
-            <p className="text-zinc-400 text-sm m-0">거래량 급증, 돌파 패턴, 수급 유입 종목을 실시간으로 추적하여 타점을 계산합니다.</p>
-            <button 
-              onClick={runAnalysis} 
+            <div>
+              <p className="text-zinc-400 text-sm m-0">거래량 급증, 돌파 패턴, 수급 유입 종목을 실시간으로 추적하여 타점을 계산합니다.</p>
+              {lastUpdated && (
+                <p className="text-zinc-600 text-xs m-0 mt-1">마지막 업데이트: {lastUpdated}</p>
+              )}
+            </div>
+            <button
+              onClick={runAnalysis}
               disabled={status === "loading"}
               className="stockcy-btn-primary flex items-center gap-2 px-5 py-2 text-sm font-semibold rounded-md shadow-lg shadow-indigo-500/20"
             >
