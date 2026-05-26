@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useCallback, useEffect } from "react";
-import { Activity, TrendingUp, ChevronRight, Zap, Target, Shield, Clock, Star, CheckCircle, Pin } from "lucide-react";
+import { Activity, TrendingUp, ChevronRight, Zap, Target, Shield, Clock, Star, CheckCircle, Pin, AlertCircle } from "lucide-react";
 import { api, connectSSE } from "@/lib/api";
 import { useRouter } from "next/navigation";
 import useSWR from "swr";
@@ -277,6 +277,14 @@ export default function RealtimePicksBoard() {
             <div className="stockcy-card p-10 flex flex-col items-center justify-center text-indigo-400 gap-4">
               <Activity size={32} className="animate-spin opacity-50" />
               <p className="text-sm font-medium animate-pulse">{msg}</p>
+            </div>
+          )}
+
+          {status === "error" && (
+            <div className="stockcy-card p-8 flex flex-col items-center justify-center text-red-400 gap-3 text-center">
+              <AlertCircle size={32} className="text-red-500 opacity-70" />
+              <p className="text-sm font-medium">{msg}</p>
+              <p className="text-xs text-zinc-500">버튼을 다시 눌러 재시도하세요.</p>
             </div>
           )}
 

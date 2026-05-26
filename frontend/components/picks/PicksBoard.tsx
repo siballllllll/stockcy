@@ -17,6 +17,7 @@ export function PicksBoard() {
   const [filter, setFilter] = useState("전체");
   const [loading, setLoading] = useState(false);
   const [statusMsg, setStatusMsg] = useState("");
+  const [errorMsg, setErrorMsg] = useState("");
   const [data, setData] = useState<{ market_comment?: string; market_condition?: string; picks: any[] }>({ picks: [] });
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
@@ -51,6 +52,7 @@ export function PicksBoard() {
     unmountedRef.current = false;
     const kr = mkt === "KR";
     setLoading(true);
+    setErrorMsg("");
     setStatusMsg(kr ? "AI 분석 엔진 가동 중..." : "🇺🇸 US AI 분석 엔진 가동 중...");
 
     const endpoint = kr ? "/api/ai/realtime-picks-kr" : "/api/ai/realtime-picks-us";
@@ -69,7 +71,7 @@ export function PicksBoard() {
           const result = evt.result as any;
           // 백엔드 AI 타임아웃/에러를 status msg로 표시
           if (result?.error && !result?.picks?.length) {
-            setStatusMsg(`AI 분석 실패: ${result.error}`);
+            setErrorMsg(`AI 분석 실패: ${result.error}`);
             setLoading(false);
             return;
           }
@@ -83,7 +85,7 @@ export function PicksBoard() {
             localStorage.setItem(picksTsKey(mkt), now.toISOString());
           } catch {}
         } else if (evt.status === "error") {
-          setStatusMsg(`오류: ${evt.message}`);
+          setErrorMsg(`오류: ${evt.message}`);
           setLoading(false);
         }
       },
@@ -95,9 +97,9 @@ export function PicksBoard() {
       clearTimeout(timeoutId);
       if (!unmountedRef.current) {
         if (err?.name === "AbortError") {
-          setStatusMsg("⏱️ AI 분석 시간이 초과됐습니다 (3.5분). 잠시 후 다시 시도해주세요.");
+          setErrorMsg("⏱️ AI 분석 시간이 초과됐습니다 (3.5분). 잠시 후 다시 시도해주세요.");
         } else {
-          setStatusMsg("서버 연결 실패");
+          setErrorMsg("서버 연결 실패");
         }
         setLoading(false);
       }
@@ -224,13 +226,23 @@ export function PicksBoard() {
         </div>
       ) : picks.length === 0 ? (
         <div style={{ padding: "4rem 0", textAlign: "center", color: "var(--color-muted)", display: "flex", flexDirection: "column", alignItems: "center", gap: "1rem" }}>
-          <Target size={48} style={{ opacity: 0.3 }} />
-          <div>위 &apos;AI 분석 시작&apos; 버튼을 눌러 오늘의 타점을 분석하세요.</div>
-          <div style={{ fontSize: "0.8rem", color: "var(--color-subtle)" }}>
-            {isKR ? "거래량·수급·핫 섹터 종합 AI 분석 → 3종목 타점 선정" : "US 거래량·모멘텀 분석 → 타점 선정"}
-          </div>
+          {errorMsg ? (
+            <>
+              <AlertCircle size={48} color="var(--color-danger)" style={{ opacity: 0.7 }} />
+              <div style={{ color: "var(--color-danger)", fontWeight: 600 }}>{errorMsg}</div>
+              <div style={{ fontSize: "0.8rem", color: "var(--color-subtle)" }}>다시 분석 버튼을 눌러 재시도하세요.</div>
+            </>
+          ) : (
+            <>
+              <Target size={48} style={{ opacity: 0.3 }} />
+              <div>위 &apos;AI 분석 시작&apos; 버튼을 눌러 오늘의 타점을 분석하세요.</div>
+              <div style={{ fontSize: "0.8rem", color: "var(--color-subtle)" }}>
+                {isKR ? "거래량·수급·핫 섹터 종합 AI 분석 → 3종목 타점 선정" : "US 거래량·모멘텀 분석 → 타점 선정"}
+              </div>
+            </>
+          )}
         </div>
-      ) : filteredPicks.length === 0 ? (
+            ) : filteredPicks.length === 0 ? (
         <div style={{ padding: "4rem 0", textAlign: "center", color: "var(--color-muted)" }}>
           조건에 맞는 타점이 없습니다.
         </div>
