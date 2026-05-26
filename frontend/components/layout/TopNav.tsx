@@ -91,7 +91,7 @@ export function TopNav() {
             STOCKCY
           </span>
           <span style={{ fontSize: "0.65rem", fontWeight: 500, color: "var(--color-muted)", marginLeft: "6px", opacity: 0.7 }}>
-            v2.0.0
+            v2.1.0
           </span>
         </div>
 
