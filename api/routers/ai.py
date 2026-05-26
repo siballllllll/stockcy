@@ -66,6 +66,14 @@ class RealtimePicksRequest(BaseModel):
     investor_rank: list = []
 
 
+class BoxPatternRequest(BaseModel):
+    ticker:     str
+    name:       str
+    price_data: dict
+    market:     str = "KR"
+
+
+
 # ── SSE 유틸 ──────────────────────────────────────────────────────────────────
 
 def _sse(payload: dict) -> str:
@@ -175,7 +183,14 @@ async def market_scenarios(use_cache: bool = Query(True)):
 
         yield _sse({"status": "running", "message": "🔍 Google Search로 오늘의 매크로 이슈 분석 중... (최대 2분 소요)"})
         try:
-            result = await asyncio.to_thread(generate_market_scenarios)
+            try:
+                result = await asyncio.wait_for(
+                    asyncio.to_thread(generate_market_scenarios),
+                    timeout=130,
+                )
+            except asyncio.TimeoutError:
+                yield _sse({"status": "error", "message": "AI 시나리오 분석 시간이 초과됐습니다 (130초). 잠시 후 다시 시도해주세요."})
+                return
             if "error" not in result:
                 await asyncio.to_thread(save_ai_cache, CACHE_KEY, result, 12)
             yield _sse({"status": "done", "result": result})
@@ -240,10 +255,19 @@ async def scenario_detail(req: ScenarioDetailRequest):
 
 @router.post("/stock-report")
 async def us_stock_report(req: StockReportRequest):
-    """미국 종목 AI 수급·단타·중장기 분석 (SSE)."""
+    """미국 종목 AI 수급·단타·중장기 분석 (SSE). 캐시 12시간 적용."""
     from ai_engine import generate_stock_report
+    from db import load_ai_cache, save_ai_cache
+
+    CACHE_KEY = f"sr_us_{req.ticker.upper()}"
 
     async def _gen():
+        # 1차 캐시 로드
+        cached = await asyncio.to_thread(load_ai_cache, CACHE_KEY)
+        if cached:
+            yield _sse({"status": "done", "result": cached, "from_cache": True})
+            return
+
         yield _sse({"status": "running", "message": f"🔍 {req.ticker} 분석 중..."})
         try:
             result = await asyncio.to_thread(
@@ -252,6 +276,24 @@ async def us_stock_report(req: StockReportRequest):
                 req.current_price,
                 req.change_pct,
             )
+            # 2차 캐시 저장
+            if result and "error" not in result:
+                await asyncio.to_thread(save_ai_cache, CACHE_KEY, result, 12)
+                
+            # AI 가격 알림 자동 등록
+            try:
+                await asyncio.to_thread(
+                    auto_register_ai_alerts,
+                    "미국",
+                    req.ticker,
+                    result.get("name_kr", result.get("name", req.ticker)),
+                    result.get("buy_target"),
+                    result.get("sell_target"),
+                    result.get("stop_loss")
+                )
+            except Exception:
+                pass
+
             yield _sse({"status": "done", "result": result})
         except Exception as e:
             yield _sse({"status": "error", "message": str(e)})
@@ -263,10 +305,19 @@ async def us_stock_report(req: StockReportRequest):
 
 @router.post("/kr-stock-report")
 async def kr_stock_report(req: KrStockReportRequest):
-    """국내 종목 AI 수급 분석 및 단타 타점 리포트 (SSE)."""
+    """국내 종목 AI 수급 분석 및 단타 타점 리포트 (SSE). 캐시 12시간 적용."""
     from ai_engine import generate_kr_stock_report
+    from db import load_ai_cache, save_ai_cache
+
+    CACHE_KEY = f"sr_kr_{req.code}"
 
     async def _gen():
+        # 1차 캐시 로드
+        cached = await asyncio.to_thread(load_ai_cache, CACHE_KEY)
+        if cached:
+            yield _sse({"status": "done", "result": cached, "from_cache": True})
+            return
+
         yield _sse({"status": "running", "message": f"🔍 {req.name}({req.code}) 분석 중..."})
         try:
             result = await asyncio.to_thread(
@@ -276,6 +327,24 @@ async def kr_stock_report(req: KrStockReportRequest):
                 req.price_data,
                 req.investor_data,
             )
+            # 2차 캐시 저장
+            if result and "error" not in result:
+                await asyncio.to_thread(save_ai_cache, CACHE_KEY, result, 12)
+                
+            # AI 가격 알림 자동 등록
+            try:
+                await asyncio.to_thread(
+                    auto_register_ai_alerts,
+                    "국내",
+                    req.code,
+                    req.name,
+                    result.get("buy_target"),
+                    result.get("sell_target"),
+                    result.get("stop_loss")
+                )
+            except Exception:
+                pass
+
             yield _sse({"status": "done", "result": result})
         except Exception as e:
             yield _sse({"status": "error", "message": str(e)})
@@ -346,44 +415,58 @@ async def realtime_picks_kr(req: RealtimePicksRequest):
 
             # 클라이언트가 빈 데이터만 보낸 경우 백엔드에서 직접 수집
             if not mkt_data or not vol_rank:
-                yield _sse({"status": "running", "message": "📊 실시간 시장 데이터 수집 중..."})
+                yield _sse({"status": "running", "message": "📊 실시간 시장 데이터 병렬 수집 중..."})
                 try:
                     from data_kr import (
                         get_kr_market_index, get_kr_volume_ranking,
                         get_kr_change_ranking, get_kr_frgn_inst_rank
                     )
                     from ai_engine import analyze_kr_hot_sectors
-                    mkt_data = await asyncio.to_thread(get_kr_market_index) or {}
-                    vol_rank = await asyncio.to_thread(get_kr_volume_ranking) or []
-                    
-                    chg_j = await asyncio.to_thread(get_kr_change_ranking, "J") or []
-                    chg_q = await asyncio.to_thread(get_kr_change_ranking, "Q") or []
-                    chg_rank = chg_j + chg_q
-                    
-                    yield _sse({"status": "running", "message": "🔥 핫 섹터 발굴 및 수급 분석 중..."})
-                    try:
-                        hs_res = await asyncio.to_thread(analyze_kr_hot_sectors)
-                        if isinstance(hs_res, dict):
-                            hot_secs = hs_res.get("sectors", [])
-                    except Exception: pass
-                    
-                    try:
-                        inv_j = await asyncio.to_thread(get_kr_frgn_inst_rank, "J", 30) or []
-                        inv_q = await asyncio.to_thread(get_kr_frgn_inst_rank, "Q", 30) or []
-                        inv_rank = inv_j + inv_q
-                    except Exception: pass
-                except Exception as e:
-                    yield _sse({"status": "running", "message": f"⚠️ 데이터 수집 지연: {str(e)}"})
 
-            yield _sse({"status": "running", "message": "🤖 AI 타점 및 매매 전략 생성 중 (약 30~50초)..."})
-            result = await asyncio.to_thread(
-                generate_realtime_picks,
-                mkt_data,
-                vol_rank,
-                chg_rank,
-                hot_secs or None,
-                inv_rank or None,
-            )
+                    # 시장 데이터 병렬 수집
+                    mkt_task   = asyncio.to_thread(get_kr_market_index)
+                    vol_task   = asyncio.to_thread(get_kr_volume_ranking)
+                    chg_j_task = asyncio.to_thread(get_kr_change_ranking, "J")
+                    chg_q_task = asyncio.to_thread(get_kr_change_ranking, "Q")
+                    mkt_res, vol_res, chg_j, chg_q = await asyncio.gather(
+                        mkt_task, vol_task, chg_j_task, chg_q_task,
+                        return_exceptions=True
+                    )
+                    mkt_data = mkt_res if isinstance(mkt_res, dict) else {}
+                    vol_rank = vol_res if isinstance(vol_res, list) else []
+                    chg_rank = (chg_j if isinstance(chg_j, list) else []) + (chg_q if isinstance(chg_q, list) else [])
+
+                    # 핫 섹터 AI + 수급 데이터 병렬
+                    yield _sse({"status": "running", "message": "🔥 핫 섹터 분석 및 수급 데이터 수집 중..."})
+                    hs_task  = asyncio.wait_for(asyncio.to_thread(analyze_kr_hot_sectors), timeout=95)
+                    inv_j_task = asyncio.to_thread(get_kr_frgn_inst_rank, "J", 30)
+                    inv_q_task = asyncio.to_thread(get_kr_frgn_inst_rank, "Q", 30)
+                    hs_res, inv_j, inv_q = await asyncio.gather(
+                        hs_task, inv_j_task, inv_q_task,
+                        return_exceptions=True
+                    )
+                    if isinstance(hs_res, dict):
+                        hot_secs = hs_res.get("sectors", [])
+                    inv_rank = (inv_j if isinstance(inv_j, list) else []) + (inv_q if isinstance(inv_q, list) else [])
+                except Exception as e:
+                    yield _sse({"status": "running", "message": f"⚠️ 데이터 수집 지연: {str(e)[:60]}"})
+
+            yield _sse({"status": "running", "message": "🤖 AI 타점 및 매매 전략 생성 중 (최대 90초)..."})
+            try:
+                result = await asyncio.wait_for(
+                    asyncio.to_thread(
+                        generate_realtime_picks,
+                        mkt_data,
+                        vol_rank,
+                        chg_rank,
+                        hot_secs or None,
+                        inv_rank or None,
+                    ),
+                    timeout=100,
+                )
+            except asyncio.TimeoutError:
+                yield _sse({"status": "error", "message": "AI 분석 시간이 초과됐습니다 (100초). 잠시 후 다시 시도해주세요."})
+                return
             yield _sse({"status": "done", "result": result})
         except Exception as e:
             yield _sse({"status": "error", "message": str(e)})
@@ -554,3 +637,323 @@ async def load_analysis_history(ticker: str, limit: int = Query(10)):
     from db import load_stock_analysis_history
     records = await asyncio.to_thread(load_stock_analysis_history, ticker, limit)
     return records or []
+
+
+# ── AI 매수가 추천 ─────────────────────────────────────────────────────────────
+
+class RecommendEntryRequest(BaseModel):
+    ticker: str
+    name: str
+    market: str
+    current_price: float
+    w52_high: float = None
+    w52_low: float = None
+
+@router.post("/recommend-entry")
+async def recommend_entry(req: RecommendEntryRequest):
+    """미매수 관심종목 매수가 추천 (SSE)"""
+    from ai_engine import recommend_entry_price
+
+    async def _gen():
+        yield _sse({"status": "running", "message": f"🤖 {req.name} 최적 매수 타점 분석 중..."})
+        try:
+            result = await asyncio.to_thread(
+                recommend_entry_price,
+                req.ticker,
+                req.name,
+                req.market,
+                req.current_price,
+                req.w52_high,
+                req.w52_low
+            )
+            yield _sse({"status": "done", "result": result})
+        except Exception as e:
+            yield _sse({"status": "error", "message": str(e)})
+
+    return _sse_response(_gen())
+
+
+# ── AI 거래 사후 분석 (Postmortem) ──────────────────────────────────────────────
+
+class PostmortemRequest(BaseModel):
+    ticker: str
+    name: str
+    market: str
+    buy_price: float
+    sell_price: float
+    buy_date: str
+    sell_date: str
+    profit_pct: float
+    owner: str = "USER"
+
+@router.post("/postmortem")
+async def postmortem_analysis(req: PostmortemRequest):
+    """특정 거래에 대한 AI 사후 분석 (SSE)"""
+    from ai_engine import analyze_trade_postmortem
+
+    async def _gen():
+        yield _sse({"status": "running", "message": f"🤖 {req.name} 거래 복기(Postmortem) 분석 중..."})
+        try:
+            result = await asyncio.to_thread(
+                analyze_trade_postmortem,
+                req.ticker,
+                req.name,
+                req.market,
+                req.buy_price,
+                req.sell_price,
+                req.buy_date,
+                req.sell_date,
+                req.profit_pct,
+                req.owner
+            )
+            # 성공적으로 분석이 완료되면 DB의 학습포인트도 업데이트
+            if result and result.get("learning_point") and result.get("learning_point") != "-":
+                from db import update_trade_learning_point
+                # 백그라운드 스레드에서 DB 업데이트
+                await asyncio.to_thread(
+                    update_trade_learning_point, 
+                    req.ticker, 
+                    req.sell_date, 
+                    result["learning_point"]
+                )
+
+            yield _sse({"status": "done", "result": result})
+        except Exception as e:
+            yield _sse({"status": "error", "message": str(e)})
+
+    return _sse_response(_gen())
+
+
+import re
+
+def parse_price_value(text: str) -> float | None:
+    """텍스트 형태의 AI 추천 타점 정보에서 실수를 안전하게 추출하는 정교한 파서."""
+    if not text or text == "-" or "실패" in text or "불가" in text or "관망" in text:
+        return None
+    # 숫자 패턴 추출 (쉼표 제거 후 점이 있는 소수도 처리)
+    matches = re.findall(r'[0-9]+(?:,[0-9]+)*(?:\.[0-9]+)?', text)
+    if not matches:
+        return None
+    
+    raw_num = matches[0].replace(",", "")
+    try:
+        return float(raw_num)
+    except ValueError:
+        return None
+
+
+def auto_register_ai_alerts(market: str, ticker: str, name: str, buy_target: str, sell_target: str, stop_loss: str):
+    """AI가 도출한 매수/목표/손절 가격 타점을 '알림설정' 탭에 자동으로 영속 등록합니다."""
+    from db import save_price_alert
+    
+    buy_p = parse_price_value(buy_target)
+    sell_p = parse_price_value(sell_target)
+    stop_p = parse_price_value(stop_loss)
+    
+    # 각 유효 타점별 가격 저장
+    if buy_p:
+        save_price_alert(market, ticker, name, "AI매수가 도달", buy_p)
+    if sell_p:
+        save_price_alert(market, ticker, name, "AI목표가 도달", sell_p)
+    if stop_p:
+        save_price_alert(market, ticker, name, "AI손절가 도달", stop_p)
+
+
+@router.post("/box-pattern")
+async def box_pattern_analysis(req: BoxPatternRequest):
+    """지지선/저항선 및 AI 박스권·수급 심층 분석 (SSE). 캐시 12시간 적용."""
+    from ai_engine import analyze_box_pattern
+    from db import load_ai_cache, save_ai_cache
+
+    CACHE_KEY = f"box_{req.ticker.upper()}"
+
+    async def _gen():
+        # 1차 캐시 로드
+        cached = await asyncio.to_thread(load_ai_cache, CACHE_KEY)
+        if cached:
+            yield _sse({"status": "done", "result": cached, "from_cache": True})
+            return
+
+        yield _sse({"status": "running", "message": "📦 차트 데이터 분석 및 세력 수급 추적 중..."})
+        try:
+            result = await asyncio.to_thread(
+                analyze_box_pattern,
+                req.ticker,
+                req.name,
+                req.price_data,
+                req.market
+            )
+            # 2차 캐시 저장
+            if result and "error" not in result:
+                await asyncio.to_thread(save_ai_cache, CACHE_KEY, result, 12)
+                
+            yield _sse({"status": "done", "result": result})
+        except Exception as e:
+            yield _sse({"status": "error", "message": str(e)})
+
+    return _sse_response(_gen())
+
+
+class ShadowSectorRequest(BaseModel):
+    ticker: str
+    name: str
+    market: str = "KR"
+    force_update: bool = False
+
+
+@router.post("/shadow-sector")
+async def shadow_sector_analysis(req: ShadowSectorRequest):
+    """실시간 AI 쉐도우 섹터 & 찌라시 팩트 체커 분석 (SSE). 캐시 12시간 적용."""
+    from ai_engine import analyze_shadow_sector_catalyst
+    from db import load_ai_cache, save_ai_cache
+
+    CACHE_KEY = f"ss_{req.ticker.upper()}"
+
+    async def _gen():
+        # 1차: 캐시 로드 (force_update가 아닐 때만 적용)
+        if not req.force_update:
+            cached = await asyncio.to_thread(load_ai_cache, CACHE_KEY)
+            if cached:
+                yield _sse({"status": "done", "result": cached, "from_cache": True})
+                return
+
+        yield _sse({"status": "running", "message": "🔍 실시간 공시 및 밸류체인 추적 중..."})
+        await asyncio.sleep(0.5)
+        yield _sse({"status": "running", "message": "🤖 AI 팩트 교차 검증 및 신뢰 등급 분석 중..."})
+        
+        try:
+            result = await asyncio.to_thread(
+                analyze_shadow_sector_catalyst,
+                req.ticker,
+                req.name,
+                req.market
+            )
+            # 2차: 캐시 저장
+            if result and "error" not in result and result.get("shadow_sector") != "데이터 로드 실패":
+                await asyncio.to_thread(save_ai_cache, CACHE_KEY, result, 12)
+                
+            yield _sse({"status": "done", "result": result})
+        except Exception as e:
+            yield _sse({"status": "error", "message": str(e)})
+
+    return _sse_response(_gen())
+
+
+class ShadowDiscoverRequest(BaseModel):
+    keyword: str
+
+
+@router.post("/shadow-discover")
+async def shadow_discover_analysis(req: ShadowDiscoverRequest):
+    """실시간 AI 쉐도우 종목 발굴 즉석 탐색기 (SSE). 캐시 12시간 적용."""
+    from ai_engine import discover_shadow_stocks
+    from db import load_ai_cache, save_ai_cache
+    import hashlib
+
+    # 검색 키워드 해시 처리하여 캐시 키 생성
+    keyword_hash = hashlib.md5(req.keyword.strip().lower().encode("utf-8")).hexdigest()
+    CACHE_KEY = f"sd_{keyword_hash}"
+
+    async def _gen():
+        # 1차: 캐시 로드
+        cached = await asyncio.to_thread(load_ai_cache, CACHE_KEY)
+        if cached:
+            yield _sse({"status": "done", "result": cached, "from_cache": True})
+            return
+
+        yield _sse({"status": "running", "message": "📡 실시간 구글 RAG 정보망 수집 중..."})
+        await asyncio.sleep(0.5)
+        yield _sse({"status": "running", "message": "🔍 숨겨진 지분 관계 및 자회사 얽힘 판독 중..."})
+        await asyncio.sleep(0.5)
+        yield _sse({"status": "running", "message": "🤖 AI 교차 검증 및 지분 족보 조립 중..."})
+
+        try:
+            result = await asyncio.to_thread(
+                discover_shadow_stocks,
+                req.keyword
+            )
+            # 2차: 캐시 저장
+            if result and "error" not in result and len(result.get("stocks", [])) > 0:
+                await asyncio.to_thread(save_ai_cache, CACHE_KEY, result, 12)
+
+            yield _sse({"status": "done", "result": result})
+        except Exception as e:
+            yield _sse({"status": "error", "message": str(e)})
+
+    return _sse_response(_gen())
+
+
+class OvernightGapRequest(BaseModel):
+    ticker: str
+    name: str
+    market: str = "KR"
+    force_update: bool = False
+
+
+@router.post("/overnight-gap")
+async def overnight_gap_analysis(req: OvernightGapRequest):
+    """실시간 AI 시간외 긴급 진단 & 익일 갭 예측 (SSE). 캐시 2시간 적용."""
+    from ai_engine import analyze_overnight_gap_risk
+    from db import load_ai_cache, save_ai_cache
+
+    CACHE_KEY = f"gap_{req.ticker.upper()}"
+
+    async def _gen():
+        # 1차: 캐시 로드 (force_update가 아닐 때만 적용)
+        if not req.force_update:
+            cached = await asyncio.to_thread(load_ai_cache, CACHE_KEY)
+            if cached:
+                yield _sse({"status": "done", "result": cached, "from_cache": True})
+                return
+
+        yield _sse({"status": "running", "message": "🌙 시간외 돌발 공시 및 최신 뉴스망 탐색 중..."})
+        await asyncio.sleep(0.5)
+        yield _sse({"status": "running", "message": "📊 익일 시초가 갭상/갭하 영향력 연산 중..."})
+        await asyncio.sleep(0.5)
+        yield _sse({"status": "running", "message": "🤖 시간외 단일가 대응 행동 지침 수립 중..."})
+
+        try:
+            result = await asyncio.to_thread(
+                analyze_overnight_gap_risk,
+                req.ticker,
+                req.name,
+                req.market
+            )
+            # 2차: 캐시 저장
+            if result and "error" not in result:
+                await asyncio.to_thread(save_ai_cache, CACHE_KEY, result, 2) # 2시간 신선 캐시
+
+            yield _sse({"status": "done", "result": result})
+        except Exception as e:
+            yield _sse({"status": "error", "message": str(e)})
+
+    return _sse_response(_gen())
+
+
+class OvernightGapBulkRequest(BaseModel):
+    tickers: list[str]
+
+
+@router.post("/overnight-gap-bulk")
+async def overnight_gap_bulk_analysis(req: OvernightGapBulkRequest):
+    """관심/보유 종목 일괄 갭 분석용 API. 캐시된 갭 정보가 있는 것들만 고속 반환합니다.
+    사용자의 수동 '일괄 분석기 작동' 트리거 발생 시 캐시되지 않은 항목들도 큐에 태울 수 있습니다.
+    """
+    from db import load_ai_cache
+    results = {}
+    
+    # 1. 캐시된 갭 정보 일괄 로드
+    for t in req.tickers:
+        t_upper = str(t).upper().strip()
+        if not t_upper:
+            continue
+        cached = load_ai_cache(f"gap_{t_upper}")
+        if cached:
+            results[t_upper] = cached
+            
+    return {"status": "success", "results": results}
+
+
+
+
+
