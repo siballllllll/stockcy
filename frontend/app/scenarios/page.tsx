@@ -842,8 +842,17 @@ function ScenariosPageInner() {
     setMounted(true);
     try {
       const savedIssues = localStorage.getItem(SC_DATA_KEY);
-      if (savedIssues) setIssues(JSON.parse(savedIssues));
-      
+      if (savedIssues) {
+        const parsed = JSON.parse(savedIssues);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          setIssues(parsed);
+        } else {
+          // 빈 배열 등 비정상 캐시 제거 (구버전 코드가 저장한 경우)
+          localStorage.removeItem(SC_DATA_KEY);
+          localStorage.removeItem(SC_TS_KEY);
+        }
+      }
+
       const savedTs = localStorage.getItem(SC_TS_KEY);
       if (savedTs) setLastUpdated(savedTs);
 
@@ -857,9 +866,16 @@ function ScenariosPageInner() {
     }
   }, []);
 
-  // 최초 방문 시 캐시가 없으면 자동 로드
+  // 유효한 캐시가 없으면 자동 분석 시작
   useEffect(() => {
-    if (mounted && !localStorage.getItem(SC_DATA_KEY)) {
+    if (!mounted) return;
+    try {
+      const stored = localStorage.getItem(SC_DATA_KEY);
+      const parsed = stored ? JSON.parse(stored) : null;
+      if (!parsed || !Array.isArray(parsed) || parsed.length === 0) {
+        setFetchTrigger(0);
+      }
+    } catch {
       setFetchTrigger(0);
     }
   }, [mounted]);
