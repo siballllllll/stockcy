@@ -1,9 +1,12 @@
 "use client";
+import { useRef, useEffect, useState } from "react";
 import useSWR from "swr";
 import { api } from "@/lib/api";
 import type { UsIndices, KrIndices } from "@/lib/types";
 import { useRouter } from "next/navigation";
 import { useMarket } from "@/lib/market-context";
+
+const PX_PER_SEC = 80; // 픽셀/초 — 이 값으로 속도 고정
 
 function IdxItem({ name, price, changePct }: { name: string; price: number; changePct: number }) {
   if (!price) return null;
@@ -49,13 +52,40 @@ const DOT = <span style={{ color: "rgba(255,255,255,0.15)", fontSize: "0.75rem",
 const SEP = <span style={{ color: "var(--color-border)", fontSize: "0.75rem", flexShrink: 0 }}>│</span>;
 
 function TickerRow({ children }: { children: React.ReactNode }) {
+  const firstRef = useRef<HTMLSpanElement>(null);
+  const [duration, setDuration] = useState(30);
+
+  useEffect(() => {
+    const el = firstRef.current;
+    if (!el) return;
+    const measure = () => {
+      const w = el.offsetWidth;
+      if (w > 0) setDuration(Math.round(w / PX_PER_SEC));
+    };
+    measure();
+    const obs = new ResizeObserver(measure);
+    obs.observe(el);
+    return () => obs.disconnect();
+  }, []);
+
   return (
-    <div style={{ overflow: "hidden", position: "relative", padding: "4px 0" }}>
+    <div style={{ overflow: "hidden", padding: "4px 0" }}>
       <div
-        className="animate-marquee"
-        style={{ display: "inline-flex", alignItems: "center", gap: "1.5rem", paddingLeft: "100%" }}
+        style={{
+          display: "inline-flex",
+          alignItems: "center",
+          whiteSpace: "nowrap",
+          animation: `marquee-seamless ${duration}s linear infinite`,
+        }}
+        onMouseEnter={e => (e.currentTarget.style.animationPlayState = "paused")}
+        onMouseLeave={e => (e.currentTarget.style.animationPlayState = "running")}
       >
-        {children}
+        <span ref={firstRef} style={{ display: "inline-flex", alignItems: "center", gap: "1.5rem", paddingRight: "3rem" }}>
+          {children}
+        </span>
+        <span style={{ display: "inline-flex", alignItems: "center", gap: "1.5rem", paddingRight: "3rem" }}>
+          {children}
+        </span>
       </div>
     </div>
   );
@@ -104,23 +134,9 @@ export function MarketTickerBar() {
               {kr?.KOSPI  && <IdxItem name="KOSPI"  price={kr.KOSPI.index}  changePct={kr.KOSPI.change_pct} />}
               {DOT}
               {kr?.KOSDAQ && <IdxItem name="KOSDAQ" price={kr.KOSDAQ.index} changePct={kr.KOSDAQ.change_pct} />}
-              {/* 반복 */}
-              {SEP}
-              {kr?.KOSPI  && <IdxItem name="KOSPI"  price={kr.KOSPI.index}  changePct={kr.KOSPI.change_pct} />}
-              {DOT}
-              {kr?.KOSDAQ && <IdxItem name="KOSDAQ" price={kr.KOSDAQ.index} changePct={kr.KOSDAQ.change_pct} />}
             </>
           ) : (
             <>
-              {us?.["S&P 500"] && <IdxItem name="S&P500" price={us["S&P 500"].price} changePct={us["S&P 500"].change_pct} />}
-              {DOT}
-              {us?.NASDAQ      && <IdxItem name="NASDAQ"  price={us.NASDAQ.price}     changePct={us.NASDAQ.change_pct} />}
-              {DOT}
-              {us?.DOW         && <IdxItem name="DOW"     price={us.DOW.price}        changePct={us.DOW.change_pct} />}
-              {DOT}
-              {us?.VIX         && <IdxItem name="VIX"     price={us.VIX.price}        changePct={us.VIX.change_pct} />}
-              {/* 반복 */}
-              {SEP}
               {us?.["S&P 500"] && <IdxItem name="S&P500" price={us["S&P 500"].price} changePct={us["S&P 500"].change_pct} />}
               {DOT}
               {us?.NASDAQ      && <IdxItem name="NASDAQ"  price={us.NASDAQ.price}     changePct={us.NASDAQ.change_pct} />}
