@@ -48,7 +48,7 @@ function StockItem({ name, code, changePct, price }: { name: string; code: strin
   );
 }
 
-const DOT = <span style={{ color: "rgba(255,255,255,0.15)", fontSize: "0.75rem", flexShrink: 0 }}>●</span>;
+const DOT = <span style={{ color: "rgba(255,255,255,0.25)", fontSize: "0.75rem", flexShrink: 0 }}>│</span>;
 const SEP = <span style={{ color: "var(--color-border)", fontSize: "0.75rem", flexShrink: 0 }}>│</span>;
 
 function TickerRow({ children }: { children: React.ReactNode }) {
