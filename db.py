@@ -3,11 +3,343 @@ import json as _json
 import gspread
 import streamlit as st
 import pandas as pd
+import sqlite3
+import threading
 from datetime import datetime, timedelta
 
 # 구글 스프레드시트 API 호출 429 초과 방지용 메모리 캐시 및 TTL(60초) 정의
 _GSHEET_CACHE = {}
 _GSHEET_CACHE_TTL = timedelta(seconds=60)
+
+DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "db.sqlite3")
+
+def get_db_conn():
+    conn = sqlite3.connect(DB_PATH, timeout=10.0)
+    conn.row_factory = sqlite3.Row
+    # WAL 모드: write가 진행 중에도 read가 블로킹되지 않음
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA synchronous=NORMAL")
+    return conn
+
+def init_local_db():
+    conn = get_db_conn()
+    cursor = conn.cursor()
+    
+    # 1. favorites
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS favorites (
+            ticker TEXT PRIMARY KEY,
+            name TEXT,
+            market_type TEXT,
+            added_time TEXT
+        )
+    """)
+    
+    # 2. portfolio
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS portfolio (
+            owner TEXT,
+            ticker TEXT,
+            name TEXT,
+            quantity REAL,
+            buy_price REAL,
+            rating TEXT,
+            updated_time TEXT,
+            PRIMARY KEY (owner, ticker)
+        )
+    """)
+    
+    # 3. ai_portfolio
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS ai_portfolio (
+            ticker TEXT PRIMARY KEY,
+            name TEXT,
+            quantity REAL,
+            buy_price REAL,
+            rating TEXT,
+            updated_time TEXT
+        )
+    """)
+    
+    # 4. trade_history
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS trade_history (
+            owner TEXT,
+            sell_date TEXT,
+            ticker TEXT,
+            name TEXT,
+            quantity REAL,
+            buy_price REAL,
+            sell_price REAL,
+            profit REAL,
+            profit_pct REAL,
+            result TEXT,
+            learning_point TEXT,
+            PRIMARY KEY (owner, sell_date, ticker)
+        )
+    """)
+    
+    # 5. virtual_balances
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS virtual_balances (
+            owner TEXT PRIMARY KEY,
+            balance REAL,
+            updated_time TEXT
+        )
+    """)
+    
+    # 6. ai_recommendations
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS ai_recommendations (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            logged_time TEXT,
+            rec_type TEXT,
+            ticker TEXT,
+            name TEXT,
+            rating TEXT,
+            buy_target TEXT,
+            sell_target TEXT,
+            stop_loss TEXT
+        )
+    """)
+    
+    # 7. ai_scan_logs
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS ai_scan_logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            scan_time TEXT,
+            ticker TEXT,
+            name TEXT,
+            price REAL,
+            position TEXT,
+            action TEXT,
+            confidence INTEGER,
+            reason TEXT
+        )
+    """)
+    
+    # 8. price_alerts
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS price_alerts (
+            market TEXT,
+            ticker TEXT,
+            name TEXT,
+            alert_type TEXT,
+            target_price REAL,
+            updated_time TEXT,
+            status TEXT,
+            PRIMARY KEY (ticker, alert_type)
+        )
+    """)
+    
+    # 9. trade_analysis
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS trade_analysis (
+            key_name TEXT PRIMARY KEY,
+            analysis_json TEXT
+        )
+    """)
+    
+    # 10. telegram_config
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS telegram_config (
+            key TEXT PRIMARY KEY,
+            token TEXT,
+            chat_id TEXT
+        )
+    """)
+
+    # 11. ai_cache
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS ai_cache (
+            cache_key TEXT PRIMARY KEY,
+            saved_time TEXT,
+            expire_time TEXT,
+            data_json TEXT
+        )
+    """)
+
+    # 12. analysis_history
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS analysis_history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            analysis_time TEXT,
+            market TEXT,
+            ticker TEXT,
+            name TEXT,
+            current_price TEXT,
+            buy_target TEXT,
+            sell_target TEXT,
+            stop_loss TEXT,
+            rating TEXT,
+            long_term_rating TEXT,
+            short_term_view_pct TEXT,
+            analysis_json TEXT
+        )
+    """)
+
+    # 13. exchange_rates
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS exchange_rates (
+            date_str TEXT PRIMARY KEY,
+            rate REAL,
+            updated_time TEXT
+        )
+    """)
+    
+    conn.commit()
+    conn.close()
+
+def seed_sync_from_gsheet():
+    """로컬 데이터베이스가 비어있고 구글 시트 접근이 가능할 때 구글 시트 데이터를 로컬로 마이그레이션합니다."""
+    def run_sync():
+        try:
+            conn = get_db_conn()
+            cursor = conn.cursor()
+            
+            # 동기화가 필요한 테이블이 하나라도 비어있는지 체크
+            cursor.execute("SELECT COUNT(*) FROM favorites")
+            fav_count = cursor.fetchone()[0]
+            cursor.execute("SELECT COUNT(*) FROM portfolio")
+            port_count = cursor.fetchone()[0]
+            cursor.execute("SELECT COUNT(*) FROM trade_history")
+            trade_count = cursor.fetchone()[0]
+            cursor.execute("SELECT COUNT(*) FROM virtual_balances")
+            bal_count = cursor.fetchone()[0]
+            cursor.execute("SELECT COUNT(*) FROM ai_portfolio")
+            ai_port_count = cursor.fetchone()[0]
+            
+            if fav_count > 0 and port_count > 0 and trade_count > 0 and bal_count > 0 and ai_port_count > 0:
+                conn.close()
+                return
+
+            # 스프레드시트 단 한번만 호출
+            sh, _ = _get_spreadsheet()
+            if not sh:
+                conn.close()
+                return
+            
+            # 1. 즐겨찾기 동기화
+            if fav_count == 0:
+                try:
+                    ws = sh.worksheet("즐겨찾기")
+                    records = safe_get_all_records(ws)
+                    for r in records:
+                        cursor.execute(
+                            "INSERT OR IGNORE INTO favorites (ticker, name, market_type, added_time) VALUES (?, ?, ?, ?)",
+                            (str(r.get("티커", "")), str(r.get("종목명", "")), str(r.get("시장", "")), str(r.get("추가시간", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))))
+                        )
+                except Exception:
+                    pass
+                        
+            # 2. 현재포트폴리오 동기화
+            if port_count == 0:
+                try:
+                    ws = sh.worksheet("현재포트폴리오")
+                    records = safe_get_all_records(ws)
+                    for r in records:
+                        cursor.execute(
+                            "INSERT OR IGNORE INTO portfolio (owner, ticker, name, quantity, buy_price, rating, updated_time) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                            (str(r.get("소유자", "USER")).upper(), str(r.get("티커", "")), str(r.get("종목명", "")),
+                             float(r.get("수량", 0) or 0), float(r.get("매수가($)", 0) or 0), str(r.get("등급", "-")), str(r.get("저장시간", "")))
+                        )
+                except Exception:
+                    pass
+
+            # 3. 거래내역 동기화
+            if trade_count == 0:
+                try:
+                    ws = sh.worksheet("거래내역")
+                    records = safe_get_all_records(ws)
+                    for r in records:
+                        cursor.execute(
+                            "INSERT OR IGNORE INTO trade_history (owner, sell_date, ticker, name, quantity, buy_price, sell_price, profit, profit_pct, result, learning_point) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                            (str(r.get("소유자", "USER")).upper(), str(r.get("매도시간", "")), str(r.get("티커", "")), str(r.get("종목명", "")),
+                             float(r.get("수량", 0) or 0), float(r.get("매수가($)", 0) or 0), float(r.get("매도가($)", 0) or 0),
+                             float(r.get("수익금($)", 0) or 0), float(r.get("수익률(%)", 0) or 0), str(r.get("결과", "")), str(r.get("학습포인트", "")))
+                        )
+                except Exception:
+                    pass
+
+            # 4. 모의계좌 잔고 동기화
+            if bal_count == 0:
+                try:
+                    ws = sh.worksheet("모의투자계좌")
+                    records = safe_get_all_records(ws)
+                    for r in records:
+                        cursor.execute(
+                            "INSERT OR IGNORE INTO virtual_balances (owner, balance, updated_time) VALUES (?, ?, ?)",
+                            (str(r.get("소유자", "")).upper(), float(r.get("잔고(₩)", 10000000)), str(r.get("최근업데이트", "")))
+                        )
+                except Exception:
+                    pass
+
+            # 5. AI추천포트폴리오 동기화
+            if ai_port_count == 0:
+                try:
+                    ws = sh.worksheet("AI추천포트폴리오")
+                    records = safe_get_all_records(ws)
+                    for r in records:
+                        cursor.execute(
+                            "INSERT OR IGNORE INTO ai_portfolio (ticker, name, quantity, buy_price, rating, updated_time) VALUES (?, ?, ?, ?, ?, ?)",
+                            (str(r.get("티커", "")), str(r.get("종목명", "")), float(r.get("수량", 0) or 0), float(r.get("매수가($)", 0) or 0),
+                             str(r.get("등급", "-")), str(r.get("저장시간", "")))
+                        )
+                except Exception:
+                    pass
+
+            conn.commit()
+            conn.close()
+        except Exception as e:
+            print(f"Seed sync failed: {e}")
+
+    threading.Thread(target=run_sync, daemon=True).start()
+
+def safe_get_all_records(ws) -> list[dict]:
+    """gspread의 ws.get_all_records()가 헤더 중복 예외 등으로 터지는 것을 방지하는 안전한 조회 헬퍼입니다."""
+    try:
+        return ws.get_all_records()
+    except Exception as e:
+        try:
+            rows = ws.get_all_values()
+            if not rows:
+                return []
+            headers = rows[0]
+            seen = {}
+            unique_headers = []
+            for h in headers:
+                h_str = str(h).strip()
+                if not h_str:
+                    h_str = "empty_column"
+                if h_str in seen:
+                    seen[h_str] += 1
+                    unique_headers.append(f"{h_str}_{seen[h_str]}")
+                else:
+                    seen[h_str] = 0
+                    unique_headers.append(h_str)
+
+            records = []
+            for r in rows[1:]:
+                row_vals = r + [""] * (len(unique_headers) - len(r))
+                row_vals = row_vals[:len(unique_headers)]
+                records.append(dict(zip(unique_headers, row_vals)))
+            return records
+        except Exception as inner_e:
+            print(f"Failed safe_get_all_records fallback: {inner_e}")
+            return []
+
+def run_background_backup(target_func, *args, **kwargs):
+    """지정한 동기화용 백업 함수를 백그라운드 스레드에서 안정적으로 실행합니다."""
+    def worker():
+        try:
+            target_func(*args, **kwargs)
+        except Exception as e:
+            print(f"Background backup failed for {target_func.__name__}: {e}")
+    threading.Thread(target=worker, daemon=True).start()
+
+# 모듈 로드 시 데이터베이스 및 시드 설정 가동
+init_local_db()
+seed_sync_from_gsheet()
 
 @st.cache_resource
 def get_gsheet_client():
@@ -54,23 +386,21 @@ def _get_or_create_worksheet(sh, title, headers):
         ws.update("A1", [headers])
         return ws
 
-def save_portfolio_to_gsheet(portfolio_list, current_prices_df=None, owner="USER"):
-    """현재 포트폴리오 스냅샷을 '현재포트폴리오' 탭에 저장합니다. (Owner별 병합)"""
+def _gsheet_backup_portfolio(portfolio_list, current_prices_df=None, owner="USER"):
+    """[구글 시트 백업 전용] 현재 포트폴리오 스냅샷을 '현재포트폴리오' 탭에 백업합니다. (Owner별 병합)"""
     sh, msg = _get_spreadsheet()
     if not sh:
         return False, msg
-
     try:
         headers = ["소유자", "저장시간", "티커", "종목명", "수량", "매수가($)", "현재가($)", "수익금($)", "수익률(%)", "등급"]
         ws = _get_or_create_worksheet(sh, "현재포트폴리오", headers)
         
         # 기존 데이터 가져와서 다른 소유자 데이터만 유지
-        all_records = ws.get_all_records()
+        all_records = safe_get_all_records(ws)
         other_records = [r for r in all_records if str(r.get("소유자", "USER")).upper() != owner.upper()]
         
         ws.clear()
         ws.append_row(headers)
-
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         
         # 다른 소유자 데이터 복구
@@ -88,7 +418,6 @@ def save_portfolio_to_gsheet(portfolio_list, current_prices_df=None, owner="USER
             qty = item["quantity"]
             name = item.get("name", ticker)
             rating = item.get("rating", "-")
-
             cp = bp
             profit, profit_pct = 0.0, 0.0
             if current_prices_df is not None and not current_prices_df.empty:
@@ -101,53 +430,69 @@ def save_portfolio_to_gsheet(portfolio_list, current_prices_df=None, owner="USER
             ws.append_row([owner.upper(), now, ticker, name, qty,
                            round(bp, 2), round(cp, 2),
                            round(profit, 2), round(profit_pct, 2), rating])
-
-        # 캐시 무효화
-        _GSHEET_CACHE.pop(f"portfolio_{owner}", None)
-        return True, f"'{sh.title}' > '현재포트폴리오' 탭에 {len(portfolio_list)}개 종목 저장 완료!"
+        return True, "성공"
     except Exception as e:
-        return False, f"저장 오류: {e}"
+        print(f"Failed to backup portfolio to Google Sheets: {e}")
+        return False, str(e)
+
+def save_portfolio_to_gsheet(portfolio_list, current_prices_df=None, owner="USER"):
+    """현재 포트폴리오 목록을 로컬 SQLite에 즉시 저장하고, 백그라운드 스레드로 구글 시트에 업데이트합니다."""
+    try:
+        conn = get_db_conn()
+        cursor = conn.cursor()
+        
+        # 해당 owner의 기존 포트폴리오를 지우고 새로 채움
+        cursor.execute("DELETE FROM portfolio WHERE UPPER(owner) = ?", (owner.upper(),))
+        
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        for item in portfolio_list:
+            cursor.execute(
+                "INSERT OR REPLACE INTO portfolio (owner, ticker, name, quantity, buy_price, rating, updated_time) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (owner.upper(), str(item["ticker"]), str(item.get("name", item["ticker"])), float(item["buy_price"]), float(item["quantity"]), str(item.get("rating", "-")), now)
+            )
+        conn.commit()
+        conn.close()
+        
+        # 구글 시트에 비동기 백업 구동
+        run_background_backup(_gsheet_backup_portfolio, portfolio_list, current_prices_df, owner)
+        
+        return True, f"로컬 데이터베이스 및 구글 시트 백업 요청 완료! ({len(portfolio_list)}개 종목)"
+    except Exception as e:
+        return False, f"로컬 저장 오류: {e}"
 
 def load_portfolio_from_gsheet(owner="USER"):
-    """'현재포트폴리오' 탭에서 포트폴리오 목록을 불러옵니다."""
-    now = datetime.now()
-    cache_key = f"portfolio_{owner}"
-    if cache_key in _GSHEET_CACHE:
-        cached_data, cached_time = _GSHEET_CACHE[cache_key]
-        if now - cached_time < _GSHEET_CACHE_TTL:
-            return cached_data
-
-    sh, msg = _get_spreadsheet()
-    if not sh:
-        return []
+    """로컬 SQLite에서 포트폴리오 목록을 불러옵니다."""
     try:
-        ws = sh.worksheet("현재포트폴리오")
-        records = ws.get_all_records()
+        conn = get_db_conn()
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT ticker, name, buy_price, quantity, updated_time as buy_date, rating, owner FROM portfolio WHERE UPPER(owner) = ?",
+            (owner.upper(),)
+        )
+        rows = cursor.fetchall()
+        conn.close()
+        
         portfolio_list = []
-        for r in records:
-            if str(r.get("소유자", "USER")).upper() != owner.upper():
-                continue
-            ticker = str(r.get("티커", ""))
+        for r in rows:
+            ticker = str(r["ticker"])
             if ticker.isdigit() and len(ticker) < 6:
                 ticker = ticker.zfill(6)
             portfolio_list.append({
                 "ticker": ticker,
-                "name": str(r.get("종목명", "")),
-                "buy_price": float(r.get("매수가($)", 0) or 0),
-                "quantity": float(r.get("수량", 0) or 0),
-                "buy_date": str(r.get("저장시간", "")),
-                "rating": str(r.get("등급", "-")),
-                "owner": str(r.get("소유자", "USER")).upper()
+                "name": str(r["name"]),
+                "buy_price": float(r["buy_price"] or 0),
+                "quantity": float(r["quantity"] or 0),
+                "buy_date": str(r["buy_date"] or ""),
+                "rating": str(r["rating"] or "-"),
+                "owner": str(r["owner"]).upper()
             })
-        _GSHEET_CACHE[cache_key] = (portfolio_list, now)
         return portfolio_list
     except Exception as e:
-        import traceback
-        traceback.print_exc()
-        return [{"ticker": "ERROR", "name": f"에러: {str(e)}", "buy_price": 0, "quantity": 0}]
+        print(f"Error loading portfolio from SQLite: {e}")
+        return []
 
-def save_ai_portfolio_to_gsheet(portfolio_list):
-    """AI 자동 추천 종목 목록을 'AI추천포트폴리오' 탭에 저장합니다."""
+def _gsheet_backup_ai_portfolio(portfolio_list):
+    """[구글 시트 백업 전용] AI 자동 추천 종목 목록을 'AI추천포트폴리오' 탭에 백업합니다."""
     sh, msg = _get_spreadsheet()
     if not sh:
         return False, msg
@@ -166,44 +511,63 @@ def save_ai_portfolio_to_gsheet(portfolio_list):
                 round(float(item.get("buy_price", 0)), 2),
                 item.get("rating", "-"),
             ])
-        return True, f"AI 추천 포트폴리오 {len(portfolio_list)}개 저장 완료!"
+        return True, "성공"
     except Exception as e:
-        return False, f"저장 오류: {e}"
+        print(f"Failed to backup AI portfolio to Google Sheets: {e}")
+        return False, str(e)
 
+def save_ai_portfolio_to_gsheet(portfolio_list):
+    """AI 자동 추천 종목 목록을 로컬 SQLite에 즉시 저장하고, 백그라운드 스레드로 구글 시트에 백업합니다."""
+    try:
+        conn = get_db_conn()
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM ai_portfolio")
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        for item in portfolio_list:
+            cursor.execute(
+                "INSERT OR REPLACE INTO ai_portfolio (ticker, name, quantity, buy_price, rating, updated_time) VALUES (?, ?, ?, ?, ?, ?)",
+                (str(item["ticker"]), str(item.get("name", item["ticker"])), float(item.get("quantity", 0)), float(item.get("buy_price", 0)), str(item.get("rating", "-")), now)
+            )
+        conn.commit()
+        conn.close()
+        
+        run_background_backup(_gsheet_backup_ai_portfolio, portfolio_list)
+        return True, f"AI 추천 포트폴리오 {len(portfolio_list)}개 저장 및 백업 요청 완료!"
+    except Exception as e:
+        return False, f"로컬 저장 오류: {e}"
 
 def load_ai_portfolio_from_gsheet():
-    """'AI추천포트폴리오' 탭에서 목록을 불러옵니다."""
-    sh, msg = _get_spreadsheet()
-    if not sh:
-        return []
+    """로컬 SQLite에서 AI 자동 추천 포트폴리오 목록을 불러옵니다."""
     try:
-        ws = sh.worksheet("AI추천포트폴리오")
-        records = ws.get_all_records()
+        conn = get_db_conn()
+        cursor = conn.cursor()
+        cursor.execute("SELECT ticker, name, buy_price, quantity, updated_time as buy_date, rating FROM ai_portfolio")
+        rows = cursor.fetchall()
+        conn.close()
+        
         result = []
-        for r in records:
-            if not r.get("티커"): continue
-            ticker = str(r.get("티커", ""))
+        for r in rows:
+            ticker = str(r["ticker"])
             if ticker.isdigit() and len(ticker) < 6:
                 ticker = ticker.zfill(6)
             result.append({
                 "ticker":    ticker,
-                "name":      str(r.get("종목명", "")),
-                "buy_price": float(r.get("매수가($)", 0) or 0),
-                "quantity":  int(r.get("수량", 0) or 0),
-                "buy_date":  str(r.get("저장시간", "")),
-                "rating":    str(r.get("등급", "-")),
+                "name":      str(r["name"]),
+                "buy_price": float(r["buy_price"] or 0),
+                "quantity":  int(r["quantity"] or 0),
+                "buy_date":  str(r["buy_date"] or ""),
+                "rating":    str(r["rating"] or "-"),
             })
         return result
-    except Exception:
+    except Exception as e:
+        print(f"Error loading AI portfolio from SQLite: {e}")
         return []
 
-
-def save_trade_record(trade, owner="USER"):
-    """완료된 거래 1건을 '거래내역' 탭에 기록합니다."""
+def _gsheet_backup_save_trade(trade, owner="USER"):
+    """[구글 시트 백업 전용] 완료된 거래 1건을 '거래내역' 탭에 기록합니다."""
     sh, msg = _get_spreadsheet()
     if not sh:
         return False, msg
-
     try:
         headers = ["소유자", "매도시간", "티커", "종목명", "수량", "매수가($)", "매도가($)", "수익금($)", "수익률(%)", "결과", "학습포인트"]
         ws = _get_or_create_worksheet(sh, "거래내역", headers)
@@ -220,32 +584,69 @@ def save_trade_record(trade, owner="USER"):
             trade.get("result", ""),
             trade.get("learning_point", "")
         ])
-        return True, "거래 내역이 구글 시트에 기록되었습니다."
+        return True, "성공"
     except Exception as e:
-        return False, f"기록 오류: {e}"
+        print(f"Failed to backup trade record to Google Sheets: {e}")
+        return False, str(e)
 
-def delete_trade_from_gsheet(ticker: str, sell_date: str):
-    """'거래내역' 탭에서 ticker + sell_date가 일치하는 행을 삭제합니다."""
+def save_trade_record(trade, owner="USER"):
+    """완료된 거래 1건을 로컬 SQLite에 즉시 저장하고, 백그라운드로 구글 시트에 업데이트합니다."""
+    try:
+        conn = get_db_conn()
+        cursor = conn.cursor()
+        
+        sell_date = trade.get("sell_date") or datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        cursor.execute(
+            "INSERT OR REPLACE INTO trade_history (owner, sell_date, ticker, name, quantity, buy_price, sell_price, profit, profit_pct, result, learning_point) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (owner.upper(), sell_date, str(trade.get("ticker", "")), str(trade.get("name", "")),
+             float(trade.get("quantity", 0)), float(trade.get("buy_price", 0)), float(trade.get("sell_price", 0)),
+             float(trade.get("profit", 0)), float(trade.get("profit_pct", 0)), str(trade.get("result", "")), str(trade.get("learning_point", "")))
+        )
+        conn.commit()
+        conn.close()
+        
+        run_background_backup(_gsheet_backup_save_trade, trade, owner)
+        return True, "거래 내역이 로컬 DB에 기록되었으며 백업을 요청했습니다."
+    except Exception as e:
+        return False, f"로컬 기록 오류: {e}"
+
+def _gsheet_backup_delete_trade(ticker, sell_date):
+    """[구글 시트 백업 전용] '거래내역' 탭에서 ticker + sell_date가 일치하는 행을 삭제합니다."""
     sh, msg = _get_spreadsheet()
     if not sh:
         return False, msg
     try:
         ws = sh.worksheet("거래내역")
         rows = ws.get_all_values()
-        # 헤더 제외, 역순으로 찾아서 삭제 (인덱스 밀림 방지)
         for i in range(len(rows) - 1, 0, -1):
             row = rows[i]
             if len(row) >= 3 and str(row[1]).strip() == str(sell_date).strip() and str(row[2]).strip() == str(ticker).strip():
-                ws.delete_rows(i + 1)  # gspread는 1-indexed
+                ws.delete_rows(i + 1)
                 return True, "구글 시트에서 삭제 완료"
-        return False, "해당 거래를 구글 시트에서 찾지 못했습니다."
-    except gspread.WorksheetNotFound:
-        return False, "거래내역 탭이 없습니다."
+        return False, "구글 시트에서 행을 찾지 못함"
     except Exception as e:
-        return False, f"삭제 오류: {e}"
+        print(f"Failed to delete trade from Google Sheets: {e}")
+        return False, str(e)
 
-def update_trade_learning_point(ticker: str, sell_date: str, learning_point: str):
-    """'거래내역' 탭에서 특정 거래의 '학습포인트' 열을 업데이트합니다."""
+def delete_trade_from_gsheet(ticker: str, sell_date: str):
+    """로컬 SQLite에서 특정 거래 정보를 즉시 삭제하고, 백그라운드 스레드로 구글 시트에서 지웁니다."""
+    try:
+        conn = get_db_conn()
+        cursor = conn.cursor()
+        cursor.execute(
+            "DELETE FROM trade_history WHERE TRIM(sell_date) = TRIM(?) AND TRIM(ticker) = TRIM(?)",
+            (sell_date, ticker)
+        )
+        conn.commit()
+        conn.close()
+        
+        run_background_backup(_gsheet_backup_delete_trade, ticker, sell_date)
+        return True, "로컬 DB에서 삭제되었으며 구글 시트 삭제 요청을 보냈습니다."
+    except Exception as e:
+        return False, f"로컬 삭제 오류: {e}"
+
+def _gsheet_backup_update_learning_point(ticker, sell_date, learning_point):
+    """[구글 시트 백업 전용] '거래내역' 탭에서 특정 거래의 '학습포인트' 열을 업데이트합니다."""
     sh, msg = _get_spreadsheet()
     if not sh:
         return False, msg
@@ -255,106 +656,124 @@ def update_trade_learning_point(ticker: str, sell_date: str, learning_point: str
         headers = rows[0]
         try:
             lp_col_idx = headers.index("학습포인트") + 1
+            for i in range(len(rows) - 1, 0, -1):
+                row = rows[i]
+                if len(row) >= 3 and str(row[1]).strip() == str(sell_date).strip() and str(row[2]).strip() == str(ticker).strip():
+                    ws.update_cell(i + 1, lp_col_idx, learning_point)
+                    return True, "학습포인트 구글 시트 저장 완료"
         except ValueError:
-            return False, "'학습포인트' 컬럼이 없습니다."
-
-        for i in range(len(rows) - 1, 0, -1):
-            row = rows[i]
-            if len(row) >= 3 and str(row[1]).strip() == str(sell_date).strip() and str(row[2]).strip() == str(ticker).strip():
-                ws.update_cell(i + 1, lp_col_idx, learning_point)
-                return True, "학습포인트 저장 완료"
-        return False, "해당 거래를 찾을 수 없습니다."
+            pass
+        return False, "구글 시트에서 찾지 못함"
     except Exception as e:
-        return False, f"업데이트 오류: {e}"
+        print(f"Failed to update learning point in Google Sheets: {e}")
+        return False, str(e)
 
+def update_trade_learning_point(ticker: str, sell_date: str, learning_point: str):
+    """로컬 SQLite에서 특정 거래의 학습포인트를 즉시 갱신하고, 백그라운드 스레드로 구글 시트에 동기화합니다."""
+    try:
+        conn = get_db_conn()
+        cursor = conn.cursor()
+        cursor.execute(
+            "UPDATE trade_history SET learning_point = ? WHERE TRIM(sell_date) = TRIM(?) AND TRIM(ticker) = TRIM(?)",
+            (learning_point, sell_date, ticker)
+        )
+        conn.commit()
+        conn.close()
+        
+        run_background_backup(_gsheet_backup_update_learning_point, ticker, sell_date, learning_point)
+        return True, "로컬 DB 학습포인트 업데이트 및 백업 완료!"
+    except Exception as e:
+        return False, f"로컬 업데이트 오류: {e}"
 
 def load_trade_history_from_gsheet(owner="USER"):
-    """'거래내역' 탭에서 모든 거래 기록을 DataFrame으로 불러옵니다."""
-    sh, msg = _get_spreadsheet()
-    if not sh:
-        return None, msg
-
+    """로컬 SQLite에서 모든 거래 기록을 DataFrame으로 불러옵니다."""
     try:
-        ws = sh.worksheet("거래내역")
-        records = ws.get_all_records()
-        if not records:
-            return pd.DataFrame(), "구글 시트의 거래내역 탭이 비어있습니다."
+        conn = get_db_conn()
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT owner as 소유자, sell_date as 매도시간, ticker as 티커, name as 종목명, quantity as 수량, buy_price as `매수가($)`, sell_price as `매도가($)`, profit as `수익금($)`, profit_pct as `수익률(%)`, result as 결과, learning_point as 학습포인트 FROM trade_history WHERE UPPER(owner) = ?",
+            (owner.upper(),)
+        )
+        rows = cursor.fetchall()
+        conn.close()
         
         filtered = []
-        for r in records:
-            if str(r.get("소유자", "USER")).upper() != owner.upper():
-                continue
-            t = str(r.get("티커", ""))
+        for r in rows:
+            row_dict = dict(r)
+            t = str(row_dict["티커"])
             if t.isdigit() and len(t) < 6:
-                r["티커"] = t.zfill(6)
-            filtered.append(r)
-                
+                row_dict["티커"] = t.zfill(6)
+            filtered.append(row_dict)
+            
         return pd.DataFrame(filtered), "성공"
-    except gspread.WorksheetNotFound:
-        return pd.DataFrame(), "거래내역 탭이 아직 없습니다. 매도 기록 시 자동으로 생성됩니다."
     except Exception as e:
-        return None, f"로드 오류: {e}"
+        print(f"Error loading trade history from SQLite: {e}")
+        return None, f"로컬 DB 오류: {e}"
 
 # ── 모의투자 계좌 잔고 관리 ──
 def load_virtual_balances():
-    """'모의투자계좌' 탭에서 소유자별 현금 잔고를 불러옵니다."""
-    now = datetime.now()
-    cache_key = "virtual_balances"
-    if cache_key in _GSHEET_CACHE:
-        cached_data, cached_time = _GSHEET_CACHE[cache_key]
-        if now - cached_time < _GSHEET_CACHE_TTL:
-            return cached_data
-
-    sh, msg = _get_spreadsheet()
-    if not sh:
-        return {"USER": 10000000, "AI": 10000000}
+    """로컬 SQLite에서 소유자별 현금 잔고를 불러옵니다."""
     try:
-        ws = sh.worksheet("모의투자계좌")
-        records = ws.get_all_records()
-        balances = {"USER": 10000000, "AI": 10000000}
-        for r in records:
-            owner = str(r.get("소유자", "")).upper()
-            if owner:
-                balances[owner] = float(r.get("잔고(₩)", 10000000))
-        _GSHEET_CACHE[cache_key] = (balances, now)
+        conn = get_db_conn()
+        cursor = conn.cursor()
+        cursor.execute("SELECT owner, balance FROM virtual_balances")
+        rows = cursor.fetchall()
+        conn.close()
+        
+        balances = {"USER": 10000000.0, "AI": 10000000.0, "AI_AGENT": 10000000.0}
+        for r in rows:
+            balances[str(r["owner"]).upper()] = float(r["balance"] or 10000000)
         return balances
-    except gspread.WorksheetNotFound:
-        return {"USER": 10000000, "AI": 10000000}
-    except Exception:
-        return {"USER": 10000000, "AI": 10000000}
+    except Exception as e:
+        print(f"Error loading virtual balances from SQLite: {e}")
+        return {"USER": 10000000.0, "AI": 10000000.0, "AI_AGENT": 10000000.0}
 
-def save_virtual_balance(owner: str, balance: float):
-    """'모의투자계좌' 탭에 소유자의 현금 잔고를 저장합니다."""
+def _gsheet_backup_save_balance(owner: str, balance: float):
+    """[구글 시트 백업 전용] '모의투자계좌' 탭에 소유자의 현금 잔고를 저장합니다."""
     sh, msg = _get_spreadsheet()
     if not sh:
         return False
     try:
         headers = ["소유자", "잔고(₩)", "최근업데이트"]
         ws = _get_or_create_worksheet(sh, "모의투자계좌", headers)
-        records = ws.get_all_records()
-        
+        records = safe_get_all_records(ws)
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         found = False
-        rows_to_update = []
-        
         for idx, r in enumerate(records):
             if str(r.get("소유자", "")).upper() == owner.upper():
                 found = True
                 ws.update_cell(idx + 2, 2, balance)
                 ws.update_cell(idx + 2, 3, now)
                 break
-        
         if not found:
             ws.append_row([owner.upper(), balance, now])
-            
-        _GSHEET_CACHE.pop("virtual_balances", None)
         return True
-    except Exception:
+    except Exception as e:
+        print(f"Failed to backup virtual balance to Google Sheets: {e}")
         return False
 
-def log_ai_recommendation(rec_type: str, ticker: str, name: str, rating: str,
-                           buy_target: str, sell_target: str, stop_loss: str):
-    """AI 추천 내역을 'AI추천로그' 탭에 자동 기록합니다."""
+def save_virtual_balance(owner: str, balance: float):
+    """로컬 SQLite에 현금 잔고를 저장하고, 백그라운드 스레드로 구글 시트에 업데이트합니다."""
+    try:
+        conn = get_db_conn()
+        cursor = conn.cursor()
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        cursor.execute(
+            "INSERT OR REPLACE INTO virtual_balances (owner, balance, updated_time) VALUES (?, ?, ?)",
+            (owner.upper(), float(balance), now)
+        )
+        conn.commit()
+        conn.close()
+        
+        run_background_backup(_gsheet_backup_save_balance, owner, balance)
+        return True
+    except Exception as e:
+        print(f"Error saving virtual balance: {e}")
+        return False
+
+def _gsheet_backup_log_recommendation(rec_type: str, ticker: str, name: str, rating: str,
+                                     buy_target: str, sell_target: str, stop_loss: str):
+    """[구글 시트 백업 전용] AI 추천 내역을 'AI추천로그' 탭에 백업합니다."""
     sh, msg = _get_spreadsheet()
     if not sh:
         return False, msg
@@ -363,43 +782,80 @@ def log_ai_recommendation(rec_type: str, ticker: str, name: str, rating: str,
         ws = _get_or_create_worksheet(sh, "AI추천로그", headers)
         ws.append_row([
             datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            rec_type,
-            ticker,
-            name,
-            rating,
-            str(buy_target),
-            str(sell_target),
-            str(stop_loss),
+            rec_type, ticker, name, rating,
+            str(buy_target), str(sell_target), str(stop_loss)
         ])
-        return True, "AI 추천 로그 기록 완료"
+        return True, "성공"
     except Exception as e:
-        return False, f"로그 기록 오류: {e}"
- 
- 
-def save_favorite(market_type: str, ticker: str, name: str):
-    """종목을 '즐겨찾기' 탭에 추가합니다."""
+        print(f"Failed to backup AI recommendation log: {e}")
+        return False, str(e)
+
+def log_ai_recommendation(rec_type: str, ticker: str, name: str, rating: str,
+                           buy_target: str, sell_target: str, stop_loss: str):
+    """AI 추천 내역을 로컬 SQLite에 즉시 기록하고, 백그라운드 스레드로 구글 시트에 백업합니다."""
+    try:
+        conn = get_db_conn()
+        cursor = conn.cursor()
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        cursor.execute(
+            "INSERT INTO ai_recommendations (logged_time, rec_type, ticker, name, rating, buy_target, sell_target, stop_loss) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (now, rec_type, ticker, name, rating, str(buy_target), str(sell_target), str(stop_loss))
+        )
+        conn.commit()
+        conn.close()
+        
+        run_background_backup(_gsheet_backup_log_recommendation, rec_type, ticker, name, rating, buy_target, sell_target, stop_loss)
+        return True, "AI 추천 로그가 기록되었습니다."
+    except Exception as e:
+        return False, f"로컬 기록 오류: {e}"
+
+
+def _gsheet_backup_save_favorite(market_type: str, ticker: str, name: str):
+    """[구글 시트 백업 전용] 종목을 '즐겨찾기' 탭에 백업합니다."""
     sh, msg = _get_spreadsheet()
     if not sh: return False, msg
     try:
         headers = ["추가시간", "시장", "티커", "종목명"]
         ws = _get_or_create_worksheet(sh, "즐겨찾기", headers)
-        
-        # 중복 체크
-        existing = ws.get_all_records()
-        if any(r["티커"] == ticker for r in existing):
-            return True, "이미 즐겨찾기에 등록된 종목입니다."
-            
+        existing = safe_get_all_records(ws)
+        if any(str(r.get("티커", "")).strip() == str(ticker).strip() for r in existing):
+            return True, "이미 존재함"
         ws.append_row([
             datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             market_type, ticker, name
         ])
-        _GSHEET_CACHE.pop("favorites", None)
+        return True, "성공"
+    except Exception as e:
+        print(f"Failed to backup favorite: {e}")
+        return False, str(e)
+
+def save_favorite(market_type: str, ticker: str, name: str):
+    """종목을 로컬 SQLite 즐겨찾기에 추가하고, 백그라운드로 구글 시트에 업데이트합니다."""
+    try:
+        conn = get_db_conn()
+        cursor = conn.cursor()
+        
+        # 중복 체크
+        cursor.execute("SELECT COUNT(*) FROM favorites WHERE ticker = ?", (ticker,))
+        if cursor.fetchone()[0] > 0:
+            conn.close()
+            return True, "이미 즐겨찾기에 등록된 종목입니다."
+            
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        cursor.execute(
+            "INSERT INTO favorites (ticker, name, market_type, added_time) VALUES (?, ?, ?, ?)",
+            (ticker, name, market_type, now)
+        )
+        conn.commit()
+        conn.close()
+        
+        run_background_backup(_gsheet_backup_save_favorite, market_type, ticker, name)
         return True, f"[{name}] 즐겨찾기에 추가되었습니다."
     except Exception as e:
-        return False, f"저장 오류: {e}"
+        return False, f"로컬 저장 오류: {e}"
 
-def remove_favorite(ticker: str):
-    """종목을 '즐겨찾기' 탭에서 삭제합니다."""
+def _gsheet_backup_remove_favorite(ticker: str):
+    """[구글 시트 백업 전용] 종목을 '즐겨찾기' 탭에서 삭제합니다."""
     sh, msg = _get_spreadsheet()
     if not sh: return False, msg
     try:
@@ -407,36 +863,49 @@ def remove_favorite(ticker: str):
         cells = ws.find(ticker)
         if cells:
             ws.delete_rows(cells.row)
-            _GSHEET_CACHE.pop("favorites", None)
-            return True, "즐겨찾기에서 삭제되었습니다."
-        return False, "목록에서 종목을 찾을 수 없습니다."
+            return True, "성공"
+        return False, "찾을 수 없음"
     except Exception as e:
-        return False, f"삭제 오류: {e}"
+        print(f"Failed to delete favorite from Google Sheets: {e}")
+        return False, str(e)
+
+def remove_favorite(ticker: str):
+    """로컬 SQLite 즐겨찾기에서 종목을 즉시 삭제하고, 백그라운드 스레드로 구글 시트에서 삭제합니다."""
+    try:
+        conn = get_db_conn()
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM favorites WHERE ticker = ?", (ticker,))
+        conn.commit()
+        conn.close()
+        
+        run_background_backup(_gsheet_backup_remove_favorite, ticker)
+        return True, "즐겨찾기에서 삭제되었습니다."
+    except Exception as e:
+        return False, f"로컬 삭제 오류: {e}"
 
 def load_favorites():
-    """'즐겨찾기' 탭에서 모든 종목을 불러옵니다."""
-    now = datetime.now()
-    cache_key = "favorites"
-    if cache_key in _GSHEET_CACHE:
-        cached_data, cached_time = _GSHEET_CACHE[cache_key]
-        if now - cached_time < _GSHEET_CACHE_TTL:
-            return cached_data, "성공"
-
-    sh, msg = _get_spreadsheet()
-    if not sh: return [], msg
+    """로컬 SQLite에서 즐겨찾기 목록을 불러옵니다."""
     try:
-        ws = sh.worksheet("즐겨찾기")
-        records = ws.get_all_records()
-        # 티커 항상 문자열로, 국내 종목 6자리 0 패딩
-        for r in records:
-            t = str(r.get("티커", ""))
-            r["티커"] = t.zfill(6) if t.isdigit() and len(t) <= 6 else t
-        _GSHEET_CACHE[cache_key] = (records, now)
+        conn = get_db_conn()
+        cursor = conn.cursor()
+        cursor.execute("SELECT added_time as 추가시간, market_type as 시장, ticker as 티커, name as 종목명 FROM favorites")
+        rows = cursor.fetchall()
+        conn.close()
+        
+        records = []
+        for r in rows:
+            t = str(r["티커"])
+            t_padded = t.zfill(6) if t.isdigit() and len(t) <= 6 else t
+            records.append({
+                "추가시간": str(r["추가시간"]),
+                "시장": str(r["시장"]),
+                "티커": t_padded,
+                "종목명": str(r["종목명"])
+            })
         return records, "성공"
-    except gspread.WorksheetNotFound:
-        return [], "즐겨찾기 목록이 비어있습니다."
     except Exception as e:
-        return [], f"로드 오류: {e}"
+        print(f"Error loading favorites from SQLite: {e}")
+        return [], f"로컬 DB 오류: {e}"
 
 
 def is_favorite(ticker):
@@ -445,15 +914,13 @@ def is_favorite(ticker):
     return any(str(f.get('티커', '')) == str(ticker) for f in favs)
 
 
-def log_agent_scan(ticker: str, name: str, current_price: float, position: str, action: str, confidence: int, reason: str):
-    """AI 자율매매 에이전트의 고민/스캔 이력을 'AI스캔로그' 탭에 저장합니다."""
+def _gsheet_backup_log_agent_scan(ticker: str, name: str, current_price: float, position: str, action: str, confidence: int, reason: str):
+    """[구글 시트 백업 전용] AI 자율매매 에이전트의 고민/스캔 이력을 'AI스캔로그' 탭에 백업합니다."""
     sh, msg = _get_spreadsheet()
-    if not sh:
-        return False, msg
+    if not sh: return False
     try:
         headers = ["스캔시간", "티커", "종목명", "현재가", "보유상태", "AI판단", "신뢰도(%)", "판단이유"]
         ws = _get_or_create_worksheet(sh, "AI스캔로그", headers)
-        
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         ws.append_row([
             now, ticker, name, round(float(current_price), 2),
@@ -464,39 +931,66 @@ def log_agent_scan(ticker: str, name: str, current_price: float, position: str, 
         rows = ws.get_all_values()
         if len(rows) > 105:
             ws.delete_rows(2, len(rows) - 101)
+        return True
+    except Exception as e:
+        print(f"Failed to backup agent scan log: {e}")
+        return False
+
+def log_agent_scan(ticker: str, name: str, current_price: float, position: str, action: str, confidence: int, reason: str):
+    """AI 자율매매 에이전트의 고민/스캔 이력을 로컬 SQLite에 즉시 저장하고, 백그라운드 스레드로 구글 시트에 백업합니다."""
+    try:
+        conn = get_db_conn()
+        cursor = conn.cursor()
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        cursor.execute(
+            "INSERT INTO ai_scan_logs (scan_time, ticker, name, price, position, action, confidence, reason) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (now, ticker, name, float(current_price), position, action, int(confidence), reason)
+        )
+        
+        # 로컬도 최대 200건만 유지 (로컬 DB 파일 비대화 방지)
+        cursor.execute("SELECT COUNT(*) FROM ai_scan_logs")
+        count = cursor.fetchone()[0]
+        if count > 210:
+            cursor.execute("DELETE FROM ai_scan_logs WHERE id IN (SELECT id FROM ai_scan_logs ORDER BY id ASC LIMIT ?)", (count - 200,))
             
+        conn.commit()
+        conn.close()
+        
+        run_background_backup(_gsheet_backup_log_agent_scan, ticker, name, current_price, position, action, confidence, reason)
         return True, "성공"
     except Exception as e:
+        print(f"Error logging agent scan: {e}")
         return False, f"스캔로그 저장 실패: {e}"
 
-
 def load_agent_scan_logs_from_gsheet():
-    """'AI스캔로그' 탭에서 에이전트의 스캔 로그 목록을 불러옵니다."""
-    sh, msg = _get_spreadsheet()
-    if not sh:
-        return []
+    """로컬 SQLite 'ai_scan_logs'에서 에이전트의 스캔 로그 목록을 불러옵니다."""
     try:
-        ws = sh.worksheet("AI스캔로그")
-        records = ws.get_all_records()
+        conn = get_db_conn()
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT scan_time, ticker, name, price, position, action, confidence, reason FROM ai_scan_logs ORDER BY id DESC"
+        )
+        rows = cursor.fetchall()
+        conn.close()
+        
         scan_logs = []
-        for r in records:
-            ticker = str(r.get("티커", ""))
+        for r in rows:
+            ticker = str(r["ticker"])
             if ticker.isdigit() and len(ticker) < 6:
                 ticker = ticker.zfill(6)
             scan_logs.append({
-                "scan_time": str(r.get("스캔시간", "")),
+                "scan_time": str(r["scan_time"]),
                 "ticker": ticker,
-                "name": str(r.get("종목명", "")),
-                "price": float(r.get("현재가", 0) or 0),
-                "position": str(r.get("보유상태", "NONE")),
-                "action": str(r.get("AI판단", "HOLD")),
-                "confidence": int(r.get("신뢰도(%)", 0) or 0),
-                "reason": str(r.get("판단이유", ""))
+                "name": str(r["name"]),
+                "price": float(r["price"] or 0),
+                "position": str(r["position"] or "NONE"),
+                "action": str(r["action"] or "HOLD"),
+                "confidence": int(r["confidence"] or 0),
+                "reason": str(r["reason"] or "")
             })
-        # 최신 순으로 정렬하여 반환
-        scan_logs.reverse()
         return scan_logs
-    except Exception:
+    except Exception as e:
+        print(f"Error loading agent scan logs from SQLite: {e}")
         return []
 
 
@@ -526,42 +1020,9 @@ def _enrich_with_krx(raw_map: dict) -> dict:
 
 @st.cache_data(ttl=300)
 def load_sector_map() -> dict:
-    """Google Sheets 섹터DB 탭 → sectors_kr.py → FDR 전종목 업종 순으로 병합.
-
-    1. 구글 시트 / sectors_kr.py 로 테마 섹터맵 로드
-    2. FDR(FinanceDataReader) 업종 분류로 전종목 자동 보강
-       - 기존 섹터에 없는 업종만 추가 (중복 방지)
-       - 기존 세부섹터에 없는 종목만 추가
-    """
+    """로컬 sectors_kr.py의 정적 맵을 메인 데이터소스로 사용하고 FDR 업종 데이터로 자동 보강합니다."""
     from sectors_kr import KR_SECTOR_MAP
-    try:
-        sh, _ = _get_spreadsheet()
-        if sh is None:
-            raise Exception("no sheet")
-        try:
-            ws = sh.worksheet("섹터DB")
-        except gspread.WorksheetNotFound:
-            raise Exception("섹터DB 탭 없음")
-        rows = ws.get_all_records()
-        if not rows:
-            raise Exception("empty")
-        sector_map: dict = {}
-        for row in rows:
-            sec  = str(row.get("섹터",    "")).strip()
-            sub  = str(row.get("세부섹터", "")).strip()
-            name = str(row.get("종목명",   "")).strip()
-            code = str(row.get("종목코드", "")).strip()
-            sfx  = str(row.get("suffix",   ".KS")).strip()
-            if not all([sec, sub, name, code]):
-                continue
-            sector_map.setdefault(sec, {}).setdefault(sub, []).append(
-                {"name": name, "code": code, "suffix": sfx}
-            )
-        if not sector_map:
-            raise Exception("파싱 결과 빈 맵")
-        raw = KR_SECTOR_MAP if len(KR_SECTOR_MAP) >= len(sector_map) else sector_map
-    except Exception:
-        raw = KR_SECTOR_MAP
+    raw = KR_SECTOR_MAP
 
     # ── FDR 전종목 업종 자동 병합 ────────────────────────────────────────
     try:
@@ -791,36 +1252,9 @@ _FDR_IND_MAP: dict = {
 
 @st.cache_data(ttl=43200)
 def load_us_sector_map() -> dict:
-    """Google Sheets 섹터DB_US 탭 → sectors_us.py → FDR 전종목 업종 순으로 병합."""
-    try:
-        sh, _ = _get_spreadsheet()
-        if sh is None:
-            raise Exception("no sheet")
-        try:
-            ws = sh.worksheet("섹터DB_US")
-        except gspread.WorksheetNotFound:
-            raise Exception("섹터DB_US 탭 없음")
-        rows = ws.get_all_records()
-        if not rows:
-            raise Exception("empty")
-        sector_map: dict = {}
-        for row in rows:
-            sec      = str(row.get("섹터",    "")).strip()
-            sub      = str(row.get("세부섹터", "")).strip()
-            name     = str(row.get("종목명",   "")).strip()
-            ticker   = str(row.get("티커",    "")).strip()
-            exchange = str(row.get("exchange", "NASDAQ")).strip()
-            if not all([sec, sub, name, ticker]):
-                continue
-            sector_map.setdefault(sec, {}).setdefault(sub, []).append(
-                {"name": name, "ticker": ticker, "exchange": exchange}
-            )
-        if not sector_map:
-            raise Exception("파싱 결과 빈 맵")
-        raw = sector_map
-    except Exception:
-        from sectors_us import US_SECTOR_MAP
-        raw = US_SECTOR_MAP
+    """로컬 sectors_us.py의 정적 맵을 메인 데이터소스로 사용하고 FDR 업종 데이터로 자동 보강합니다."""
+    from sectors_us import US_SECTOR_MAP
+    raw = US_SECTOR_MAP
 
     # FDR 전종목으로 보강: Industry → (한국어섹터, 서브섹터) 직접 매핑
     # FDR StockListing은 Sector 컬럼 없이 Industry만 제공
@@ -917,11 +1351,10 @@ def init_sector_sheet():
         return False, f"업로드 오류: {e}"
 
 
-def save_trade_analysis_record(trade_data: dict, analysis_result: dict):
-    """AI 거래 분석 결과를 '거래분석DB' 탭에 개별 저장합니다 (중복 방지)."""
+def _gsheet_backup_save_trade_analysis_record(trade_data: dict, analysis_result: dict):
+    """[구글 시트 백업 전용] AI 거래 분석 결과를 '거래분석DB' 탭에 저장합니다."""
     sh, msg = _get_spreadsheet()
-    if not sh:
-        return False, msg
+    if not sh: return False, msg
     try:
         headers = [
             "분석시간", "티커", "종목명", "매도일", "수익률(%)", "결과",
@@ -929,61 +1362,100 @@ def save_trade_analysis_record(trade_data: dict, analysis_result: dict):
             "성공이유", "실패이유", "교훈"
         ]
         ws = _get_or_create_worksheet(sh, "거래분석DB", headers)
-
         ticker = str(trade_data.get("ticker", ""))
         sell_date = str(trade_data.get("sell_date", ""))[:10]
-
-        # 중복 체크
-        existing = ws.get_all_records()
+        existing = safe_get_all_records(ws)
         for r in existing:
             if str(r.get("티커", "")) == ticker and str(r.get("매도일", ""))[:10] == sell_date:
-                return True, "이미 저장된 분석입니다."
-
+                return True, "이미 저장됨"
         trades_list = analysis_result.get("trades", [])
         tr = trades_list[0] if trades_list else {}
-
         ws.append_row([
             datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            ticker,
-            str(trade_data.get("name", "")),
-            sell_date,
+            ticker, str(trade_data.get("name", "")), sell_date,
             round(float(trade_data.get("profit_pct", 0)), 2),
-            str(trade_data.get("result", "")),
-            str(tr.get("sector", "")),
-            str(tr.get("sector_characteristic", "")),
-            str(tr.get("social_factor", "")),
-            str(tr.get("institutional_factor", "")),
-            str(tr.get("technical_factor", "")),
-            str(tr.get("success_reason", "")),
-            str(tr.get("failure_reason", "")),
+            str(trade_data.get("result", "")), str(tr.get("sector", "")),
+            str(tr.get("sector_characteristic", "")), str(tr.get("social_factor", "")),
+            str(tr.get("institutional_factor", "")), str(tr.get("technical_factor", "")),
+            str(tr.get("success_reason", "")), str(tr.get("failure_reason", "")),
             str(tr.get("lesson", "")),
         ])
-        return True, "거래 분석이 '거래분석DB'에 저장되었습니다."
+        return True, "성공"
     except Exception as e:
-        return False, f"저장 오류: {e}"
+        print(f"Failed to backup trade analysis record: {e}")
+        return False, str(e)
 
+def save_trade_analysis_record(trade_data: dict, analysis_result: dict):
+    """AI 거래 분석 결과를 로컬 SQLite 'trade_analysis'에 즉시 저장하고, 백그라운드로 구글 시트에 업데이트합니다."""
+    try:
+        ticker = str(trade_data.get("ticker", ""))
+        sell_date = str(trade_data.get("sell_date", ""))[:10]
+        key = f"record_{ticker}_{sell_date}"
+        
+        # trade_data와 analysis_result를 통합하여 JSON 저장
+        payload = {
+            "trade_data": trade_data,
+            "analysis_result": analysis_result,
+            "analyzed_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        }
+        
+        conn = get_db_conn()
+        cursor = conn.cursor()
+        cursor.execute(
+            "INSERT OR REPLACE INTO trade_analysis (key_name, analysis_json) VALUES (?, ?)",
+            (key, _json.dumps(payload, ensure_ascii=False))
+        )
+        conn.commit()
+        conn.close()
+        
+        run_background_backup(_gsheet_backup_save_trade_analysis_record, trade_data, analysis_result)
+        return True, "거래 분석이 로컬 DB에 기록되었습니다."
+    except Exception as e:
+        return False, f"로컬 저장 오류: {e}"
 
 def load_trade_analysis_records():
-    """'거래분석DB' 탭에서 모든 분석 기록을 로드합니다."""
-    sh, msg = _get_spreadsheet()
-    if not sh:
-        return [], msg
+    """로컬 SQLite 'trade_analysis' 테이블에서 모든 분석 기록을 로드합니다."""
     try:
-        ws = sh.worksheet("거래분석DB")
-        records = ws.get_all_records()
+        conn = get_db_conn()
+        cursor = conn.cursor()
+        cursor.execute("SELECT analysis_json FROM trade_analysis WHERE key_name LIKE 'record_%'")
+        rows = cursor.fetchall()
+        conn.close()
+        
+        records = []
+        for r in rows:
+            payload = _json.loads(r["analysis_json"])
+            trade_data = payload.get("trade_data", {})
+            analysis_result = payload.get("analysis_result", {})
+            trades_list = analysis_result.get("trades", [])
+            tr = trades_list[0] if trades_list else {}
+            
+            records.append({
+                "분석시간": payload.get("analyzed_at", ""),
+                "티커": trade_data.get("ticker", ""),
+                "종목명": trade_data.get("name", ""),
+                "매도일": trade_data.get("sell_date", "")[:10],
+                "수익률(%)": round(float(trade_data.get("profit_pct", 0)), 2),
+                "결과": trade_data.get("result", ""),
+                "섹터": tr.get("sector", ""),
+                "섹터특성": tr.get("sector_characteristic", ""),
+                "사회적요인": tr.get("social_factor", ""),
+                "수급요인": tr.get("institutional_factor", ""),
+                "기술적요인": tr.get("technical_factor", ""),
+                "성공이유": tr.get("success_reason", ""),
+                "실패이유": tr.get("failure_reason", ""),
+                "교훈": tr.get("lesson", "")
+            })
         return records, "성공"
-    except gspread.WorksheetNotFound:
-        return [], "아직 저장된 분석 기록이 없습니다."
     except Exception as e:
-        return [], f"로드 오류: {e}"
+        print(f"Error loading trade analysis records: {e}")
+        return [], f"로컬 DB 오류: {e}"
 
 
-def save_trade_analysis(analysis: dict):
-    """AI 거래 분석 결과를 '매매분석일지' 탭에 저장합니다."""
-    import json as _json
+def _gsheet_backup_save_trade_analysis(analysis: dict):
+    """[구글 시트 백업 전용] AI 거래 분석 결과를 '매매분석일지' 탭에 백업합니다."""
     sh, msg = _get_spreadsheet()
-    if not sh:
-        return False, msg
+    if not sh: return False, msg
     try:
         headers = ["분석시간", "총거래", "승", "패", "승률(%)", "성공패턴", "실패패턴", "핵심인사이트", "향후전략", "종목별분석(JSON)"]
         ws = _get_or_create_worksheet(sh, "매매분석일지", headers)
@@ -1003,46 +1475,83 @@ def save_trade_analysis(analysis: dict):
             summary.get("future_strategy", ""),
             trades_json,
         ])
-        return True, "매매 분석 결과가 구글 시트 '매매분석일지' 탭에 저장되었습니다."
+        return True, "성공"
     except Exception as e:
-        return False, f"저장 오류: {e}"
+        print(f"Failed to backup trade analysis: {e}")
+        return False, str(e)
 
+def save_trade_analysis(analysis: dict):
+    """AI 거래 분석 결과를 로컬 SQLite 'trade_analysis'에 저장하고 백그라운드로 구글 시트에 업데이트합니다."""
+    try:
+        conn = get_db_conn()
+        cursor = conn.cursor()
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        
+        summary = analysis.get("summary", {})
+        total = summary.get("total", 0)
+        wins = summary.get("win_count", 0)
+        losses = summary.get("loss_count", 0)
+        win_rate = round(wins / total * 100, 1) if total > 0 else 0
+        insights = " | ".join(summary.get("key_insights", []))
+        
+        payload = {
+            "analyzed_at": now,
+            "analysis": analysis,
+            "total": total,
+            "win_count": wins,
+            "loss_count": losses,
+            "win_rate": win_rate,
+            "win_pattern": summary.get("win_pattern", ""),
+            "loss_pattern": summary.get("loss_pattern", ""),
+            "insights": insights,
+            "future_strategy": summary.get("future_strategy", "")
+        }
+        
+        cursor.execute(
+            "INSERT OR REPLACE INTO trade_analysis (key_name, analysis_json) VALUES (?, ?)",
+            ("latest_analysis", _json.dumps(payload, ensure_ascii=False))
+        )
+        conn.commit()
+        conn.close()
+        
+        run_background_backup(_gsheet_backup_save_trade_analysis, analysis)
+        return True, "매매 분석 결과가 로컬 DB에 저장되었습니다."
+    except Exception as e:
+        return False, f"로컬 저장 오류: {e}"
 
 def load_trade_analysis():
-    """'매매분석일지' 탭에서 가장 최근 분석 결과를 불러옵니다."""
-    import json as _json
-    sh, msg = _get_spreadsheet()
-    if not sh:
-        return None, msg
+    """로컬 SQLite 'trade_analysis'에서 가장 최근 분석 결과를 불러옵니다."""
     try:
-        ws = sh.worksheet("매매분석일지")
-        records = ws.get_all_records()
-        if not records:
+        conn = get_db_conn()
+        cursor = conn.cursor()
+        cursor.execute("SELECT analysis_json FROM trade_analysis WHERE key_name = 'latest_analysis'")
+        row = cursor.fetchone()
+        conn.close()
+        
+        if not row:
             return None, "저장된 분석 결과가 없습니다."
-        last = records[-1]
-        trades_raw = last.get("종목별분석(JSON)", "[]")
-        try:
-            trades = _json.loads(trades_raw)
-        except Exception:
-            trades = []
+            
+        payload = _json.loads(row["analysis_json"])
+        analysis = payload.get("analysis", {})
+        summary = analysis.get("summary", {})
+        
         return {
-            "analyzed_at": last.get("분석시간", ""),
+            "analyzed_at": payload.get("analyzed_at", ""),
             "summary": {
-                "total": last.get("총거래", 0),
-                "win_count": last.get("승", 0),
-                "loss_count": last.get("패", 0),
-                "win_rate": last.get("승률(%)", 0),
-                "win_pattern": last.get("성공패턴", ""),
-                "loss_pattern": last.get("실패패턴", ""),
-                "key_insights": [i.strip() for i in str(last.get("핵심인사이트", "")).split("|") if i.strip()],
-                "future_strategy": last.get("향후전략", ""),
+                "total": payload.get("total", 0),
+                "win_count": payload.get("win_count", 0),
+                "loss_count": payload.get("loss_count", 0),
+                "win_rate": payload.get("win_rate", 0),
+                "win_pattern": payload.get("win_pattern", ""),
+                "loss_pattern": payload.get("loss_pattern", ""),
+                "key_insights": summary.get("key_insights", []),
+                "future_strategy": payload.get("future_strategy", "")
             },
-            "trades": trades,
+            "trades": analysis.get("trades", [])
         }, "성공"
-    except gspread.WorksheetNotFound:
-        return None, "아직 저장된 분석이 없습니다. AI 분석 후 저장하세요."
     except Exception as e:
-        return None, f"로드 오류: {e}"
+        print(f"Error loading trade analysis: {e}")
+        return None, f"로컬 DB 오류: {e}"
 
 
 def test_connection_and_write():
@@ -1062,65 +1571,91 @@ def test_connection_and_write():
         return False, f"에러 발생: {e}"
 
 
-def save_ai_cache(cache_key: str, data: dict, ttl_hours: int = 12):
-    """AI 생성 결과를 'AI캐시' 탭에 저장합니다 (기존 동일 키는 덮어씀)."""
-    import json as _json
+def _gsheet_backup_ai_cache(cache_key: str, data_json: str, saved_time: str, expire_time: str):
+    """[구글 시트 백업 전용] AI 생성 캐시를 'AI캐시' 탭에 백업합니다."""
     sh, msg = _get_spreadsheet()
     if not sh:
-        return False, msg
+        return False
     try:
         headers = ["캐시키", "저장시간", "만료시간", "데이터"]
         ws = _get_or_create_worksheet(sh, "AI캐시", headers)
-        # 기존 동일 키 행 삭제 (역순)
         rows = ws.get_all_values()
         for i in range(len(rows) - 1, 0, -1):
             if len(rows[i]) >= 1 and rows[i][0] == cache_key:
                 ws.delete_rows(i + 1)
-        now = datetime.now()
-        expire = now + timedelta(hours=ttl_hours)
         ws.append_row([
             cache_key,
-            now.strftime("%Y-%m-%d %H:%M:%S"),
-            expire.strftime("%Y-%m-%d %H:%M:%S"),
-            _json.dumps(data, ensure_ascii=False),
+            saved_time,
+            expire_time,
+            data_json,
         ])
+        return True
+    except Exception as e:
+        print(f"Failed to backup AI cache to Google Sheets: {e}")
+        return False
+
+def save_ai_cache(cache_key: str, data: dict, ttl_hours: int = 12):
+    """AI 생성 결과를 로컬 SQLite 'ai_cache'에 즉시 저장하고, 백그라운드 스레드로 구글 시트에 백업합니다."""
+    import json as _json
+    try:
+        now = datetime.now()
+        expire = now + timedelta(hours=ttl_hours)
+        saved_time_str = now.strftime("%Y-%m-%d %H:%M:%S")
+        expire_time_str = expire.strftime("%Y-%m-%d %H:%M:%S")
+        data_json = _json.dumps(data, ensure_ascii=False)
+        
+        conn = get_db_conn()
+        cursor = conn.cursor()
+        cursor.execute(
+            "INSERT OR REPLACE INTO ai_cache (cache_key, saved_time, expire_time, data_json) VALUES (?, ?, ?, ?)",
+            (cache_key, saved_time_str, expire_time_str, data_json)
+        )
+        conn.commit()
+        conn.close()
+        
+        # 구글 시트에 비동기 백업 구동
+        run_background_backup(_gsheet_backup_ai_cache, cache_key, data_json, saved_time_str, expire_time_str)
         return True, "캐시 저장 완료"
     except Exception as e:
         return False, f"캐시 저장 오류: {e}"
 
-
 def load_ai_cache(cache_key: str) -> dict | None:
-    """'AI캐시' 탭에서 유효한 캐시를 로드합니다. 만료·없으면 None."""
+    """로컬 SQLite 'ai_cache'에서 유효한 캐시를 로드합니다. 만료되었거나 없으면 None을 반환합니다."""
     import json as _json
-    sh, msg = _get_spreadsheet()
-    if not sh:
-        return None
     try:
-        ws = sh.worksheet("AI캐시")
-        rows = ws.get_all_records()
-        for r in rows:
-            if str(r.get("캐시키", "")) != cache_key:
-                continue
-            expire_str = str(r.get("만료시간", ""))
-            if expire_str:
-                try:
-                    expire_dt = datetime.strptime(expire_str, "%Y-%m-%d %H:%M:%S")
-                    if datetime.now() > expire_dt:
-                        return None
-                except ValueError:
-                    pass
-            data_str = str(r.get("데이터", ""))
-            if data_str:
-                return _json.loads(data_str)
+        conn = get_db_conn()
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT saved_time, expire_time, data_json FROM ai_cache WHERE cache_key = ?",
+            (cache_key,)
+        )
+        row = cursor.fetchone()
+        conn.close()
+        
+        if not row:
+            return None
+            
+        expire_str = str(row["expire_time"] or "")
+        if expire_str:
+            try:
+                expire_dt = datetime.strptime(expire_str, "%Y-%m-%d %H:%M:%S")
+                if datetime.now() > expire_dt:
+                    # 만료되었으면 로컬 DB에서 삭제
+                    delete_ai_cache(cache_key)
+                    return None
+            except ValueError:
+                pass
+                
+        data_str = str(row["data_json"] or "")
+        if data_str:
+            return _json.loads(data_str)
         return None
-    except gspread.WorksheetNotFound:
-        return None
-    except Exception:
+    except Exception as e:
+        print(f"Error loading AI cache from SQLite: {e}")
         return None
 
-
-def delete_ai_cache(cache_key: str):
-    """'AI캐시' 탭에서 특정 키의 캐시를 삭제합니다."""
+def _gsheet_backup_delete_ai_cache(cache_key: str):
+    """[구글 시트 백업 전용] 'AI캐시' 탭에서 특정 캐시를 삭제합니다."""
     sh, msg = _get_spreadsheet()
     if not sh:
         return False
@@ -1131,9 +1666,23 @@ def delete_ai_cache(cache_key: str):
             if len(rows[i]) >= 1 and rows[i][0] == cache_key:
                 ws.delete_rows(i + 1)
         return True
-    except gspread.WorksheetNotFound:
+    except Exception as e:
+        print(f"Failed to backup delete AI cache: {e}")
+        return False
+
+def delete_ai_cache(cache_key: str):
+    """로컬 SQLite 'ai_cache'에서 특정 키의 캐시를 즉시 삭제하고, 백그라운드 스레드로 구글 시트에서 비동기 삭제합니다."""
+    try:
+        conn = get_db_conn()
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM ai_cache WHERE cache_key = ?", (cache_key,))
+        conn.commit()
+        conn.close()
+        
+        run_background_backup(_gsheet_backup_delete_ai_cache, cache_key)
         return True
-    except Exception:
+    except Exception as e:
+        print(f"Error deleting AI cache from SQLite: {e}")
         return False
 
 
@@ -1145,44 +1694,82 @@ _ANALYSIS_HISTORY_HEADERS = [
 ]
 
 
-def save_stock_analysis_history(market: str, ticker: str, name: str, current_price, analysis: dict) -> bool:
-    """종목 AI 분석 결과를 '종목분석이력' 탭에 1행 추가 저장합니다."""
+def _gsheet_backup_analysis_history(analysis_time: str, market: str, ticker: str, name: str, current_price: str, buy_target: str, sell_target: str, stop_loss: str, rating: str, long_term_rating: str, short_term_view_pct: str, analysis_json: str):
+    """[구글 시트 백업 전용] 종목 분석 이력을 '종목분석이력' 탭에 백업합니다."""
     sh, _ = _get_spreadsheet()
     if not sh:
         return False
     try:
-        import json as _json
         ws = _get_or_create_worksheet(sh, "종목분석이력", _ANALYSIS_HISTORY_HEADERS)
-        now = (datetime.now() + timedelta(hours=9)).strftime("%Y-%m-%d %H:%M:%S")
         ws.append_row([
-            now,
+            analysis_time,
             market,
             ticker,
             name,
-            str(current_price) if current_price else "",
-            str(analysis.get("buy_target", "")),
-            str(analysis.get("sell_target", "")),
-            str(analysis.get("stop_loss", "")),
-            str(analysis.get("rating", "")),
-            str(analysis.get("long_term_rating", "")),
-            str(analysis.get("short_term_view_pct", "")),
-            _json.dumps(analysis, ensure_ascii=False)[:6000],
+            current_price,
+            buy_target,
+            sell_target,
+            stop_loss,
+            rating,
+            long_term_rating,
+            short_term_view_pct,
+            analysis_json,
         ])
         return True
-    except Exception:
+    except Exception as e:
+        print(f"Failed to backup analysis history to Google Sheets: {e}")
+        return False
+
+def save_stock_analysis_history(market: str, ticker: str, name: str, current_price, analysis: dict) -> bool:
+    """종목 AI 분석 결과를 로컬 SQLite 'analysis_history'에 즉시 추가하고, 백그라운드 스레드로 구글 시트에 백업합니다."""
+    try:
+        import json as _json
+        analysis_time = (datetime.now() + timedelta(hours=9)).strftime("%Y-%m-%d %H:%M:%S")
+        curr_price_str = str(current_price) if current_price else ""
+        buy_t = str(analysis.get("buy_target", ""))
+        sell_t = str(analysis.get("sell_target", ""))
+        stop_l = str(analysis.get("stop_loss", ""))
+        rat = str(analysis.get("rating", ""))
+        lt_rat = str(analysis.get("long_term_rating", ""))
+        st_view = str(analysis.get("short_term_view_pct", ""))
+        analysis_json = _json.dumps(analysis, ensure_ascii=False)[:6000]
+        
+        conn = get_db_conn()
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            INSERT INTO analysis_history (
+                analysis_time, market, ticker, name, current_price,
+                buy_target, sell_target, stop_loss, rating, long_term_rating,
+                short_term_view_pct, analysis_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (analysis_time, market, ticker, name, curr_price_str,
+             buy_t, sell_t, stop_l, rat, lt_rat, st_view, analysis_json)
+        )
+        conn.commit()
+        conn.close()
+        
+        # 구글 시트에 비동기 백업
+        run_background_backup(
+            _gsheet_backup_analysis_history,
+            analysis_time, market, ticker, name, curr_price_str,
+            buy_t, sell_t, stop_l, rat, lt_rat, st_view, analysis_json
+        )
+        return True
+    except Exception as e:
+        print(f"Error saving analysis history to SQLite: {e}")
         return False
 
 
-def save_price_alert(market: str, ticker: str, name: str,
-                     alert_type: str, target_price: float) -> tuple:
-    """가격 알림을 '알림설정' 탭에 저장합니다. 동일 ticker+alert_type은 덮어씁니다."""
+def _gsheet_backup_save_alert(market, ticker, name, alert_type, target_price):
+    """[구글 시트 백업 전용] 가격 알림을 '알림설정' 탭에 백업합니다."""
     sh, msg = _get_spreadsheet()
-    if not sh:
-        return False, msg
+    if not sh: return False, msg
     try:
         headers = ["설정시간", "시장", "티커", "종목명", "알림유형", "목표가", "상태"]
         ws = _get_or_create_worksheet(sh, "알림설정", headers)
-        existing = ws.get_all_records()
+        existing = safe_get_all_records(ws)
         for i in range(len(existing) - 1, -1, -1):
             r = existing[i]
             if str(r.get("티커")) == str(ticker) and r.get("알림유형") == alert_type:
@@ -1194,105 +1781,175 @@ def save_price_alert(market: str, ticker: str, name: str,
             round(float(target_price), 4),
             "활성",
         ])
+        return True, "성공"
+    except Exception as e:
+        print(f"Failed to backup price alert: {e}")
+        return False, str(e)
+
+def save_price_alert(market: str, ticker: str, name: str,
+                     alert_type: str, target_price: float) -> tuple:
+    """가격 알림을 로컬 SQLite 'price_alerts'에 저장하고 백그라운드로 구글 시트에 업데이트합니다."""
+    try:
+        conn = get_db_conn()
+        cursor = conn.cursor()
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        cursor.execute(
+            "INSERT OR REPLACE INTO price_alerts (market, ticker, name, alert_type, target_price, updated_time, status) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (market, ticker, name, alert_type, float(target_price), now, "활성")
+        )
+        conn.commit()
+        conn.close()
+        
+        run_background_backup(_gsheet_backup_save_alert, market, ticker, name, alert_type, target_price)
         return True, f"[{name}] {alert_type} 알림이 설정되었습니다."
     except Exception as e:
         return False, f"알림 저장 오류: {e}"
 
-
 def load_price_alerts() -> list:
-    """'알림설정' 탭에서 활성 알림 목록을 반환합니다."""
-    sh, _ = _get_spreadsheet()
-    if not sh:
-        return []
+    """로컬 SQLite 'price_alerts'에서 활성 알림 목록을 반환합니다."""
     try:
-        ws = sh.worksheet("알림설정")
-        records = ws.get_all_records()
+        conn = get_db_conn()
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT market, ticker, name, alert_type, target_price FROM price_alerts WHERE status = '활성'"
+        )
+        rows = cursor.fetchall()
+        conn.close()
+        
         result = []
-        for r in records:
-            if str(r.get("상태", "")) != "활성":
-                continue
-            ticker = str(r.get("티커", ""))
+        for r in rows:
+            ticker = str(r["ticker"])
             if ticker.isdigit() and len(ticker) < 6:
                 ticker = ticker.zfill(6)
-            try:
-                tp = float(str(r.get("목표가", 0)).replace(",", ""))
-            except (ValueError, TypeError):
-                tp = 0.0
             result.append({
-                "market":     str(r.get("시장", "")),
+                "market":     str(r["market"]),
                 "ticker":     ticker,
-                "name":       str(r.get("종목명", "")),
-                "alert_type": str(r.get("알림유형", "")),
-                "target_price": tp,
+                "name":       str(r["name"]),
+                "alert_type": str(r["alert_type"]),
+                "target_price": float(r["target_price"] or 0),
             })
         return result
-    except gspread.WorksheetNotFound:
-        return []
-    except Exception:
+    except Exception as e:
+        print(f"Error loading price alerts from SQLite: {e}")
         return []
 
-
-def delete_price_alert(ticker: str, alert_type: str) -> tuple:
-    """'알림설정' 탭에서 특정 알림을 삭제합니다."""
+def _gsheet_backup_delete_alert(ticker, alert_type):
+    """[구글 시트 백업 전용] '알림설정' 탭에서 특정 알림을 삭제합니다."""
     sh, msg = _get_spreadsheet()
-    if not sh:
-        return False, msg
+    if not sh: return False, msg
     try:
         ws = sh.worksheet("알림설정")
-        records = ws.get_all_records()
+        records = safe_get_all_records(ws)
         for i in range(len(records) - 1, -1, -1):
             r = records[i]
             if str(r.get("티커")) == str(ticker) and r.get("알림유형") == alert_type:
                 ws.delete_rows(i + 2)
-                return True, "알림이 삭제되었습니다."
-        return False, "알림을 찾을 수 없습니다."
-    except gspread.WorksheetNotFound:
-        return False, "알림설정 탭이 없습니다."
+                return True, "성공"
+        return False, "찾을 수 없음"
+    except Exception as e:
+        print(f"Failed to backup delete alert: {e}")
+        return False, str(e)
+
+def delete_price_alert(ticker: str, alert_type: str) -> tuple:
+    """로컬 SQLite 'price_alerts'에서 특정 알림을 즉시 삭제하고, 백그라운드 스레드로 구글 시트에서 삭제합니다."""
+    try:
+        conn = get_db_conn()
+        cursor = conn.cursor()
+        cursor.execute(
+            "DELETE FROM price_alerts WHERE ticker = ? AND alert_type = ?",
+            (ticker, alert_type)
+        )
+        conn.commit()
+        conn.close()
+        
+        run_background_backup(_gsheet_backup_delete_alert, ticker, alert_type)
+        return True, "알림이 삭제되었습니다."
     except Exception as e:
         return False, f"삭제 오류: {e}"
 
-def update_price_alert_status(ticker: str, alert_type: str, new_status: str) -> bool:
-    """알림 상태를 업데이트합니다 (예: 활성 -> 완료)."""
+def _gsheet_backup_update_alert_status(ticker, alert_type, new_status):
+    """[구글 시트 백업 전용] 알림 상태를 업데이트합니다."""
     sh, _ = _get_spreadsheet()
-    if not sh:
-        return False
+    if not sh: return False
     try:
         ws = sh.worksheet("알림설정")
-        records = ws.get_all_records()
+        records = safe_get_all_records(ws)
         for i, r in enumerate(records):
             if str(r.get("티커")) == str(ticker) and r.get("알림유형") == alert_type:
-                # 상태 컬럼 찾기
                 header = ws.row_values(1)
-                try:
-                    status_col = header.index("상태") + 1
-                    ws.update_cell(i + 2, status_col, new_status)
-                    return True
-                except ValueError:
-                    return False
+                status_col = header.index("상태") + 1
+                ws.update_cell(i + 2, status_col, new_status)
+                return True
         return False
-    except Exception:
+    except Exception as e:
+        print(f"Failed to backup update alert status: {e}")
+        return False
+
+def update_price_alert_status(ticker: str, alert_type: str, new_status: str) -> bool:
+    """로컬 SQLite 'price_alerts'에서 알림 상태를 갱신하고, 백그라운드 스레드로 구글 시트에 반영합니다."""
+    try:
+        conn = get_db_conn()
+        cursor = conn.cursor()
+        cursor.execute(
+            "UPDATE price_alerts SET status = ? WHERE ticker = ? AND alert_type = ?",
+            (new_status, ticker, alert_type)
+        )
+        conn.commit()
+        conn.close()
+        
+        run_background_backup(_gsheet_backup_update_alert_status, ticker, alert_type, new_status)
+        return True
+    except Exception as e:
+        print(f"Error updating price alert status: {e}")
         return False
 
 
 def load_stock_analysis_history(ticker: str, limit: int = 10) -> list[dict]:
-    """'종목분석이력' 탭에서 해당 티커의 최근 분석 기록을 반환합니다 (오래된→최신 순)."""
-    sh, _ = _get_spreadsheet()
-    if not sh:
-        return []
+    """로컬 SQLite 'analysis_history'에서 해당 티커의 최근 분석 기록을 반환합니다 (오래된→최신 순)."""
     try:
-        ws = sh.worksheet("종목분석이력")
-        records = ws.get_all_records()
-        hits = [r for r in records if str(r.get("티커", "")) == str(ticker)]
+        conn = get_db_conn()
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            SELECT analysis_time, market, ticker, name, current_price,
+                   buy_target, sell_target, stop_loss, rating, long_term_rating,
+                   short_term_view_pct, analysis_json
+            FROM analysis_history
+            WHERE ticker = ?
+            ORDER BY id ASC
+            """,
+            (ticker,)
+        )
+        rows = cursor.fetchall()
+        conn.close()
+        
+        hits = []
+        for r in rows:
+            hits.append({
+                "분석시간": str(r["analysis_time"] or ""),
+                "시장": str(r["market"] or ""),
+                "티커": str(r["ticker"] or ""),
+                "종목명": str(r["name"] or ""),
+                "현재가": str(r["current_price"] or ""),
+                "매수구간": str(r["buy_target"] or ""),
+                "목표가": str(r["sell_target"] or ""),
+                "손절가": str(r["stop_loss"] or ""),
+                "등급": str(r["rating"] or ""),
+                "중장기등급": str(r["long_term_rating"] or ""),
+                "단기전망률": str(r["short_term_view_pct"] or ""),
+                "JSON": str(r["analysis_json"] or ""),
+            })
+            
         return hits[-limit:] if len(hits) > limit else hits
-    except Exception:
+    except Exception as e:
+        print(f"Error loading analysis history from SQLite: {e}")
         return []
 
 
-def save_telegram_config(token: str, chat_id: str) -> tuple[bool, str]:
-    """텔레그램 봇 토큰 및 Chat ID를 '텔레그램설정' 탭에 저장합니다 (기존 설정은 덮어씀)."""
+def _gsheet_backup_save_telegram(token, chat_id):
+    """[구글 시트 백업 전용] 텔레그램 설정을 구글 시트에 백업합니다."""
     sh, msg = _get_spreadsheet()
-    if not sh:
-        return False, msg
+    if not sh: return False
     try:
         headers = ["저장시간", "토큰", "챗아이디"]
         ws = _get_or_create_worksheet(sh, "텔레그램설정", headers)
@@ -1303,27 +1960,42 @@ def save_telegram_config(token: str, chat_id: str) -> tuple[bool, str]:
             token.strip(),
             chat_id.strip()
         ])
-        return True, "텔레그램 설정이 구글 시트에 성공적으로 저장되었습니다."
+        return True
     except Exception as e:
-        return False, f"텔레그램 설정 저장 중 오류 발생: {e}"
+        print(f"Failed to backup telegram config: {e}")
+        return False
 
+def save_telegram_config(token: str, chat_id: str) -> tuple[bool, str]:
+    """로컬 SQLite 'telegram_config'에 설정을 즉시 저장하고, 백그라운드 스레드로 구글 시트에 백업합니다."""
+    try:
+        conn = get_db_conn()
+        cursor = conn.cursor()
+        cursor.execute(
+            "INSERT OR REPLACE INTO telegram_config (key, token, chat_id) VALUES (?, ?, ?)",
+            ("main", token.strip(), chat_id.strip())
+        )
+        conn.commit()
+        conn.close()
+        
+        run_background_backup(_gsheet_backup_save_telegram, token, chat_id)
+        return True, "텔레그램 설정이 성공적으로 저장 및 백업 요청되었습니다."
+    except Exception as e:
+        return False, f"텔레그램 설정 저장 중 로컬 오류 발생: {e}"
 
 def load_telegram_config() -> tuple[str, str]:
-    """'텔레그램설정' 탭에서 저장된 텔레그램 토큰과 챗아이디를 불러옵니다. 없으면 환경변수 fallback."""
-    sh, _ = _get_spreadsheet()
-    if sh:
-        try:
-            ws = sh.worksheet("텔레그램설정")
-            records = ws.get_all_records()
-            if records:
-                row = records[0]
-                token = str(row.get("토큰", "")).strip()
-                chat_id = str(row.get("챗아이디", "")).strip()
-                if token and chat_id:
-                    return token, chat_id
-        except Exception:
-            pass
-            
+    """로컬 SQLite에서 저장된 텔레그램 설정을 불러옵니다. 없으면 환경변수 fallback."""
+    try:
+        conn = get_db_conn()
+        cursor = conn.cursor()
+        cursor.execute("SELECT token, chat_id FROM telegram_config WHERE key = 'main'")
+        row = cursor.fetchone()
+        conn.close()
+        
+        if row and row["token"] and row["chat_id"]:
+            return str(row["token"]).strip(), str(row["chat_id"]).strip()
+    except Exception as e:
+        print(f"Error loading telegram config from SQLite: {e}")
+        
     # 환경변수 fallback
     token = os.getenv("TELEGRAM_BOT_TOKEN", "")
     chat_id = os.getenv("TELEGRAM_CHAT_ID", "")

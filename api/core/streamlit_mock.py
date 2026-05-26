@@ -98,15 +98,20 @@ def cache_data(func=None, *, ttl=None, show_spinner=True, hash_funcs=None, **_kw
             except Exception:
                 return fn(*args, **kwargs)
 
+            # 캐시 hit 체크만 lock 안에서 (빠른 경로)
             with _lock:
                 now = time.monotonic()
                 if key in _store:
                     if ttl is None or (now - _times[key]) < ttl:
                         return _store[key]
-                result = fn(*args, **kwargs)
+
+            # 무거운 계산은 lock 밖에서 실행 (동시 호출 시 중복 계산될 수 있으나 블로킹 방지)
+            result = fn(*args, **kwargs)
+
+            with _lock:
                 _store[key] = result
-                _times[key] = now
-                return result
+                _times[key] = time.monotonic()
+            return result
 
         def clear():
             with _lock:
