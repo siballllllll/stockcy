@@ -58,10 +58,10 @@ const SEP = (
 );
 
 export function MarketTickerBar() {
-  const { data: us }      = useSWR<UsIndices>("us-indices",    () => api.us.indices()    as Promise<UsIndices>,   { refreshInterval: 60000 });
-  const { data: kr }      = useSWR<KrIndices>("kr-indices",    () => api.kr.indices()    as Promise<KrIndices>,   { refreshInterval: 60000 });
-  const { data: btc }     = useSWR("btc-price",                () => api.us.crypto("BTC"),                        { refreshInterval: 120000 });
-  const { data: fx }      = useSWR("usd-krw-rate",             () => api.us.exchangeRate(),                       { refreshInterval: 300000 });
+  const { data: us }      = useSWR<UsIndices>("us-indices",    () => api.us.indices()    as Promise<UsIndices>,   { refreshInterval: 60000,  revalidateOnFocus: false });
+  const { data: kr }      = useSWR<KrIndices>("kr-indices",    () => api.kr.indices()    as Promise<KrIndices>,   { refreshInterval: 60000,  revalidateOnFocus: false });
+  const { data: btc }     = useSWR("btc-price",                () => api.us.crypto("BTC"),                        { refreshInterval: 120000, revalidateOnFocus: false });
+  const { data: fx }      = useSWR("usd-krw-rate",             () => api.us.exchangeRate(),                       { refreshInterval: 300000, revalidateOnFocus: false });
   const { data: gainers } = useSWR("kr-top-gainers", () =>
     api.kr.changeRanking("KOSPI", "up") as Promise<any[]>,
     { refreshInterval: 300000, revalidateOnFocus: false }
