@@ -174,23 +174,33 @@ export default function Chart({ data, height = 450, colors = {}, rightPadBars = 
         const aftX1 = chart.timeScale().timeToCoordinate(Date.UTC(y, m, d, 16,  0, 0) / 1000 as any);
         const aftX2 = chart.timeScale().timeToCoordinate(Date.UTC(y, m, d, 20,  0, 0) / 1000 as any);
 
-        if (preX1 !== null && preX2 !== null) {
-          ctx.fillStyle = "rgba(250, 200, 0, 0.07)";
-          ctx.fillRect(preX1, 0, preX2 - preX1, h);
-          if (preX2 - preX1 > 30) {
-            ctx.fillStyle = "rgba(250, 200, 0, 0.45)";
-            ctx.font = "10px sans-serif";
-            ctx.fillText("PRE", preX1 + 4, 14);
+        // 프리마켓: 09:30(preX2)만 화면 내에 있으면 그림 — preX1이 null이면 왼쪽 가장자리(0)까지
+        if (preX2 !== null) {
+          const x1 = preX1 ?? 0;
+          const width = preX2 - x1;
+          if (width > 0) {
+            ctx.fillStyle = "rgba(250, 200, 0, 0.07)";
+            ctx.fillRect(x1, 0, width, h);
+            if (width > 30) {
+              ctx.fillStyle = "rgba(250, 200, 0, 0.45)";
+              ctx.font = "10px sans-serif";
+              ctx.fillText("PRE", x1 + 4, 14);
+            }
           }
         }
 
-        if (aftX1 !== null && aftX2 !== null) {
-          ctx.fillStyle = "rgba(150, 100, 255, 0.07)";
-          ctx.fillRect(aftX1, 0, aftX2 - aftX1, h);
-          if (aftX2 - aftX1 > 30) {
-            ctx.fillStyle = "rgba(150, 100, 255, 0.45)";
-            ctx.font = "10px sans-serif";
-            ctx.fillText("AH", aftX1 + 4, 14);
+        // 애프터마켓: 16:00(aftX1)만 화면 내에 있으면 그림 — aftX2가 null이면 오른쪽 가장자리(w)까지
+        if (aftX1 !== null) {
+          const x2 = aftX2 ?? w;
+          const width = x2 - aftX1;
+          if (width > 0) {
+            ctx.fillStyle = "rgba(150, 100, 255, 0.07)";
+            ctx.fillRect(aftX1, 0, width, h);
+            if (width > 30) {
+              ctx.fillStyle = "rgba(150, 100, 255, 0.45)";
+              ctx.font = "10px sans-serif";
+              ctx.fillText("AH", aftX1 + 4, 14);
+            }
           }
         }
       }
