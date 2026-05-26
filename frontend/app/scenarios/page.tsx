@@ -7,9 +7,8 @@ import dynamic from "next/dynamic";
 import { api } from "@/lib/api";
 import { useAnalysisReady } from "@/lib/analysis-ready-context";
 
-const BASE_URL = typeof window === "undefined"
-  ? (process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8000")
-  : "/backend";
+// Next.js 프록시 우회 — 프록시가 큰 done JSON을 버퍼링해서 결과가 안 뜨는 문제 방지
+const BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8000";
 
 // ── 타입 정의 ──────────────────────────────────────────────────────────────────
 interface StockEntry {

@@ -164,6 +164,10 @@ export const api = {
 
 };
 
+// ── SSE 전용 베이스 URL (Next.js 프록시 우회 — 프록시가 큰 done 응답을 버퍼링하는 문제 방지) ──
+// 클라이언트에서도 백엔드를 직접 호출합니다. CORS는 main.py에서 허용 중.
+const SSE_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8000";
+
 // ── SSE 연결 유틸 ─────────────────────────────────────────────────────────────
 /**
  * SSE 스트림에 연결하고 각 이벤트를 콜백으로 전달합니다.
@@ -179,7 +183,7 @@ export async function connectSSE<T>(
   headers.set("Content-Type", "application/json");
   headers.set("ngrok-skip-browser-warning", "69420");
 
-  const res = await fetch(`${BASE}${path}`, {
+  const res = await fetch(`${SSE_BASE}${path}`, {
     method,
     headers: headers,
     body: options?.body ? JSON.stringify(options.body) : undefined,
