@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { BarChart2, TrendingUp, GitBranch, Star, Layers, FlaskConical, Brain, Filter } from "lucide-react";
@@ -11,6 +11,9 @@ import { Loader2, CheckCircle2 } from "lucide-react";
 
 function AiTaskIndicator() {
   const { tasks, clearTask } = useAiTask();
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => { setMounted(true); }, []);
+  if (!mounted) return null;
   const taskList = Object.values(tasks);
   if (taskList.length === 0) return null;
 
