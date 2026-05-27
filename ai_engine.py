@@ -3079,4 +3079,255 @@ def analyze_overnight_gap_risk(ticker: str, name: str, market: str) -> dict:
         }
 
 
+# ── 리딩방 패턴 분석 ──────────────────────────────────────────────────────────
+
+def _get_trade_indicators(ticker: str, buy_date_str: str) -> dict:
+    """단일 거래의 기술적 지표를 yfinance로 수집합니다."""
+    import yfinance as yf
+    from datetime import datetime
+
+    is_kr = str(ticker).strip().isdigit()
+    yf_ticker = f"{ticker}.KS" if is_kr else ticker.upper()
+
+    result: dict = {"ticker": ticker, "buy_date": buy_date_str, "daily": {}, "minute": {}}
+
+    # buy_date 파싱
+    buy_dt = None
+    if buy_date_str and str(buy_date_str).strip():
+        for fmt in ["%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S",
+                    "%Y-%m-%d %H:%M", "%Y-%m-%dT%H:%M", "%Y-%m-%d"]:
+            try:
+                buy_dt = datetime.strptime(str(buy_date_str).strip(), fmt)
+                break
+            except ValueError:
+                continue
+
+    # ── 일봉 지표 ──────────────────────────────────────────────────────────
+    try:
+        stock = yf.Ticker(yf_ticker)
+        hist = stock.history(period="1y", interval="1d")
+        if not hist.empty and len(hist) >= 20:
+            closes  = hist["Close"].values
+            volumes = hist["Volume"].values
+            opens   = hist["Open"].values
+
+            # RSI(14) — 단순 Wilder 방식
+            deltas = [float(closes[i]) - float(closes[i - 1]) for i in range(1, len(closes))]
+            gains  = [d if d > 0 else 0.0 for d in deltas]
+            losses = [-d if d < 0 else 0.0 for d in deltas]
+            avg_g  = sum(gains[-14:]) / 14
+            avg_l  = sum(losses[-14:]) / 14
+            rsi    = 100 - (100 / (1 + avg_g / avg_l)) if avg_l > 0 else 100.0
+
+            vol_20_avg = sum(float(v) for v in volumes[-20:]) / 20
+            vol_ratio  = float(volumes[-1]) / vol_20_avg if vol_20_avg > 0 else 1.0
+
+            n52 = min(len(hist), 252)
+            high_52w = float(max(hist["High"].values[-n52:]))
+            low_52w  = float(min(hist["Low"].values[-n52:]))
+            current  = float(closes[-1])
+            pos_52w  = (current - low_52w) / (high_52w - low_52w) * 100 if high_52w > low_52w else 50.0
+
+            ma5  = sum(float(c) for c in closes[-5:]) / 5
+            ma20 = sum(float(c) for c in closes[-20:]) / 20
+            ma60 = sum(float(c) for c in closes[-60:]) / 60 if len(closes) >= 60 else ma20
+            ma_aligned = bool(current > ma5 > ma20 > ma60)
+
+            prev_close = float(closes[-2]) if len(closes) >= 2 else current
+            gap_pct    = (float(opens[-1]) - prev_close) / prev_close * 100
+
+            result["daily"] = {
+                "rsi":          round(rsi, 1),
+                "volume_ratio": round(vol_ratio, 2),
+                "pos_52w_pct":  round(pos_52w, 1),
+                "ma_aligned":   ma_aligned,
+                "gap_pct":      round(gap_pct, 2),
+            }
+    except Exception as e:
+        result["daily"]["error"] = str(e)[:80]
+
+    # ── 5분봉 지표 (매수일이 60일 이내일 때만) ─────────────────────────────
+    try:
+        if buy_dt and (datetime.now() - buy_dt).days <= 58:
+            stock5 = yf.Ticker(yf_ticker)
+            hist5  = stock5.history(period="60d", interval="5m")
+            if not hist5.empty:
+                buy_date_only = buy_dt.strftime("%Y-%m-%d")
+                day_bars = hist5[hist5.index.strftime("%Y-%m-%d") == buy_date_only]
+                if not day_bars.empty:
+                    h = buy_dt.hour
+                    time_class = (
+                        "장초반(~10시)"      if h < 10 else
+                        "오전(10~12시)"      if h < 12 else
+                        "오후초반(12~14시)"  if h < 14 else
+                        "오후후반(14시~)"
+                    )
+
+                    day_avg_vol = float(day_bars["Volume"].mean()) or 1.0
+                    vol_at_buy  = 1.0
+                    if buy_dt.hour > 0:
+                        best_idx, min_diff = None, float("inf")
+                        for idx in day_bars.index:
+                            idt = idx.to_pydatetime().replace(tzinfo=None)
+                            diff = abs((idt - buy_dt).total_seconds())
+                            if diff < min_diff:
+                                min_diff, best_idx = diff, idx
+                        if best_idx is not None:
+                            vol_at_buy = round(float(day_bars.loc[best_idx, "Volume"]) / day_avg_vol, 2)
+
+                    bars_up_to = hist5[hist5.index.strftime("%Y-%m-%d") <= buy_date_only]
+                    prev3_bullish = False
+                    if len(bars_up_to) >= 3:
+                        last3 = bars_up_to.iloc[-3:]
+                        prev3_bullish = bool(all(
+                            float(last3.iloc[i]["Close"]) > float(last3.iloc[i]["Open"])
+                            for i in range(3)
+                        ))
+
+                    result["minute"] = {
+                        "time_class":      time_class,
+                        "vol_at_buy_ratio": vol_at_buy,
+                        "prev3_bullish":   prev3_bullish,
+                    }
+    except Exception as e:
+        result["minute"]["error"] = str(e)[:80]
+
+    return result
+
+
+def analyze_leading_room_patterns() -> dict:
+    """리딩방 출처 거래 전체의 기술적 패턴을 집계하고 Gemini로 해석합니다."""
+    from db import get_db_conn
+
+    # 리딩방 거래 로드
+    try:
+        conn = get_db_conn()
+        cursor = conn.cursor()
+        cursor.execute(
+            """SELECT ticker, name, buy_price, sell_price, profit, profit_pct,
+                      result, buy_date, sell_date, trade_type
+               FROM trade_history
+               WHERE UPPER(owner) = 'USER'
+                 AND LOWER(COALESCE(trade_source,'')) LIKE '%리딩방%'
+               ORDER BY sell_date DESC"""
+        )
+        rows = [dict(r) for r in cursor.fetchall()]
+        conn.close()
+    except Exception as e:
+        return {"error": f"DB 오류: {e}"}
+
+    if not rows:
+        return {"error": "리딩방 출처 거래 내역이 없습니다."}
+
+    total     = len(rows)
+    wins      = sum(1 for r in rows if float(r.get("profit", 0) or 0) > 0)
+    win_rate  = wins / total * 100
+    avg_pct   = sum(float(r.get("profit_pct", 0) or 0) for r in rows) / total
+
+    # 지표 수집
+    indicators = []
+    for r in rows:
+        ind = _get_trade_indicators(
+            str(r.get("ticker", "")).strip(),
+            str(r.get("buy_date", "")).strip(),
+        )
+        ind["name"]       = r.get("name", "")
+        ind["profit_pct"] = float(r.get("profit_pct", 0) or 0)
+        ind["result"]     = r.get("result", "")
+        indicators.append(ind)
+
+    def _avg(lst):
+        return round(sum(lst) / len(lst), 1) if lst else None
+
+    rsi_vals  = [ind["daily"]["rsi"]          for ind in indicators if "rsi"          in ind["daily"]]
+    vol_vals  = [ind["daily"]["volume_ratio"]  for ind in indicators if "volume_ratio" in ind["daily"]]
+    pos_vals  = [ind["daily"]["pos_52w_pct"]   for ind in indicators if "pos_52w_pct"  in ind["daily"]]
+    gap_vals  = [ind["daily"]["gap_pct"]       for ind in indicators if "gap_pct"      in ind["daily"]]
+    ma_cnt    = sum(1 for ind in indicators if ind["daily"].get("ma_aligned"))
+    time_dist: dict = {}
+    for ind in indicators:
+        tc = ind["minute"].get("time_class")
+        if tc:
+            time_dist[tc] = time_dist.get(tc, 0) + 1
+    minute_cnt    = sum(1 for ind in indicators if ind["minute"].get("time_class"))
+    prev3_cnt     = sum(1 for ind in indicators if ind["minute"].get("prev3_bullish"))
+
+    agg = {
+        "total_trades":          total,
+        "win_rate_pct":          round(win_rate, 1),
+        "avg_profit_pct":        round(avg_pct, 2),
+        "avg_rsi_at_entry":      _avg(rsi_vals),
+        "avg_volume_ratio":      _avg(vol_vals),
+        "avg_52w_position_pct":  _avg(pos_vals),
+        "ma_aligned_rate_pct":   round(ma_cnt / total * 100, 1),
+        "avg_gap_pct":           _avg(gap_vals),
+        "time_distribution":     time_dist,
+        "minute_data_count":     minute_cnt,
+        "prev3_bullish_rate_pct": round(prev3_cnt / minute_cnt * 100, 1) if minute_cnt > 0 else None,
+    }
+
+    # Gemini 분석 프롬프트
+    detail_lines = "\n".join(
+        f"- {ind.get('name','')}({ind['ticker']}): "
+        f"RSI={ind['daily'].get('rsi','N/A')}, "
+        f"거래량비율={ind['daily'].get('volume_ratio','N/A')}, "
+        f"52주위치={ind['daily'].get('pos_52w_pct','N/A')}%, "
+        f"MA정배열={'O' if ind['daily'].get('ma_aligned') else 'X'}, "
+        f"갭={ind['daily'].get('gap_pct','N/A')}%, "
+        f"매수시간대={ind['minute'].get('time_class','N/A')}, "
+        f"이전3봉양봉={'O' if ind['minute'].get('prev3_bullish') else 'X'}, "
+        f"수익률={ind['profit_pct']}%"
+        for ind in indicators
+    )
+
+    prompt = f"""당신은 주식 매매 패턴 분석 전문가입니다.
+아래는 한 투자자의 '리딩방' 출처 실매매 내역과 각 거래 시점의 기술적 지표입니다.
+
+=== 집계 통계 ===
+- 총 거래: {total}건 (분봉 데이터 활용 가능: {minute_cnt}건)
+- 승률: {win_rate:.1f}%
+- 평균 수익률: {avg_pct:.2f}%
+- 평균 RSI(14) 매수 시점: {agg['avg_rsi_at_entry']}
+- 평균 거래량비율 (20일 평균 대비): {agg['avg_volume_ratio']}배
+- 평균 52주 위치: {agg['avg_52w_position_pct']}%
+- MA 정배열(5>20>60) 비율: {agg['ma_aligned_rate_pct']}%
+- 평균 당일 갭(%): {agg['avg_gap_pct']}%
+- 매수 시간대 분포: {time_dist}
+- 이전 3봉 양봉 비율: {agg['prev3_bullish_rate_pct']}%
+
+=== 개별 거래 ===
+{detail_lines}
+
+위 데이터를 분석해 다음 5가지를 작성해주세요:
+
+1. **매수 패턴 특징**: RSI 구간·거래량·시간대·MA 배열 등 반복 패턴
+2. **승패 가르는 핵심 요인**: 수익/손실 거래의 구체적 차이
+3. **종목 선정 특징**: 52주 위치·거래량·섹터 경향
+4. **개선 권고사항**: 더 높은 승률을 위해 조정할 매수 조건
+5. **리스크 경고**: 현재 패턴의 주요 위험 요소
+
+투자자가 실제로 활용할 수 있는 구체적 인사이트로 작성해주세요."""
+
+    try:
+        response = _call_gemini(prompt, use_search=False, temperature=0.5, timeout_sec=90)
+        narrative = response.text if hasattr(response, "text") else str(response)
+    except Exception as e:
+        narrative = f"AI 분석 오류: {str(e)}"
+
+    return {
+        "agg_stats": agg,
+        "ai_narrative": narrative,
+        "trades_summary": [
+            {
+                "ticker":     ind["ticker"],
+                "name":       ind.get("name", ""),
+                "profit_pct": ind["profit_pct"],
+                "rsi":        ind["daily"].get("rsi"),
+                "time_class": ind["minute"].get("time_class"),
+            }
+            for ind in indicators
+        ],
+    }
+
+
 

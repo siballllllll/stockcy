@@ -1,8 +1,8 @@
 "use client";
-import React, { useState, useMemo, useEffect } from "react";
+import React, { useState, useMemo, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import useSWR from "swr";
-import { api } from "@/lib/api";
+import { api, connectSSE } from "@/lib/api";
 import type { Favorite, KrStock, UsStock } from "@/lib/types";
 import { Star, RefreshCw, Send, Trash2, Plus, Zap, BarChart2, Bell, TrendingUp, BookOpen, Loader2, Brain, Sparkles, AlertCircle } from "lucide-react";
 
@@ -1013,6 +1013,12 @@ function TradesTab() {
   const [editTyp,         setEditTyp]         = useState<"실매매" | "테스트">("실매매");
   const [savingTag,       setSavingTag]       = useState(false);
 
+  // 리딩방 패턴 분석
+  const [patternStatus, setPatternStatus] = useState<"idle" | "loading" | "done" | "error">("idle");
+  const [patternResult, setPatternResult] = useState<any | null>(null);
+  const [patternMsg,    setPatternMsg]    = useState("");
+  const patternAbortRef = useRef<AbortController | null>(null);
+
   const usDates = useMemo(() => {
     return Array.from(new Set(
       trades
@@ -1105,6 +1111,28 @@ function TradesTab() {
     mutate();
   };
 
+  const handlePatternAnalysis = async () => {
+    if (patternAbortRef.current) patternAbortRef.current.abort();
+    const ctrl = new AbortController();
+    patternAbortRef.current = ctrl;
+    setPatternStatus("loading");
+    setPatternResult(null);
+    setPatternMsg("리딩방 거래 기록 및 지표 수집 중... (30초~1분 소요)");
+    try {
+      await connectSSE(
+        "/api/ai/leading-room-patterns",
+        (evt) => {
+          if (evt.status === "running") setPatternMsg(evt.message ?? "분석 중...");
+          else if (evt.status === "done") { setPatternResult((evt as any).result); setPatternStatus("done"); }
+          else if (evt.status === "error") { setPatternMsg(evt.message ?? "오류 발생"); setPatternStatus("error"); }
+        },
+        { method: "POST", body: {}, signal: ctrl.signal },
+      );
+    } catch (e: any) {
+      if (e?.name !== "AbortError") { setPatternMsg("연결 오류: " + e?.message); setPatternStatus("error"); }
+    }
+  };
+
   if (isLoading) return <Skeleton height="200px" />;
 
   return (
@@ -1138,9 +1166,20 @@ function TradesTab() {
             {filteredTrades.length > 0 && <span style={{ fontSize: "0.85rem", color: "var(--color-muted)" }}>승률: {((winCount / filteredTrades.length) * 100).toFixed(0)}%</span>}
           </div>
         </div>
-        <button className="stockcy-btn stockcy-btn-secondary" onClick={() => setShowForm(v => !v)}>
-          <Plus size={14} /> 거래 기록
-        </button>
+        <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
+          <button
+            className="stockcy-btn stockcy-btn-secondary"
+            onClick={handlePatternAnalysis}
+            disabled={patternStatus === "loading"}
+            style={{ fontSize: "0.78rem", background: "rgba(124,58,237,0.12)", borderColor: "rgba(124,58,237,0.4)", color: "#a78bfa" }}
+          >
+            {patternStatus === "loading" ? <Loader2 size={13} style={{ animation: "spin 1s linear infinite" }} /> : <Brain size={13} />}
+            {patternStatus === "loading" ? " 분석 중..." : " 리딩방 패턴 분석"}
+          </button>
+          <button className="stockcy-btn stockcy-btn-secondary" onClick={() => setShowForm(v => !v)}>
+            <Plus size={14} /> 거래 기록
+          </button>
+        </div>
       </div>
 
       {showForm && (
@@ -1323,6 +1362,75 @@ function TradesTab() {
             })}
           </tbody>
         </table>
+      )}
+
+      {/* 리딩방 패턴 분석 결과 패널 */}
+      {(patternStatus === "loading" || patternStatus === "done" || patternStatus === "error") && (
+        <div style={{ border: "1px solid rgba(124,58,237,0.35)", borderRadius: "10px", background: "rgba(124,58,237,0.06)", padding: "1.2rem", display: "flex", flexDirection: "column", gap: "1rem" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <span style={{ fontWeight: 700, fontSize: "0.95rem", color: "#a78bfa" }}>
+              <Brain size={15} style={{ verticalAlign: "middle", marginRight: "5px" }} />
+              리딩방 패턴 AI 분석
+            </span>
+            <button onClick={() => { patternAbortRef.current?.abort(); setPatternStatus("idle"); }} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--color-muted)", fontSize: "1rem" }}>✕</button>
+          </div>
+
+          {patternStatus === "loading" && (
+            <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", color: "var(--color-muted)", fontSize: "0.85rem" }}>
+              <Loader2 size={14} style={{ animation: "spin 1s linear infinite" }} />
+              {patternMsg}
+            </div>
+          )}
+
+          {patternStatus === "error" && (
+            <StatusBox type="danger">{patternMsg}</StatusBox>
+          )}
+
+          {patternStatus === "done" && patternResult && (
+            <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
+              {/* 집계 통계 카드 */}
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(130px, 1fr))", gap: "0.5rem" }}>
+                {[
+                  { label: "총 거래", value: `${patternResult.agg_stats.total_trades}건` },
+                  { label: "승률", value: `${patternResult.agg_stats.win_rate_pct}%` },
+                  { label: "평균 수익률", value: `${patternResult.agg_stats.avg_profit_pct}%` },
+                  { label: "평균 RSI", value: patternResult.agg_stats.avg_rsi_at_entry ?? "N/A" },
+                  { label: "평균 거래량비율", value: patternResult.agg_stats.avg_volume_ratio ? `${patternResult.agg_stats.avg_volume_ratio}배` : "N/A" },
+                  { label: "52주 평균위치", value: patternResult.agg_stats.avg_52w_position_pct ? `${patternResult.agg_stats.avg_52w_position_pct}%` : "N/A" },
+                  { label: "MA정배열 비율", value: `${patternResult.agg_stats.ma_aligned_rate_pct}%` },
+                  { label: "분봉 데이터", value: `${patternResult.agg_stats.minute_data_count}건` },
+                ].map(stat => (
+                  <div key={stat.label} style={{ background: "rgba(0,0,0,0.25)", borderRadius: "6px", padding: "0.5rem 0.75rem", textAlign: "center" }}>
+                    <div style={{ fontSize: "0.7rem", color: "var(--color-muted)", marginBottom: "2px" }}>{stat.label}</div>
+                    <div style={{ fontWeight: 700, fontSize: "0.9rem", color: "#e2e8f0" }}>{String(stat.value)}</div>
+                  </div>
+                ))}
+              </div>
+
+              {/* 매수 시간대 분포 */}
+              {patternResult.agg_stats.time_distribution && Object.keys(patternResult.agg_stats.time_distribution).length > 0 && (
+                <div style={{ background: "rgba(0,0,0,0.2)", borderRadius: "6px", padding: "0.75rem 1rem" }}>
+                  <div style={{ fontSize: "0.78rem", fontWeight: 600, color: "#a78bfa", marginBottom: "0.4rem" }}>매수 시간대 분포</div>
+                  <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
+                    {Object.entries(patternResult.agg_stats.time_distribution).map(([tc, cnt]) => (
+                      <span key={tc} style={{ padding: "2px 10px", borderRadius: "12px", background: "rgba(124,58,237,0.2)", fontSize: "0.78rem", color: "#c4b5fd" }}>
+                        {tc}: {String(cnt)}건
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* AI 내러티브 */}
+              <div style={{ background: "rgba(0,0,0,0.2)", borderRadius: "8px", padding: "1rem 1.2rem" }}>
+                <div style={{ fontSize: "0.78rem", fontWeight: 600, color: "#a78bfa", marginBottom: "0.6rem" }}>AI 패턴 분석 리포트</div>
+                <div style={{ fontSize: "0.84rem", color: "var(--color-text)", lineHeight: 1.7, whiteSpace: "pre-wrap" }}>
+                  {patternResult.ai_narrative}
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
       )}
     </div>
   );

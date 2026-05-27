@@ -963,6 +963,27 @@ async def overnight_gap_bulk_analysis(req: OvernightGapBulkRequest):
     return {"status": "success", "results": results}
 
 
+# ── 리딩방 패턴 AI 분석 ────────────────────────────────────────────────────────
+
+@router.post("/leading-room-patterns")
+async def leading_room_patterns():
+    """리딩방 거래 내역 기술적 패턴 AI 분석 (SSE)."""
+    from ai_engine import analyze_leading_room_patterns
+
+    async def _gen():
+        yield _sse({"status": "running", "message": "📊 리딩방 거래 기록 및 지표 수집 중... (종목 수에 따라 30초~1분 소요)"})
+        try:
+            result = await asyncio.to_thread(analyze_leading_room_patterns)
+            if "error" in result:
+                yield _sse({"status": "error", "message": result["error"]})
+            else:
+                yield _sse({"status": "done", "result": result})
+        except Exception as e:
+            yield _sse({"status": "error", "message": str(e)})
+
+    return _sse_response(_gen())
+
+
 
 
 
