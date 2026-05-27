@@ -407,6 +407,8 @@ function PortfolioTab({ gapBulkMap }: { gapBulkMap: Record<string, any> }) {
   const [editTicker, setEditTicker] = useState<string | null>(null);
   const [editPrice,  setEditPrice]  = useState<string>("");
   const [editQty,    setEditQty]    = useState<string>("");
+  const [editSource, setEditSource] = useState<"리딩방" | "개인">("개인");
+  const [editType,   setEditType]   = useState<"실매매" | "테스트">("실매매");
 
   // AI 매도 타이밍 패널
   const [sellTarget, setSellTarget] = useState<any | null>(null);
@@ -492,7 +494,7 @@ function PortfolioTab({ gapBulkMap }: { gapBulkMap: Record<string, any> }) {
     const newBuy = Number(editPrice) || p.buy_price;
     const newQty = Number(editQty)   || p.quantity;
     const updated = (portfolio ?? []).map((item: any) =>
-      item.ticker === p.ticker ? { ...item, buy_price: newBuy, quantity: newQty } : item
+      item.ticker === p.ticker ? { ...item, buy_price: newBuy, quantity: newQty, trade_source: editSource, trade_type: editType } : item
     );
     await fetch(`${BASE_URL}/api/portfolio`, {
       method: "POST",
@@ -644,7 +646,7 @@ function PortfolioTab({ gapBulkMap }: { gapBulkMap: Record<string, any> }) {
                       AI
                     </button>
                     <button className="stockcy-btn stockcy-btn-secondary" style={{ padding: "2px 6px", fontSize: "0.7rem" }} title="편집"
-                      onClick={() => { setEditTicker(isEditing ? null : p.ticker); setEditPrice(String(p.buy_price)); setEditQty(String(p.quantity)); }}>
+                      onClick={() => { setEditTicker(isEditing ? null : p.ticker); setEditPrice(String(p.buy_price)); setEditQty(String(p.quantity)); setEditSource((p.trade_source as "리딩방" | "개인") || "개인"); setEditType((p.trade_type as "실매매" | "테스트") || "실매매"); }}>
                       ✏️
                     </button>
                     <button
@@ -660,10 +662,22 @@ function PortfolioTab({ gapBulkMap }: { gapBulkMap: Record<string, any> }) {
 
                 {/* 인라인 편집 폼 */}
                 {isEditing && (
-                  <div style={{ background: "rgba(0,0,0,0.3)", padding: "10px 12px", display: "flex", gap: "0.5rem", alignItems: "center", flexWrap: "wrap" }}>
-                    <label style={{ fontSize: "0.8rem", color: "var(--color-muted)" }}>평단가</label>
+                  <div style={{ background: "rgba(0,0,0,0.3)", padding: "10px 12px", display: "flex", gap: "0.6rem", alignItems: "center", flexWrap: "wrap" }}>
+                    <span style={{ fontSize: "0.75rem", color: "var(--color-muted)" }}>출처</span>
+                    <ToggleGroup
+                      options={[{ label: "리딩방", value: "리딩방" as const }, { label: "개인", value: "개인" as const }]}
+                      value={editSource} onChange={setEditSource}
+                      colors={{ "리딩방": "#7c3aed", "개인": "#2563eb" }}
+                    />
+                    <span style={{ fontSize: "0.75rem", color: "var(--color-muted)" }}>유형</span>
+                    <ToggleGroup
+                      options={[{ label: "실매매", value: "실매매" as const }, { label: "테스트", value: "테스트" as const }]}
+                      value={editType} onChange={setEditType}
+                      colors={{ "실매매": "#059669", "테스트": "#d97706" }}
+                    />
+                    <span style={{ fontSize: "0.75rem", color: "var(--color-muted)" }}>평단가</span>
                     <input className="stockcy-input" type="number" value={editPrice} onChange={e => setEditPrice(e.target.value)} style={{ width: "100px" }} />
-                    <label style={{ fontSize: "0.8rem", color: "var(--color-muted)" }}>수량</label>
+                    <span style={{ fontSize: "0.75rem", color: "var(--color-muted)" }}>수량</span>
                     <input className="stockcy-input" type="number" value={editQty} onChange={e => setEditQty(e.target.value)} style={{ width: "80px" }} />
                     <button className="stockcy-btn stockcy-btn-primary" style={{ padding: "4px 10px", fontSize: "0.8rem" }} onClick={() => handleUpdateEntry(p)}>저장</button>
                     <div style={{ marginLeft: "auto" }}>
@@ -898,11 +912,14 @@ function TradesTab() {
   const { data: tradeRes, isLoading, mutate } = useSWR("/api/trades", () => api.portfolio.loadTrades() as Promise<{ data: any[]; message: string }>);
   const trades: any[] = tradeRes?.data ?? [];
 
-  const [form, setForm] = useState({ ticker: "", name: "", buy_price: "", sell_price: "", quantity: "", result: "수익" });
+  const [form, setForm] = useState({ ticker: "", name: "", buy_price: "", sell_price: "", quantity: "", result: "수익", trade_source: "개인", trade_type: "실매매" });
   const [addMsg, setAddMsg] = useState<{ type: "success" | "danger"; text: string } | null>(null);
   const [adding, setAdding] = useState(false);
   const [showForm, setShowForm] = useState(false);
   const [postmortemTrade, setPostmortemTrade] = useState<any | null>(null);
+
+  const [filterSource, setFilterSource] = useState<"전체" | "리딩방" | "개인">("전체");
+  const [filterType,   setFilterType]   = useState<"전체" | "실매매" | "테스트">("전체");
 
   const usDates = useMemo(() => {
     return Array.from(new Set(
@@ -928,8 +945,16 @@ function TradesTab() {
     () => api.us.exchangeRatesHistorical(usDates)
   );
 
+  const filteredTrades = useMemo(() => trades.filter(t => {
+    const src = t["출처"] ?? t.trade_source ?? "개인";
+    const typ = t["유형"] ?? t.trade_type   ?? "실매매";
+    if (filterSource !== "전체" && src !== filterSource) return false;
+    if (filterType   !== "전체" && typ !== filterType)   return false;
+    return true;
+  }), [trades, filterSource, filterType]);
+
   const totalProfit = useMemo(() => {
-    return trades.reduce((sum, t) => {
+    return filteredTrades.reduce((sum, t) => {
       const ticker = String(t["티커"] ?? t.ticker ?? "").trim().toUpperCase();
       const isUs = ticker !== "" && !ticker.match(/^[0-9]+$/);
       const p = Number(t["수익금($)"] ?? t.profit ?? 0);
@@ -941,9 +966,9 @@ function TradesTab() {
         return sum + p;
       }
     }, 0);
-  }, [trades, historicalRates, usdKrwFallback]);
+  }, [filteredTrades, historicalRates, usdKrwFallback]);
 
-  const winCount = trades.filter(t => (Number(t["수익금($)"] ?? t.profit ?? 0)) > 0).length;
+  const winCount = filteredTrades.filter(t => (Number(t["수익금($)"] ?? t.profit ?? 0)) > 0).length;
 
   const handleAdd = async () => {
     if (!form.ticker || !form.buy_price || !form.sell_price || !form.quantity) return;
@@ -960,10 +985,12 @@ function TradesTab() {
         profit, profit_pct: profitPct,
         result: form.result,
         sell_date: new Date().toISOString().slice(0, 19),
+        trade_source: form.trade_source,
+        trade_type: form.trade_type,
       };
       const res = await api.portfolio.saveTrade(trade) as { success: boolean; message: string };
       setAddMsg({ type: res.success ? "success" : "danger", text: res.message });
-      if (res.success) { setForm({ ticker: "", name: "", buy_price: "", sell_price: "", quantity: "", result: "수익" }); mutate(); setShowForm(false); }
+      if (res.success) { setForm({ ticker: "", name: "", buy_price: "", sell_price: "", quantity: "", result: "수익", trade_source: "개인", trade_type: "실매매" }); mutate(); setShowForm(false); }
     } catch (e) { setAddMsg({ type: "danger", text: String(e) }); }
     finally { setAdding(false); }
   };
@@ -981,17 +1008,31 @@ function TradesTab() {
       {postmortemTrade && (
         <PostmortemModal trade={postmortemTrade} onClose={() => setPostmortemTrade(null)} onRefresh={() => mutate()} />
       )}
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <div style={{ display: "flex", gap: "1rem", alignItems: "center" }}>
-          <span style={{ fontSize: "0.85rem", color: "var(--color-muted)" }}>총 {trades.length}건</span>
-          <span style={{ fontWeight: 700, color: totalProfit >= 0 ? "var(--color-danger)" : "var(--color-primary)" }}>
-            누적 손익: {usDates.length > 0 && isRatesLoading ? (
-              <span style={{ color: "var(--color-muted)", fontWeight: 400, fontSize: "0.8rem" }}>환율 계산 중...</span>
-            ) : (
-              `${totalProfit >= 0 ? "+" : ""}₩${Math.round(totalProfit).toLocaleString()}`
-            )}
-          </span>
-          {trades.length > 0 && <span style={{ fontSize: "0.85rem", color: "var(--color-muted)" }}>승률: {((winCount / trades.length) * 100).toFixed(0)}%</span>}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: "0.5rem" }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
+          {/* 필터 */}
+          <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", flexWrap: "wrap" }}>
+            <span style={{ fontSize: "0.75rem", color: "var(--color-muted)" }}>출처</span>
+            {(["전체", "리딩방", "개인"] as const).map(v => (
+              <button key={v} onClick={() => setFilterSource(v)} style={{ padding: "3px 9px", fontSize: "0.75rem", fontWeight: 600, borderRadius: "4px", border: "1px solid var(--color-border)", cursor: "pointer", background: filterSource === v ? (v === "리딩방" ? "#7c3aed" : v === "개인" ? "#2563eb" : "var(--color-elevated)") : "var(--color-surface)", color: filterSource === v ? "#fff" : "var(--color-muted)" }}>{v}</button>
+            ))}
+            <span style={{ fontSize: "0.75rem", color: "var(--color-muted)", marginLeft: "0.5rem" }}>유형</span>
+            {(["전체", "실매매", "테스트"] as const).map(v => (
+              <button key={v} onClick={() => setFilterType(v)} style={{ padding: "3px 9px", fontSize: "0.75rem", fontWeight: 600, borderRadius: "4px", border: "1px solid var(--color-border)", cursor: "pointer", background: filterType === v ? (v === "실매매" ? "#059669" : v === "테스트" ? "#d97706" : "var(--color-elevated)") : "var(--color-surface)", color: filterType === v ? "#fff" : "var(--color-muted)" }}>{v}</button>
+            ))}
+          </div>
+          {/* 통계 */}
+          <div style={{ display: "flex", gap: "1rem", alignItems: "center" }}>
+            <span style={{ fontSize: "0.85rem", color: "var(--color-muted)" }}>{filteredTrades.length}건{filterSource !== "전체" || filterType !== "전체" ? ` / 전체 ${trades.length}건` : ""}</span>
+            <span style={{ fontWeight: 700, color: totalProfit >= 0 ? "var(--color-danger)" : "var(--color-primary)" }}>
+              누적 손익: {usDates.length > 0 && isRatesLoading ? (
+                <span style={{ color: "var(--color-muted)", fontWeight: 400, fontSize: "0.8rem" }}>환율 계산 중...</span>
+              ) : (
+                `${totalProfit >= 0 ? "+" : ""}₩${Math.round(totalProfit).toLocaleString()}`
+              )}
+            </span>
+            {filteredTrades.length > 0 && <span style={{ fontSize: "0.85rem", color: "var(--color-muted)" }}>승률: {((winCount / filteredTrades.length) * 100).toFixed(0)}%</span>}
+          </div>
         </div>
         <button className="stockcy-btn stockcy-btn-secondary" onClick={() => setShowForm(v => !v)}>
           <Plus size={14} /> 거래 기록
@@ -1000,6 +1041,12 @@ function TradesTab() {
 
       {showForm && (
         <div style={{ background: "var(--color-surface)", border: "1px solid var(--color-border)", borderRadius: "8px", padding: "1rem", display: "flex", flexDirection: "column", gap: "0.5rem" }}>
+          <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", flexWrap: "wrap" }}>
+            <span style={{ fontSize: "0.75rem", color: "var(--color-muted)" }}>출처</span>
+            <ToggleGroup options={[{ label: "리딩방", value: "리딩방" as const }, { label: "개인", value: "개인" as const }]} value={form.trade_source as "리딩방" | "개인"} onChange={v => setForm(f => ({...f, trade_source: v}))} colors={{ "리딩방": "#7c3aed", "개인": "#2563eb" }} />
+            <span style={{ fontSize: "0.75rem", color: "var(--color-muted)" }}>유형</span>
+            <ToggleGroup options={[{ label: "실매매", value: "실매매" as const }, { label: "테스트", value: "테스트" as const }]} value={form.trade_type as "실매매" | "테스트"} onChange={v => setForm(f => ({...f, trade_type: v}))} colors={{ "실매매": "#059669", "테스트": "#d97706" }} />
+          </div>
           <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
             <input className="stockcy-input" placeholder="티커" value={form.ticker} onChange={e => setForm(f => ({...f, ticker: e.target.value}))} style={{ width: "100px" }} />
             <input className="stockcy-input" placeholder="종목명" value={form.name} onChange={e => setForm(f => ({...f, name: e.target.value}))} style={{ flex: 1, minWidth: "100px" }} />
@@ -1036,7 +1083,7 @@ function TradesTab() {
             </tr>
           </thead>
           <tbody>
-            {trades.map((t, i) => {
+            {filteredTrades.map((t, i) => {
               const profit    = Number(t["수익금($)"] ?? t.profit ?? 0);
               const profitPct = Number(t["수익률(%)"] ?? t.profit_pct ?? 0);
               const color     = profit >= 0 ? "var(--color-danger)" : "var(--color-primary)";
@@ -1044,21 +1091,34 @@ function TradesTab() {
               const isUs      = ticker !== "" && !ticker.match(/^[0-9]+$/);
               const sellDate  = String(t["매도시간"] ?? t.sell_date ?? "");
               const lp        = t["학습포인트"] ?? t.learning_point;
-              
+
               const buyPrice  = Number(t["매수가($)"] ?? t.buy_price ?? 0);
               const sellPrice = Number(t["매도가($)"] ?? t.sell_price ?? 0);
-              
+
               const buyStr    = isUs ? `$${buyPrice.toFixed(2)}` : `₩${Math.round(buyPrice).toLocaleString()}`;
               const sellStr   = isUs ? `$${sellPrice.toFixed(2)}` : `₩${Math.round(sellPrice).toLocaleString()}`;
               const profitStr = isUs ? `$${profit.toFixed(2)}` : `₩${Math.round(profit).toLocaleString()}`;
-              
+
               const d = sellDate.slice(0, 10);
               const rate = isUs ? (historicalRates?.[d] || usdKrwFallback) : 1;
               const profitKrw = profit * rate;
-              
+              const tradeSource = t["출처"] ?? t.trade_source ?? "개인";
+              const tradeType   = t["유형"] ?? t.trade_type   ?? "실매매";
+
               return (
                 <tr key={i}>
-                  <td style={{ fontWeight: 600 }}>{String(t["종목명"] ?? t.name ?? "")} <span style={{ fontSize: "0.72rem", color: "var(--color-muted)" }}>({ticker})</span></td>
+                  <td style={{ fontWeight: 600 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: "4px", flexWrap: "wrap" }}>
+                      <span>{String(t["종목명"] ?? t.name ?? "")}</span>
+                      <span style={{ fontSize: "0.72rem", color: "var(--color-muted)" }}>({ticker})</span>
+                      {tradeSource === "리딩방" && (
+                        <span style={{ fontSize: "0.62rem", padding: "1px 5px", background: "rgba(124,58,237,0.15)", border: "1px solid rgba(124,58,237,0.35)", borderRadius: "3px", color: "#a78bfa", fontWeight: 700 }}>리딩방</span>
+                      )}
+                      {tradeType === "테스트" && (
+                        <span style={{ fontSize: "0.62rem", padding: "1px 5px", background: "rgba(217,119,6,0.15)", border: "1px solid rgba(217,119,6,0.35)", borderRadius: "3px", color: "#fbbf24", fontWeight: 700 }}>테스트</span>
+                      )}
+                    </div>
+                  </td>
                   <td style={{ textAlign: "right" }}>{buyStr}</td>
                   <td style={{ textAlign: "right" }}>{sellStr}</td>
                   <td style={{ textAlign: "right" }}>{Number(t["수량"] ?? t.quantity ?? 0).toLocaleString()}주</td>
