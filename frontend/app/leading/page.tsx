@@ -312,7 +312,7 @@ export default function LeadingPage() {
               )}
               <SSEPanel
                 status={picks.status} message={picks.message}
-                result={picks.result} fromCache={picks.fromCache}
+                result={picks.result} fromCache={picks.fromCache} completedAt={picks.completedAt}
                 onStart={handlePickStart} startLabel="AI 픽 분석 시작"
                 idleHint="거래량·등락률·수급 데이터를 종합하여 AI가 오늘의 국내 단타 유망 종목 3개를 선정합니다."
               >
@@ -341,7 +341,7 @@ export default function LeadingPage() {
               )}
               <SSEPanel<string>
                 status={rotation.status} message={rotation.message}
-                result={rotation.result} fromCache={rotation.fromCache}
+                result={rotation.result} fromCache={rotation.fromCache} completedAt={rotation.completedAt}
                 onStart={rotation.start} startLabel="섹터 로테이션 분석"
                 idleHint="실시간 시장 데이터를 기반으로 현재 주도 섹터와 다음 자금 이동 경로, 투자 성향별 추천 종목을 분석합니다. (1~2분 소요)"
               >
@@ -365,7 +365,7 @@ export default function LeadingPage() {
               )}
               <SSEPanel
                 status={myPick.status} message={myPick.message}
-                result={myPick.result} fromCache={myPick.fromCache}
+                result={myPick.result} fromCache={myPick.fromCache} completedAt={myPick.completedAt}
                 onStart={myPick.start} startLabel="내 패턴으로 종목 찾기"
                 idleHint="내 거래 기록에서 승률이 높았던 매매 조건을 학습하고, 오늘 시장에서 그 조건에 가장 근접한 단기 유망 종목을 찾습니다. (1~2분 소요)"
               >

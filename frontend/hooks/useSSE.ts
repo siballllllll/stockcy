@@ -5,10 +5,11 @@ import type { SseStatus } from "@/lib/types";
 import { AiTaskContext } from "@/contexts/AiTaskContext";
 
 interface SseState<T> {
-  status:     SseStatus;
-  message:    string;
-  result:     T | null;
-  fromCache:  boolean;
+  status:      SseStatus;
+  message:     string;
+  result:      T | null;
+  fromCache:   boolean;
+  completedAt?: number;
 }
 
 export function useSSE<T>(
@@ -69,10 +70,11 @@ export function useSSE<T>(
   if (options?.globalId && aiCtx) {
     const task = aiCtx.getTask(options.globalId);
     return {
-      status: task?.status || "idle",
-      message: task?.message || "",
-      result: (task?.result as T) || null,
-      fromCache: task?.fromCache || false,
+      status:      task?.status || "idle",
+      message:     task?.message || "",
+      result:      (task?.result as T) || null,
+      fromCache:   task?.fromCache || false,
+      completedAt: task?.completedAt,
       start: (runtimeBody?: object) => {
         aiCtx.startTask(options.globalId!, options.globalTitle || "AI 분석", path, {
           method: options.method,

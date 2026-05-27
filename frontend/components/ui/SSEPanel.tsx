@@ -5,16 +5,17 @@ import { StatusBox } from "./StatusBox";
 import type { SseStatus } from "@/lib/types";
 
 interface SSEPanelProps<T> {
-  status:     SseStatus;
-  message?:   string;
-  result:     T | null;
-  fromCache?: boolean;
-  onStart:    () => void;
-  startLabel?: string;
-  startIcon?:  ReactNode;
-  children:   (result: T) => ReactNode;   // 결과 렌더러
-  idleHint?:  string;
-  disabled?:  boolean;
+  status:      SseStatus;
+  message?:    string;
+  result:      T | null;
+  fromCache?:  boolean;
+  completedAt?: number;
+  onStart:     () => void;
+  startLabel?:  string;
+  startIcon?:   ReactNode;
+  children:    (result: T) => ReactNode;
+  idleHint?:   string;
+  disabled?:   boolean;
 }
 
 /**
@@ -24,15 +25,24 @@ interface SSEPanelProps<T> {
  * done → children(result) 렌더링
  * error → 에러 박스
  */
+function formatCompletedAt(ts: number): string {
+  const d = new Date(ts);
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  const hh = String(d.getHours()).padStart(2, "0");
+  const min = String(d.getMinutes()).padStart(2, "0");
+  return `${mm}-${dd} ${hh}:${min}`;
+}
+
 export function SSEPanel<T>({
-  status, message, result, fromCache,
+  status, message, result, fromCache, completedAt,
   onStart, startLabel = "AI 분석 시작", startIcon,
   children, idleHint, disabled = false,
 }: SSEPanelProps<T>) {
   return (
     <div>
       {/* 버튼 영역 */}
-      <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", marginBottom: "1rem" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", marginBottom: "1rem", flexWrap: "wrap" }}>
         <button
           className="stockcy-btn stockcy-btn-primary"
           onClick={() => onStart()}
@@ -44,6 +54,11 @@ export function SSEPanel<T>({
         {fromCache && (
           <span style={{ fontSize: "0.75rem", color: "var(--color-muted)" }}>
             ⚡ 캐시 결과
+          </span>
+        )}
+        {completedAt && status !== "running" && (
+          <span style={{ fontSize: "0.72rem", color: "var(--color-muted)" }}>
+            업데이트: {formatCompletedAt(completedAt)}
           </span>
         )}
       </div>
