@@ -999,7 +999,7 @@ function TradesTab() {
 
   const nowLocal = () => new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16);
   const [formMarket, setFormMarket] = useState<"국내" | "미국">("국내");
-  const [form, setForm] = useState({ ticker: "", name: "", buy_price: "", sell_price: "", quantity: "", result: "수익", trade_source: "개인", trade_type: "실매매", buy_date: nowLocal(), sell_date: nowLocal() });
+  const [form, setForm] = useState({ ticker: "", name: "", buy_price: "", sell_price: "", quantity: "", trade_source: "개인", trade_type: "실매매", buy_date: nowLocal(), sell_date: nowLocal() });
   const [addMsg, setAddMsg] = useState<{ type: "success" | "danger"; text: string } | null>(null);
   const [adding, setAdding] = useState(false);
   const [showForm, setShowForm] = useState(false);
@@ -1075,7 +1075,7 @@ function TradesTab() {
         ticker: form.ticker, name: form.name || form.ticker,
         quantity: qty, buy_price: bp, sell_price: sp,
         profit, profit_pct: profitPct,
-        result: form.result,
+        result: profit > 0 ? "수익" : profit < 0 ? "손실" : "손익분기",
         buy_date:  form.buy_date  ? form.buy_date  + ":00" : "",
         sell_date: form.sell_date ? form.sell_date + ":00" : new Date().toISOString().slice(0, 19),
         trade_source: form.trade_source,
@@ -1083,7 +1083,7 @@ function TradesTab() {
       };
       const res = await api.portfolio.saveTrade(trade) as { success: boolean; message: string };
       setAddMsg({ type: res.success ? "success" : "danger", text: res.message });
-      if (res.success) { setForm({ ticker: "", name: "", buy_price: "", sell_price: "", quantity: "", result: "수익", trade_source: "개인", trade_type: "실매매", buy_date: nowLocal(), sell_date: nowLocal() }); mutate(); setShowForm(false); }
+      if (res.success) { setForm({ ticker: "", name: "", buy_price: "", sell_price: "", quantity: "", trade_source: "개인", trade_type: "실매매", buy_date: nowLocal(), sell_date: nowLocal() }); mutate(); setShowForm(false); }
     } catch (e) { setAddMsg({ type: "danger", text: String(e) }); }
     finally { setAdding(false); }
   };
@@ -1178,11 +1178,6 @@ function TradesTab() {
             <input className="stockcy-input" placeholder="매수가" type="number" value={form.buy_price} onChange={e => setForm(f => ({...f, buy_price: e.target.value}))} style={{ width: "110px" }} />
             <input className="stockcy-input" placeholder="매도가" type="number" value={form.sell_price} onChange={e => setForm(f => ({...f, sell_price: e.target.value}))} style={{ width: "110px" }} />
             <input className="stockcy-input" placeholder="수량" type="number" value={form.quantity} onChange={e => setForm(f => ({...f, quantity: e.target.value}))} style={{ width: "80px" }} />
-            <select className="stockcy-input" value={form.result} onChange={e => setForm(f => ({...f, result: e.target.value}))} style={{ width: "90px" }}>
-              <option>수익</option>
-              <option>손실</option>
-              <option>손익분기</option>
-            </select>
           </div>
           <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", flexWrap: "wrap" }}>
             <span style={{ fontSize: "0.75rem", color: "var(--color-muted)", flexShrink: 0 }}>매수일시</span>
