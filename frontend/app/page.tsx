@@ -1,5 +1,6 @@
 "use client";
 import { useState } from "react";
+import ReactMarkdown from "react-markdown";
 import { PicksBoard } from "@/components/picks/PicksBoard";
 import { useSSE } from "@/hooks/useSSE";
 import { SSEPanel } from "@/components/ui/SSEPanel";
@@ -58,9 +59,44 @@ export default function Dashboard() {
           idleHint="실시간 시장 데이터를 기반으로 현재 주도 섹터와 다음 자금 이동 경로, 투자 성향별 추천 종목을 분析합니다. (1~2분 소요)"
         >
           {(data) => (
-            <pre style={{ whiteSpace: "pre-wrap", fontSize: "0.83rem", lineHeight: 1.8, color: "var(--color-text)", fontFamily: "inherit" }}>
-              {data}
-            </pre>
+            <div className="stockcy-markdown">
+              <ReactMarkdown
+                components={{
+                  h1: ({ children }) => (
+                    <h1 style={{ fontSize: "1.15rem", fontWeight: 800, color: "var(--color-text)", borderBottom: "2px solid var(--color-accent)", paddingBottom: "0.5rem", marginBottom: "1.2rem", marginTop: "1.5rem" }}>{children}</h1>
+                  ),
+                  h2: ({ children }) => (
+                    <h2 style={{ fontSize: "1rem", fontWeight: 700, color: "var(--color-accent)", marginBottom: "0.75rem", marginTop: "1.5rem", display: "flex", alignItems: "center", gap: "0.4rem" }}>{children}</h2>
+                  ),
+                  h3: ({ children }) => (
+                    <h3 style={{ fontSize: "0.9rem", fontWeight: 700, color: "#a78bfa", marginBottom: "0.5rem", marginTop: "1rem" }}>{children}</h3>
+                  ),
+                  p: ({ children }) => (
+                    <p style={{ fontSize: "0.87rem", lineHeight: 1.85, color: "var(--color-muted)", marginBottom: "0.6rem" }}>{children}</p>
+                  ),
+                  ul: ({ children }) => (
+                    <ul style={{ paddingLeft: "1.2rem", marginBottom: "0.75rem", display: "flex", flexDirection: "column", gap: "0.3rem" }}>{children}</ul>
+                  ),
+                  li: ({ children }) => (
+                    <li style={{ fontSize: "0.87rem", lineHeight: 1.8, color: "var(--color-muted)", listStyleType: "disc" }}>{children}</li>
+                  ),
+                  strong: ({ children }) => (
+                    <strong style={{ color: "var(--color-text)", fontWeight: 700 }}>{children}</strong>
+                  ),
+                  blockquote: ({ children }) => (
+                    <blockquote style={{ borderLeft: "3px solid var(--color-accent)", paddingLeft: "1rem", margin: "0.75rem 0", background: "rgba(255,255,255,0.03)", borderRadius: "0 6px 6px 0", padding: "0.6rem 1rem" }}>{children}</blockquote>
+                  ),
+                  hr: () => (
+                    <hr style={{ border: "none", borderTop: "1px solid var(--color-border)", margin: "1.5rem 0" }} />
+                  ),
+                  code: ({ children }) => (
+                    <code style={{ background: "rgba(255,255,255,0.08)", borderRadius: "4px", padding: "1px 6px", fontSize: "0.82rem", color: "#fbbf24", fontFamily: "monospace" }}>{children}</code>
+                  ),
+                }}
+              >
+                {data}
+              </ReactMarkdown>
+            </div>
           )}
         </SSEPanel>
       )}
@@ -74,50 +110,83 @@ export default function Dashboard() {
           idleHint="내 거래 기록에서 승률이 높았던 매매 조건을 학습하고, 오늘 시장에서 그 조건에 가장 근접한 단기 유망 종목을 찾습니다. (1~2분 소요)"
         >
           {(data) => (
-            <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
-              {data.profile_summary && (
-                <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap", padding: "0.75rem", background: "rgba(124,58,237,0.08)", borderRadius: "8px", border: "1px solid rgba(124,58,237,0.2)" }}>
-                  <span style={{ fontSize: "0.75rem", color: "#a78bfa", fontWeight: 600, width: "100%", marginBottom: "2px" }}>학습된 패턴 기준</span>
-                  {[
-                    { label: "기반 거래", value: `${data.profile_summary.total_trades}건` },
-                    { label: "승률",     value: `${data.profile_summary.win_rate_pct}%` },
-                    { label: "평균수익", value: `${data.profile_summary.avg_profit_pct}%` },
-                    { label: "업데이트", value: String(data.profile_summary.updated_time ?? "").slice(0, 10) },
-                  ].map(s => (
-                    <div key={s.label} style={{ textAlign: "center", padding: "4px 12px", background: "rgba(0,0,0,0.2)", borderRadius: "6px" }}>
-                      <div style={{ fontSize: "0.65rem", color: "var(--color-muted)" }}>{s.label}</div>
-                      <div style={{ fontWeight: 700, fontSize: "0.85rem", color: "#e2e8f0" }}>{s.value}</div>
-                    </div>
-                  ))}
-                </div>
-              )}
-              {data.top_picks?.length > 0 && (
-                <div>
-                  <div style={{ fontSize: "0.78rem", fontWeight: 600, color: "var(--color-muted)", marginBottom: "0.5rem" }}>패턴 매칭 상위 종목</div>
-                  <div style={{ display: "flex", flexDirection: "column", gap: "0.4rem" }}>
-                    {data.top_picks.map((p: any, i: number) => (
-                      <div key={p.code} style={{ display: "flex", alignItems: "center", gap: "0.75rem", padding: "0.6rem 0.9rem", background: "var(--color-elevated)", borderRadius: "7px", flexWrap: "wrap" }}>
-                        <span style={{ width: "22px", height: "22px", borderRadius: "50%", background: i === 0 ? "#7c3aed" : i === 1 ? "#4f46e5" : "var(--color-surface)", color: "white", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "0.72rem", fontWeight: 700, flexShrink: 0 }}>{i + 1}</span>
-                        <div style={{ flex: 1, minWidth: "120px" }}>
-                          <span style={{ fontWeight: 700 }}>{p.name}</span>
-                          <span style={{ fontSize: "0.75rem", color: "var(--color-muted)", marginLeft: "6px" }}>{p.code}</span>
-                        </div>
-                        <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
-                          <span style={{ fontSize: "0.72rem", padding: "1px 7px", borderRadius: "10px", background: "rgba(124,58,237,0.2)", color: "#c4b5fd", fontWeight: 600 }}>매칭 {p.match_score}점</span>
-                          {p.rsi != null && <span style={{ fontSize: "0.72rem", color: "var(--color-muted)" }}>RSI {p.rsi}</span>}
-                          {p.vol_ratio != null && <span style={{ fontSize: "0.72rem", color: "var(--color-muted)" }}>거래량 {p.vol_ratio}배</span>}
-                          {p.ma_aligned && <span style={{ fontSize: "0.7rem", padding: "1px 6px", borderRadius: "8px", background: "rgba(5,150,105,0.15)", color: "#34d399" }}>MA정배열</span>}
-                          {p.signal === "both" && <span style={{ fontSize: "0.7rem", padding: "1px 6px", borderRadius: "8px", background: "rgba(245,158,11,0.15)", color: "#fbbf24" }}>이중신호</span>}
-                        </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
+
+              {/* 프로필 요약 */}
+              {data.profile_summary && (() => {
+                const ps = data.profile_summary;
+                const winRate = Number(ps.win_rate_pct ?? 0);
+                return (
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "0.75rem" }}>
+                    {[
+                      { label: "기반 거래",  value: `${ps.total_trades}건`,        color: "var(--color-text)" },
+                      { label: "승률",       value: `${winRate}%`,                  color: winRate >= 60 ? "#34d399" : winRate >= 45 ? "#fbbf24" : "#f87171" },
+                      { label: "평균 수익",  value: `+${ps.avg_profit_pct}%`,       color: "#34d399" },
+                      { label: "프로필 갱신", value: String(ps.updated_time ?? "").slice(0, 10), color: "var(--color-muted)" },
+                    ].map(s => (
+                      <div key={s.label} style={{ background: "rgba(124,58,237,0.08)", border: "1px solid rgba(124,58,237,0.2)", borderRadius: "8px", padding: "0.75rem", textAlign: "center" }}>
+                        <div style={{ fontSize: "0.7rem", color: "#a78bfa", marginBottom: "4px" }}>{s.label}</div>
+                        <div style={{ fontSize: "1.1rem", fontWeight: 800, color: s.color }}>{s.value}</div>
                       </div>
                     ))}
                   </div>
+                );
+              })()}
+
+              {/* 매칭 종목 카드 그리드 */}
+              {data.top_picks?.length > 0 && (
+                <div>
+                  <div style={{ fontSize: "0.8rem", fontWeight: 700, color: "var(--color-muted)", marginBottom: "0.75rem", display: "flex", alignItems: "center", gap: "0.4rem" }}>
+                    🎯 패턴 매칭 상위 종목
+                  </div>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: "0.75rem" }}>
+                    {data.top_picks.map((p: any, i: number) => {
+                      const score = Number(p.match_score ?? 0);
+                      const rankColors = ["#7c3aed", "#4f46e5", "#0369a1"];
+                      const rankColor  = rankColors[i] ?? "var(--color-surface)";
+                      const scoreBg    = score >= 80 ? "rgba(34,197,94,0.12)"  : score >= 60 ? "rgba(234,179,8,0.12)"  : "rgba(255,255,255,0.05)";
+                      const scoreColor = score >= 80 ? "#4ade80"               : score >= 60 ? "#fbbf24"               : "var(--color-muted)";
+                      return (
+                        <div key={p.code} style={{ background: "var(--color-elevated)", border: `1px solid ${i < 3 ? rankColor + "55" : "var(--color-border)"}`, borderTop: `3px solid ${rankColor}`, borderRadius: "8px", padding: "0.9rem", display: "flex", flexDirection: "column", gap: "0.6rem" }}>
+                          {/* 상단: 순위 + 종목명 */}
+                          <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                            <span style={{ width: "22px", height: "22px", borderRadius: "50%", background: rankColor, color: "white", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "0.72rem", fontWeight: 800, flexShrink: 0 }}>{i + 1}</span>
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <div style={{ fontWeight: 700, fontSize: "0.95rem", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name}</div>
+                              <div style={{ fontSize: "0.72rem", color: "var(--color-muted)" }}>{p.code}</div>
+                            </div>
+                            <div style={{ background: scoreBg, color: scoreColor, fontWeight: 800, fontSize: "0.85rem", padding: "2px 8px", borderRadius: "6px", flexShrink: 0 }}>{score}점</div>
+                          </div>
+
+                          {/* 지표 뱃지 */}
+                          <div style={{ display: "flex", gap: "0.4rem", flexWrap: "wrap" }}>
+                            {p.rsi != null && (
+                              <span style={{ fontSize: "0.72rem", padding: "2px 7px", borderRadius: "6px", background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)", color: "var(--color-muted)" }}>RSI {p.rsi}</span>
+                            )}
+                            {p.vol_ratio != null && (
+                              <span style={{ fontSize: "0.72rem", padding: "2px 7px", borderRadius: "6px", background: "rgba(99,102,241,0.15)", border: "1px solid rgba(99,102,241,0.25)", color: "#a5b4fc" }}>거래량 {p.vol_ratio}배</span>
+                            )}
+                            {p.ma_aligned && (
+                              <span style={{ fontSize: "0.72rem", padding: "2px 7px", borderRadius: "6px", background: "rgba(5,150,105,0.15)", border: "1px solid rgba(5,150,105,0.25)", color: "#34d399" }}>MA정배열</span>
+                            )}
+                            {p.signal === "both" && (
+                              <span style={{ fontSize: "0.72rem", padding: "2px 7px", borderRadius: "6px", background: "rgba(245,158,11,0.15)", border: "1px solid rgba(245,158,11,0.25)", color: "#fbbf24" }}>이중신호</span>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
               )}
+
+              {/* AI 진입 전략 */}
               {data.ai_narrative && (
-                <div style={{ background: "rgba(0,0,0,0.2)", borderRadius: "8px", padding: "1rem 1.2rem" }}>
-                  <div style={{ fontSize: "0.75rem", fontWeight: 600, color: "#a78bfa", marginBottom: "0.5rem" }}>AI 진입 전략</div>
-                  <div style={{ fontSize: "0.84rem", color: "var(--color-text)", lineHeight: 1.75, whiteSpace: "pre-wrap" }}>
+                <div style={{ background: "rgba(124,58,237,0.06)", border: "1px solid rgba(124,58,237,0.2)", borderRadius: "10px", padding: "1.1rem 1.3rem" }}>
+                  <div style={{ fontSize: "0.78rem", fontWeight: 700, color: "#a78bfa", marginBottom: "0.75rem", display: "flex", alignItems: "center", gap: "0.4rem" }}>
+                    🧠 AI 진입 전략
+                  </div>
+                  <div style={{ fontSize: "0.87rem", color: "var(--color-text)", lineHeight: 1.85, whiteSpace: "pre-wrap" }}>
                     {data.ai_narrative}
                   </div>
                 </div>
