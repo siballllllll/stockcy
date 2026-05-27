@@ -35,6 +35,12 @@ class DeleteTradeRequest(BaseModel):
     ticker:    str
     sell_date: str
 
+class UpdateTradeTagRequest(BaseModel):
+    ticker:       str
+    sell_date:    str
+    trade_source: str
+    trade_type:   str
+
 
 class AlertRequest(BaseModel):
     market:       str
@@ -201,6 +207,13 @@ async def load_agent_trades():
 async def save_trade(req: TradeRecordRequest):
     from db import save_trade_record
     ok, msg = await asyncio.to_thread(save_trade_record, req.trade)
+    return {"success": ok, "message": msg}
+
+
+@router.patch("/trades")
+async def update_trade_tag(req: UpdateTradeTagRequest):
+    from db import update_trade_source_type
+    ok, msg = await asyncio.to_thread(update_trade_source_type, req.ticker, req.sell_date, req.trade_source, req.trade_type)
     return {"success": ok, "message": msg}
 
 

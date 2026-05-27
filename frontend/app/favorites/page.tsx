@@ -921,6 +921,11 @@ function TradesTab() {
   const [filterSource, setFilterSource] = useState<"전체" | "리딩방" | "개인">("전체");
   const [filterType,   setFilterType]   = useState<"전체" | "실매매" | "테스트">("전체");
 
+  const [editTradeKey,    setEditTradeKey]    = useState<string | null>(null);
+  const [editSrc,         setEditSrc]         = useState<"리딩방" | "개인">("개인");
+  const [editTyp,         setEditTyp]         = useState<"실매매" | "테스트">("실매매");
+  const [savingTag,       setSavingTag]       = useState(false);
+
   const usDates = useMemo(() => {
     return Array.from(new Set(
       trades
@@ -993,6 +998,17 @@ function TradesTab() {
       if (res.success) { setForm({ ticker: "", name: "", buy_price: "", sell_price: "", quantity: "", result: "수익", trade_source: "개인", trade_type: "실매매" }); mutate(); setShowForm(false); }
     } catch (e) { setAddMsg({ type: "danger", text: String(e) }); }
     finally { setAdding(false); }
+  };
+
+  const handleUpdateTag = async (ticker: string, sellDate: string) => {
+    setSavingTag(true);
+    try {
+      await (api.portfolio as any).updateTradeTag(ticker, sellDate, editSrc, editTyp);
+      mutate();
+      setEditTradeKey(null);
+    } finally {
+      setSavingTag(false);
+    }
   };
 
   const handleDelete = async (ticker: string, sellDate: string) => {
@@ -1104,52 +1120,93 @@ function TradesTab() {
               const profitKrw = profit * rate;
               const tradeSource = t["출처"] ?? t.trade_source ?? "개인";
               const tradeType   = t["유형"] ?? t.trade_type   ?? "실매매";
+              const rowKey = `${ticker}_${sellDate}`;
+              const isEditingTag = editTradeKey === rowKey;
 
               return (
-                <tr key={i}>
-                  <td style={{ fontWeight: 600 }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: "4px", flexWrap: "wrap" }}>
-                      <span>{String(t["종목명"] ?? t.name ?? "")}</span>
-                      <span style={{ fontSize: "0.72rem", color: "var(--color-muted)" }}>({ticker})</span>
-                      {tradeSource === "리딩방" && (
-                        <span style={{ fontSize: "0.62rem", padding: "1px 5px", background: "rgba(124,58,237,0.15)", border: "1px solid rgba(124,58,237,0.35)", borderRadius: "3px", color: "#a78bfa", fontWeight: 700 }}>리딩방</span>
-                      )}
-                      {tradeType === "테스트" && (
-                        <span style={{ fontSize: "0.62rem", padding: "1px 5px", background: "rgba(217,119,6,0.15)", border: "1px solid rgba(217,119,6,0.35)", borderRadius: "3px", color: "#fbbf24", fontWeight: 700 }}>테스트</span>
-                      )}
-                    </div>
-                  </td>
-                  <td style={{ textAlign: "right" }}>{buyStr}</td>
-                  <td style={{ textAlign: "right" }}>{sellStr}</td>
-                  <td style={{ textAlign: "right" }}>{Number(t["수량"] ?? t.quantity ?? 0).toLocaleString()}주</td>
-                  <td style={{ textAlign: "right", color, fontWeight: 600 }}>
-                    {profit >= 0 ? "+" : ""}{profitStr}
-                    {isUs && (
-                      <div style={{ fontSize: "0.68rem", color: "var(--color-muted)", fontWeight: 400 }}>
-                        {isRatesLoading ? "환율 계산 중..." : `≈${profit >= 0 ? "+" : ""}₩${Math.round(profitKrw).toLocaleString()}`}
+                <>
+                  <tr key={i}>
+                    <td style={{ fontWeight: 600 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: "4px", flexWrap: "wrap" }}>
+                        <span>{String(t["종목명"] ?? t.name ?? "")}</span>
+                        <span style={{ fontSize: "0.72rem", color: "var(--color-muted)" }}>({ticker})</span>
+                        {tradeSource === "리딩방" && (
+                          <span style={{ fontSize: "0.62rem", padding: "1px 5px", background: "rgba(124,58,237,0.15)", border: "1px solid rgba(124,58,237,0.35)", borderRadius: "3px", color: "#a78bfa", fontWeight: 700 }}>리딩방</span>
+                        )}
+                        {tradeType === "테스트" && (
+                          <span style={{ fontSize: "0.62rem", padding: "1px 5px", background: "rgba(217,119,6,0.15)", border: "1px solid rgba(217,119,6,0.35)", borderRadius: "3px", color: "#fbbf24", fontWeight: 700 }}>테스트</span>
+                        )}
                       </div>
-                    )}
-                  </td>
-                  <td style={{ textAlign: "right", color, fontWeight: 700 }}>{profitPct >= 0 ? "+" : ""}{profitPct.toFixed(2)}%</td>
-                  <td><Badge variant={profit >= 0 ? "success" : "danger"}>{String(t["결과"] ?? t.result ?? "-")}</Badge></td>
-                  <td style={{ fontSize: "0.75rem", color: "var(--color-muted)" }}>{sellDate.slice(0, 10)}</td>
-                  <td>
-                    {lp ? (
-                      <div style={{ fontSize: "0.75rem", color: "var(--color-primary)", maxWidth: "150px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", cursor: "pointer" }} title={lp} onClick={() => setPostmortemTrade(t)}>
-                        💡 {lp}
+                    </td>
+                    <td style={{ textAlign: "right" }}>{buyStr}</td>
+                    <td style={{ textAlign: "right" }}>{sellStr}</td>
+                    <td style={{ textAlign: "right" }}>{Number(t["수량"] ?? t.quantity ?? 0).toLocaleString()}주</td>
+                    <td style={{ textAlign: "right", color, fontWeight: 600 }}>
+                      {profit >= 0 ? "+" : ""}{profitStr}
+                      {isUs && (
+                        <div style={{ fontSize: "0.68rem", color: "var(--color-muted)", fontWeight: 400 }}>
+                          {isRatesLoading ? "환율 계산 중..." : `≈${profit >= 0 ? "+" : ""}₩${Math.round(profitKrw).toLocaleString()}`}
+                        </div>
+                      )}
+                    </td>
+                    <td style={{ textAlign: "right", color, fontWeight: 700 }}>{profitPct >= 0 ? "+" : ""}{profitPct.toFixed(2)}%</td>
+                    <td><Badge variant={profit >= 0 ? "success" : "danger"}>{String(t["결과"] ?? t.result ?? "-")}</Badge></td>
+                    <td style={{ fontSize: "0.75rem", color: "var(--color-muted)" }}>{sellDate.slice(0, 10)}</td>
+                    <td>
+                      {lp ? (
+                        <div style={{ fontSize: "0.75rem", color: "var(--color-primary)", maxWidth: "150px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", cursor: "pointer" }} title={lp} onClick={() => setPostmortemTrade(t)}>
+                          💡 {lp}
+                        </div>
+                      ) : (
+                        <button className="stockcy-btn stockcy-btn-primary" style={{ padding: "2px 6px", fontSize: "0.7rem", background: "transparent", border: "1px solid var(--color-primary)", color: "var(--color-primary)" }} onClick={() => setPostmortemTrade(t)}>
+                          <Brain size={10} style={{ marginRight: "4px" }} /> AI 복기
+                        </button>
+                      )}
+                    </td>
+                    <td>
+                      <div style={{ display: "flex", gap: "3px" }}>
+                        <button
+                          className="stockcy-btn stockcy-btn-secondary"
+                          style={{ padding: "2px 6px", fontSize: "0.7rem", color: isEditingTag ? "var(--color-accent)" : undefined }}
+                          title="출처/유형 편집"
+                          onClick={() => {
+                            if (isEditingTag) { setEditTradeKey(null); return; }
+                            setEditSrc((tradeSource as "리딩방" | "개인") || "개인");
+                            setEditTyp((tradeType as "실매매" | "테스트") || "실매매");
+                            setEditTradeKey(rowKey);
+                          }}
+                        >✏️</button>
+                        <button className="stockcy-btn stockcy-btn-secondary" style={{ padding: "2px 6px", fontSize: "0.7rem" }} onClick={() => handleDelete(ticker, sellDate)}>
+                          <Trash2 size={10} />
+                        </button>
                       </div>
-                    ) : (
-                      <button className="stockcy-btn stockcy-btn-primary" style={{ padding: "2px 6px", fontSize: "0.7rem", background: "transparent", border: "1px solid var(--color-primary)", color: "var(--color-primary)" }} onClick={() => setPostmortemTrade(t)}>
-                        <Brain size={10} style={{ marginRight: "4px" }} /> AI 복기
-                      </button>
-                    )}
-                  </td>
-                  <td>
-                    <button className="stockcy-btn stockcy-btn-secondary" style={{ padding: "2px 6px", fontSize: "0.7rem" }} onClick={() => handleDelete(ticker, sellDate)}>
-                      <Trash2 size={10} />
-                    </button>
-                  </td>
-                </tr>
+                    </td>
+                  </tr>
+                  {isEditingTag && (
+                    <tr key={`${i}_edit`} style={{ background: "rgba(0,0,0,0.25)" }}>
+                      <td colSpan={10} style={{ padding: "8px 12px" }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: "0.6rem", flexWrap: "wrap" }}>
+                          <span style={{ fontSize: "0.75rem", color: "var(--color-muted)" }}>출처</span>
+                          <ToggleGroup
+                            options={[{ label: "리딩방", value: "리딩방" as const }, { label: "개인", value: "개인" as const }]}
+                            value={editSrc} onChange={setEditSrc}
+                            colors={{ "리딩방": "#7c3aed", "개인": "#2563eb" }}
+                          />
+                          <span style={{ fontSize: "0.75rem", color: "var(--color-muted)", marginLeft: "0.25rem" }}>유형</span>
+                          <ToggleGroup
+                            options={[{ label: "실매매", value: "실매매" as const }, { label: "테스트", value: "테스트" as const }]}
+                            value={editTyp} onChange={setEditTyp}
+                            colors={{ "실매매": "#059669", "테스트": "#d97706" }}
+                          />
+                          <button className="stockcy-btn stockcy-btn-primary" style={{ padding: "3px 10px", fontSize: "0.78rem" }} disabled={savingTag} onClick={() => handleUpdateTag(ticker, sellDate)}>
+                            {savingTag ? "저장 중..." : "저장"}
+                          </button>
+                          <button className="stockcy-btn stockcy-btn-secondary" style={{ padding: "3px 8px", fontSize: "0.78rem" }} onClick={() => setEditTradeKey(null)}>취소</button>
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                </>
               );
             })}
           </tbody>

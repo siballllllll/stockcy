@@ -690,6 +690,45 @@ def _gsheet_backup_update_learning_point(ticker, sell_date, learning_point):
         print(f"Failed to update learning point in Google Sheets: {e}")
         return False, str(e)
 
+def update_trade_source_type(ticker: str, sell_date: str, trade_source: str, trade_type: str):
+    """로컬 SQLite에서 특정 거래의 출처/유형을 즉시 갱신하고, 백그라운드 스레드로 구글 시트에 동기화합니다."""
+    try:
+        conn = get_db_conn()
+        cursor = conn.cursor()
+        cursor.execute(
+            "UPDATE trade_history SET trade_source = ?, trade_type = ? WHERE TRIM(sell_date) = TRIM(?) AND TRIM(ticker) = TRIM(?)",
+            (trade_source, trade_type, sell_date, ticker)
+        )
+        conn.commit()
+        conn.close()
+        run_background_backup(_gsheet_backup_update_trade_source_type, ticker, sell_date, trade_source, trade_type)
+        return True, "출처/유형 업데이트 완료!"
+    except Exception as e:
+        return False, f"로컬 업데이트 오류: {e}"
+
+def _gsheet_backup_update_trade_source_type(ticker, sell_date, trade_source, trade_type):
+    sh, msg = _get_spreadsheet()
+    if not sh:
+        return False, msg
+    try:
+        ws = sh.worksheet("거래내역")
+        rows = ws.get_all_values()
+        headers = rows[0]
+        for col_name, value in [("출처", trade_source), ("유형", trade_type)]:
+            try:
+                col_idx = headers.index(col_name) + 1
+                for i in range(len(rows) - 1, 0, -1):
+                    row = rows[i]
+                    if len(row) >= 3 and str(row[1]).strip() == str(sell_date).strip() and str(row[2]).strip() == str(ticker).strip():
+                        ws.update_cell(i + 1, col_idx, value)
+                        break
+            except ValueError:
+                pass
+        return True, "구글 시트 출처/유형 업데이트 완료"
+    except Exception as e:
+        print(f"Failed to update trade source/type in Google Sheets: {e}")
+        return False, str(e)
+
 def update_trade_learning_point(ticker: str, sell_date: str, learning_point: str):
     """로컬 SQLite에서 특정 거래의 학습포인트를 즉시 갱신하고, 백그라운드 스레드로 구글 시트에 동기화합니다."""
     try:
