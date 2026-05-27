@@ -1120,7 +1120,7 @@ function TradesTab() {
               const profitKrw = profit * rate;
               const tradeSource = t["출처"] ?? t.trade_source ?? "개인";
               const tradeType   = t["유형"] ?? t.trade_type   ?? "실매매";
-              const rowKey = `${ticker}_${sellDate}`;
+              const rowKey = `${i}_${ticker}_${sellDate}`;
               const isEditingTag = editTradeKey === rowKey;
 
               return (

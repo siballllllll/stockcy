@@ -695,9 +695,14 @@ def update_trade_source_type(ticker: str, sell_date: str, trade_source: str, tra
     try:
         conn = get_db_conn()
         cursor = conn.cursor()
+        # 티커: 제로패딩 정규화 (DB에 '96770', 프론트에서 '096770' 올 수 있음)
+        # sell_date: T/공백 구분자 혼재 정규화
         cursor.execute(
-            "UPDATE trade_history SET trade_source = ?, trade_type = ? WHERE TRIM(sell_date) = TRIM(?) AND TRIM(ticker) = TRIM(?)",
-            (trade_source, trade_type, sell_date, ticker)
+            """UPDATE trade_history
+               SET trade_source = ?, trade_type = ?
+               WHERE LTRIM(TRIM(ticker), '0') = LTRIM(TRIM(?), '0')
+                 AND REPLACE(TRIM(sell_date), 'T', ' ') = REPLACE(TRIM(?), 'T', ' ')""",
+            (trade_source, trade_type, ticker, sell_date)
         )
         conn.commit()
         conn.close()
