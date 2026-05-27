@@ -907,12 +907,98 @@ function PostmortemModal({ trade, onClose, onRefresh }: { trade: any; onClose: (
   );
 }
 
+// ── 종목 검색 자동완성 입력 ────────────────────────────────────────────────────
+function StockSearchInput({ market, onSelect }: {
+  market: "국내" | "미국";
+  onSelect: (ticker: string, name: string) => void;
+}) {
+  const [query, setQuery]       = useState("");
+  const [open,  setOpen]        = useState(false);
+  const [stockMap, setStockMap] = useState<Record<string, string>>({});
+  const [loaded, setLoaded]     = useState(false);
+  const ref = React.useRef<HTMLDivElement>(null);
+
+  // 포커스 시 1회 로드
+  const loadMap = async () => {
+    if (loaded) return;
+    try {
+      const url = market === "국내"
+        ? `${BASE_URL}/api/kr/stocks/all`
+        : `${BASE_URL}/api/us/stocks/all`;
+      const res = await fetch(url);
+      const data = await res.json();
+      setStockMap(data ?? {});
+      setLoaded(true);
+    } catch {}
+  };
+
+  // 바깥 클릭 시 닫기
+  React.useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
+  // market 변경 시 재로드
+  React.useEffect(() => { setLoaded(false); setStockMap({}); setQuery(""); }, [market]);
+
+  const q = query.trim().toLowerCase();
+  const candidates = q.length < 1 ? [] : Object.entries(stockMap)
+    .filter(([code, name]) =>
+      code.toLowerCase().includes(q) || name.toLowerCase().includes(q)
+    )
+    .slice(0, 10);
+
+  const handleSelect = (code: string, name: string) => {
+    onSelect(code, name);
+    setQuery("");
+    setOpen(false);
+  };
+
+  return (
+    <div ref={ref} style={{ position: "relative", flex: 1, minWidth: "200px" }}>
+      <input
+        className="stockcy-input"
+        placeholder={market === "국내" ? "종목명 또는 코드 검색 (예: 삼성전자, 005930)" : "종목명 또는 티커 검색 (예: NVDA, 엔비디아)"}
+        value={query}
+        onFocus={() => { loadMap(); setOpen(true); }}
+        onChange={e => { setQuery(e.target.value); setOpen(true); }}
+        style={{ width: "100%" }}
+      />
+      {!loaded && open && query.length === 0 && (
+        <div style={{ position: "absolute", top: "100%", left: 0, right: 0, background: "var(--color-card)", border: "1px solid var(--color-border)", borderRadius: "6px", padding: "8px 12px", fontSize: "0.78rem", color: "var(--color-muted)", zIndex: 200 }}>
+          종목 목록 로딩 중...
+        </div>
+      )}
+      {open && candidates.length > 0 && (
+        <div style={{ position: "absolute", top: "calc(100% + 2px)", left: 0, right: 0, background: "var(--color-card)", border: "1px solid var(--color-border)", borderRadius: "6px", boxShadow: "0 4px 16px rgba(0,0,0,0.3)", zIndex: 200, maxHeight: "220px", overflowY: "auto" }}>
+          {candidates.map(([code, name]) => (
+            <div
+              key={code}
+              onMouseDown={() => handleSelect(code, name)}
+              style={{ padding: "7px 12px", cursor: "pointer", display: "flex", gap: "8px", alignItems: "center", fontSize: "0.85rem" }}
+              onMouseEnter={e => (e.currentTarget.style.background = "var(--color-surface)")}
+              onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
+            >
+              <span style={{ fontWeight: 700, color: "var(--color-text)", minWidth: "70px" }}>{code}</span>
+              <span style={{ color: "var(--color-muted)" }}>{name}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── 거래 내역 탭 ──────────────────────────────────────────────────────────────
 function TradesTab() {
   const { data: tradeRes, isLoading, mutate } = useSWR("/api/trades", () => api.portfolio.loadTrades() as Promise<{ data: any[]; message: string }>);
   const trades: any[] = tradeRes?.data ?? [];
 
   const nowLocal = () => new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+  const [formMarket, setFormMarket] = useState<"국내" | "미국">("국내");
   const [form, setForm] = useState({ ticker: "", name: "", buy_price: "", sell_price: "", quantity: "", result: "수익", trade_source: "개인", trade_type: "실매매", buy_date: nowLocal(), sell_date: nowLocal() });
   const [addMsg, setAddMsg] = useState<{ type: "success" | "danger"; text: string } | null>(null);
   const [adding, setAdding] = useState(false);
@@ -1065,13 +1151,34 @@ function TradesTab() {
             <span style={{ fontSize: "0.75rem", color: "var(--color-muted)" }}>유형</span>
             <ToggleGroup options={[{ label: "실매매", value: "실매매" as const }, { label: "테스트", value: "테스트" as const }]} value={form.trade_type as "실매매" | "테스트"} onChange={v => setForm(f => ({...f, trade_type: v}))} colors={{ "실매매": "#059669", "테스트": "#d97706" }} />
           </div>
+          {/* 종목 검색 */}
+          <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
+            <div style={{ display: "flex", background: "var(--color-bg)", borderRadius: "6px", padding: "2px", border: "1px solid var(--color-border)", flexShrink: 0 }}>
+              {(["국내", "미국"] as const).map(m => (
+                <button key={m} onClick={() => setFormMarket(m)} style={{ padding: "2px 10px", fontSize: "0.78rem", borderRadius: "4px", border: "none", cursor: "pointer", background: formMarket === m ? "var(--color-accent)" : "transparent", color: formMarket === m ? "white" : "var(--color-muted)", fontWeight: 600, transition: "0.15s" }}>{m}</button>
+              ))}
+            </div>
+            <StockSearchInput
+              market={formMarket}
+              onSelect={(ticker, name) => setForm(f => ({ ...f, ticker, name }))}
+            />
+          </div>
+          {/* 선택된 종목 표시 + 수동 입력 fallback */}
+          {(form.ticker || form.name) && (
+            <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", flexWrap: "wrap" }}>
+              <span style={{ fontSize: "0.75rem", color: "var(--color-muted)" }}>선택됨</span>
+              <span style={{ fontWeight: 700, fontSize: "0.85rem" }}>{form.name}</span>
+              <span style={{ fontSize: "0.75rem", color: "var(--color-muted)" }}>({form.ticker})</span>
+              <input className="stockcy-input" placeholder="코드 직접 수정" value={form.ticker} onChange={e => setForm(f => ({...f, ticker: e.target.value}))} style={{ width: "90px", fontSize: "0.78rem" }} />
+              <input className="stockcy-input" placeholder="이름 직접 수정" value={form.name} onChange={e => setForm(f => ({...f, name: e.target.value}))} style={{ width: "120px", fontSize: "0.78rem" }} />
+            </div>
+          )}
+          {/* 가격/수량 */}
           <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
-            <input className="stockcy-input" placeholder="티커" value={form.ticker} onChange={e => setForm(f => ({...f, ticker: e.target.value}))} style={{ width: "100px" }} />
-            <input className="stockcy-input" placeholder="종목명" value={form.name} onChange={e => setForm(f => ({...f, name: e.target.value}))} style={{ flex: 1, minWidth: "100px" }} />
-            <input className="stockcy-input" placeholder="매수가" type="number" value={form.buy_price} onChange={e => setForm(f => ({...f, buy_price: e.target.value}))} style={{ width: "100px" }} />
-            <input className="stockcy-input" placeholder="매도가" type="number" value={form.sell_price} onChange={e => setForm(f => ({...f, sell_price: e.target.value}))} style={{ width: "100px" }} />
+            <input className="stockcy-input" placeholder="매수가" type="number" value={form.buy_price} onChange={e => setForm(f => ({...f, buy_price: e.target.value}))} style={{ width: "110px" }} />
+            <input className="stockcy-input" placeholder="매도가" type="number" value={form.sell_price} onChange={e => setForm(f => ({...f, sell_price: e.target.value}))} style={{ width: "110px" }} />
             <input className="stockcy-input" placeholder="수량" type="number" value={form.quantity} onChange={e => setForm(f => ({...f, quantity: e.target.value}))} style={{ width: "80px" }} />
-            <select className="stockcy-input" value={form.result} onChange={e => setForm(f => ({...f, result: e.target.value}))} style={{ width: "80px" }}>
+            <select className="stockcy-input" value={form.result} onChange={e => setForm(f => ({...f, result: e.target.value}))} style={{ width: "90px" }}>
               <option>수익</option>
               <option>손실</option>
               <option>손익분기</option>
