@@ -1,5 +1,5 @@
 "use client";
-import { useState, useMemo, useEffect } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import useSWR from "swr";
 import { api } from "@/lib/api";
@@ -1124,8 +1124,8 @@ function TradesTab() {
               const isEditingTag = editTradeKey === rowKey;
 
               return (
-                <>
-                  <tr key={i}>
+                <React.Fragment key={rowKey}>
+                  <tr>
                     <td style={{ fontWeight: 600 }}>
                       <div style={{ display: "flex", alignItems: "center", gap: "4px", flexWrap: "wrap" }}>
                         <span>{String(t["종목명"] ?? t.name ?? "")}</span>
@@ -1206,7 +1206,7 @@ function TradesTab() {
                       </td>
                     </tr>
                   )}
-                </>
+                </React.Fragment>
               );
             })}
           </tbody>
