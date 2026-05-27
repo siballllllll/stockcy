@@ -35,7 +35,7 @@ export function SSEPanel<T>({
       <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", marginBottom: "1rem" }}>
         <button
           className="stockcy-btn stockcy-btn-primary"
-          onClick={onStart}
+          onClick={() => onStart()}
           disabled={disabled || status === "running"}
         >
           {startIcon}
