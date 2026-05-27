@@ -29,10 +29,11 @@ class StockReportRequest(BaseModel):
 
 
 class KrStockReportRequest(BaseModel):
-    code:          str
-    name:          str
-    price_data:    dict
-    investor_data: list = []
+    code:            str
+    name:            str
+    price_data:      dict
+    investor_data:   list = []
+    pattern_context: str | None = None   # 패턴 스크리너에서 호출 시 매칭 컨텍스트
 
 
 class SellTimingRequest(BaseModel):
@@ -327,6 +328,7 @@ async def kr_stock_report(req: KrStockReportRequest):
                 req.name,
                 req.price_data,
                 req.investor_data,
+                req.pattern_context,
             )
             # 2차 캐시 저장
             if result and "error" not in result:

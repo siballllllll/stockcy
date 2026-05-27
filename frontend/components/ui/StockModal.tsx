@@ -11,9 +11,10 @@ import type { KrStock, StockReport, KrStockReport, ChartCandle } from "@/lib/typ
 
 // ── 인터페이스 ────────────────────────────────────────────────────────────────
 export interface StockInfo {
-  code:   string;   // KR: 6자리 코드, US: 티커
-  name:   string;
-  market: "국내" | "미국";
+  code:            string;   // KR: 6자리 코드, US: 티커
+  name:            string;
+  market:          "국내" | "미국";
+  patternContext?: string;   // 패턴 스크리너에서 열 때 매칭 컨텍스트
 }
 
 // ── 마크다운 간이 렌더러 ───────────────────────────────────────────────────────
@@ -215,7 +216,7 @@ export function StockModal({ stock, onClose }: { stock: StockInfo; onClose: () =
 
   const handleAnalyze = () => {
     if (isKr && krPrice) {
-      krAnalysis.start({ code: stock.code, name: stock.name, price_data: krPrice, investor_data: [] });
+      krAnalysis.start({ code: stock.code, name: stock.name, price_data: krPrice, investor_data: [], pattern_context: stock.patternContext ?? null });
     } else if (!isKr && usPrice) {
       usAnalysis.start({ ticker: stock.code, current_price: usPrice["현재가($)"], change_pct: usPrice["등락률(%)"] });
     }

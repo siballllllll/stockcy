@@ -213,7 +213,16 @@ export default function Dashboard() {
                             <button
                               className="stockcy-btn stockcy-btn-secondary"
                               style={{ flex: 1, padding: "5px 4px", fontSize: "0.71rem", display: "flex", alignItems: "center", justifyContent: "center", gap: "3px" }}
-                              onClick={() => setSelectedStock({ code: p.code, name: p.name, market: "국내" })}
+                              onClick={() => {
+                                const ctx = [
+                                  `패턴 매칭 점수: ${p.match_score}점`,
+                                  p.rsi != null   ? `RSI: ${p.rsi}` : null,
+                                  p.vol_ratio != null ? `거래량 비율: ${p.vol_ratio}배` : null,
+                                  p.ma_aligned    ? "MA 정배열 확인됨" : null,
+                                  p.signal === "both" ? "거래량 급증+등락률 상위 이중 신호" : `신호 유형: ${p.signal}`,
+                                ].filter(Boolean).join(" / ");
+                                setSelectedStock({ code: p.code, name: p.name, market: "국내", patternContext: ctx });
+                              }}
                             >
                               <Zap size={11} /> AI분석
                             </button>

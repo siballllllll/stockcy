@@ -1662,7 +1662,7 @@ KOSDAQ: {kosdaq.get('index',0):,.2f}  ({kosdaq.get('change_pct',0):+.2f}%)
         return {"error": _friendly_error(e), "picks": []}
 
 
-def generate_kr_stock_report(stock_code: str, name: str, price_data: dict, investor_data: list):
+def generate_kr_stock_report(stock_code: str, name: str, price_data: dict, investor_data: list, pattern_context: str | None = None):
     """국내 주식 AI 수급 분석 및 단타 타점 리포트"""
     investor_summary = ""
     if investor_data:
@@ -1682,9 +1682,21 @@ def generate_kr_stock_report(stock_code: str, name: str, price_data: dict, inves
             "analysis": "가격 데이터를 가져오지 못했습니다. 종목 코드와 네트워크 상태를 확인해주세요."
         }
 
+    pattern_section = ""
+    if pattern_context:
+        pattern_section = f"""
+[⚡ 패턴 스크리너 컨텍스트 — 반드시 읽고 분석에 반영하세요]
+이 종목은 사용자의 실제 거래 이력 기반 '패턴 스크리너'에서 아래 이유로 추천됐습니다.
+{pattern_context}
+
+위 패턴 매칭 결과를 분석에 반영하되, 리스크도 균형 있게 병기하십시오.
+패턴 스크리너가 긍정 신호를 보낸 상황이므로, 단기 진입 타당성 판단에 이 맥락을 적극 활용하세요.
+단, 패턴이 아무리 좋아도 현재 시장 리스크(수급 이탈, 과열 등)가 명확하면 솔직하게 경고하십시오.
+"""
+
     prompt = f"""
 당신은 한국 주식시장 전문 애널리스트입니다.
-
+{pattern_section}
 [분석 원칙 — 냉철한 리스크 차감 및 낙관 편향(Optimism Bias) 절대 금지]
 1. 상승·하락 어느 쪽으로도 편향하지 마십시오. 장밋빛 낙관론은 금융 분석가로서 최악의 과오입니다.
 2. 실적, 수급, 밸류에이션(PER/PBR 역사적 고점 여부), 고금리 매크로 부담, 개별 오버행(잠재적 매도 물량) 우려 및 섹터 둔화 등 부정적인 요인(Risk Factors)을 반드시 50% 이상의 강도로 엄격히 차감 반영(Risk Discount)하십시오.
