@@ -1,9 +1,25 @@
 "use client";
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import ReactMarkdown from "react-markdown";
+import { BarChart2, Zap } from "lucide-react";
 import { PicksBoard } from "@/components/picks/PicksBoard";
 import { useSSE } from "@/hooks/useSSE";
 import { SSEPanel } from "@/components/ui/SSEPanel";
+import { StockModal } from "@/components/ui/StockModal";
+import type { StockInfo } from "@/components/ui/StockModal";
+
+function getPickStatus(rsi?: number, signal?: string) {
+  if (rsi != null) {
+    if (rsi <= 30) return { label: "🔵 과매도 (반등 확인)", color: "#2b7cff", bg: "rgba(43,124,255,0.12)", border: "rgba(43,124,255,0.4)" };
+    if (rsi <= 45) return { label: "💎 매수 구간",          color: "#00c853", bg: "rgba(0,200,83,0.12)",   border: "rgba(0,200,83,0.4)"   };
+    if (rsi <= 60) return { label: "🟢 모멘텀 유지",        color: "#4ade80", bg: "rgba(74,222,128,0.12)", border: "rgba(74,222,128,0.4)" };
+    if (rsi <= 75) return { label: "⚠️ 과열 접근",          color: "#ff9800", bg: "rgba(255,152,0,0.12)",  border: "rgba(255,152,0,0.4)"  };
+    return               { label: "🔥 과열 (추격 신중)",    color: "#ff4b4b", bg: "rgba(255,75,75,0.12)",  border: "rgba(255,75,75,0.4)"  };
+  }
+  if (signal === "both") return { label: "⚡ 이중 신호",   color: "#fbbf24", bg: "rgba(251,191,36,0.12)", border: "rgba(251,191,36,0.4)" };
+  return                        { label: "⚪ 관망",         color: "#888",    bg: "rgba(150,150,150,0.10)", border: "rgba(150,150,150,0.3)" };
+}
 
 type Tab = "picks" | "rotation" | "mypattern";
 
@@ -14,7 +30,9 @@ const TABS: { id: Tab; label: string }[] = [
 ];
 
 export default function Dashboard() {
-  const [activeTab, setActiveTab] = useState<Tab>("picks");
+  const router = useRouter();
+  const [activeTab,     setActiveTab]     = useState<Tab>("picks");
+  const [selectedStock, setSelectedStock] = useState<StockInfo | null>(null);
 
   const rotation = useSSE<string>(
     "/api/ai/sector-rotation",
@@ -27,6 +45,8 @@ export default function Dashboard() {
 
   return (
     <div className="flex flex-col gap-6 animate-in fade-in duration-300">
+
+      {selectedStock && <StockModal stock={selectedStock} onClose={() => setSelectedStock(null)} />}
 
       {/* 탭 네비게이션 */}
       <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", borderBottom: "1px solid rgba(255,255,255,0.05)", paddingBottom: "1rem" }}>
@@ -141,14 +161,16 @@ export default function Dashboard() {
                   </div>
                   <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: "0.75rem" }}>
                     {data.top_picks.map((p: any, i: number) => {
-                      const score = Number(p.match_score ?? 0);
+                      const score      = Number(p.match_score ?? 0);
                       const rankColors = ["#7c3aed", "#4f46e5", "#0369a1"];
                       const rankColor  = rankColors[i] ?? "var(--color-surface)";
                       const scoreBg    = score >= 80 ? "rgba(34,197,94,0.12)"  : score >= 60 ? "rgba(234,179,8,0.12)"  : "rgba(255,255,255,0.05)";
                       const scoreColor = score >= 80 ? "#4ade80"               : score >= 60 ? "#fbbf24"               : "var(--color-muted)";
+                      const status     = getPickStatus(p.rsi, p.signal);
                       return (
                         <div key={p.code} style={{ background: "var(--color-elevated)", border: `1px solid ${i < 3 ? rankColor + "55" : "var(--color-border)"}`, borderTop: `3px solid ${rankColor}`, borderRadius: "8px", padding: "0.9rem", display: "flex", flexDirection: "column", gap: "0.6rem" }}>
-                          {/* 상단: 순위 + 종목명 */}
+
+                          {/* 상단: 순위 + 종목명 + 점수 */}
                           <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
                             <span style={{ width: "22px", height: "22px", borderRadius: "50%", background: rankColor, color: "white", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "0.72rem", fontWeight: 800, flexShrink: 0 }}>{i + 1}</span>
                             <div style={{ flex: 1, minWidth: 0 }}>
@@ -157,6 +179,11 @@ export default function Dashboard() {
                             </div>
                             <div style={{ background: scoreBg, color: scoreColor, fontWeight: 800, fontSize: "0.85rem", padding: "2px 8px", borderRadius: "6px", flexShrink: 0 }}>{score}점</div>
                           </div>
+
+                          {/* 상태 배지 */}
+                          <span style={{ fontSize: "0.72rem", padding: "3px 10px", borderRadius: "99px", background: status.bg, color: status.color, border: `1px solid ${status.border}`, fontWeight: 700, alignSelf: "flex-start" }}>
+                            {status.label}
+                          </span>
 
                           {/* 지표 뱃지 */}
                           <div style={{ display: "flex", gap: "0.4rem", flexWrap: "wrap" }}>
@@ -172,6 +199,24 @@ export default function Dashboard() {
                             {p.signal === "both" && (
                               <span style={{ fontSize: "0.72rem", padding: "2px 7px", borderRadius: "6px", background: "rgba(245,158,11,0.15)", border: "1px solid rgba(245,158,11,0.25)", color: "#fbbf24" }}>이중신호</span>
                             )}
+                          </div>
+
+                          {/* 액션 버튼 */}
+                          <div style={{ display: "flex", gap: "5px" }}>
+                            <button
+                              className="stockcy-btn stockcy-btn-secondary"
+                              style={{ flex: 1, padding: "5px 4px", fontSize: "0.71rem", display: "flex", alignItems: "center", justifyContent: "center", gap: "3px" }}
+                              onClick={() => router.push(`/search?q=${p.code}&market=KR`)}
+                            >
+                              <BarChart2 size={11} /> 차트보기
+                            </button>
+                            <button
+                              className="stockcy-btn stockcy-btn-secondary"
+                              style={{ flex: 1, padding: "5px 4px", fontSize: "0.71rem", display: "flex", alignItems: "center", justifyContent: "center", gap: "3px" }}
+                              onClick={() => setSelectedStock({ code: p.code, name: p.name, market: "국내" })}
+                            >
+                              <Zap size={11} /> AI분석
+                            </button>
                           </div>
                         </div>
                       );
