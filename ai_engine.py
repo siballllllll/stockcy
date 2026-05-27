@@ -3509,13 +3509,20 @@ def screen_by_my_pattern() -> dict:
     candidates: dict[str, dict] = {}
 
     BASE = "http://127.0.0.1:8000"
+    def _extract_code(item: dict) -> str:
+        raw = item.get("종목코드") or item.get("code") or item.get("ticker") or ""
+        return str(raw).strip().zfill(6)
+
+    def _extract_name(item: dict) -> str:
+        return str(item.get("종목명") or item.get("name") or "")
+
     try:
         vol_r = req_lib.get(f"{BASE}/api/kr/volume-ranking?market=ALL", timeout=10,
                             headers={"ngrok-skip-browser-warning": "69420"})
         for item in (vol_r.json() if vol_r.ok else []):
-            code = str(item.get("code", item.get("ticker", ""))).strip().zfill(6)
-            if code:
-                candidates[code] = {"code": code, "name": item.get("name", ""), "signal": "volume"}
+            code = _extract_code(item)
+            if code and code != "000000":
+                candidates[code] = {"code": code, "name": _extract_name(item), "signal": "volume"}
     except Exception as e:
         print(f"[screener] volume-ranking 오류: {e}")
 
@@ -3523,12 +3530,12 @@ def screen_by_my_pattern() -> dict:
         chg_r = req_lib.get(f"{BASE}/api/kr/change-ranking?market=ALL&direction=up", timeout=10,
                             headers={"ngrok-skip-browser-warning": "69420"})
         for item in (chg_r.json() if chg_r.ok else []):
-            code = str(item.get("code", item.get("ticker", ""))).strip().zfill(6)
-            if code:
+            code = _extract_code(item)
+            if code and code != "000000":
                 if code in candidates:
                     candidates[code]["signal"] = "both"
                 else:
-                    candidates[code] = {"code": code, "name": item.get("name", ""), "signal": "change"}
+                    candidates[code] = {"code": code, "name": _extract_name(item), "signal": "change"}
     except Exception as e:
         print(f"[screener] change-ranking 오류: {e}")
 
