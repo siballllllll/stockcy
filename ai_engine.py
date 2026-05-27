@@ -1683,15 +1683,33 @@ def generate_kr_stock_report(stock_code: str, name: str, price_data: dict, inves
         }
 
     pattern_section = ""
+    try:
+        from db import load_pattern_profile
+        profile = load_pattern_profile()
+        if profile and not pattern_context:
+            ind = _get_trade_indicators(stock_code, "")
+            match_score = _score_stock_against_profile(ind, profile)
+            rsi_val = ind["daily"].get("rsi")
+            vol_r = ind["daily"].get("volume_ratio")
+            ma_align = ind["daily"].get("ma_aligned")
+            win_rsi = profile.get("win", {}).get("rsi", {})
+            pattern_context = (
+                f"패턴 매칭 점수: {match_score}점"
+                + (f" / RSI: {rsi_val}" if rsi_val is not None else "")
+                + (f" / 거래량 비율: {vol_r}배" if vol_r is not None else "")
+                + (" / MA 정배열" if ma_align else "")
+                + f" | 내 과거 승률: {profile.get('win_rate_pct')}% / 평균수익: {profile.get('avg_profit_pct')}%"
+                + (f" / 내 승리 RSI 구간: {win_rsi.get('p25','?')}~{win_rsi.get('p75','?')}" if win_rsi else "")
+            )
+    except Exception:
+        pass
+
     if pattern_context:
         pattern_section = f"""
-[⚡ 패턴 스크리너 컨텍스트 — 반드시 읽고 분석에 반영하세요]
-이 종목은 사용자의 실제 거래 이력 기반 '패턴 스크리너'에서 아래 이유로 추천됐습니다.
+[📊 내 매매 패턴 데이터 — 단기 분석에만 반영 (중장기 분석에는 적용하지 마세요)]
 {pattern_context}
-
-위 패턴 매칭 결과를 분석에 반영하되, 리스크도 균형 있게 병기하십시오.
-패턴 스크리너가 긍정 신호를 보낸 상황이므로, 단기 진입 타당성 판단에 이 맥락을 적극 활용하세요.
-단, 패턴이 아무리 좋아도 현재 시장 리스크(수급 이탈, 과열 등)가 명확하면 솔직하게 경고하십시오.
+단기 진입 타당성 판단 시 매칭 점수와 내 승리 패턴 조건 일치 여부를 언급하세요.
+중장기 분석(long_term_analysis)에는 이 데이터를 사용하지 마세요.
 """
 
     prompt = f"""
