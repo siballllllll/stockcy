@@ -382,6 +382,16 @@ def run_background_backup(target_func, *args, **kwargs):
             print(f"Background backup failed for {target_func.__name__}: {e}")
     threading.Thread(target=worker, daemon=True).start()
 
+
+def _rebuild_pattern_profile_bg():
+    """거래 기록 변경 후 패턴 프로파일을 백그라운드에서 자동 재빌드합니다."""
+    try:
+        from ai_engine import build_pattern_profile
+        build_pattern_profile()
+        print("[pattern] 패턴 프로파일 자동 갱신 완료")
+    except Exception as e:
+        print(f"[pattern] 패턴 프로파일 자동 갱신 실패: {e}")
+
 # 모듈 로드 시 데이터베이스 및 시드 설정 가동
 init_local_db()
 seed_sync_from_gsheet()
@@ -660,6 +670,7 @@ def save_trade_record(trade, owner="USER"):
         conn.close()
         
         run_background_backup(_gsheet_backup_save_trade, trade, owner)
+        run_background_backup(_rebuild_pattern_profile_bg)
         return True, "거래 내역이 로컬 DB에 기록되었으며 백업을 요청했습니다."
     except Exception as e:
         return False, f"로컬 기록 오류: {e}"
@@ -695,6 +706,7 @@ def delete_trade_from_gsheet(ticker: str, sell_date: str):
         conn.close()
         
         run_background_backup(_gsheet_backup_delete_trade, ticker, sell_date)
+        run_background_backup(_rebuild_pattern_profile_bg)
         return True, "로컬 DB에서 삭제되었으며 구글 시트 삭제 요청을 보냈습니다."
     except Exception as e:
         return False, f"로컬 삭제 오류: {e}"
@@ -739,6 +751,7 @@ def update_trade_source_type(ticker: str, sell_date: str, trade_source: str, tra
         conn.commit()
         conn.close()
         run_background_backup(_gsheet_backup_update_trade_source_type, ticker, sell_date, trade_source, trade_type)
+        run_background_backup(_rebuild_pattern_profile_bg)
         return True, "출처/유형 업데이트 완료!"
     except Exception as e:
         return False, f"로컬 업데이트 오류: {e}"
