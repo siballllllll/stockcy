@@ -965,6 +965,46 @@ async def overnight_gap_bulk_analysis(req: OvernightGapBulkRequest):
 
 # ── 리딩방 패턴 AI 분석 ────────────────────────────────────────────────────────
 
+@router.post("/pattern-screener")
+async def pattern_screener():
+    """내 거래 패턴 기반 오늘의 단기 추천 종목 (SSE)."""
+    from ai_engine import screen_by_my_pattern
+
+    async def _gen():
+        yield _sse({"status": "running", "message": "📊 패턴 프로파일 로드 중..."})
+        try:
+            result = await asyncio.to_thread(screen_by_my_pattern)
+            if "error" in result:
+                yield _sse({"status": "error", "message": result["error"]})
+            else:
+                yield _sse({"status": "done", "result": result})
+        except Exception as e:
+            yield _sse({"status": "error", "message": str(e)})
+
+    return _sse_response(_gen())
+
+
+@router.post("/pattern-profile/build")
+async def build_pattern_profile_endpoint():
+    """패턴 프로파일을 즉시 재빌드하고 DB에 저장합니다."""
+    from ai_engine import build_pattern_profile
+    try:
+        profile = await asyncio.to_thread(build_pattern_profile)
+        if "error" in profile:
+            return {"success": False, "message": profile["error"]}
+        return {"success": True, "profile": profile}
+    except Exception as e:
+        return {"success": False, "message": str(e)}
+
+
+@router.get("/pattern-profile")
+async def get_pattern_profile():
+    """저장된 패턴 프로파일 조회."""
+    from db import load_pattern_profile
+    profile = await asyncio.to_thread(load_pattern_profile)
+    return {"profile": profile}
+
+
 @router.post("/leading-room-patterns")
 async def leading_room_patterns():
     """리딩방 거래 내역 기술적 패턴 AI 분석 (SSE)."""

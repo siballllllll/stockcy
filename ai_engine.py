@@ -3330,4 +3330,282 @@ def analyze_leading_room_patterns() -> dict:
     }
 
 
+# ── 패턴 프로파일 빌드 & 저장 ────────────────────────────────────────────────
+
+def build_pattern_profile() -> dict:
+    """리딩방 + AI_AGENT 거래에서 성공 패턴 프로파일을 빌드하고 DB에 저장합니다.
+    최근 거래일수록 가중치 2배 (30일 이내) 적용 — 시장 변화에 적응.
+    """
+    from db import get_db_conn, save_pattern_profile
+    from datetime import datetime, timedelta
+
+    conn = get_db_conn()
+    cursor = conn.cursor()
+    cursor.execute(
+        """SELECT ticker, name, buy_price, sell_price, profit, profit_pct,
+                  result, buy_date, sell_date, trade_source, owner
+           FROM trade_history
+           WHERE UPPER(owner) IN ('USER', 'AI_AGENT')
+           ORDER BY sell_date DESC"""
+    )
+    rows = [dict(r) for r in cursor.fetchall()]
+    conn.close()
+
+    if not rows:
+        return {"error": "거래 기록 없음"}
+
+    now = datetime.now()
+    cutoff_recent = now - timedelta(days=30)
+
+    # 각 거래에 지표 수집 (수익 거래 위주로 패턴 추출)
+    win_indicators = []
+    loss_indicators = []
+
+    for r in rows:
+        profit = float(r.get("profit", 0) or 0)
+        ticker = str(r.get("ticker", "")).strip()
+        buy_date = str(r.get("buy_date", "")).strip()
+        if not ticker:
+            continue
+
+        ind = _get_trade_indicators(ticker, buy_date)
+
+        # 최근 30일 거래는 가중치 2배 (리스트에 2번 추가)
+        sell_date_str = str(r.get("sell_date", ""))[:10]
+        try:
+            sell_dt = datetime.strptime(sell_date_str, "%Y-%m-%d")
+            weight = 2 if sell_dt >= cutoff_recent else 1
+        except Exception:
+            weight = 1
+
+        for _ in range(weight):
+            if profit > 0:
+                win_indicators.append(ind)
+            else:
+                loss_indicators.append(ind)
+
+    total = len(rows)
+    win_count = sum(1 for r in rows if float(r.get("profit", 0) or 0) > 0)
+
+    def _extract_range(indicators, key, sub="daily"):
+        vals = [ind[sub].get(key) for ind in indicators if ind[sub].get(key) is not None]
+        if not vals:
+            return None
+        vals_sorted = sorted(vals)
+        n = len(vals_sorted)
+        return {
+            "min":    round(vals_sorted[0], 1),
+            "max":    round(vals_sorted[-1], 1),
+            "avg":    round(sum(vals_sorted) / n, 1),
+            "p25":    round(vals_sorted[int(n * 0.25)], 1),
+            "p75":    round(vals_sorted[int(n * 0.75)], 1),
+        }
+
+    # 승리 거래 패턴 지표
+    win_rsi         = _extract_range(win_indicators, "rsi")
+    win_vol_ratio   = _extract_range(win_indicators, "volume_ratio")
+    win_pos_52w     = _extract_range(win_indicators, "pos_52w_pct")
+    win_gap         = _extract_range(win_indicators, "gap_pct")
+    win_ma_rate     = (sum(1 for ind in win_indicators if ind["daily"].get("ma_aligned")) / len(win_indicators) * 100) if win_indicators else 0
+
+    win_time_dist: dict = {}
+    for ind in win_indicators:
+        tc = ind["minute"].get("time_class")
+        if tc:
+            win_time_dist[tc] = win_time_dist.get(tc, 0) + 1
+
+    # 손실 거래 패턴 (반대로 피해야 할 조건 파악용)
+    loss_rsi        = _extract_range(loss_indicators, "rsi")
+    loss_vol_ratio  = _extract_range(loss_indicators, "volume_ratio")
+
+    profile = {
+        "total_trades":    total,
+        "win_count":       win_count,
+        "win_rate_pct":    round(win_count / total * 100, 1) if total else 0,
+        "avg_profit_pct":  round(sum(float(r.get("profit_pct", 0) or 0) for r in rows) / total, 2) if total else 0,
+        # 승리 패턴 지표
+        "win": {
+            "rsi":          win_rsi,
+            "volume_ratio": win_vol_ratio,
+            "pos_52w_pct":  win_pos_52w,
+            "gap_pct":      win_gap,
+            "ma_aligned_rate_pct": round(win_ma_rate, 1),
+            "time_dist":    win_time_dist,
+        },
+        # 손실 패턴 (피해야 할 조건)
+        "loss": {
+            "rsi":          loss_rsi,
+            "volume_ratio": loss_vol_ratio,
+        },
+        "data_sources": list(set(str(r.get("trade_source", "")) for r in rows)),
+    }
+
+    save_pattern_profile(profile, total)
+    return profile
+
+
+def _score_stock_against_profile(ind: dict, profile: dict) -> float:
+    """종목 지표를 패턴 프로파일과 비교해 0~100점 매칭 점수 반환."""
+    if not profile or "win" not in profile:
+        return 50.0
+
+    score = 0.0
+    weight_sum = 0.0
+    win = profile["win"]
+
+    def _in_range(val, rng, weight=1.0):
+        nonlocal score, weight_sum
+        if val is None or rng is None:
+            return
+        weight_sum += weight
+        p25, p75 = rng.get("p25"), rng.get("p75")
+        avg = rng.get("avg")
+        if p25 is None or p75 is None:
+            return
+        span = (p75 - p25) or 1.0
+        if p25 <= val <= p75:
+            # 핵심 구간 내 → 점수 만점
+            score += weight * 100
+        elif avg is not None:
+            # 범위 밖 → 평균과의 거리 기반 부분 점수
+            dist = abs(val - avg)
+            partial = max(0, 100 - (dist / span) * 80)
+            score += weight * partial
+
+    # RSI — 가중치 30%
+    _in_range(ind["daily"].get("rsi"), win.get("rsi"), weight=30)
+    # 거래량 비율 — 가중치 25%
+    _in_range(ind["daily"].get("volume_ratio"), win.get("volume_ratio"), weight=25)
+    # 52주 위치 — 가중치 20%
+    _in_range(ind["daily"].get("pos_52w_pct"), win.get("pos_52w_pct"), weight=20)
+    # 갭% — 가중치 10%
+    _in_range(ind["daily"].get("gap_pct"), win.get("gap_pct"), weight=10)
+    # MA 정배열 — 가중치 15%
+    weight_sum += 15
+    if ind["daily"].get("ma_aligned"):
+        ma_bonus = win.get("ma_aligned_rate_pct", 50) / 100 * 15 * 100 / 15
+        score += ma_bonus * 15 / 100
+    else:
+        score += (1 - win.get("ma_aligned_rate_pct", 50) / 100) * 15 * 0.3
+
+    if weight_sum == 0:
+        return 50.0
+    return round(score / weight_sum, 1)
+
+
+def screen_by_my_pattern() -> dict:
+    """오늘 거래량·등락률 상위 종목 중 내 패턴 프로파일에 가장 가까운 종목을 추천합니다."""
+    import requests as req_lib
+    from db import load_pattern_profile
+
+    # 1. 패턴 프로파일 로드 (없으면 즉석 빌드)
+    profile = load_pattern_profile()
+    if not profile:
+        profile = build_pattern_profile()
+        if "error" in profile:
+            return {"error": profile["error"]}
+
+    # 2. 오늘 거래량·등락률 상위 종목 수집
+    candidates: dict[str, dict] = {}
+
+    BASE = "http://127.0.0.1:8000"
+    try:
+        vol_r = req_lib.get(f"{BASE}/api/kr/volume-ranking?market=ALL", timeout=10,
+                            headers={"ngrok-skip-browser-warning": "69420"})
+        for item in (vol_r.json() if vol_r.ok else []):
+            code = str(item.get("code", item.get("ticker", ""))).strip().zfill(6)
+            if code:
+                candidates[code] = {"code": code, "name": item.get("name", ""), "signal": "volume"}
+    except Exception as e:
+        print(f"[screener] volume-ranking 오류: {e}")
+
+    try:
+        chg_r = req_lib.get(f"{BASE}/api/kr/change-ranking?market=ALL&direction=up", timeout=10,
+                            headers={"ngrok-skip-browser-warning": "69420"})
+        for item in (chg_r.json() if chg_r.ok else []):
+            code = str(item.get("code", item.get("ticker", ""))).strip().zfill(6)
+            if code:
+                if code in candidates:
+                    candidates[code]["signal"] = "both"
+                else:
+                    candidates[code] = {"code": code, "name": item.get("name", ""), "signal": "change"}
+    except Exception as e:
+        print(f"[screener] change-ranking 오류: {e}")
+
+    if not candidates:
+        return {"error": "시장 데이터를 가져오지 못했습니다. 백엔드 서버가 실행 중인지 확인해주세요."}
+
+    # 3. 각 종목 지표 수집 + 패턴 매칭 점수 계산
+    scored: list[dict] = []
+    for code, meta in list(candidates.items())[:50]:   # 최대 50개로 제한
+        ind = _get_trade_indicators(code, "")           # buy_date 없이 일봉만
+        match_score = _score_stock_against_profile(ind, profile)
+        # 거래량·등락률 양쪽 신호면 보너스
+        if meta.get("signal") == "both":
+            match_score = min(100, match_score + 8)
+        scored.append({
+            "code":         code,
+            "name":         meta["name"],
+            "signal":       meta["signal"],
+            "match_score":  match_score,
+            "rsi":          ind["daily"].get("rsi"),
+            "vol_ratio":    ind["daily"].get("volume_ratio"),
+            "pos_52w":      ind["daily"].get("pos_52w_pct"),
+            "ma_aligned":   ind["daily"].get("ma_aligned"),
+            "gap_pct":      ind["daily"].get("gap_pct"),
+        })
+
+    scored.sort(key=lambda x: x["match_score"], reverse=True)
+    top = scored[:8]
+
+    if not top:
+        return {"error": "매칭 종목 없음"}
+
+    # 4. Gemini 최종 판단
+    profile_summary = (
+        f"승률 {profile.get('win_rate_pct')}% / "
+        f"평균수익률 {profile.get('avg_profit_pct')}% / "
+        f"성공 RSI 구간 {profile['win'].get('rsi', {}).get('p25','?')}~{profile['win'].get('rsi', {}).get('p75','?')} / "
+        f"거래량비율 {profile['win'].get('volume_ratio', {}).get('p25','?')}~{profile['win'].get('volume_ratio', {}).get('p75','?')}배 / "
+        f"MA정배열 비율 {profile['win'].get('ma_aligned_rate_pct','?')}%"
+    )
+    candidates_text = "\n".join(
+        f"- {s['name']}({s['code']}): 매칭점수={s['match_score']}, RSI={s['rsi']}, "
+        f"거래량비율={s['vol_ratio']}배, 52주위치={s['pos_52w']}%, "
+        f"MA정배열={'O' if s['ma_aligned'] else 'X'}, 갭={s['gap_pct']}%, 신호={s['signal']}"
+        for s in top
+    )
+
+    prompt = f"""당신은 퀀트 트레이딩 AI입니다.
+아래는 한 투자자의 과거 성공 매매 패턴 요약과 오늘 시장에서 그 패턴에 가장 근접한 후보 종목들입니다.
+
+=== 나의 성공 패턴 프로파일 ===
+{profile_summary}
+
+=== 오늘 패턴 매칭 후보 종목 (매칭점수 높은 순) ===
+{candidates_text}
+
+위 데이터를 바탕으로:
+1. 지금 당장 진입을 고려할 TOP 3 종목을 선정하고 이유를 설명하세요 (매칭점수 + 오늘의 모멘텀 + 차트 신호 종합)
+2. 각 종목의 예상 단기 진입 가격대와 손절 기준을 제시하세요
+3. 주의해야 할 리스크 1가지씩 언급하세요
+
+단기 모멘텀 트레이딩 관점에서 구체적이고 실전적으로 답해주세요."""
+
+    try:
+        response = _call_gemini(prompt, use_search=True, temperature=0.4, timeout_sec=60)
+        narrative = response.text if hasattr(response, "text") else str(response)
+    except Exception as e:
+        narrative = f"AI 분석 오류: {str(e)}"
+
+    return {
+        "profile_summary": {
+            "win_rate_pct":    profile.get("win_rate_pct"),
+            "avg_profit_pct":  profile.get("avg_profit_pct"),
+            "total_trades":    profile.get("total_trades"),
+            "updated_time":    profile.get("_updated_time"),
+        },
+        "top_picks":    top[:5],
+        "ai_narrative": narrative,
+    }
 

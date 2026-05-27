@@ -194,6 +194,16 @@ def init_local_db():
             updated_time TEXT
         )
     """)
+
+    # 14. pattern_profile — 내 거래 기록에서 학습한 성공 패턴 프로파일
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS pattern_profile (
+            id INTEGER PRIMARY KEY CHECK (id = 1),
+            profile_json TEXT,
+            trade_count INTEGER,
+            updated_time TEXT
+        )
+    """)
     
     # 컬럼 마이그레이션 — 이미 존재하면 무시
     for migration in [
@@ -2073,4 +2083,43 @@ def load_telegram_config() -> tuple[str, str]:
     token = os.getenv("TELEGRAM_BOT_TOKEN", "")
     chat_id = os.getenv("TELEGRAM_CHAT_ID", "")
     return token, chat_id
+
+
+# ── 패턴 프로파일 저장/로드 ────────────────────────────────────────────────────
+
+def save_pattern_profile(profile: dict, trade_count: int) -> tuple[bool, str]:
+    """학습된 매매 패턴 프로파일을 SQLite에 저장합니다."""
+    try:
+        conn = get_db_conn()
+        cursor = conn.cursor()
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        cursor.execute(
+            """INSERT OR REPLACE INTO pattern_profile (id, profile_json, trade_count, updated_time)
+               VALUES (1, ?, ?, ?)""",
+            (_json.dumps(profile, ensure_ascii=False), trade_count, now)
+        )
+        conn.commit()
+        conn.close()
+        return True, "패턴 프로파일 저장 완료"
+    except Exception as e:
+        return False, f"패턴 프로파일 저장 오류: {e}"
+
+
+def load_pattern_profile() -> dict | None:
+    """저장된 패턴 프로파일을 불러옵니다. 없으면 None."""
+    try:
+        conn = get_db_conn()
+        cursor = conn.cursor()
+        cursor.execute("SELECT profile_json, trade_count, updated_time FROM pattern_profile WHERE id = 1")
+        row = cursor.fetchone()
+        conn.close()
+        if row and row["profile_json"]:
+            data = _json.loads(row["profile_json"])
+            data["_trade_count"]   = row["trade_count"]
+            data["_updated_time"]  = row["updated_time"]
+            return data
+        return None
+    except Exception as e:
+        print(f"Error loading pattern profile: {e}")
+        return None
 

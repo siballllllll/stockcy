@@ -1,6 +1,6 @@
 "use client";
 import { useState } from "react";
-import { TrendingUp, Zap, Users, BarChart2 } from "lucide-react";
+import { TrendingUp, Zap, Users, BarChart2, Brain } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { SSEPanel } from "@/components/ui/SSEPanel";
 import { Badge, SignalBadge } from "@/components/ui/Badge";
@@ -157,6 +157,7 @@ export default function LeadingPage() {
 
   const picks    = useSSE<{ picks: RealtimePick[]; market_condition: string; market_comment: string }>("/api/ai/realtime-picks-kr", { method: "POST", globalId: "realtime-picks", globalTitle: "실시간 단타 전략" });
   const rotation = useSSE<string>("/api/ai/sector-rotation", { globalId: "sector-rotation", globalTitle: "섹터 순환 분석" });
+  const myPick   = useSSE<{ profile_summary: any; top_picks: any[]; ai_narrative: string }>("/api/ai/pattern-screener", { method: "POST", globalId: "pattern-screener", globalTitle: "내 패턴 스크리너" });
 
   const handlePickStart = () => {
     const marketData = {
@@ -269,6 +270,78 @@ export default function LeadingPage() {
             }}>
               {data}
             </pre>
+          )}
+        </SSEPanel>
+      </Card>
+
+      {/* 내 패턴 기반 단기 추천 */}
+      <Card title={
+        <span style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}>
+          <Brain size={15} style={{ color: "#a78bfa" }} />
+          <span style={{ color: "#a78bfa" }}>내 매매 패턴 기반 단기 추천</span>
+        </span>
+      }>
+        <SSEPanel
+          status={myPick.status} message={myPick.message}
+          result={myPick.result} fromCache={myPick.fromCache}
+          onStart={myPick.start} startLabel="내 패턴으로 종목 찾기"
+          idleHint="내 거래 기록에서 승률이 높았던 매매 조건을 학습하고, 오늘 시장에서 그 조건에 가장 근접한 단기 유망 종목을 찾습니다. (1~2분 소요)"
+        >
+          {(data) => (
+            <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
+              {/* 패턴 프로파일 요약 */}
+              {data.profile_summary && (
+                <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap", padding: "0.75rem", background: "rgba(124,58,237,0.08)", borderRadius: "8px", border: "1px solid rgba(124,58,237,0.2)" }}>
+                  <span style={{ fontSize: "0.75rem", color: "#a78bfa", fontWeight: 600, width: "100%", marginBottom: "2px" }}>학습된 패턴 기준</span>
+                  {[
+                    { label: "기반 거래", value: `${data.profile_summary.total_trades}건` },
+                    { label: "승률",     value: `${data.profile_summary.win_rate_pct}%` },
+                    { label: "평균수익", value: `${data.profile_summary.avg_profit_pct}%` },
+                    { label: "업데이트", value: String(data.profile_summary.updated_time ?? "").slice(0, 10) },
+                  ].map(s => (
+                    <div key={s.label} style={{ textAlign: "center", padding: "4px 12px", background: "rgba(0,0,0,0.2)", borderRadius: "6px" }}>
+                      <div style={{ fontSize: "0.65rem", color: "var(--color-muted)" }}>{s.label}</div>
+                      <div style={{ fontWeight: 700, fontSize: "0.85rem", color: "#e2e8f0" }}>{s.value}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* 매칭 종목 리스트 */}
+              {data.top_picks && data.top_picks.length > 0 && (
+                <div>
+                  <div style={{ fontSize: "0.78rem", fontWeight: 600, color: "var(--color-muted)", marginBottom: "0.5rem" }}>패턴 매칭 상위 종목</div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: "0.4rem" }}>
+                    {data.top_picks.map((p: any, i: number) => (
+                      <div key={p.code} style={{ display: "flex", alignItems: "center", gap: "0.75rem", padding: "0.6rem 0.9rem", background: "var(--color-elevated)", borderRadius: "7px", flexWrap: "wrap" }}>
+                        <span style={{ width: "22px", height: "22px", borderRadius: "50%", background: i === 0 ? "#7c3aed" : i === 1 ? "#4f46e5" : "var(--color-surface)", color: "white", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "0.72rem", fontWeight: 700, flexShrink: 0 }}>{i + 1}</span>
+                        <div style={{ flex: 1, minWidth: "120px" }}>
+                          <span style={{ fontWeight: 700 }}>{p.name}</span>
+                          <span style={{ fontSize: "0.75rem", color: "var(--color-muted)", marginLeft: "6px" }}>{p.code}</span>
+                        </div>
+                        <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
+                          <span style={{ fontSize: "0.72rem", padding: "1px 7px", borderRadius: "10px", background: "rgba(124,58,237,0.2)", color: "#c4b5fd", fontWeight: 600 }}>매칭 {p.match_score}점</span>
+                          {p.rsi != null && <span style={{ fontSize: "0.72rem", color: "var(--color-muted)" }}>RSI {p.rsi}</span>}
+                          {p.vol_ratio != null && <span style={{ fontSize: "0.72rem", color: "var(--color-muted)" }}>거래량 {p.vol_ratio}배</span>}
+                          {p.ma_aligned && <span style={{ fontSize: "0.7rem", padding: "1px 6px", borderRadius: "8px", background: "rgba(5,150,105,0.15)", color: "#34d399" }}>MA정배열</span>}
+                          {p.signal === "both" && <span style={{ fontSize: "0.7rem", padding: "1px 6px", borderRadius: "8px", background: "rgba(245,158,11,0.15)", color: "#fbbf24" }}>이중신호</span>}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* AI 분석 내러티브 */}
+              {data.ai_narrative && (
+                <div style={{ background: "rgba(0,0,0,0.2)", borderRadius: "8px", padding: "1rem 1.2rem" }}>
+                  <div style={{ fontSize: "0.75rem", fontWeight: 600, color: "#a78bfa", marginBottom: "0.5rem" }}>AI 진입 전략</div>
+                  <div style={{ fontSize: "0.84rem", color: "var(--color-text)", lineHeight: 1.75, whiteSpace: "pre-wrap" }}>
+                    {data.ai_narrative}
+                  </div>
+                </div>
+              )}
+            </div>
           )}
         </SSEPanel>
       </Card>
