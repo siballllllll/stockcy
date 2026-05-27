@@ -187,6 +187,18 @@ def init_local_db():
         )
     """)
     
+    # 컬럼 마이그레이션 — 이미 존재하면 무시
+    for migration in [
+        "ALTER TABLE portfolio ADD COLUMN trade_source TEXT DEFAULT '개인'",
+        "ALTER TABLE portfolio ADD COLUMN trade_type TEXT DEFAULT '실매매'",
+        "ALTER TABLE trade_history ADD COLUMN trade_source TEXT DEFAULT '개인'",
+        "ALTER TABLE trade_history ADD COLUMN trade_type TEXT DEFAULT '실매매'",
+    ]:
+        try:
+            cursor.execute(migration)
+        except Exception:
+            pass
+
     conn.commit()
     conn.close()
 
@@ -453,8 +465,9 @@ def save_portfolio_to_gsheet(portfolio_list, current_prices_df=None, owner="USER
             buy_time = item.get("buy_date") or item.get("updated_time") or existing_times.get(ticker) or now
             
             cursor.execute(
-                "INSERT OR REPLACE INTO portfolio (owner, ticker, name, quantity, buy_price, rating, updated_time) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (owner.upper(), ticker, str(item.get("name", item["ticker"])), float(item["quantity"]), float(item["buy_price"]), str(item.get("rating", "-")), buy_time)
+                "INSERT OR REPLACE INTO portfolio (owner, ticker, name, quantity, buy_price, rating, updated_time, trade_source, trade_type) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (owner.upper(), ticker, str(item.get("name", item["ticker"])), float(item["quantity"]), float(item["buy_price"]), str(item.get("rating", "-")), buy_time,
+                 str(item.get("trade_source", "개인")), str(item.get("trade_type", "실매매")))
             )
         conn.commit()
         conn.close()
@@ -472,12 +485,12 @@ def load_portfolio_from_gsheet(owner="USER"):
         conn = get_db_conn()
         cursor = conn.cursor()
         cursor.execute(
-            "SELECT ticker, name, buy_price, quantity, updated_time as buy_date, rating, owner FROM portfolio WHERE UPPER(owner) = ?",
+            "SELECT ticker, name, buy_price, quantity, updated_time as buy_date, rating, owner, trade_source, trade_type FROM portfolio WHERE UPPER(owner) = ?",
             (owner.upper(),)
         )
         rows = cursor.fetchall()
         conn.close()
-        
+
         portfolio_list = []
         for r in rows:
             ticker = str(r["ticker"])
@@ -490,7 +503,9 @@ def load_portfolio_from_gsheet(owner="USER"):
                 "quantity": float(r["quantity"] or 0),
                 "buy_date": str(r["buy_date"] or ""),
                 "rating": str(r["rating"] or "-"),
-                "owner": str(r["owner"]).upper()
+                "owner": str(r["owner"]).upper(),
+                "trade_source": str(r["trade_source"] or "개인"),
+                "trade_type": str(r["trade_type"] or "실매매"),
             })
         return portfolio_list
     except Exception as e:
@@ -603,10 +618,11 @@ def save_trade_record(trade, owner="USER"):
         
         sell_date = trade.get("sell_date") or datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         cursor.execute(
-            "INSERT OR REPLACE INTO trade_history (owner, sell_date, ticker, name, quantity, buy_price, sell_price, profit, profit_pct, result, learning_point) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT OR REPLACE INTO trade_history (owner, sell_date, ticker, name, quantity, buy_price, sell_price, profit, profit_pct, result, learning_point, trade_source, trade_type) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (owner.upper(), sell_date, str(trade.get("ticker", "")), str(trade.get("name", "")),
              float(trade.get("quantity", 0)), float(trade.get("buy_price", 0)), float(trade.get("sell_price", 0)),
-             float(trade.get("profit", 0)), float(trade.get("profit_pct", 0)), str(trade.get("result", "")), str(trade.get("learning_point", "")))
+             float(trade.get("profit", 0)), float(trade.get("profit_pct", 0)), str(trade.get("result", "")), str(trade.get("learning_point", "")),
+             str(trade.get("trade_source", "개인")), str(trade.get("trade_type", "실매매")))
         )
         conn.commit()
         conn.close()
@@ -697,7 +713,7 @@ def load_trade_history_from_gsheet(owner="USER"):
         conn = get_db_conn()
         cursor = conn.cursor()
         cursor.execute(
-            "SELECT owner as 소유자, sell_date as 매도시간, ticker as 티커, name as 종목명, quantity as 수량, buy_price as `매수가($)`, sell_price as `매도가($)`, profit as `수익금($)`, profit_pct as `수익률(%)`, result as 결과, learning_point as 학습포인트 FROM trade_history WHERE UPPER(owner) = ?",
+            "SELECT owner as 소유자, sell_date as 매도시간, ticker as 티커, name as 종목명, quantity as 수량, buy_price as `매수가($)`, sell_price as `매도가($)`, profit as `수익금($)`, profit_pct as `수익률(%)`, result as 결과, learning_point as 학습포인트, trade_source as 출처, trade_type as 유형 FROM trade_history WHERE UPPER(owner) = ?",
             (owner.upper(),)
         )
         rows = cursor.fetchall()

@@ -195,15 +195,46 @@ function RecommendBadge({ pct, hasPrice }: { pct: number; hasPrice?: boolean }) 
   return                      <Badge variant="danger">⚠️ 물타기 필요</Badge>;
 }
 
+// ── 토글 버튼 그룹 ────────────────────────────────────────────────────────────
+function ToggleGroup<T extends string>({ options, value, onChange, colors }: {
+  options: { label: string; value: T }[];
+  value: T;
+  onChange: (v: T) => void;
+  colors?: Record<T, string>;
+}) {
+  return (
+    <div style={{ display: "inline-flex", borderRadius: "6px", overflow: "hidden", border: "1px solid var(--color-border)" }}>
+      {options.map(opt => {
+        const active = opt.value === value;
+        const color = colors?.[opt.value] ?? "var(--color-accent)";
+        return (
+          <button
+            key={opt.value}
+            onClick={() => onChange(opt.value)}
+            style={{
+              padding: "4px 10px", fontSize: "0.78rem", fontWeight: 600, cursor: "pointer", border: "none",
+              background: active ? color : "var(--color-elevated)",
+              color: active ? "#fff" : "var(--color-muted)",
+              transition: "all 0.15s",
+            }}
+          >{opt.label}</button>
+        );
+      })}
+    </div>
+  );
+}
+
 // ── 보유 종목 추가 폼 ─────────────────────────────────────────────────────────
 function AddPortfolioForm({ onAdded }: { onAdded: () => void }) {
-  const [market, setMarket] = useState<"국내" | "미국">("미국");
-  const [ticker, setTicker] = useState("");
-  const [name,   setName]   = useState("");
-  const [price,  setPrice]  = useState("");
-  const [qty,    setQty]    = useState("");
-  const [msg,    setMsg]    = useState<{ type: "success" | "danger"; text: string } | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [market,      setMarket]      = useState<"국내" | "미국">("미국");
+  const [ticker,      setTicker]      = useState("");
+  const [name,        setName]        = useState("");
+  const [price,       setPrice]       = useState("");
+  const [qty,         setQty]         = useState("");
+  const [tradeSource, setTradeSource] = useState<"리딩방" | "개인">("개인");
+  const [tradeType,   setTradeType]   = useState<"실매매" | "테스트">("실매매");
+  const [msg,         setMsg]         = useState<{ type: "success" | "danger"; text: string } | null>(null);
+  const [loading,     setLoading]     = useState(false);
 
   const handleAdd = async () => {
     if (!ticker.trim() || !name.trim() || !price || !qty) return;
@@ -211,11 +242,13 @@ function AddPortfolioForm({ onAdded }: { onAdded: () => void }) {
     try {
       const currentList = await api.portfolio.loadPortfolio() as any[];
       const updatedList = [...(currentList ?? []), {
-        ticker: ticker.trim().toUpperCase(),
-        name: name.trim(),
-        buy_price: Number(price),
-        quantity: Number(qty),
-        rating: "-",
+        ticker:       ticker.trim().toUpperCase(),
+        name:         name.trim(),
+        buy_price:    Number(price),
+        quantity:     Number(qty),
+        rating:       "-",
+        trade_source: tradeSource,
+        trade_type:   tradeType,
       }];
       const res = await fetch(`${BASE_URL}/api/portfolio`, {
         method: "POST",
@@ -223,7 +256,7 @@ function AddPortfolioForm({ onAdded }: { onAdded: () => void }) {
         body: JSON.stringify({ portfolio_list: updatedList }),
       });
       if (!res.ok) throw new Error(`서버 오류: ${res.status}`);
-      setMsg({ type: "success", text: `${name.trim()} (${ticker.trim().toUpperCase()}) 추가 완료` });
+      setMsg({ type: "success", text: `${name.trim()} (${ticker.trim().toUpperCase()}) 추가 완료 [${tradeSource} · ${tradeType}]` });
       setTicker(""); setName(""); setPrice(""); setQty("");
       onAdded();
     } catch (e) {
@@ -234,8 +267,32 @@ function AddPortfolioForm({ onAdded }: { onAdded: () => void }) {
   };
 
   return (
-    <div style={{ background: "var(--color-surface)", border: "1px solid var(--color-border)", borderRadius: "8px", padding: "1rem", marginBottom: "1rem", display: "flex", flexDirection: "column", gap: "0.5rem" }}>
-      <div style={{ fontWeight: 700, fontSize: "0.9rem", marginBottom: "0.25rem" }}>+ 보유 종목 추가</div>
+    <div style={{ background: "var(--color-surface)", border: "1px solid var(--color-border)", borderRadius: "8px", padding: "1rem", marginBottom: "1rem", display: "flex", flexDirection: "column", gap: "0.6rem" }}>
+      <div style={{ fontWeight: 700, fontSize: "0.9rem" }}>+ 보유 종목 추가</div>
+
+      {/* 출처 · 유형 토글 */}
+      <div style={{ display: "flex", gap: "0.75rem", alignItems: "center", flexWrap: "wrap" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}>
+          <span style={{ fontSize: "0.75rem", color: "var(--color-muted)" }}>출처</span>
+          <ToggleGroup
+            options={[{ label: "리딩방", value: "리딩방" as const }, { label: "개인", value: "개인" as const }]}
+            value={tradeSource}
+            onChange={setTradeSource}
+            colors={{ "리딩방": "#7c3aed", "개인": "#2563eb" }}
+          />
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}>
+          <span style={{ fontSize: "0.75rem", color: "var(--color-muted)" }}>유형</span>
+          <ToggleGroup
+            options={[{ label: "실매매", value: "실매매" as const }, { label: "테스트", value: "테스트" as const }]}
+            value={tradeType}
+            onChange={setTradeType}
+            colors={{ "실매매": "#059669", "테스트": "#d97706" }}
+          />
+        </div>
+      </div>
+
+      {/* 종목 입력 */}
       <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", alignItems: "center" }}>
         <select className="stockcy-input" style={{ width: "80px", flexShrink: 0 }} value={market} onChange={(e) => setMarket(e.target.value as "국내" | "미국")}>
           <option value="국내">국내</option>
@@ -409,6 +466,8 @@ function PortfolioTab({ gapBulkMap }: { gapBulkMap: Record<string, any> }) {
       profit, profit_pct: profitPct,
       result: profit >= 0 ? "수익" : "손실",
       sell_date: new Date().toISOString().slice(0, 19),
+      trade_source: p.trade_source ?? "개인",
+      trade_type:   p.trade_type   ?? "실매매",
     });
 
     const remainingQty = p.quantity - sellQty;
@@ -532,6 +591,14 @@ function PortfolioTab({ gapBulkMap }: { gapBulkMap: Record<string, any> }) {
                         ({p.normalTicker || p.ticker})
                       </span>
                       {p.isUs && <span style={{ fontSize: "0.65rem", padding: "1px 5px", background: "rgba(50,200,100,0.15)", border: "1px solid rgba(50,200,100,0.3)", borderRadius: "3px", color: "var(--color-success)" }}>US</span>}
+                      {/* 출처 태그 */}
+                      {p.trade_source === "리딩방" && (
+                        <span style={{ fontSize: "0.62rem", padding: "1px 5px", background: "rgba(124,58,237,0.15)", border: "1px solid rgba(124,58,237,0.35)", borderRadius: "3px", color: "#a78bfa", fontWeight: 700 }}>리딩방</span>
+                      )}
+                      {/* 유형 태그 */}
+                      {p.trade_type === "테스트" && (
+                        <span style={{ fontSize: "0.62rem", padding: "1px 5px", background: "rgba(217,119,6,0.15)", border: "1px solid rgba(217,119,6,0.35)", borderRadius: "3px", color: "#fbbf24", fontWeight: 700 }}>테스트</span>
+                      )}
                     </div>
 
                     {/* 시간외 갭 배지 인라인 노출 */}
