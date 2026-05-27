@@ -1686,7 +1686,9 @@ def generate_kr_stock_report(stock_code: str, name: str, price_data: dict, inves
     try:
         from db import load_pattern_profile
         profile = load_pattern_profile()
-        if profile and not pattern_context:
+        win_rate    = profile.get("win_rate_pct", 0) if profile else 0
+        trade_count = profile.get("total_trades", 0) if profile else 0
+        if profile and not pattern_context and win_rate >= 50 and trade_count >= 15:
             ind = _get_trade_indicators(stock_code, "")
             match_score = _score_stock_against_profile(ind, profile)
             rsi_val = ind["daily"].get("rsi")
@@ -3475,52 +3477,86 @@ def build_pattern_profile() -> dict:
 
 
 def _score_stock_against_profile(ind: dict, profile: dict) -> float:
-    """종목 지표를 패턴 프로파일과 비교해 0~100점 매칭 점수 반환."""
+    """종목 지표를 패턴 프로파일과 비교해 net 점수 반환 (0~100).
+
+    - 승리 패턴과의 유사도에서 손실 패턴 페널티를 차감
+    - 승률이 낮을수록 점수를 중립(50)으로 수렴시켜 과신 방지
+    """
     if not profile or "win" not in profile:
         return 50.0
 
-    score = 0.0
-    weight_sum = 0.0
-    win = profile["win"]
+    win_rate    = profile.get("win_rate_pct", 50)
+    trade_count = profile.get("total_trades", 0)
 
-    def _in_range(val, rng, weight=1.0):
-        nonlocal score, weight_sum
+    # 데이터 부족 또는 승률 극히 낮으면 중립 반환
+    if trade_count < 10 or win_rate < 30:
+        return 50.0
+
+    # 신뢰도 계수: 승률 30% → 0, 70% 이상 → 1.0 으로 선형 보간
+    reliability = min(1.0, max(0.0, (win_rate - 30) / 40))
+
+    def _range_score(val, rng):
+        """해당 지표가 범위 내에 얼마나 부합하는지 0~100 반환"""
         if val is None or rng is None:
-            return
-        weight_sum += weight
+            return None
         p25, p75 = rng.get("p25"), rng.get("p75")
         avg = rng.get("avg")
         if p25 is None or p75 is None:
-            return
+            return None
         span = (p75 - p25) or 1.0
         if p25 <= val <= p75:
-            # 핵심 구간 내 → 점수 만점
-            score += weight * 100
+            return 100.0
         elif avg is not None:
-            # 범위 밖 → 평균과의 거리 기반 부분 점수
             dist = abs(val - avg)
-            partial = max(0, 100 - (dist / span) * 80)
-            score += weight * partial
+            return max(0.0, 100.0 - (dist / span) * 80)
+        return 0.0
 
-    # RSI — 가중치 30%
-    _in_range(ind["daily"].get("rsi"), win.get("rsi"), weight=30)
-    # 거래량 비율 — 가중치 25%
-    _in_range(ind["daily"].get("volume_ratio"), win.get("volume_ratio"), weight=25)
-    # 52주 위치 — 가중치 20%
-    _in_range(ind["daily"].get("pos_52w_pct"), win.get("pos_52w_pct"), weight=20)
-    # 갭% — 가중치 10%
-    _in_range(ind["daily"].get("gap_pct"), win.get("gap_pct"), weight=10)
-    # MA 정배열 — 가중치 15%
-    weight_sum += 15
-    if ind["daily"].get("ma_aligned"):
-        ma_bonus = win.get("ma_aligned_rate_pct", 50) / 100 * 15 * 100 / 15
-        score += ma_bonus * 15 / 100
-    else:
-        score += (1 - win.get("ma_aligned_rate_pct", 50) / 100) * 15 * 0.3
+    win  = profile["win"]
+    loss = profile.get("loss", {})
 
-    if weight_sum == 0:
-        return 50.0
-    return round(score / weight_sum, 1)
+    # ── 승리 패턴 점수 ──────────────────────────────────────────
+    win_parts, win_weights = [], []
+
+    s = _range_score(ind["daily"].get("rsi"),          win.get("rsi"))
+    if s is not None: win_parts.append(s); win_weights.append(30)
+
+    s = _range_score(ind["daily"].get("volume_ratio"), win.get("volume_ratio"))
+    if s is not None: win_parts.append(s); win_weights.append(25)
+
+    s = _range_score(ind["daily"].get("pos_52w_pct"),  win.get("pos_52w_pct"))
+    if s is not None: win_parts.append(s); win_weights.append(20)
+
+    s = _range_score(ind["daily"].get("gap_pct"),      win.get("gap_pct"))
+    if s is not None: win_parts.append(s); win_weights.append(10)
+
+    ma_win_rate = win.get("ma_aligned_rate_pct", 50) / 100
+    ma_score    = (ma_win_rate * 100) if ind["daily"].get("ma_aligned") else ((1 - ma_win_rate) * 30)
+    win_parts.append(ma_score); win_weights.append(15)
+
+    total_w   = sum(win_weights)
+    raw_win   = sum(s * w for s, w in zip(win_parts, win_weights)) / total_w if total_w else 50.0
+
+    # ── 손실 패턴 페널티 ────────────────────────────────────────
+    loss_parts, loss_weights = [], []
+
+    s = _range_score(ind["daily"].get("rsi"),          loss.get("rsi"))
+    if s is not None: loss_parts.append(s); loss_weights.append(30)
+
+    s = _range_score(ind["daily"].get("volume_ratio"), loss.get("volume_ratio"))
+    if s is not None: loss_parts.append(s); loss_weights.append(25)
+
+    loss_total_w = sum(loss_weights)
+    loss_score   = sum(s * w for s, w in zip(loss_parts, loss_weights)) / loss_total_w if loss_total_w else 0.0
+
+    # 손실 패턴 유사도가 높을수록 최대 25점 차감
+    penalty = loss_score * 0.25
+
+    # ── 최종 점수 ───────────────────────────────────────────────
+    # 승률이 낮으면 중립(50)으로 수렴 — 신뢰 없는 프로필이 결과를 왜곡하지 않도록
+    net = raw_win - penalty
+    final = 50 + (net - 50) * reliability
+
+    return round(max(0.0, min(100.0, final)), 1)
 
 
 def screen_by_my_pattern() -> dict:
@@ -3534,6 +3570,32 @@ def screen_by_my_pattern() -> dict:
         profile = build_pattern_profile()
         if "error" in profile:
             return {"error": profile["error"]}
+
+    # 1-b. 프로필 신뢰도 검증
+    win_rate    = profile.get("win_rate_pct", 0)
+    trade_count = profile.get("total_trades", 0)
+
+    if trade_count < 15:
+        return {
+            "error": f"거래 데이터 부족 ({trade_count}건). 최소 15건 이상의 완료된 거래가 있어야 패턴이 의미 있게 작동합니다.",
+            "profile_warning": "data_insufficient",
+        }
+    if win_rate < 40:
+        return {
+            "error": (
+                f"패턴 프로필 신뢰도 낮음 (승률 {win_rate}%). "
+                "승률이 40% 미만이면 스크리너가 오히려 손실 패턴을 반복 추천할 수 있습니다. "
+                "거래 전략을 먼저 점검해보세요."
+            ),
+            "profile_warning": "low_win_rate",
+            "win_rate": win_rate,
+            "total_trades": trade_count,
+        }
+
+    # 40~50%: 경고 포함해서 계속 진행
+    reliability_warning = None
+    if win_rate < 50:
+        reliability_warning = f"승률 {win_rate}% — 참고용으로만 활용하세요 (손실 패턴 페널티 적용 중)"
 
     # 2. 오늘 거래량·등락률 상위 종목 수집
     candidates: dict[str, dict] = {}
@@ -3637,10 +3699,11 @@ def screen_by_my_pattern() -> dict:
 
     return {
         "profile_summary": {
-            "win_rate_pct":    profile.get("win_rate_pct"),
-            "avg_profit_pct":  profile.get("avg_profit_pct"),
-            "total_trades":    profile.get("total_trades"),
-            "updated_time":    profile.get("_updated_time"),
+            "win_rate_pct":      profile.get("win_rate_pct"),
+            "avg_profit_pct":    profile.get("avg_profit_pct"),
+            "total_trades":      profile.get("total_trades"),
+            "updated_time":      profile.get("_updated_time"),
+            "reliability_warning": reliability_warning,
         },
         "top_picks":    top[:5],
         "ai_narrative": narrative,

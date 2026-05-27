@@ -136,19 +136,28 @@ export default function Dashboard() {
               {data.profile_summary && (() => {
                 const ps = data.profile_summary;
                 const winRate = Number(ps.win_rate_pct ?? 0);
+                const reliabilityColor = winRate >= 60 ? "#34d399" : winRate >= 50 ? "#fbbf24" : winRate >= 40 ? "#fb923c" : "#f87171";
                 return (
-                  <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "0.75rem" }}>
-                    {[
-                      { label: "기반 거래",  value: `${ps.total_trades}건`,        color: "var(--color-text)" },
-                      { label: "승률",       value: `${winRate}%`,                  color: winRate >= 60 ? "#34d399" : winRate >= 45 ? "#fbbf24" : "#f87171" },
-                      { label: "평균 수익",  value: `+${ps.avg_profit_pct}%`,       color: "#34d399" },
-                      { label: "프로필 갱신", value: String(ps.updated_time ?? "").slice(0, 10), color: "var(--color-muted)" },
-                    ].map(s => (
-                      <div key={s.label} style={{ background: "rgba(124,58,237,0.08)", border: "1px solid rgba(124,58,237,0.2)", borderRadius: "8px", padding: "0.75rem", textAlign: "center" }}>
-                        <div style={{ fontSize: "0.7rem", color: "#a78bfa", marginBottom: "4px" }}>{s.label}</div>
-                        <div style={{ fontSize: "1.1rem", fontWeight: 800, color: s.color }}>{s.value}</div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "0.75rem" }}>
+                      {[
+                        { label: "기반 거래",  value: `${ps.total_trades}건`,  color: "var(--color-text)" },
+                        { label: "승률",       value: `${winRate}%`,            color: reliabilityColor },
+                        { label: "평균 수익",  value: `+${ps.avg_profit_pct}%`, color: "#34d399" },
+                        { label: "프로필 갱신", value: String(ps.updated_time ?? "").slice(0, 10), color: "var(--color-muted)" },
+                      ].map(s => (
+                        <div key={s.label} style={{ background: "rgba(124,58,237,0.08)", border: "1px solid rgba(124,58,237,0.2)", borderRadius: "8px", padding: "0.75rem", textAlign: "center" }}>
+                          <div style={{ fontSize: "0.7rem", color: "#a78bfa", marginBottom: "4px" }}>{s.label}</div>
+                          <div style={{ fontSize: "1.1rem", fontWeight: 800, color: s.color }}>{s.value}</div>
+                        </div>
+                      ))}
+                    </div>
+                    {/* 신뢰도 경고 배너 */}
+                    {ps.reliability_warning && (
+                      <div style={{ background: "rgba(251,146,60,0.12)", border: "1px solid rgba(251,146,60,0.35)", borderRadius: "6px", padding: "0.5rem 0.75rem", fontSize: "0.78rem", color: "#fb923c", display: "flex", alignItems: "center", gap: "0.4rem" }}>
+                        ⚠️ {ps.reliability_warning}
                       </div>
-                    ))}
+                    )}
                   </div>
                 );
               })()}
