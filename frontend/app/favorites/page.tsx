@@ -912,7 +912,8 @@ function TradesTab() {
   const { data: tradeRes, isLoading, mutate } = useSWR("/api/trades", () => api.portfolio.loadTrades() as Promise<{ data: any[]; message: string }>);
   const trades: any[] = tradeRes?.data ?? [];
 
-  const [form, setForm] = useState({ ticker: "", name: "", buy_price: "", sell_price: "", quantity: "", result: "수익", trade_source: "개인", trade_type: "실매매" });
+  const nowLocal = () => new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+  const [form, setForm] = useState({ ticker: "", name: "", buy_price: "", sell_price: "", quantity: "", result: "수익", trade_source: "개인", trade_type: "실매매", buy_date: nowLocal(), sell_date: nowLocal() });
   const [addMsg, setAddMsg] = useState<{ type: "success" | "danger"; text: string } | null>(null);
   const [adding, setAdding] = useState(false);
   const [showForm, setShowForm] = useState(false);
@@ -989,13 +990,14 @@ function TradesTab() {
         quantity: qty, buy_price: bp, sell_price: sp,
         profit, profit_pct: profitPct,
         result: form.result,
-        sell_date: new Date().toISOString().slice(0, 19),
+        buy_date:  form.buy_date  ? form.buy_date  + ":00" : "",
+        sell_date: form.sell_date ? form.sell_date + ":00" : new Date().toISOString().slice(0, 19),
         trade_source: form.trade_source,
         trade_type: form.trade_type,
       };
       const res = await api.portfolio.saveTrade(trade) as { success: boolean; message: string };
       setAddMsg({ type: res.success ? "success" : "danger", text: res.message });
-      if (res.success) { setForm({ ticker: "", name: "", buy_price: "", sell_price: "", quantity: "", result: "수익", trade_source: "개인", trade_type: "실매매" }); mutate(); setShowForm(false); }
+      if (res.success) { setForm({ ticker: "", name: "", buy_price: "", sell_price: "", quantity: "", result: "수익", trade_source: "개인", trade_type: "실매매", buy_date: nowLocal(), sell_date: nowLocal() }); mutate(); setShowForm(false); }
     } catch (e) { setAddMsg({ type: "danger", text: String(e) }); }
     finally { setAdding(false); }
   };
@@ -1074,6 +1076,12 @@ function TradesTab() {
               <option>손실</option>
               <option>손익분기</option>
             </select>
+          </div>
+          <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", flexWrap: "wrap" }}>
+            <span style={{ fontSize: "0.75rem", color: "var(--color-muted)", flexShrink: 0 }}>매수일시</span>
+            <input className="stockcy-input" type="datetime-local" value={form.buy_date} onChange={e => setForm(f => ({...f, buy_date: e.target.value}))} style={{ flex: 1, minWidth: "180px" }} />
+            <span style={{ fontSize: "0.75rem", color: "var(--color-muted)", flexShrink: 0 }}>매도일시</span>
+            <input className="stockcy-input" type="datetime-local" value={form.sell_date} onChange={e => setForm(f => ({...f, sell_date: e.target.value}))} style={{ flex: 1, minWidth: "180px" }} />
             <button className="stockcy-btn stockcy-btn-primary" onClick={handleAdd} disabled={adding}>저장</button>
           </div>
           {addMsg && <StatusBox type={addMsg.type}>{addMsg.text}</StatusBox>}
@@ -1093,7 +1101,8 @@ function TradesTab() {
               <th style={{ textAlign: "right" }}>손익</th>
               <th style={{ textAlign: "right" }}>손익률</th>
               <th>결과</th>
-              <th>매도일</th>
+              <th>매수일시</th>
+              <th>매도일시</th>
               <th>학습/복기</th>
               <th></th>
             </tr>
@@ -1151,7 +1160,8 @@ function TradesTab() {
                     </td>
                     <td style={{ textAlign: "right", color, fontWeight: 700 }}>{profitPct >= 0 ? "+" : ""}{profitPct.toFixed(2)}%</td>
                     <td><Badge variant={profit >= 0 ? "success" : "danger"}>{String(t["결과"] ?? t.result ?? "-")}</Badge></td>
-                    <td style={{ fontSize: "0.75rem", color: "var(--color-muted)" }}>{sellDate.slice(0, 10)}</td>
+                    <td style={{ fontSize: "0.72rem", color: "var(--color-muted)" }}>{String(t["매수시간"] ?? "").slice(0, 16).replace("T", " ") || "-"}</td>
+                    <td style={{ fontSize: "0.72rem", color: "var(--color-muted)" }}>{sellDate.slice(0, 16).replace("T", " ")}</td>
                     <td>
                       {lp ? (
                         <div style={{ fontSize: "0.75rem", color: "var(--color-primary)", maxWidth: "150px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", cursor: "pointer" }} title={lp} onClick={() => setPostmortemTrade(t)}>

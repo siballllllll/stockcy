@@ -13,6 +13,14 @@ _GSHEET_CACHE_TTL = timedelta(seconds=60)
 
 DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "db.sqlite3")
 
+def _pad_kr_ticker(ticker: str) -> str:
+    """숫자로만 이루어진 국내 종목 코드는 무조건 6자리 제로패딩. 미국 주식은 대문자 반환."""
+    t = str(ticker).strip()
+    if t.isdigit():
+        return t.zfill(6)
+    return t.upper()
+
+
 def get_db_conn():
     conn = sqlite3.connect(DB_PATH, timeout=10.0)
     conn.row_factory = sqlite3.Row
@@ -193,9 +201,24 @@ def init_local_db():
         "ALTER TABLE portfolio ADD COLUMN trade_type TEXT DEFAULT '실매매'",
         "ALTER TABLE trade_history ADD COLUMN trade_source TEXT DEFAULT '개인'",
         "ALTER TABLE trade_history ADD COLUMN trade_type TEXT DEFAULT '실매매'",
+        "ALTER TABLE trade_history ADD COLUMN buy_date TEXT DEFAULT ''",
     ]:
         try:
             cursor.execute(migration)
+        except Exception:
+            pass
+
+    # 기존 데이터 티커 6자리 제로패딩 정규화 (숫자 종목코드만)
+    for fix_sql in [
+        """UPDATE trade_history
+           SET ticker = substr('000000', 1, 6 - length(trim(ticker))) || trim(ticker)
+           WHERE trim(ticker) NOT GLOB '*[^0-9]*' AND length(trim(ticker)) < 6""",
+        """UPDATE portfolio
+           SET ticker = substr('000000', 1, 6 - length(trim(ticker))) || trim(ticker)
+           WHERE trim(ticker) NOT GLOB '*[^0-9]*' AND length(trim(ticker)) < 6""",
+    ]:
+        try:
+            cursor.execute(fix_sql)
         except Exception:
             pass
 
@@ -458,10 +481,7 @@ def save_portfolio_to_gsheet(portfolio_list, current_prices_df=None, owner="USER
         
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         for item in portfolio_list:
-            ticker = str(item["ticker"])
-            # 1순위: item 자체에 명시된 buy_date
-            # 2순위: 기존 DB에 저장되어 있던 최초 매수 시간
-            # 3순위: 신규 등록이므로 현재 시간
+            ticker = _pad_kr_ticker(item["ticker"])
             buy_time = item.get("buy_date") or item.get("updated_time") or existing_times.get(ticker) or now
             
             cursor.execute(
@@ -617,12 +637,14 @@ def save_trade_record(trade, owner="USER"):
         cursor = conn.cursor()
         
         sell_date = trade.get("sell_date") or datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        buy_date  = trade.get("buy_date") or ""
+        ticker    = _pad_kr_ticker(trade.get("ticker", ""))
         cursor.execute(
-            "INSERT OR REPLACE INTO trade_history (owner, sell_date, ticker, name, quantity, buy_price, sell_price, profit, profit_pct, result, learning_point, trade_source, trade_type) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (owner.upper(), sell_date, str(trade.get("ticker", "")), str(trade.get("name", "")),
+            "INSERT OR REPLACE INTO trade_history (owner, sell_date, ticker, name, quantity, buy_price, sell_price, profit, profit_pct, result, learning_point, trade_source, trade_type, buy_date) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (owner.upper(), sell_date, ticker, str(trade.get("name", "")),
              float(trade.get("quantity", 0)), float(trade.get("buy_price", 0)), float(trade.get("sell_price", 0)),
              float(trade.get("profit", 0)), float(trade.get("profit_pct", 0)), str(trade.get("result", "")), str(trade.get("learning_point", "")),
-             str(trade.get("trade_source", "개인")), str(trade.get("trade_type", "실매매")))
+             str(trade.get("trade_source", "개인")), str(trade.get("trade_type", "실매매")), buy_date)
         )
         conn.commit()
         conn.close()
@@ -757,18 +779,16 @@ def load_trade_history_from_gsheet(owner="USER"):
         conn = get_db_conn()
         cursor = conn.cursor()
         cursor.execute(
-            "SELECT owner as 소유자, sell_date as 매도시간, ticker as 티커, name as 종목명, quantity as 수량, buy_price as `매수가($)`, sell_price as `매도가($)`, profit as `수익금($)`, profit_pct as `수익률(%)`, result as 결과, learning_point as 학습포인트, trade_source as 출처, trade_type as 유형 FROM trade_history WHERE UPPER(owner) = ?",
+            "SELECT owner as 소유자, sell_date as 매도시간, buy_date as 매수시간, ticker as 티커, name as 종목명, quantity as 수량, buy_price as `매수가($)`, sell_price as `매도가($)`, profit as `수익금($)`, profit_pct as `수익률(%)`, result as 결과, learning_point as 학습포인트, trade_source as 출처, trade_type as 유형 FROM trade_history WHERE UPPER(owner) = ?",
             (owner.upper(),)
         )
         rows = cursor.fetchall()
         conn.close()
-        
+
         filtered = []
         for r in rows:
             row_dict = dict(r)
-            t = str(row_dict["티커"])
-            if t.isdigit() and len(t) < 6:
-                row_dict["티커"] = t.zfill(6)
+            row_dict["티커"] = _pad_kr_ticker(str(row_dict["티커"]))
             filtered.append(row_dict)
             
         return pd.DataFrame(filtered), "성공"
