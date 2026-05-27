@@ -153,6 +153,7 @@ export default function LeadingPage() {
   const [selectedStock,  setSelectedStock]  = useState<StockInfo | null>(null);
   const [activeAiTab,    setActiveAiTab]    = useState<AiTab>("picks");
   const [invExpanded,    setInvExpanded]    = useState(false);
+  const [allExpanded,    setAllExpanded]    = useState(false);
 
   const { data: kr }   = useSWR<KrIndices>("kr-indices",   () => api.kr.indices() as Promise<KrIndices>,   { refreshInterval: 60000 });
   const { data: volR } = useSWR("kr-vol-rank",  () => api.kr.volumeRanking(), { refreshInterval: 60000 });
@@ -251,135 +252,176 @@ export default function LeadingPage() {
       {/* AI 분석 탭 패널 */}
       <div className="stockcy-card" style={{ padding: 0, overflow: "hidden" }}>
         {/* 탭 헤더 */}
-        <div style={{ display: "flex", borderBottom: "1px solid var(--color-border)", padding: "0 0.25rem" }}>
-          {([
-            { id: "picks"     as AiTab, icon: <Zap     size={13} />, label: "AI 실시간 픽",    color: "var(--color-warning)" },
-            { id: "rotation"  as AiTab, icon: <BarChart2 size={13} />, label: "섹터 순환매",  color: "var(--color-info)" },
-            { id: "mypattern" as AiTab, icon: <Brain   size={13} />, label: "내 패턴 스크리너", color: "#a78bfa" },
+        <div style={{ display: "flex", alignItems: "stretch", borderBottom: "1px solid var(--color-border)", padding: "0 0.25rem" }}>
+          {!allExpanded && ([
+            { id: "picks"     as AiTab, icon: <Zap       size={13} />, label: "AI 실시간 픽",    color: "var(--color-warning)" },
+            { id: "rotation"  as AiTab, icon: <BarChart2 size={13} />, label: "섹터 순환매",      color: "var(--color-info)" },
+            { id: "mypattern" as AiTab, icon: <Brain     size={13} />, label: "내 패턴 스크리너", color: "#a78bfa" },
           ] as const).map(tab => {
             const active = activeAiTab === tab.id;
             return (
-              <button
-                key={tab.id}
-                onClick={() => setActiveAiTab(tab.id)}
-                style={{
-                  flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: "0.3rem",
-                  padding: "0.65rem 0.5rem", background: "none", border: "none", cursor: "pointer",
-                  fontSize: "0.78rem", fontWeight: active ? 700 : 400,
-                  color: active ? tab.color : "var(--color-muted)",
-                  borderBottom: active ? `2px solid ${tab.color}` : "2px solid transparent",
-                  marginBottom: "-1px", transition: "color 0.15s",
-                }}
-              >
+              <button key={tab.id} onClick={() => setActiveAiTab(tab.id)} style={{
+                flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: "0.3rem",
+                padding: "0.65rem 0.5rem", background: "none", border: "none", cursor: "pointer",
+                fontSize: "0.78rem", fontWeight: active ? 700 : 400,
+                color: active ? tab.color : "var(--color-muted)",
+                borderBottom: active ? `2px solid ${tab.color}` : "2px solid transparent",
+                marginBottom: "-1px", transition: "color 0.15s",
+              }}>
                 <span style={{ color: active ? tab.color : "var(--color-subtle)" }}>{tab.icon}</span>
                 {tab.label}
               </button>
             );
           })}
+          {allExpanded && (
+            <div style={{ flex: 1, display: "flex", alignItems: "center", gap: "0.5rem", padding: "0.5rem 0.75rem" }}>
+              <Zap size={12} style={{ color: "var(--color-warning)" }} />
+              <BarChart2 size={12} style={{ color: "var(--color-info)" }} />
+              <Brain size={12} style={{ color: "#a78bfa" }} />
+              <span style={{ fontSize: "0.78rem", color: "var(--color-muted)" }}>전체 보기</span>
+            </div>
+          )}
+          {/* 전체/탭 토글 버튼 */}
+          <button
+            onClick={() => setAllExpanded(v => !v)}
+            title={allExpanded ? "탭 보기로 전환" : "전체 펼치기"}
+            style={{
+              flexShrink: 0, display: "flex", alignItems: "center", gap: "0.3rem",
+              padding: "0.5rem 0.75rem", background: "none", border: "none", cursor: "pointer",
+              fontSize: "0.72rem", color: "var(--color-muted)",
+              borderLeft: "1px solid var(--color-border)", marginBottom: "-1px",
+              transition: "color 0.15s",
+            }}
+          >
+            {allExpanded ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+            {allExpanded ? "탭 보기" : "전체 보기"}
+          </button>
         </div>
 
-        {/* 탭 콘텐츠 */}
-        <div style={{ padding: "1rem" }}>
+        {/* 콘텐츠 */}
+        <div style={{ padding: "1rem", display: "flex", flexDirection: "column", gap: allExpanded ? "1.5rem" : 0 }}>
 
-          {activeAiTab === "picks" && (
-            <SSEPanel
-              status={picks.status} message={picks.message}
-              result={picks.result} fromCache={picks.fromCache}
-              onStart={handlePickStart} startLabel="AI 픽 분석 시작"
-              idleHint="거래량·등락률·수급 데이터를 종합하여 AI가 오늘의 국내 단타 유망 종목 3개를 선정합니다."
-            >
-              {(data) => (
-                <div>
-                  {data.market_comment && (
-                    <StatusBox type="info" className="mb-3">
-                      {data.market_condition} — {data.market_comment}
-                    </StatusBox>
-                  )}
-                  {data.picks?.map((p) => <PickCard key={p.rank} pick={p} onAnalyze={setSelectedStock} />)}
+          {/* ── AI 실시간 픽 ── */}
+          {(allExpanded || activeAiTab === "picks") && (
+            <div>
+              {allExpanded && (
+                <div style={{ display: "flex", alignItems: "center", gap: "0.4rem", marginBottom: "0.75rem", paddingBottom: "0.5rem", borderBottom: "1px solid var(--color-border)" }}>
+                  <Zap size={14} style={{ color: "var(--color-warning)" }} />
+                  <span style={{ fontSize: "0.85rem", fontWeight: 700, color: "var(--color-warning)" }}>AI 실시간 픽</span>
                 </div>
               )}
-            </SSEPanel>
+              <SSEPanel
+                status={picks.status} message={picks.message}
+                result={picks.result} fromCache={picks.fromCache}
+                onStart={handlePickStart} startLabel="AI 픽 분석 시작"
+                idleHint="거래량·등락률·수급 데이터를 종합하여 AI가 오늘의 국내 단타 유망 종목 3개를 선정합니다."
+              >
+                {(data) => (
+                  <div>
+                    {data.market_comment && (
+                      <StatusBox type="info" className="mb-3">
+                        {data.market_condition} — {data.market_comment}
+                      </StatusBox>
+                    )}
+                    {data.picks?.map((p) => <PickCard key={p.rank} pick={p} onAnalyze={setSelectedStock} />)}
+                  </div>
+                )}
+              </SSEPanel>
+            </div>
           )}
 
-          {activeAiTab === "rotation" && (
-            <SSEPanel<string>
-              status={rotation.status} message={rotation.message}
-              result={rotation.result} fromCache={rotation.fromCache}
-              onStart={rotation.start} startLabel="섹터 로테이션 분석"
-              idleHint="실시간 시장 데이터를 기반으로 현재 주도 섹터와 다음 자금 이동 경로, 투자 성향별 추천 종목을 분석합니다. (1~2분 소요)"
-            >
-              {(data) => (
-                <pre style={{
-                  whiteSpace: "pre-wrap", fontSize: "0.83rem",
-                  lineHeight: 1.8, color: "var(--color-text)", fontFamily: "inherit",
-                }}>
-                  {data}
-                </pre>
+          {/* ── 섹터 순환매 ── */}
+          {(allExpanded || activeAiTab === "rotation") && (
+            <div>
+              {allExpanded && (
+                <div style={{ display: "flex", alignItems: "center", gap: "0.4rem", marginBottom: "0.75rem", paddingBottom: "0.5rem", borderBottom: "1px solid var(--color-border)" }}>
+                  <BarChart2 size={14} style={{ color: "var(--color-info)" }} />
+                  <span style={{ fontSize: "0.85rem", fontWeight: 700, color: "var(--color-info)" }}>섹터 순환매 로드맵</span>
+                </div>
               )}
-            </SSEPanel>
+              <SSEPanel<string>
+                status={rotation.status} message={rotation.message}
+                result={rotation.result} fromCache={rotation.fromCache}
+                onStart={rotation.start} startLabel="섹터 로테이션 분석"
+                idleHint="실시간 시장 데이터를 기반으로 현재 주도 섹터와 다음 자금 이동 경로, 투자 성향별 추천 종목을 분석합니다. (1~2분 소요)"
+              >
+                {(data) => (
+                  <pre style={{ whiteSpace: "pre-wrap", fontSize: "0.83rem", lineHeight: 1.8, color: "var(--color-text)", fontFamily: "inherit" }}>
+                    {data}
+                  </pre>
+                )}
+              </SSEPanel>
+            </div>
           )}
 
-          {activeAiTab === "mypattern" && (
-            <SSEPanel
-              status={myPick.status} message={myPick.message}
-              result={myPick.result} fromCache={myPick.fromCache}
-              onStart={myPick.start} startLabel="내 패턴으로 종목 찾기"
-              idleHint="내 거래 기록에서 승률이 높았던 매매 조건을 학습하고, 오늘 시장에서 그 조건에 가장 근접한 단기 유망 종목을 찾습니다. (1~2분 소요)"
-            >
-              {(data) => (
-                <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
-                  {data.profile_summary && (
-                    <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap", padding: "0.75rem", background: "rgba(124,58,237,0.08)", borderRadius: "8px", border: "1px solid rgba(124,58,237,0.2)" }}>
-                      <span style={{ fontSize: "0.75rem", color: "#a78bfa", fontWeight: 600, width: "100%", marginBottom: "2px" }}>학습된 패턴 기준</span>
-                      {[
-                        { label: "기반 거래", value: `${data.profile_summary.total_trades}건` },
-                        { label: "승률",     value: `${data.profile_summary.win_rate_pct}%` },
-                        { label: "평균수익", value: `${data.profile_summary.avg_profit_pct}%` },
-                        { label: "업데이트", value: String(data.profile_summary.updated_time ?? "").slice(0, 10) },
-                      ].map(s => (
-                        <div key={s.label} style={{ textAlign: "center", padding: "4px 12px", background: "rgba(0,0,0,0.2)", borderRadius: "6px" }}>
-                          <div style={{ fontSize: "0.65rem", color: "var(--color-muted)" }}>{s.label}</div>
-                          <div style={{ fontWeight: 700, fontSize: "0.85rem", color: "#e2e8f0" }}>{s.value}</div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-
-                  {data.top_picks && data.top_picks.length > 0 && (
-                    <div>
-                      <div style={{ fontSize: "0.78rem", fontWeight: 600, color: "var(--color-muted)", marginBottom: "0.5rem" }}>패턴 매칭 상위 종목</div>
-                      <div style={{ display: "flex", flexDirection: "column", gap: "0.4rem" }}>
-                        {data.top_picks.map((p: any, i: number) => (
-                          <div key={p.code} style={{ display: "flex", alignItems: "center", gap: "0.75rem", padding: "0.6rem 0.9rem", background: "var(--color-elevated)", borderRadius: "7px", flexWrap: "wrap" }}>
-                            <span style={{ width: "22px", height: "22px", borderRadius: "50%", background: i === 0 ? "#7c3aed" : i === 1 ? "#4f46e5" : "var(--color-surface)", color: "white", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "0.72rem", fontWeight: 700, flexShrink: 0 }}>{i + 1}</span>
-                            <div style={{ flex: 1, minWidth: "120px" }}>
-                              <span style={{ fontWeight: 700 }}>{p.name}</span>
-                              <span style={{ fontSize: "0.75rem", color: "var(--color-muted)", marginLeft: "6px" }}>{p.code}</span>
-                            </div>
-                            <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
-                              <span style={{ fontSize: "0.72rem", padding: "1px 7px", borderRadius: "10px", background: "rgba(124,58,237,0.2)", color: "#c4b5fd", fontWeight: 600 }}>매칭 {p.match_score}점</span>
-                              {p.rsi != null && <span style={{ fontSize: "0.72rem", color: "var(--color-muted)" }}>RSI {p.rsi}</span>}
-                              {p.vol_ratio != null && <span style={{ fontSize: "0.72rem", color: "var(--color-muted)" }}>거래량 {p.vol_ratio}배</span>}
-                              {p.ma_aligned && <span style={{ fontSize: "0.7rem", padding: "1px 6px", borderRadius: "8px", background: "rgba(5,150,105,0.15)", color: "#34d399" }}>MA정배열</span>}
-                              {p.signal === "both" && <span style={{ fontSize: "0.7rem", padding: "1px 6px", borderRadius: "8px", background: "rgba(245,158,11,0.15)", color: "#fbbf24" }}>이중신호</span>}
-                            </div>
+          {/* ── 내 패턴 스크리너 ── */}
+          {(allExpanded || activeAiTab === "mypattern") && (
+            <div>
+              {allExpanded && (
+                <div style={{ display: "flex", alignItems: "center", gap: "0.4rem", marginBottom: "0.75rem", paddingBottom: "0.5rem", borderBottom: "1px solid var(--color-border)" }}>
+                  <Brain size={14} style={{ color: "#a78bfa" }} />
+                  <span style={{ fontSize: "0.85rem", fontWeight: 700, color: "#a78bfa" }}>내 매매 패턴 기반 단기 추천</span>
+                </div>
+              )}
+              <SSEPanel
+                status={myPick.status} message={myPick.message}
+                result={myPick.result} fromCache={myPick.fromCache}
+                onStart={myPick.start} startLabel="내 패턴으로 종목 찾기"
+                idleHint="내 거래 기록에서 승률이 높았던 매매 조건을 학습하고, 오늘 시장에서 그 조건에 가장 근접한 단기 유망 종목을 찾습니다. (1~2분 소요)"
+              >
+                {(data) => (
+                  <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
+                    {data.profile_summary && (
+                      <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap", padding: "0.75rem", background: "rgba(124,58,237,0.08)", borderRadius: "8px", border: "1px solid rgba(124,58,237,0.2)" }}>
+                        <span style={{ fontSize: "0.75rem", color: "#a78bfa", fontWeight: 600, width: "100%", marginBottom: "2px" }}>학습된 패턴 기준</span>
+                        {[
+                          { label: "기반 거래", value: `${data.profile_summary.total_trades}건` },
+                          { label: "승률",     value: `${data.profile_summary.win_rate_pct}%` },
+                          { label: "평균수익", value: `${data.profile_summary.avg_profit_pct}%` },
+                          { label: "업데이트", value: String(data.profile_summary.updated_time ?? "").slice(0, 10) },
+                        ].map(s => (
+                          <div key={s.label} style={{ textAlign: "center", padding: "4px 12px", background: "rgba(0,0,0,0.2)", borderRadius: "6px" }}>
+                            <div style={{ fontSize: "0.65rem", color: "var(--color-muted)" }}>{s.label}</div>
+                            <div style={{ fontWeight: 700, fontSize: "0.85rem", color: "#e2e8f0" }}>{s.value}</div>
                           </div>
                         ))}
                       </div>
-                    </div>
-                  )}
-
-                  {data.ai_narrative && (
-                    <div style={{ background: "rgba(0,0,0,0.2)", borderRadius: "8px", padding: "1rem 1.2rem" }}>
-                      <div style={{ fontSize: "0.75rem", fontWeight: 600, color: "#a78bfa", marginBottom: "0.5rem" }}>AI 진입 전략</div>
-                      <div style={{ fontSize: "0.84rem", color: "var(--color-text)", lineHeight: 1.75, whiteSpace: "pre-wrap" }}>
-                        {data.ai_narrative}
+                    )}
+                    {data.top_picks && data.top_picks.length > 0 && (
+                      <div>
+                        <div style={{ fontSize: "0.78rem", fontWeight: 600, color: "var(--color-muted)", marginBottom: "0.5rem" }}>패턴 매칭 상위 종목</div>
+                        <div style={{ display: "flex", flexDirection: "column", gap: "0.4rem" }}>
+                          {data.top_picks.map((p: any, i: number) => (
+                            <div key={p.code} style={{ display: "flex", alignItems: "center", gap: "0.75rem", padding: "0.6rem 0.9rem", background: "var(--color-elevated)", borderRadius: "7px", flexWrap: "wrap" }}>
+                              <span style={{ width: "22px", height: "22px", borderRadius: "50%", background: i === 0 ? "#7c3aed" : i === 1 ? "#4f46e5" : "var(--color-surface)", color: "white", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "0.72rem", fontWeight: 700, flexShrink: 0 }}>{i + 1}</span>
+                              <div style={{ flex: 1, minWidth: "120px" }}>
+                                <span style={{ fontWeight: 700 }}>{p.name}</span>
+                                <span style={{ fontSize: "0.75rem", color: "var(--color-muted)", marginLeft: "6px" }}>{p.code}</span>
+                              </div>
+                              <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
+                                <span style={{ fontSize: "0.72rem", padding: "1px 7px", borderRadius: "10px", background: "rgba(124,58,237,0.2)", color: "#c4b5fd", fontWeight: 600 }}>매칭 {p.match_score}점</span>
+                                {p.rsi != null && <span style={{ fontSize: "0.72rem", color: "var(--color-muted)" }}>RSI {p.rsi}</span>}
+                                {p.vol_ratio != null && <span style={{ fontSize: "0.72rem", color: "var(--color-muted)" }}>거래량 {p.vol_ratio}배</span>}
+                                {p.ma_aligned && <span style={{ fontSize: "0.7rem", padding: "1px 6px", borderRadius: "8px", background: "rgba(5,150,105,0.15)", color: "#34d399" }}>MA정배열</span>}
+                                {p.signal === "both" && <span style={{ fontSize: "0.7rem", padding: "1px 6px", borderRadius: "8px", background: "rgba(245,158,11,0.15)", color: "#fbbf24" }}>이중신호</span>}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
                       </div>
-                    </div>
-                  )}
-                </div>
-              )}
-            </SSEPanel>
+                    )}
+                    {data.ai_narrative && (
+                      <div style={{ background: "rgba(0,0,0,0.2)", borderRadius: "8px", padding: "1rem 1.2rem" }}>
+                        <div style={{ fontSize: "0.75rem", fontWeight: 600, color: "#a78bfa", marginBottom: "0.5rem" }}>AI 진입 전략</div>
+                        <div style={{ fontSize: "0.84rem", color: "var(--color-text)", lineHeight: 1.75, whiteSpace: "pre-wrap" }}>
+                          {data.ai_narrative}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </SSEPanel>
+            </div>
           )}
 
         </div>
