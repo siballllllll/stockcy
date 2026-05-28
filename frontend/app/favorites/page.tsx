@@ -642,7 +642,7 @@ function PortfolioTab({ gapBulkMap }: { gapBulkMap: Record<string, any> }) {
                   </div>
                   <div style={{ textAlign: "center" }}><RecommendBadge pct={p.profitPct} hasPrice={p.hasPrice} /></div>
                   <div style={{ display: "flex", gap: "4px", flexWrap: "wrap" }}>
-                    <button className="stockcy-btn stockcy-btn-secondary" style={{ padding: "2px 6px", fontSize: "0.7rem" }} title="AI 매도 타이밍" onClick={() => openSellAnalysis(p)}>
+                    <button className="stockcy-btn stockcy-btn-secondary" style={{ padding: "2px 6px", fontSize: "0.7rem" }} title={p.hasPrice ? "AI 매도 타이밍" : "현재가 로딩 중"} disabled={!p.hasPrice} onClick={() => openSellAnalysis(p)}>
                       AI
                     </button>
                     <button className="stockcy-btn stockcy-btn-secondary" style={{ padding: "2px 6px", fontSize: "0.7rem" }} title="편집"
@@ -710,6 +710,13 @@ function PortfolioTab({ gapBulkMap }: { gapBulkMap: Record<string, any> }) {
             let parsed: any = null;
             try { parsed = JSON.parse(sellResult); } catch {}
             if (!parsed) return (
+              <pre style={{ fontSize: "0.8rem", color: "var(--color-subtle)", whiteSpace: "pre-wrap", wordBreak: "break-word", background: "rgba(0,0,0,0.2)", padding: "12px", borderRadius: "6px" }}>{sellResult}</pre>
+            );
+            if (parsed.error) return (
+              <StatusBox type="danger">{parsed.error}</StatusBox>
+            );
+            const hasAnyField = parsed.verdict || parsed.timing || parsed.target_exit || parsed.reason || parsed.risk;
+            if (!hasAnyField) return (
               <pre style={{ fontSize: "0.8rem", color: "var(--color-subtle)", whiteSpace: "pre-wrap", wordBreak: "break-word", background: "rgba(0,0,0,0.2)", padding: "12px", borderRadius: "6px" }}>{sellResult}</pre>
             );
             return (
