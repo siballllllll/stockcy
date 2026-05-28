@@ -10,6 +10,22 @@ const PX_PER_SEC = 80;
 
 // 국내 대표 종목 (코드 순)
 const KR_REPS = ["005930","000660","005380","035420","051910","005490","000270","035720","096770","028260","012330","068270","247540","373220"];
+const KR_NAMES: Record<string, string> = {
+  "005930": "삼성전자",
+  "000660": "SK하이닉스",
+  "005380": "현대차",
+  "035420": "NAVER",
+  "051910": "LG화학",
+  "005490": "POSCO홀딩스",
+  "000270": "기아",
+  "035720": "카카오",
+  "096770": "SK이노베이션",
+  "028260": "삼성물산",
+  "012330": "현대모비스",
+  "068270": "셀트리온",
+  "247540": "에코프로비엠",
+  "373220": "LG에너지솔루션",
+};
 // 미국 대표 종목
 const US_REPS = ["AAPL","MSFT","NVDA","AMZN","GOOGL","META","TSLA","AVGO","JPM","V","UNH","LLY","XOM","WMT","COST"];
 
@@ -178,7 +194,8 @@ export function MarketTickerBar() {
                     if (!d) return null;
                     const price = d.price ?? d["현재가"] ?? 0;
                     const chg   = d.change_pct ?? d["등락률(%)"] ?? 0;
-                    const name  = d.name ?? d["종목명"] ?? code;
+                    const rawName = d.name ?? d["종목명"] ?? code;
+                    const name  = KR_NAMES[code] ?? (rawName !== code ? rawName : code);
                     return (
                       <span key={code} style={{ display: "inline-flex", alignItems: "center", gap: "1.5rem" }}>
                         <StockItem name={name} code={code} changePct={chg} price={price} />
