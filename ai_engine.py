@@ -278,10 +278,35 @@ _QUOTA_EXHAUSTED = False
 _API_TIMEOUT_SEC = 90
 
 
+def _strip_hanja(text: str) -> str:
+    """AI 출력에서 CJK 한자를 제거합니다. 자주 나오는 析(석), 分(분) 등 포함."""
+    # 자주 등장하는 한자 → 한글 치환 (문맥상 분석, 분기 등)
+    _MAP = {
+        "析": "석",  # 분析 → 분석
+        "分": "분",  # 分析 → 분析 (이미 앞에서 처리되어 잔여 제거)
+        "報": "보",
+        "株": "주",
+        "場": "장",
+        "高": "고",
+        "低": "저",
+        "買": "매",
+        "賣": "매",
+        "益": "익",
+        "損": "손",
+    }
+    for hanja, hangul in _MAP.items():
+        text = text.replace(hanja, hangul)
+    # 나머지 CJK 통합 한자 전체 제거 (U+4E00~U+9FFF)
+    text = re.sub(r'[一-鿿]', '', text)
+    return text
+
+
 def _clean_ai_json(raw: str) -> str:
     """AI 응답 텍스트에서 JSON을 추출 가능한 형태로 정제합니다."""
+    # 한자 제거 (먼저 처리)
+    text = _strip_hanja(raw)
     # BOM 제거
-    text = raw.lstrip('﻿').strip()
+    text = text.lstrip('﻿').strip()
     # 백틱 코드블록 제거
     text = re.sub(r'```(?:json)?', '', text).strip()
     # /* ... */ 블록 주석 제거
@@ -2797,7 +2822,7 @@ def analyze_sector_rotation(market_type, raw_market_data):
     try:
         response = _call_gemini(prompt, use_search=True, temperature=0.7)
         if hasattr(response, 'text'):
-            return response.text
+            return _strip_hanja(response.text)
         return str(response)
     except Exception as e:
         return f"분석 중 오류 발생: {e}"
@@ -3374,7 +3399,7 @@ def analyze_leading_room_patterns() -> dict:
 
     try:
         response = _call_gemini(prompt, use_search=False, temperature=0.5, timeout_sec=90)
-        narrative = response.text if hasattr(response, "text") else str(response)
+        narrative = _strip_hanja(response.text if hasattr(response, "text") else str(response))
     except Exception as e:
         narrative = f"AI 분석 오류: {str(e)}"
 
@@ -3726,7 +3751,7 @@ def screen_by_my_pattern() -> dict:
 
     try:
         response = _call_gemini(prompt, use_search=True, temperature=0.4, timeout_sec=60)
-        narrative = response.text if hasattr(response, "text") else str(response)
+        narrative = _strip_hanja(response.text if hasattr(response, "text") else str(response))
     except Exception as e:
         narrative = f"AI 분석 오류: {str(e)}"
 
