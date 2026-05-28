@@ -741,7 +741,11 @@ function PortfolioTab({ gapBulkMap }: { gapBulkMap: Record<string, any> }) {
                 {parsed.reason && (
                   <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
                     <div style={{ fontWeight: 600, fontSize: "0.73rem", color: "var(--color-muted)", textTransform: "uppercase", letterSpacing: "0.05em" }}>📊 분석 근거</div>
-                    <div style={{ whiteSpace: "pre-line", lineHeight: 1.65, color: "var(--color-subtle)" }}>{parsed.reason}</div>
+                    <div style={{ whiteSpace: "pre-line", lineHeight: 1.65, color: "var(--color-subtle)" }}>
+                      {Array.isArray(parsed.reason)
+                        ? parsed.reason.map((r: string, i: number) => <div key={i}>• {r}</div>)
+                        : parsed.reason}
+                    </div>
                   </div>
                 )}
                 {parsed.risk && (
