@@ -3390,8 +3390,11 @@ def analyze_leading_room_patterns() -> dict:
 # ── 패턴 프로파일 빌드 & 저장 ────────────────────────────────────────────────
 
 def build_pattern_profile() -> dict:
-    """리딩방 + AI_AGENT 거래에서 성공 패턴 프로파일을 빌드하고 DB에 저장합니다.
-    최근 거래일수록 가중치 2배 (30일 이내) 적용 — 시장 변화에 적응.
+    """USER·AI_AGENT·LEADING 거래에서 성공 패턴 프로파일을 빌드하고 DB에 저장합니다.
+    가중치 규칙:
+      - 기본: 1배
+      - 최근 30일: +1 (총 2배)
+      - LEADING + screener_matched=1: ×2 추가 (스크리너가 잡고 리딩방이 실거래 확인한 강한 신호)
     """
     from db import get_db_conn, save_pattern_profile
     from datetime import datetime, timedelta
@@ -3400,9 +3403,10 @@ def build_pattern_profile() -> dict:
     cursor = conn.cursor()
     cursor.execute(
         """SELECT ticker, name, buy_price, sell_price, profit, profit_pct,
-                  result, buy_date, sell_date, trade_source, owner
+                  result, buy_date, sell_date, trade_source, owner,
+                  COALESCE(screener_matched, 0) AS screener_matched
            FROM trade_history
-           WHERE UPPER(owner) IN ('USER', 'AI_AGENT')
+           WHERE UPPER(owner) IN ('USER', 'AI_AGENT', 'LEADING')
            ORDER BY sell_date DESC"""
     )
     rows = [dict(r) for r in cursor.fetchall()]
@@ -3427,13 +3431,19 @@ def build_pattern_profile() -> dict:
 
         ind = _get_trade_indicators(ticker, buy_date)
 
-        # 최근 30일 거래는 가중치 2배 (리스트에 2번 추가)
         sell_date_str = str(r.get("sell_date", ""))[:10]
         try:
             sell_dt = datetime.strptime(sell_date_str, "%Y-%m-%d")
-            weight = 2 if sell_dt >= cutoff_recent else 1
+            recency_bonus = 1 if sell_dt >= cutoff_recent else 0
         except Exception:
-            weight = 1
+            recency_bonus = 0
+
+        # LEADING + screener_matched: 스크리너 확인 신호로 2배 부스트
+        is_screener_confirmed = (
+            str(r.get("owner", "")).upper() == "LEADING"
+            and int(r.get("screener_matched", 0) or 0) == 1
+        )
+        weight = (1 + recency_bonus) * (2 if is_screener_confirmed else 1)
 
         for _ in range(weight):
             if profit > 0:

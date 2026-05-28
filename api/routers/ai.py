@@ -979,6 +979,10 @@ async def pattern_screener():
             if "error" in result:
                 yield _sse({"status": "error", "message": result["error"]})
             else:
+                # 추천 결과 DB 저장 (피드백 루프용)
+                if result.get("top_picks"):
+                    from db import save_screener_picks
+                    await asyncio.to_thread(save_screener_picks, result["top_picks"])
                 yield _sse({"status": "done", "result": result})
         except Exception as e:
             yield _sse({"status": "error", "message": str(e)})

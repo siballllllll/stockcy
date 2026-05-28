@@ -205,7 +205,22 @@ def init_local_db():
             updated_time TEXT
         )
     """)
-    
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS screener_picks (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            picked_date TEXT,
+            ticker TEXT,
+            name TEXT,
+            match_score REAL,
+            signal TEXT,
+            rsi REAL,
+            vol_ratio REAL,
+            pos_52w REAL,
+            ma_aligned INTEGER DEFAULT 0
+        )
+    """)
+
     # 컬럼 마이그레이션 — 이미 존재하면 무시
     for migration in [
         "ALTER TABLE portfolio ADD COLUMN trade_source TEXT DEFAULT '개인'",
@@ -213,6 +228,7 @@ def init_local_db():
         "ALTER TABLE trade_history ADD COLUMN trade_source TEXT DEFAULT '개인'",
         "ALTER TABLE trade_history ADD COLUMN trade_type TEXT DEFAULT '실매매'",
         "ALTER TABLE trade_history ADD COLUMN buy_date TEXT DEFAULT ''",
+        "ALTER TABLE trade_history ADD COLUMN screener_matched INTEGER DEFAULT 0",
     ]:
         try:
             cursor.execute(migration)
@@ -2162,4 +2178,53 @@ def load_pattern_profile() -> dict | None:
     except Exception as e:
         print(f"Error loading pattern profile: {e}")
         return None
+
+
+def save_screener_picks(picks: list):
+    """패턴 스크리너 추천 결과를 DB에 저장합니다. 당일 기존 기록은 덮어씁니다."""
+    try:
+        conn = get_db_conn()
+        cursor = conn.cursor()
+        today = datetime.now().strftime("%Y-%m-%d")
+        cursor.execute("DELETE FROM screener_picks WHERE picked_date = ?", (today,))
+        for p in picks:
+            cursor.execute(
+                """INSERT INTO screener_picks
+                   (picked_date, ticker, name, match_score, signal, rsi, vol_ratio, pos_52w, ma_aligned)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (today, _pad_kr_ticker(p.get("code", "")), p.get("name", ""),
+                 p.get("match_score"), p.get("signal"), p.get("rsi"),
+                 p.get("vol_ratio"), p.get("pos_52w"),
+                 1 if p.get("ma_aligned") else 0)
+            )
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"save_screener_picks error: {e}")
+
+
+def match_screener_for_trade(ticker: str, sell_date: str) -> bool:
+    """매도 종목이 최근 7일 이내 스크리너 추천 종목이면 trade_history에 screener_matched=1 기록."""
+    try:
+        conn = get_db_conn()
+        cursor = conn.cursor()
+        padded = _pad_kr_ticker(ticker)
+        sell_day = sell_date[:10] if sell_date else datetime.now().strftime("%Y-%m-%d")
+        cutoff = (datetime.strptime(sell_day, "%Y-%m-%d") - timedelta(days=7)).strftime("%Y-%m-%d")
+        cursor.execute(
+            "SELECT id FROM screener_picks WHERE ticker = ? AND picked_date >= ? AND picked_date <= ?",
+            (padded, cutoff, sell_day)
+        )
+        matched = cursor.fetchone() is not None
+        if matched:
+            cursor.execute(
+                "UPDATE trade_history SET screener_matched = 1 WHERE ticker = ? AND SUBSTR(sell_date, 1, 10) = ?",
+                (padded, sell_day)
+            )
+            conn.commit()
+        conn.close()
+        return matched
+    except Exception as e:
+        print(f"match_screener_for_trade error: {e}")
+        return False
 

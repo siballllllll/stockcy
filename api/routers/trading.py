@@ -98,6 +98,8 @@ async def execute_sell(req: SellRequest):
     await asyncio.to_thread(save_portfolio_to_gsheet, pf, None, req.owner.upper())
     
     # Save trade record
+    from datetime import datetime as _dt
+    sell_date_str = _dt.now().strftime("%Y-%m-%d")
     trade = {
         "ticker": req.ticker,
         "name": req.name,
@@ -109,5 +111,10 @@ async def execute_sell(req: SellRequest):
         "result": "익절" if profit > 0 else "손절"
     }
     await asyncio.to_thread(save_trade_record, trade, req.owner.upper())
-    
+
+    # LEADING 거래는 스크리너 추천 종목 여부 자동 체크
+    if req.owner.upper() == "LEADING":
+        from db import match_screener_for_trade
+        await asyncio.to_thread(match_screener_for_trade, req.ticker, sell_date_str)
+
     return {"success": True, "message": "매도 체결 완료", "profit": profit, "new_balance": new_bal}
