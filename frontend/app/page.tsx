@@ -36,7 +36,7 @@ export default function Dashboard() {
 
   const rotation = useSSE<string>(
     "/api/ai/sector-rotation",
-    { globalId: "sector-rotation", globalTitle: "섹터 순환 분析" }
+    { globalId: "sector-rotation", globalTitle: "섹터 순환 분석" }
   );
   const myPick = useSSE<{ profile_summary: any; top_picks: any[]; ai_narrative: string }>(
     "/api/ai/pattern-screener",
@@ -65,7 +65,7 @@ export default function Dashboard() {
         ))}
       </div>
 
-      {/* AI 타점 포착 — display:none으로 마운트 유지 (SSE 분析 중 탭 이동 가능) */}
+      {/* AI 타점 포착 — display:none으로 마운트 유지 (SSE 분석 중 탭 이동 가능) */}
       <div style={{ display: activeTab === "picks" ? "block" : "none" }}>
         <PicksBoard />
       </div>
@@ -75,8 +75,8 @@ export default function Dashboard() {
         <SSEPanel<string>
           status={rotation.status} message={rotation.message}
           result={rotation.result} fromCache={rotation.fromCache} completedAt={rotation.completedAt}
-          onStart={rotation.start} startLabel="섹터 로테이션 분析"
-          idleHint="실시간 시장 데이터를 기반으로 현재 주도 섹터와 다음 자금 이동 경로, 투자 성향별 추천 종목을 분析합니다. (1~2분 소요)"
+          onStart={rotation.start} startLabel="섹터 로테이션 분석"
+          idleHint="실시간 시장 데이터를 기반으로 현재 주도 섹터와 다음 자금 이동 경로, 투자 성향별 추천 종목을 분석합니다. (1~2분 소요)"
         >
           {(data) => (
             <div className="stockcy-markdown">

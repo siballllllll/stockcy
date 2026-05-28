@@ -155,7 +155,7 @@ export function PicksBoard() {
         clearTimeout(timeoutId);
         if (!unmountedRef.current) {
           setErrorMsg(err?.name === "AbortError"
-            ? "⏱️ AI 분析 시간이 초과됐습니다 (3.5분). 잠시 후 다시 시도해주세요."
+            ? "⏱️ AI 분석 시간이 초과됐습니다 (3.5분). 잠시 후 다시 시도해주세요."
             : "서버 연결 실패");
           setLoading(false);
         }
@@ -276,7 +276,7 @@ export function PicksBoard() {
             style={{ display: "flex", alignItems: "center", gap: "5px", padding: "6px 14px", fontSize: "0.85rem" }}
           >
             <RefreshCw size={14} className={loading ? "animate-spin" : ""} />
-            {loading ? "분析 중..." : picks.length > 0 ? "재분석" : "AI 분析 시작"}
+            {loading ? "분석 중..." : picks.length > 0 ? "재분석" : "AI 분석 시작"}
           </button>
 
           {/* 필터 (카드뷰에서만) */}
@@ -323,14 +323,14 @@ export function PicksBoard() {
             <>
               <AlertCircle size={48} color="var(--color-danger)" style={{ opacity: 0.7 }} />
               <div style={{ color: "var(--color-danger)", fontWeight: 600 }}>{errorMsg}</div>
-              <div style={{ fontSize: "0.8rem", color: "var(--color-subtle)" }}>다시 분析 버튼을 눌러 재시도하세요.</div>
+              <div style={{ fontSize: "0.8rem", color: "var(--color-subtle)" }}>다시 분석 버튼을 눌러 재시도하세요.</div>
             </>
           ) : (
             <>
               <Target size={48} style={{ opacity: 0.3 }} />
-              <div>위 &apos;AI 分析 시작&apos; 버튼을 눌러 오늘의 타점을 분析하세요.</div>
+              <div>위 &apos;AI 분석 시작&apos; 버튼을 눌러 오늘의 타점을 분석하세요.</div>
               <div style={{ fontSize: "0.8rem", color: "var(--color-subtle)" }}>
-                {isKR ? "거래량·수급·핫 섹터 종합 AI 분析 → 3종목 타점 선정" : "US 거래량·모멘텀 분析 → 타점 선정"}
+                {isKR ? "거래량·수급·핫 섹터 종합 AI 분석 → 3종목 타점 선정" : "US 거래량·모멘텀 분석 → 타점 선정"}
               </div>
             </>
           )}
@@ -505,7 +505,7 @@ export function PicksBoard() {
                           <Pin size={12} /> 타점 추적
                         </button>
                         <button onClick={() => router.push(`/search?market=${isKR ? "KR" : "US"}&q=${id}`)} className="flex items-center gap-1 text-xs font-semibold bg-white/5 hover:bg-white/10 text-white px-3 py-1.5 rounded border border-white/10">
-                          차트 및 상세 분析 <ChevronRight size={14} />
+                          차트 및 상세 분석 <ChevronRight size={14} />
                         </button>
                       </div>
                     </div>
