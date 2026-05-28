@@ -912,12 +912,13 @@ def get_kr_prebreakout_signal(stock_code: str) -> dict:
 
 @st.cache_data(ttl=60, show_spinner=False)
 def get_kr_prices_bulk(tickers_tuple: tuple) -> dict:
-    """섹터 패널용 종목 일괄 시세 조회 (code → {price, change_pct, + 거래상태 필드}).
+    """섹터 패널용 종목 일괄 시세 조회 (code → {name, price, change_pct, + 거래상태 필드}).
     KIS API inquire-price 우선, 실패 시 yfinance 폴백."""
     import yfinance as yf
     import pandas as pd
     results = {}
-    
+    _names = {}  # code → 종목명 (KIS에서 확보)
+
     # 1차 KIS 조회 시도 및 yfinance 폴백 대상 티커 수집
     yf_tickers = []
     _mkt_statuses = {}
@@ -935,11 +936,23 @@ def get_kr_prices_bulk(tickers_tuple: tuple) -> dict:
                 "vi_ovtm":     kis.get("vi_ovtm", "N"),
             }
             _mkt_statuses[code] = _kis_status
+            if kis.get("name"):
+                _names[code] = kis["name"]
             if kis.get("price", 0) > 0:
-                results[code] = {"price": kis["price"], "change_pct": kis["change_pct"], **_kis_status}
+                results[code] = {"name": _names.get(code, code), "price": kis["price"], "change_pct": kis["change_pct"], **_kis_status}
                 continue
         yf_tickers.append(yf_ticker)
-        
+
+    # yfinance 폴백용 이름 보강: get_kr_code_to_name_map 활용
+    if yf_tickers:
+        try:
+            name_map = get_kr_code_to_name_map()
+            for code, _ in tickers_tuple:
+                if code not in _names and code in name_map:
+                    _names[code] = name_map[code]
+        except Exception:
+            pass
+
     # 2차: yfinance 일괄 다운로드 폴백
     if yf_tickers:
         try:
@@ -959,20 +972,20 @@ def get_kr_prices_bulk(tickers_tuple: tuple) -> dict:
                             _kis_status = _mkt_statuses.get(code, {
                                 "status_code": "55", "mrkt_warn": "00", "short_over": "N", "managed": "N", "halt": "N", "vi_type": "N", "vi_ovtm": "N"
                             })
-                            results[code] = {"price": price, "change_pct": change_pct, **_kis_status}
+                            results[code] = {"name": _names.get(code, code), "price": price, "change_pct": change_pct, **_kis_status}
                     except Exception:
                         pass
         except Exception:
             pass
-            
+
     # 최종 실패 건 처리
     for code, yf_ticker in tickers_tuple:
         if code not in results:
             _kis_status = _mkt_statuses.get(code, {
                 "status_code": "55", "mrkt_warn": "00", "short_over": "N", "managed": "N", "halt": "N", "vi_type": "N", "vi_ovtm": "N"
             })
-            results[code] = {"price": 0, "change_pct": 0.0, **_kis_status}
-            
+            results[code] = {"name": _names.get(code, code), "price": 0, "change_pct": 0.0, **_kis_status}
+
     return results
 
 
