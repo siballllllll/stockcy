@@ -990,6 +990,14 @@ async def pattern_screener():
     return _sse_response(_gen())
 
 
+@router.get("/screener-feedback-stats")
+async def get_screener_feedback_stats():
+    """스크리너 피드백 통계 조회 — 추천 이력 + 리딩방 매칭/비매칭 성과."""
+    from db import load_screener_feedback_stats
+    stats = await asyncio.to_thread(load_screener_feedback_stats)
+    return {"stats": stats}
+
+
 @router.post("/pattern-profile/build")
 async def build_pattern_profile_endpoint():
     """패턴 프로파일을 즉시 재빌드하고 DB에 저장합니다."""

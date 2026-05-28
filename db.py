@@ -2203,6 +2203,52 @@ def save_screener_picks(picks: list):
         print(f"save_screener_picks error: {e}")
 
 
+def load_screener_feedback_stats() -> dict:
+    """스크리너 피드백 통계: 추천 이력 + 리딩방 매칭/비매칭 성과 비교."""
+    try:
+        conn = get_db_conn()
+        cursor = conn.cursor()
+
+        cursor.execute(
+            "SELECT COUNT(DISTINCT picked_date) AS days, COUNT(*) AS total FROM screener_picks"
+        )
+        picks_row = dict(cursor.fetchone() or {})
+
+        cursor.execute(
+            """SELECT COALESCE(screener_matched, 0) AS matched,
+                      COUNT(*) AS cnt,
+                      SUM(CASE WHEN profit > 0 THEN 1 ELSE 0 END) AS wins,
+                      AVG(profit_pct) AS avg_pct
+               FROM trade_history
+               WHERE UPPER(owner) = 'LEADING'
+               GROUP BY COALESCE(screener_matched, 0)"""
+        )
+        groups = {"matched": {"cnt": 0, "wins": 0, "win_rate": 0, "avg_pct": 0},
+                  "unmatched": {"cnt": 0, "wins": 0, "win_rate": 0, "avg_pct": 0}}
+        for r in cursor.fetchall():
+            d = dict(r)
+            key = "matched" if d["matched"] == 1 else "unmatched"
+            cnt = d["cnt"] or 0
+            wins = d["wins"] or 0
+            groups[key] = {
+                "cnt": cnt,
+                "wins": wins,
+                "win_rate": round(wins / cnt * 100, 1) if cnt else 0,
+                "avg_pct": round(d["avg_pct"] or 0, 2),
+            }
+        conn.close()
+        return {
+            "pick_days": picks_row.get("days", 0),
+            "total_picks": picks_row.get("total", 0),
+            **groups,
+        }
+    except Exception as e:
+        print(f"load_screener_feedback_stats error: {e}")
+        return {"pick_days": 0, "total_picks": 0,
+                "matched": {"cnt": 0, "wins": 0, "win_rate": 0, "avg_pct": 0},
+                "unmatched": {"cnt": 0, "wins": 0, "win_rate": 0, "avg_pct": 0}}
+
+
 def match_screener_for_trade(ticker: str, sell_date: str) -> bool:
     """매도 종목이 최근 7일 이내 스크리너 추천 종목이면 trade_history에 screener_matched=1 기록."""
     try:

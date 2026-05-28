@@ -8,6 +8,70 @@ import { useSSE } from "@/hooks/useSSE";
 import { SSEPanel } from "@/components/ui/SSEPanel";
 import { StockModal } from "@/components/ui/StockModal";
 import type { StockInfo } from "@/components/ui/StockModal";
+import useSWR from "swr";
+
+function ScreenerFeedbackStats() {
+  const { data } = useSWR(
+    "/backend/api/ai/screener-feedback-stats",
+    (url: string) => fetch(url).then(r => r.json()),
+    { revalidateOnFocus: false, refreshInterval: 0 }
+  );
+  const s = data?.stats;
+  if (!s) return null;
+
+  const noData = s.total_picks === 0 && s.matched?.cnt === 0 && s.unmatched?.cnt === 0;
+  const hasTradeData = (s.matched?.cnt ?? 0) + (s.unmatched?.cnt ?? 0) > 0;
+
+  return (
+    <div style={{ background: "rgba(16,185,129,0.05)", border: "1px solid rgba(16,185,129,0.2)", borderRadius: "10px", padding: "1rem 1.2rem", display: "flex", flexDirection: "column", gap: "0.75rem" }}>
+      <div style={{ fontSize: "0.78rem", fontWeight: 700, color: "#34d399", display: "flex", alignItems: "center", gap: "0.4rem" }}>
+        📊 피드백 학습 현황
+      </div>
+
+      {/* 추천 이력 */}
+      <div style={{ display: "flex", gap: "0.6rem" }}>
+        {[
+          { label: "추천 기록일", value: noData ? "-" : `${s.pick_days}일` },
+          { label: "누적 추천 종목", value: noData ? "-" : `${s.total_picks}건` },
+        ].map(item => (
+          <div key={item.label} style={{ flex: 1, background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.07)", borderRadius: "8px", padding: "0.6rem", textAlign: "center" }}>
+            <div style={{ fontSize: "0.68rem", color: "var(--color-muted)", marginBottom: "3px" }}>{item.label}</div>
+            <div style={{ fontSize: "1rem", fontWeight: 800, color: "var(--color-text)" }}>{item.value}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* 매칭/비매칭 성과 비교 */}
+      {hasTradeData ? (
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.6rem" }}>
+          {[
+            { label: "스크리너 매칭 거래", data: s.matched, color: "#34d399", border: "rgba(16,185,129,0.3)", bg: "rgba(16,185,129,0.07)" },
+            { label: "비매칭 거래", data: s.unmatched, color: "var(--color-muted)", border: "rgba(255,255,255,0.1)", bg: "rgba(255,255,255,0.02)" },
+          ].map(item => (
+            <div key={item.label} style={{ background: item.bg, border: `1px solid ${item.border}`, borderRadius: "8px", padding: "0.7rem" }}>
+              <div style={{ fontSize: "0.68rem", fontWeight: 700, color: item.color, marginBottom: "0.4rem" }}>{item.label}</div>
+              {item.data.cnt === 0 ? (
+                <div style={{ fontSize: "0.75rem", color: "var(--color-muted)" }}>데이터 없음</div>
+              ) : (
+                <div style={{ display: "flex", flexDirection: "column", gap: "3px" }}>
+                  <div style={{ fontSize: "0.75rem", color: "var(--color-muted)" }}>{item.data.cnt}건 ({item.data.wins}승)</div>
+                  <div style={{ fontSize: "1rem", fontWeight: 800, color: item.color }}>승률 {item.data.win_rate}%</div>
+                  <div style={{ fontSize: "0.75rem", color: item.data.avg_pct >= 0 ? "#34d399" : "#f87171" }}>
+                    평균 {item.data.avg_pct >= 0 ? "+" : ""}{item.data.avg_pct}%
+                  </div>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div style={{ fontSize: "0.78rem", color: "var(--color-muted)", textAlign: "center", padding: "0.5rem 0" }}>
+          리딩방 거래가 쌓이면 매칭 성과 통계가 표시됩니다.
+        </div>
+      )}
+    </div>
+  );
+}
 
 function getPickStatus(rsi?: number, signal?: string) {
   if (rsi != null) {
@@ -254,6 +318,8 @@ export default function Dashboard() {
                   </div>
                 </div>
               )}
+
+              <ScreenerFeedbackStats />
             </div>
           )}
         </SSEPanel>
