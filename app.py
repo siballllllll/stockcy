@@ -259,7 +259,7 @@ def _us_echarts_chart(ticker: str, interval: str = "5", height: int = 600, perio
             st.warning("차트 데이터를 불러올 수 없습니다. (데이터 소스: yfinance)")
             return
 
-        # 분봉: 다일(多日) 데이터 전부 유지 — 줌아웃으로 이전 거래일 조회 가능
+        # 분봉: 다일(여러날) 데이터 전부 유지 — 줌아웃으로 이전 거래일 조회 가능
         _is_minute = interval not in ["D", "1wk", "1mo", "W", "M"]
         if not _is_minute:
             df = df.tail(3000).reset_index(drop=True)
@@ -453,7 +453,7 @@ def _kr_echarts_chart(stock_code: str, interval: str = "1", height: int = 600, p
             st.warning("차트 데이터를 불러올 수 없습니다.")
             return
 
-        # 분봉: 다일(多日) 데이터 전부 유지 — 줌아웃으로 이전 거래일 조회 가능
+        # 분봉: 다일(여러날) 데이터 전부 유지 — 줌아웃으로 이전 거래일 조회 가능
         _is_minute = interval not in ["D", "W", "M"]
         if not _is_minute:
             df = df.tail(3000).reset_index(drop=True)  # 10년치 일봉 최대 ~2500개 커버
@@ -1919,7 +1919,7 @@ def _render_ci_tab_fragment():
             if _ci_gsh_hit:
                 st.rerun()
             else:
-                # 새 분析 시작 — 즉시 피드백 표시
+                # 새 분석 시작 — 즉시 피드백 표시
                 import streamlit.components.v1 as _ci_cmp
                 with _ci_feedback_ph:
                     _ci_cmp.html(f"""
@@ -3385,7 +3385,7 @@ def main():
             st.markdown("<div style='text-align:center;margin-top:-6px'><span class='scenario-ready-dot'></span></div>", unsafe_allow_html=True)
         elif _nav_task_status == "running":
             st.markdown("<div style='text-align:center;margin-top:-6px;font-size:0.65rem;color:#888'>분석 중…</div>", unsafe_allow_html=True)
-    # 커스텀 이슈 분析 중 표시
+    # 커스텀 이슈 분석 중 표시
     _ci_running_in_nav = any(
         v.get("status") == "running"
         for k, v in _SCENARIO_TASKS.items()
@@ -3393,7 +3393,7 @@ def main():
     )
     if _ci_running_in_nav:
         with _hn6:
-            st.markdown("<div style='text-align:center;margin-top:-2px;font-size:0.6rem;color:#ffd740'>🎯 분析 중</div>", unsafe_allow_html=True)
+            st.markdown("<div style='text-align:center;margin-top:-2px;font-size:0.6rem;color:#ffd740'>🎯 분석 중</div>", unsafe_allow_html=True)
     with _hm1:
         if st.button("🇰🇷 국내", key="top_mkt_kr",
                      type="primary" if _is_kr_nav else "secondary",

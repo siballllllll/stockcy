@@ -885,7 +885,7 @@ def get_kr_prebreakout_signal(stock_code: str) -> dict:
 
     if vol_ratio >= 3.0:
         score += 1
-        notes.append(f"전일比 {vol_ratio:.1f}x")
+        notes.append(f"전일 대비 {vol_ratio:.1f}x")
 
     if consol_break:
         score += 1

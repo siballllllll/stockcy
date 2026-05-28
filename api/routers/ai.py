@@ -474,7 +474,7 @@ async def realtime_picks_kr(req: RealtimePicksRequest):
                     timeout=240,
                 )
             except asyncio.TimeoutError:
-                yield _sse({"status": "error", "message": "AI 분析 시간이 초과됐습니다 (3분). 잠시 후 다시 시도해주세요."})
+                yield _sse({"status": "error", "message": "AI 분석 시간이 초과됐습니다 (3분). 잠시 후 다시 시도해주세요."})
                 return
             elapsed = time.monotonic() - t0_picks
             print(f"[KR-picks] generate_realtime_picks: {elapsed:.1f}s")
