@@ -109,16 +109,17 @@ def _get_kr_sector_stocks(sector_name: str) -> dict:
     return result
 
 def _get_us_sector_stocks(sector_name: str) -> dict:
-    from sectors_us import US_SECTOR_MAP
+    from db import load_us_sector_map
+    sector_map = load_us_sector_map()
     result = {}
     if sector_name == "전체":
-        for sec, subs in US_SECTOR_MAP.items():
+        for sec, subs in sector_map.items():
             for sub, items in subs.items():
                 for item in items:
                     result[item['ticker']] = item['name']
     else:
-        if sector_name in US_SECTOR_MAP:
-            for sub, items in US_SECTOR_MAP[sector_name].items():
+        if sector_name in sector_map:
+            for sub, items in sector_map[sector_name].items():
                 for item in items:
                     result[item['ticker']] = item['name']
     return result

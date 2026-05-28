@@ -12,6 +12,7 @@ _GSHEET_CACHE = {}
 _GSHEET_CACHE_TTL = timedelta(seconds=60)
 
 DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "db.sqlite3")
+_US_FDR_SECTOR_CACHE_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data_csv", "us_fdr_sector_cache.json")
 
 def _pad_kr_ticker(ticker: str) -> str:
     """숫자로만 이루어진 국내 종목 코드는 무조건 6자리 제로패딩. 미국 주식은 대문자 반환."""
@@ -1348,54 +1349,80 @@ _FDR_IND_MAP: dict = {
     "채굴 지원 서비스 및 장비":            ("광업·귀금속·원자재",  "기타 광업"),
 }
 
+_US_FDR_REFRESH_LOCK = threading.Lock()
 
-@st.cache_data(ttl=43200)
-def load_us_sector_map() -> dict:
-    """로컬 sectors_us.py의 정적 맵을 메인 데이터소스로 사용하고 FDR 업종 데이터로 자동 보강합니다."""
-    from sectors_us import US_SECTOR_MAP
-    raw = US_SECTOR_MAP
-
-    # FDR 전종목으로 보강: Industry → (한국어섹터, 서브섹터) 직접 매핑
-    # FDR StockListing은 Sector 컬럼 없이 Industry만 제공
+def refresh_us_fdr_sector_cache() -> None:
+    """FDR에서 미국 전종목 업종 데이터를 가져와 JSON 캐시 파일에 저장한다.
+    백그라운드 스레드에서 실행 — 완료까지 수분 소요될 수 있음."""
+    if not _US_FDR_REFRESH_LOCK.acquire(blocking=False):
+        return  # 이미 다른 스레드가 갱신 중
     try:
         import FinanceDataReader as _fdr
         import pandas as _pd
-        existing = {s["ticker"] for subs in raw.values() for stks in subs.values() for s in stks}
-        _frames = []
-        for _mkt, _exch in [("NASDAQ", "NASDAQ"), ("NYSE", "NYSE"), ("AMEX", "AMEX")]:
+        frames = []
+        for mkt, exch in [("NASDAQ", "NASDAQ"), ("NYSE", "NYSE"), ("AMEX", "AMEX")]:
             try:
-                _df = _fdr.StockListing(_mkt).copy()
-                _df["_exchange"] = _exch
-                _frames.append(_df)
+                df = _fdr.StockListing(mkt).copy()
+                df["_exchange"] = exch
+                frames.append(df)
             except Exception:
                 continue
-        if _frames:
-            _all = _pd.concat(_frames, ignore_index=True)
-            _all.columns = [str(c).strip() for c in _all.columns]
-            _cols = {c.lower(): c for c in _all.columns}
-            _sym  = _cols.get("symbol",   _cols.get("code",     _cols.get("ticker")))
-            _name = _cols.get("name",     _cols.get("longname", _cols.get("shortname")))
-            _ind  = _cols.get("industry", _cols.get("industrycode"))
-            if _sym and _ind:
-                for _, _row in _all.iterrows():
-                    _ticker = str(_row.get(_sym, "")).strip().upper()
-                    if not _ticker or not (1 <= len(_ticker) <= 5) or not _ticker.isalpha():
-                        continue
-                    if _ticker in existing:
-                        continue
-                    _industry = str(_row.get(_ind, "") if _ind else "").strip()
-                    _mapping  = _FDR_IND_MAP.get(_industry)
-                    if not _mapping:
-                        continue
-                    _kr_sec, _kr_sub = _mapping
-                    if _kr_sec not in raw:
-                        continue
-                    _sname = str(_row.get(_name, _ticker) if _name else _ticker).strip()
-                    _exch2 = str(_row.get("_exchange", "NASDAQ"))
-                    raw[_kr_sec].setdefault(_kr_sub, []).append(
-                        {"name": _sname, "ticker": _ticker, "exchange": _exch2}
-                    )
-                    existing.add(_ticker)
+        if not frames:
+            return
+        all_df = _pd.concat(frames, ignore_index=True)
+        all_df.columns = [str(c).strip() for c in all_df.columns]
+        cols = {c.lower(): c for c in all_df.columns}
+        sym  = cols.get("symbol",   cols.get("code",     cols.get("ticker")))
+        name = cols.get("name",     cols.get("longname", cols.get("shortname")))
+        ind  = cols.get("industry", cols.get("industrycode"))
+        if not sym or not ind:
+            return
+        cache: dict = {}
+        for _, row in all_df.iterrows():
+            ticker = str(row.get(sym, "")).strip().upper()
+            if not ticker or not (1 <= len(ticker) <= 5) or not ticker.isalpha():
+                continue
+            industry = str(row.get(ind, "")).strip()
+            mapping  = _FDR_IND_MAP.get(industry)
+            if not mapping:
+                continue
+            kr_sec, kr_sub = mapping
+            sname = str(row.get(name, ticker) if name else ticker).strip()
+            exch2 = str(row.get("_exchange", "NASDAQ"))
+            cache[ticker] = {"name": sname, "sector": kr_sec, "subsector": kr_sub, "exchange": exch2}
+        with open(_US_FDR_SECTOR_CACHE_PATH, "w", encoding="utf-8") as f:
+            _json.dump(cache, f, ensure_ascii=False)
+        # 캐시 갱신 후 in-memory 캐시 초기화
+        load_us_sector_map.clear()
+    except Exception:
+        pass
+    finally:
+        _US_FDR_REFRESH_LOCK.release()
+
+
+@st.cache_data(ttl=43200)
+def load_us_sector_map() -> dict:
+    """정적 sectors_us.py 맵 + JSON 캐시(FDR 업종)를 병합한 미국 섹터 맵을 반환합니다."""
+    import copy
+    from sectors_us import US_SECTOR_MAP
+    raw = copy.deepcopy(US_SECTOR_MAP)
+    existing = {s["ticker"] for subs in raw.values() for stks in subs.values() for s in stks}
+
+    try:
+        if os.path.exists(_US_FDR_SECTOR_CACHE_PATH):
+            with open(_US_FDR_SECTOR_CACHE_PATH, encoding="utf-8") as f:
+                fdr_cache: dict = _json.load(f)
+            for ticker, info in fdr_cache.items():
+                if ticker in existing:
+                    continue
+                kr_sec = info.get("sector", "")
+                kr_sub = info.get("subsector", "")
+                if kr_sec not in raw:
+                    continue
+                raw[kr_sec].setdefault(kr_sub, []).append(
+                    {"name": info.get("name", ticker), "ticker": ticker, "exchange": info.get("exchange", "NASDAQ")}
+                )
+                existing.add(ticker)
     except Exception:
         pass
 

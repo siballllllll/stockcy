@@ -86,6 +86,15 @@ async def startup_event():
     asyncio.create_task(price_alert_loop())
     from api.agent import ai_trading_loop
     asyncio.create_task(ai_trading_loop())
+    # FDR 미국 섹터 캐시 갱신 (백그라운드 스레드 — 완료까지 수분 소요)
+    import threading
+    def _refresh_fdr():
+        try:
+            from db import refresh_us_fdr_sector_cache
+            refresh_us_fdr_sector_cache()
+        except Exception:
+            pass
+    threading.Thread(target=_refresh_fdr, daemon=True).start()
 
 
 @app.get("/api/config-status", tags=["시스템"])
