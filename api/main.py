@@ -141,7 +141,19 @@ def _daily_issue_loop():
         today_str = _dt.datetime.now().strftime("%Y-%m-%d")
         if has_today_agent_issues():
             _LAST_ISSUE_DATE = today_str   # 오늘 이미 있음 → 오늘 정기분석도 스킵
-            print(f"[daily issue] 오늘({today_str}) 이미 분석됨 → 시작 시 분석 스킵 (비용 절약)")
+            print(f"[daily issue] 오늘({today_str}) 이미 분석됨 → 이슈 분석 스킵 (비용 절약)")
+            # 단, 메인 시나리오 캐시가 비어있으면 그것만 보강 생성
+            try:
+                from db import load_ai_cache, save_ai_cache
+                existing = load_ai_cache("market_scenarios_latest")
+                if not (existing and "error" not in existing):
+                    from ai_engine import generate_market_scenarios
+                    main_res = generate_market_scenarios()
+                    if main_res and "error" not in main_res:
+                        save_ai_cache("market_scenarios_latest", main_res, 12)
+                        print("[daily issue] 메인 시나리오 캐시 보강 생성 완료")
+            except Exception as me:
+                print(f"[daily issue] 메인 시나리오 보강 실패: {me}")
         else:
             from ai_engine import analyze_agent_daily_issues
             r = analyze_agent_daily_issues()
