@@ -917,18 +917,8 @@ def get_kr_prices_bulk(tickers_tuple: tuple) -> dict:
     import yfinance as yf
     import pandas as pd
     results = {}
-    _names = {}
     _default_status = {"status_code": "55", "mrkt_warn": "00", "short_over": "N",
                        "managed": "N", "halt": "N", "vi_type": "N", "vi_ovtm": "N"}
-
-    # 종목명 맵 확보
-    try:
-        name_map = get_kr_code_to_name_map()
-        for code, _ in tickers_tuple:
-            if code in name_map:
-                _names[code] = name_map[code]
-    except Exception:
-        pass
 
     # 10개 미만은 KIS 개별 조회 (정확도 우선)
     if len(tickers_tuple) < 10:
@@ -936,7 +926,7 @@ def get_kr_prices_bulk(tickers_tuple: tuple) -> dict:
         for code, yf_ticker in tickers_tuple:
             kis = get_kr_stock_price(code)
             if kis and kis.get("price", 0) > 0:
-                results[code] = {"name": kis.get("name", _names.get(code, code)),
+                results[code] = {"name": kis.get("name", code),
                                  "price": kis["price"], "change_pct": kis["change_pct"],
                                  **_default_status}
             else:
@@ -961,7 +951,7 @@ def get_kr_prices_bulk(tickers_tuple: tuple) -> dict:
                             price = round(float(closes.iloc[-1]))
                             prev  = float(closes.iloc[-2])
                             change_pct = round(((price - prev) / prev * 100) if prev > 0 else 0.0, 2)
-                            results[code] = {"name": _names.get(code, code),
+                            results[code] = {"name": code,
                                              "price": price, "change_pct": change_pct,
                                              **_default_status}
                     except Exception:
@@ -972,7 +962,7 @@ def get_kr_prices_bulk(tickers_tuple: tuple) -> dict:
     # 최종 실패 건 처리
     for code, _ in tickers_tuple:
         if code not in results:
-            results[code] = {"name": _names.get(code, code), "price": 0,
+            results[code] = {"name": code, "price": 0,
                              "change_pct": 0.0, **_default_status}
 
     return results
