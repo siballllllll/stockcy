@@ -3914,7 +3914,7 @@ def detect_realtime_supply_rotation() -> dict:
 실전 투자자가 즉시 활용할 수 있는 구체적인 분석을 해주세요."""
 
     try:
-        response = _call_gemini(prompt, use_search=True, temperature=0.5, timeout_sec=90)
+        response = _call_gemini(prompt, use_search=False, temperature=0.5, timeout_sec=90)
         raw = response.text if hasattr(response, "text") and response.text else str(response)
         narrative = _strip_hanja(raw)
     except Exception as e:
