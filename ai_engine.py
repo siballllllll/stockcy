@@ -3912,10 +3912,11 @@ def analyze_capital_rotation(owner: str = "USER", target_ticker: str = "") -> di
     import requests as req_lib
     from db import load_portfolio_from_gsheet, load_pattern_profile
 
-    # 1. 보유 종목 로드
+    # 1. 보유 종목 로드 — 실거래만 (테스트 종목 제외, 돈이 걸린 실제 자금만 회전 판단)
     portfolio = load_portfolio_from_gsheet(owner)
+    portfolio = [p for p in portfolio if str(p.get("trade_type", "실매매")) != "테스트"]
     if not portfolio:
-        return {"error": "보유 종목이 없습니다. 포트폴리오에 종목을 먼저 추가하세요."}
+        return {"error": "분석할 실거래 보유 종목이 없습니다. (테스트 종목은 자금 회전 분석에서 제외됩니다)"}
 
     # 단일 종목 모드 — 해당 종목만 필터
     if target_ticker:

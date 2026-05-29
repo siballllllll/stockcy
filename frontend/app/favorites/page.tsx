@@ -811,10 +811,12 @@ function PortfolioTab({ gapBulkMap }: { gapBulkMap: Record<string, any> }) {
                     <button className="stockcy-btn stockcy-btn-secondary" style={{ padding: "2px 6px", fontSize: "0.7rem" }} title={p.hasPrice ? "AI 매도 타이밍" : "현재가 로딩 중"} disabled={!p.hasPrice} onClick={() => openSellAnalysis(p)}>
                       AI
                     </button>
-                    <button className="stockcy-btn stockcy-btn-secondary" style={{ padding: "2px 6px", fontSize: "0.7rem" }} title="자금 회전 진단 (홀딩/차익실현/로테이션)"
-                      onClick={() => setRotationTarget({ ticker: p.normalTicker || p.ticker, name: p.name || p.ticker })}>
-                      🔄
-                    </button>
+                    {p.trade_type !== "테스트" && (
+                      <button className="stockcy-btn stockcy-btn-secondary" style={{ padding: "2px 6px", fontSize: "0.7rem" }} title="자금 회전 진단 (홀딩/차익실현/로테이션)"
+                        onClick={() => setRotationTarget({ ticker: p.normalTicker || p.ticker, name: p.name || p.ticker })}>
+                        🔄
+                      </button>
+                    )}
                     <button className="stockcy-btn stockcy-btn-secondary" style={{ padding: "2px 6px", fontSize: "0.7rem" }} title="편집"
                       onClick={() => { setEditTicker(isEditing ? null : p.ticker); setEditPrice(String(p.buy_price)); setEditQty(String(p.quantity)); setEditSource((p.trade_source as "리딩방" | "개인") || "개인"); setEditType((p.trade_type as "실매매" | "테스트") || "실매매"); }}>
                       ✏️
