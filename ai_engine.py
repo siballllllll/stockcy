@@ -1319,7 +1319,7 @@ def generate_stock_report(ticker, current_price, change_pct):
 """
     try:
         # RAG 뉴스 정보가 이미 완벽하게 주입되었으므로 딜레이 최소화를 위해 use_search=False로 설정
-        response = _call_gemini(prompt, use_search=False, temperature=0.7)
+        response = _call_gemini(prompt, use_search=False, temperature=0.7, max_output_tokens=6000)
         res = _parse_json_response(response)
 
         # [Python Override - Conditional & No-Fallback - 동적 하이브리드 타점 적용]
@@ -1920,7 +1920,7 @@ PER: {price_data.get('per', '-')} | PBR: {price_data.get('pbr', '-')}
 !! [딥링크] 종목 언급 시 반드시 '종목명(6자리코드)' 형식: 삼성전자(005930), SK하이닉스(000660) 등
 """
     try:
-        response = _call_gemini(prompt, use_search=True, temperature=0.7)
+        response = _call_gemini(prompt, use_search=True, temperature=0.7, max_output_tokens=6000)
         res = _parse_json_response(response)
 
         # [Python Override - Conditional & No-Fallback - 동적 하이브리드 타점 적용]
