@@ -337,6 +337,105 @@ function AddPortfolioForm({ onAdded }: { onAdded: () => void }) {
   );
 }
 
+// ── 자금 회전 분석 카드 ────────────────────────────────────────────────────────
+function CapitalRotationCard() {
+  const [status, setStatus] = useState<"idle" | "loading" | "done" | "error">("idle");
+  const [statusMsg, setStatusMsg] = useState("");
+  const [result, setResult] = useState<any>(null);
+
+  const run = async () => {
+    setStatus("loading");
+    setStatusMsg("보유 종목 + 수급 데이터 분석 중...");
+    setResult(null);
+    try {
+      await connectSSE(
+        "/api/ai/capital-rotation",
+        (evt) => {
+          if (evt.status === "running") setStatusMsg(evt.message ?? "분석 중...");
+          else if (evt.status === "done") { setResult(evt.result); setStatus("done"); }
+          else if (evt.status === "error") { setStatusMsg(evt.message ?? "오류"); setStatus("error"); }
+        },
+        { method: "POST" }
+      );
+    } catch (e: any) {
+      setStatusMsg(String(e?.message ?? e));
+      setStatus("error");
+    }
+  };
+
+  const decisionStyle = (d: string) => {
+    if (d === "TAKE_PROFIT") return { bg: "rgba(239,68,68,0.1)", border: "rgba(239,68,68,0.35)", color: "#f87171" };
+    if (d === "ROTATE")      return { bg: "rgba(168,85,247,0.1)", border: "rgba(168,85,247,0.35)", color: "#c084fc" };
+    return { bg: "rgba(16,185,129,0.1)", border: "rgba(16,185,129,0.35)", color: "#34d399" };
+  };
+
+  return (
+    <div style={{ background: "rgba(99,102,241,0.05)", border: "1px solid rgba(99,102,241,0.2)", borderRadius: "10px", padding: "1rem 1.2rem", display: "flex", flexDirection: "column", gap: "0.75rem" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <div style={{ fontSize: "0.85rem", fontWeight: 800, color: "#a5b4fc", display: "flex", alignItems: "center", gap: "0.4rem" }}>
+          🔄 자금 회전 분석
+        </div>
+        <button
+          className="stockcy-btn stockcy-btn-primary"
+          onClick={run}
+          disabled={status === "loading"}
+          style={{ fontSize: "0.75rem", padding: "5px 12px", fontWeight: 700 }}
+        >
+          {status === "loading" ? <><Loader2 className="animate-spin" size={13} /> 분석 중...</> : "보유 종목 진단"}
+        </button>
+      </div>
+      <div style={{ fontSize: "0.72rem", color: "var(--color-muted)" }}>
+        보유 종목이 과열·소화 구간인지, 다른 수급 유입 종목으로 잠시 자금을 돌릴지 AI가 판단합니다. (참고용)
+      </div>
+      {status === "loading" && <div style={{ fontSize: "0.75rem", color: "var(--color-muted)" }}>{statusMsg}</div>}
+      {status === "error" && <StatusBox type="danger">{statusMsg}</StatusBox>}
+
+      {result && (
+        <div style={{ display: "flex", flexDirection: "column", gap: "0.6rem" }}>
+          {result.summary && (
+            <div style={{ background: "rgba(99,102,241,0.08)", border: "1px solid rgba(99,102,241,0.2)", borderRadius: "8px", padding: "0.75rem 0.9rem", fontSize: "0.82rem", color: "var(--color-text)", lineHeight: 1.7 }}>
+              💡 {result.summary}
+            </div>
+          )}
+          {result.reentry_rsi_range && (
+            <div style={{ fontSize: "0.7rem", color: "var(--color-muted)" }}>
+              재진입 기준 RSI 구간 (내 성공 패턴): <b style={{ color: "#a5b4fc" }}>{result.reentry_rsi_range}</b>
+            </div>
+          )}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: "0.6rem" }}>
+            {(result.holdings ?? []).map((h: any, i: number) => {
+              const st = decisionStyle(h.decision);
+              return (
+                <div key={i} style={{ background: st.bg, border: `1px solid ${st.border}`, borderRadius: "8px", padding: "0.75rem 0.85rem" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: "6px", marginBottom: "5px" }}>
+                    <span style={{ fontWeight: 700, color: "var(--color-text)" }}>{h.name}</span>
+                    <span style={{ fontSize: "0.68rem", color: "var(--color-muted)" }}>{h.ticker}</span>
+                    <span style={{ marginLeft: "auto", fontSize: "0.72rem", fontWeight: 800, color: st.color }}>{h.decision_label}</span>
+                  </div>
+                  {(h.rsi != null || h.pos_52w != null) && (
+                    <div style={{ display: "flex", gap: "4px", flexWrap: "wrap", marginBottom: "5px" }}>
+                      {h.rsi != null && <span style={{ fontSize: "0.65rem", padding: "1px 6px", borderRadius: "4px", background: "rgba(255,255,255,0.06)", color: "var(--color-muted)" }}>RSI {h.rsi}</span>}
+                      {h.pos_52w != null && <span style={{ fontSize: "0.65rem", padding: "1px 6px", borderRadius: "4px", background: "rgba(255,255,255,0.06)", color: "var(--color-muted)" }}>52주 {h.pos_52w}%</span>}
+                      {h.ma_aligned && <span style={{ fontSize: "0.65rem", padding: "1px 6px", borderRadius: "4px", background: "rgba(16,185,129,0.12)", color: "#34d399" }}>MA정배열</span>}
+                    </div>
+                  )}
+                  <div style={{ fontSize: "0.75rem", color: "var(--color-text)", lineHeight: 1.6 }}>{h.reason}</div>
+                  {h.reentry_hint && (
+                    <div style={{ fontSize: "0.7rem", color: "#fbbf24", marginTop: "4px" }}>⏰ 재진입: {h.reentry_hint}</div>
+                  )}
+                  {h.rotation_target && (
+                    <div style={{ fontSize: "0.7rem", color: "#c084fc", marginTop: "4px" }}>🔄 대안: {h.rotation_target}</div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── 보유 종목 탭 ──────────────────────────────────────────────────────────────
 function PortfolioTab({ gapBulkMap }: { gapBulkMap: Record<string, any> }) {
   const { data: portfolio, isLoading, mutate } = useSWR<any[]>("/api/portfolio", () => api.portfolio.loadPortfolio() as Promise<any[]>);
@@ -570,6 +669,9 @@ function PortfolioTab({ gapBulkMap }: { gapBulkMap: Record<string, any> }) {
           </div>
         </div>
       )}
+
+      {/* 자금 회전 분석 */}
+      {portfolio && portfolio.length > 0 && <CapitalRotationCard />}
 
       {!portfolio || portfolio.length === 0 ? (
         <StatusBox type="info">보유 종목이 없습니다.</StatusBox>

@@ -3902,6 +3902,147 @@ def analyze_entry_timing(source: str = "leading", market: str = "kr") -> dict:
     }
 
 
+# ── 자금 회전(Capital Rotation) 어드바이저 ───────────────────────────────────
+
+def analyze_capital_rotation(owner: str = "USER") -> dict:
+    """보유 종목별로 '홀딩 / 차익실현+재진입 / 다른 섹터 로테이션' 판단.
+    보유 종목 지표 + 패턴 프로파일(성공 RSI 구간) + 수급 유입 후보를 종합해 Gemini가 판단.
+    """
+    import requests as req_lib
+    from db import load_portfolio_from_gsheet, load_pattern_profile
+
+    # 1. 보유 종목 로드
+    portfolio = load_portfolio_from_gsheet(owner)
+    if not portfolio:
+        return {"error": "보유 종목이 없습니다. 포트폴리오에 종목을 먼저 추가하세요."}
+
+    # 2. 각 보유 종목 현재 지표 수집
+    holdings = []
+    for p in portfolio:
+        ticker = str(p.get("ticker", "")).strip()
+        if not ticker:
+            continue
+        ind = _get_trade_indicators(ticker, "")
+        daily = ind.get("daily", {})
+        holdings.append({
+            "ticker":     ticker,
+            "name":       p.get("name", ticker),
+            "buy_price":  p.get("buy_price", 0),
+            "rsi":        daily.get("rsi"),
+            "pos_52w":    daily.get("pos_52w_pct"),
+            "ma_aligned": daily.get("ma_aligned"),
+            "volume_ratio": daily.get("volume_ratio"),
+            "gap_pct":    daily.get("gap_pct"),
+        })
+
+    # 3. 패턴 프로파일에서 성공 매수 RSI 구간 (재진입 기준)
+    profile = load_pattern_profile() or {}
+    win_rsi = (profile.get("win", {}) or {}).get("rsi", {}) or {}
+    reentry_rsi_low  = win_rsi.get("p25", 40)
+    reentry_rsi_high = win_rsi.get("p75", 55)
+
+    # 4. 수급 유입 후보 (외국인·기관 순매수 TOP) — 로테이션 대안
+    inflow_candidates = []
+    try:
+        from data_kr import get_kr_frgn_inst_rank
+        for mkt in ["J", "Q"]:
+            for s in get_kr_frgn_inst_rank(mkt, top_n=8, sort="buy") or []:
+                inflow_candidates.append({
+                    "ticker": s.get("종목코드"),
+                    "name":   s.get("종목명"),
+                    "frgn":   s.get("외국인순매수", 0),
+                    "orgn":   s.get("기관순매수", 0),
+                })
+    except Exception as e:
+        print(f"[capital rotation] 수급 후보 로드 실패: {e}")
+
+    # 5. 핫섹터 (대안 섹터 컨텍스트)
+    hot_sectors = []
+    try:
+        BASE = "http://127.0.0.1:8000"
+        r = req_lib.get(f"{BASE}/api/kr/hot-sectors", timeout=10,
+                        headers={"ngrok-skip-browser-warning": "69420"})
+        if r.ok:
+            data = r.json()
+            sector_list = data.get("sectors", []) if isinstance(data, dict) else []
+            hot_sectors = sorted(sector_list, key=lambda x: x.get("hot_score", 0), reverse=True)[:6]
+    except Exception:
+        pass
+
+    # 6. 프롬프트 작성
+    holdings_text = "\n".join(
+        f"- {h['name']}({h['ticker']}): RSI={h['rsi']}, 52주위치={h['pos_52w']}%, "
+        f"MA정배열={'O' if h['ma_aligned'] else 'X'}, 거래량비율={h['volume_ratio']}배, 갭={h['gap_pct']}%"
+        for h in holdings
+    ) or "(보유 종목 없음)"
+
+    inflow_text = "\n".join(
+        f"- {c['name']}({c['ticker']}): 외인 {c['frgn']:,}주 / 기관 {c['orgn']:,}주"
+        for c in inflow_candidates[:10]
+    ) or "(수급 데이터 없음)"
+
+    hot_text = "\n".join(
+        f"- {s.get('sector','?')}: 핫스코어 {s.get('hot_score','?')}"
+        for s in hot_sectors
+    ) or "(데이터 없음)"
+
+    prompt = f"""당신은 자금 회전(capital rotation) 전략 전문가입니다. 절대로 한자를 사용하지 마세요.
+투자자의 보유 종목을 분석해, 각 종목을 계속 들고 갈지 / 차익 실현 후 다른 곳으로 자금을 돌릴지 판단해주세요.
+
+=== 투자자 보유 종목 (현재 지표) ===
+{holdings_text}
+
+=== 투자자의 성공 매수 RSI 구간 (과거 패턴 기반 재진입 기준) ===
+RSI {reentry_rsi_low} ~ {reentry_rsi_high} 구간에서 매수했을 때 승률이 높았음
+
+=== 지금 외국인·기관 자금이 유입 중인 종목 (로테이션 대안 후보) ===
+{inflow_text}
+
+=== 현재 핫 섹터 ===
+{hot_text}
+
+각 보유 종목에 대해 아래 형식의 JSON 배열로만 응답하세요 (설명 없이):
+{{
+  "holdings": [
+    {{
+      "ticker": "종목코드",
+      "name": "종목명",
+      "decision": "HOLD | TAKE_PROFIT | ROTATE",
+      "decision_label": "🟢 홀딩 | 🔴 차익실현 | 🔄 로테이션 중 하나",
+      "reason": "판단 근거 1~2문장 (RSI·52주위치·수급 종합)",
+      "reentry_hint": "차익실현/로테이션인 경우 재진입 타이밍 힌트 (예: RSI 45 부근, N일 후 등). 홀딩이면 빈 문자열",
+      "rotation_target": "로테이션 추천 시 대안 종목명+코드 (수급 유입 후보 중에서). 없으면 빈 문자열"
+    }}
+  ],
+  "summary": "전체 포트폴리오 자금 회전 전략 요약 2~3문장"
+}}
+
+판단 기준:
+- RSI 70+ 이고 52주 고점 근처(80%+)면 과열 → TAKE_PROFIT 또는 ROTATE 고려
+- RSI 40~60 이고 MA 정배열이면 → HOLD
+- 과열인데 마침 수급 유입 중인 대안 종목이 있으면 → ROTATE (구체적 대안 제시)
+- 재진입 힌트는 반드시 투자자의 성공 RSI 구간을 참고
+- 이것은 참고용 분석이며 투자 권유가 아님을 인지하고 신중하게 판단"""
+
+    try:
+        response = _call_gemini(prompt, use_search=False, temperature=0.4, timeout_sec=90)
+        result = _parse_json_response(response)
+    except Exception as e:
+        return {"error": f"AI 분석 오류: {str(e)}"}
+
+    # 지표 데이터를 결과에 병합 (UI 표시용)
+    holdings_map = {h["ticker"]: h for h in holdings}
+    for item in result.get("holdings", []):
+        h = holdings_map.get(str(item.get("ticker", "")).strip())
+        if h:
+            item["rsi"] = h["rsi"]
+            item["pos_52w"] = h["pos_52w"]
+            item["ma_aligned"] = h["ma_aligned"]
+
+    result["reentry_rsi_range"] = f"{reentry_rsi_low}~{reentry_rsi_high}"
+    return result
+
+
 # ── 자동 알림 — 패턴 스크리너 + 시나리오 적중률 일일 요약 ──────────────────
 
 def compose_daily_alert_message() -> tuple[str, dict]:

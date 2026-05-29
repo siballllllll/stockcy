@@ -1044,6 +1044,25 @@ async def get_screener_backtest_stats():
     return stats
 
 
+@router.post("/capital-rotation")
+async def capital_rotation():
+    """보유 종목 자금 회전 분석 — 홀딩/차익실현/로테이션 판단 (SSE)."""
+    from ai_engine import analyze_capital_rotation
+
+    async def _gen():
+        yield _sse({"status": "running", "message": "💼 보유 종목 지표 + 수급 데이터 분석 중..."})
+        try:
+            result = await asyncio.to_thread(analyze_capital_rotation, "USER")
+            if "error" in result:
+                yield _sse({"status": "error", "message": result["error"]})
+            else:
+                yield _sse({"status": "done", "result": result})
+        except Exception as e:
+            yield _sse({"status": "error", "message": str(e)})
+
+    return _sse_response(_gen())
+
+
 @router.post("/alert/send-daily")
 async def send_daily_alert_now():
     """텔레그램 일일 알림 즉시 발송 (수동 트리거)."""
