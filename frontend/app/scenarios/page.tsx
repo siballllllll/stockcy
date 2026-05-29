@@ -856,7 +856,14 @@ function ScenariosPageInner() {
       if (savedTs) setLastUpdated(savedTs);
 
       const savedCustom = localStorage.getItem(CUSTOM_KEY);
-      if (savedCustom) setCustomIssues(JSON.parse(savedCustom));
+      if (savedCustom) {
+        const parsed = JSON.parse(savedCustom);
+        const migrated = parsed.map((issue: any) =>
+          issue.searchedAt ? issue : { ...issue, searchedAt: "이전 검색" }
+        );
+        setCustomIssues(migrated);
+        localStorage.setItem(CUSTOM_KEY, JSON.stringify(migrated));
+      }
 
       const savedRecent = localStorage.getItem(RECENT_KEY);
       if (savedRecent) setRecentSearches(JSON.parse(savedRecent));
