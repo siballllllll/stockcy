@@ -9,6 +9,31 @@ Stockcy FastAPI 서버 엔트리포인트
 import sys
 import os
 
+# ── 0. stdout/stderr를 로그 파일로도 복제 (hidden 실행이라 콘솔이 안 보임 → 진단용) ──
+class _Tee:
+    def __init__(self, *streams):
+        self._streams = [s for s in streams if s is not None]
+    def write(self, data):
+        for s in self._streams:
+            try:
+                s.write(data); s.flush()
+            except Exception:
+                pass
+    def flush(self):
+        for s in self._streams:
+            try:
+                s.flush()
+            except Exception:
+                pass
+
+try:
+    _log_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "backend.log")
+    _log_fp = open(_log_path, "a", encoding="utf-8", buffering=1)
+    sys.stdout = _Tee(sys.stdout, _log_fp)
+    sys.stderr = _Tee(sys.stderr, _log_fp)
+except Exception:
+    pass
+
 # ── 1. .env 로드 (환경변수를 st.secrets 대신 사용) ──────────────────────────
 from dotenv import load_dotenv
 load_dotenv()
