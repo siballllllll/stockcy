@@ -910,10 +910,18 @@ def get_kr_prebreakout_signal(stock_code: str) -> dict:
     }
 
 
-@st.cache_data(ttl=60, show_spinner=False)
+_BULK_CACHE: dict = {}   # {cache_key: (timestamp, result)}
+_BULK_TTL = 60           # 60초 TTL
+
 def get_kr_prices_bulk(tickers_tuple: tuple) -> dict:
     """섹터 패널용 종목 일괄 시세 조회 (code → {name, price, change_pct}).
     yfinance 배치 다운로드 우선 (빠름), KIS API는 소량(10개 미만)일 때만 사용."""
+    import time as _time
+    cache_key = tickers_tuple
+    cached = _BULK_CACHE.get(cache_key)
+    if cached and (_time.time() - cached[0]) < _BULK_TTL:
+        return cached[1]
+
     import yfinance as yf
     import pandas as pd
     results = {}
@@ -935,29 +943,40 @@ def get_kr_prices_bulk(tickers_tuple: tuple) -> dict:
         # 10개 이상은 yfinance 배치로 직행 (KIS 개별 호출 스킵)
         yf_tickers = list(tickers_tuple)
 
-    # yfinance 배치 다운로드
-    if yf_tickers:
+    # yfinance 배치 다운로드 — .KS 먼저, 미수신 종목은 .KQ 재시도
+    def _yf_batch_download(ticker_pairs):
+        tickers_str = [yt for _, yt in ticker_pairs]
         try:
-            tickers_str = [yt for _, yt in yf_tickers]
-            raw = yf.download(tickers_str, period="2d", progress=False, timeout=15)
-            if not raw.empty:
-                close_df = raw["Close"] if isinstance(raw.columns, pd.MultiIndex) else raw[["Close"]].rename(columns={"Close": tickers_str[0]})
-                for code, yf_ticker in yf_tickers:
-                    if code in results:
-                        continue
-                    try:
-                        closes = close_df[yf_ticker].dropna() if yf_ticker in close_df.columns else pd.Series(dtype=float)
-                        if len(closes) >= 2:
-                            price = round(float(closes.iloc[-1]))
-                            prev  = float(closes.iloc[-2])
-                            change_pct = round(((price - prev) / prev * 100) if prev > 0 else 0.0, 2)
-                            results[code] = {"name": code,
-                                             "price": price, "change_pct": change_pct,
-                                             **_default_status}
-                    except Exception:
-                        pass
+            raw = yf.download(tickers_str, period="2d", progress=False, timeout=10)
+            if raw.empty:
+                return {}
+            close_df = raw["Close"] if isinstance(raw.columns, pd.MultiIndex) else raw[["Close"]].rename(columns={"Close": tickers_str[0]})
+            out = {}
+            for code, yf_ticker in ticker_pairs:
+                try:
+                    closes = close_df[yf_ticker].dropna() if yf_ticker in close_df.columns else pd.Series(dtype=float)
+                    if len(closes) >= 2:
+                        price = round(float(closes.iloc[-1]))
+                        prev  = float(closes.iloc[-2])
+                        out[code] = {"name": code, "price": price,
+                                     "change_pct": round(((price-prev)/prev*100) if prev>0 else 0.0, 2),
+                                     **_default_status}
+                except Exception:
+                    pass
+            return out
         except Exception:
-            pass
+            return {}
+
+    if yf_tickers:
+        # 1차: .KS 배치
+        ks_results = _yf_batch_download(yf_tickers)
+        results.update(ks_results)
+
+        # 2차: .KS 실패한 종목은 .KQ 재시도
+        missing = [(code, code + ".KQ") for code, _ in yf_tickers if code not in results]
+        if missing:
+            kq_results = _yf_batch_download(missing)
+            results.update(kq_results)
 
     # 최종 실패 건 처리
     for code, _ in tickers_tuple:
@@ -965,6 +984,8 @@ def get_kr_prices_bulk(tickers_tuple: tuple) -> dict:
             results[code] = {"name": code, "price": 0,
                              "change_pct": 0.0, **_default_status}
 
+    import time as _time
+    _BULK_CACHE[cache_key] = (_time.time(), results)
     return results
 
 
