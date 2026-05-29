@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import ReactMarkdown from "react-markdown";
 import { BarChart2, Zap } from "lucide-react";
@@ -91,6 +91,64 @@ function EntryTimingStats() {
           );
         })}
       </div>
+    </div>
+  );
+}
+
+function DailyAlertCard() {
+  const [sending, setSending] = useState(false);
+  const [msg, setMsg] = useState("");
+  const [preview, setPreview] = useState<string>("");
+
+  const loadPreview = async () => {
+    try {
+      const res = await fetch("/backend/api/ai/alert/preview-daily");
+      const json = await res.json();
+      setPreview(json.preview ?? "");
+    } catch {}
+  };
+
+  useEffect(() => { loadPreview(); }, []);
+
+  const sendNow = async () => {
+    setSending(true);
+    setMsg("발송 중...");
+    try {
+      const res = await fetch("/backend/api/ai/alert/send-daily", { method: "POST" });
+      const json = await res.json();
+      if (json.sent) {
+        setMsg(`✅ 텔레그램 발송 완료`);
+      } else {
+        setMsg(`⚠️ ${json.reason || json.error || "발송 실패"}`);
+      }
+    } catch (e: any) {
+      setMsg(`❌ ${e?.message ?? String(e)}`);
+    } finally {
+      setSending(false);
+    }
+  };
+
+  return (
+    <div style={{ background: "rgba(168,85,247,0.05)", border: "1px solid rgba(168,85,247,0.2)", borderRadius: "10px", padding: "1rem 1.2rem", display: "flex", flexDirection: "column", gap: "0.6rem" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <div style={{ fontSize: "0.78rem", fontWeight: 700, color: "#c084fc", display: "flex", alignItems: "center", gap: "0.4rem" }}>
+          📨 일일 텔레그램 알림 (평일 08:30 자동)
+        </div>
+        <button
+          onClick={sendNow}
+          disabled={sending}
+          style={{ fontSize: "0.7rem", padding: "4px 10px", background: "rgba(168,85,247,0.15)", border: "1px solid rgba(168,85,247,0.35)", color: "#c084fc", borderRadius: "5px", fontWeight: 700, cursor: sending ? "wait" : "pointer" }}
+        >
+          {sending ? "발송 중..." : "지금 발송"}
+        </button>
+      </div>
+      {msg && <div style={{ fontSize: "0.7rem", color: "var(--color-muted)" }}>{msg}</div>}
+      {preview && (
+        <details style={{ fontSize: "0.72rem" }}>
+          <summary style={{ cursor: "pointer", color: "var(--color-muted)", fontWeight: 700 }}>메시지 미리보기</summary>
+          <pre style={{ marginTop: "6px", padding: "8px", background: "rgba(255,255,255,0.03)", borderRadius: "5px", whiteSpace: "pre-wrap", color: "var(--color-text)", fontSize: "0.7rem", fontFamily: "inherit" }}>{preview}</pre>
+        </details>
+      )}
     </div>
   );
 }
@@ -491,6 +549,11 @@ export default function Dashboard() {
                             {p.signal === "both" && (
                               <span style={{ fontSize: "0.72rem", padding: "2px 7px", borderRadius: "6px", background: "rgba(245,158,11,0.15)", border: "1px solid rgba(245,158,11,0.25)", color: "#fbbf24" }}>이중신호</span>
                             )}
+                            {p.scenario_count > 0 && (
+                              <span style={{ fontSize: "0.72rem", padding: "2px 7px", borderRadius: "6px", background: "rgba(168,85,247,0.15)", border: "1px solid rgba(168,85,247,0.3)", color: "#c084fc", fontWeight: 700 }} title="시나리오에 등장한 종목 (보너스 점수 적용)">
+                                📋 시나리오 {p.scenario_count}건
+                              </span>
+                            )}
                           </div>
 
                           {/* 액션 버튼 */}
@@ -541,6 +604,7 @@ export default function Dashboard() {
               <BacktestStats />
               <EntryTimingStats />
               <ScreenerFeedbackStats />
+              <DailyAlertCard />
             </div>
           )}
         </SSEPanel>

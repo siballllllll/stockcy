@@ -127,6 +127,43 @@ def start_price_cache():
     t.start()
     print("[KRX cache] 백그라운드 가격 캐시 스케줄러 시작")
 
+
+# ── 9. 일일 알림 자동 발송 스케줄러 ──────────────────────────────────────────
+_LAST_ALERT_DATE = ""
+
+def _daily_alert_loop():
+    """매일 08:30 KST에 일일 알림 자동 발송 (하루 1회 보장)."""
+    global _LAST_ALERT_DATE
+    import datetime as _dt
+    while True:
+        try:
+            now = _dt.datetime.now()
+            today = now.strftime("%Y-%m-%d")
+            # 평일(월~금)이고 8시 30분~9시 사이이고 오늘 아직 안 보냈으면 발송
+            if (now.weekday() < 5
+                and now.hour == 8 and now.minute >= 30
+                and _LAST_ALERT_DATE != today):
+                try:
+                    from ai_engine import send_daily_alert
+                    result = send_daily_alert()
+                    if result.get("sent"):
+                        _LAST_ALERT_DATE = today
+                        print(f"[daily alert] 발송 완료: {today}")
+                    else:
+                        print(f"[daily alert] 스킵: {result.get('reason') or result.get('error')}")
+                except Exception as e:
+                    print(f"[daily alert] 오류: {e}")
+        except Exception:
+            pass
+        _time.sleep(120)   # 2분마다 체크
+
+
+@app.on_event("startup")
+def start_daily_alert_scheduler():
+    t = _threading.Thread(target=_daily_alert_loop, daemon=True)
+    t.start()
+    print("[daily alert] 일일 알림 스케줄러 시작 (평일 08:30)")
+
 # ── 8. 백그라운드 태스크 ───────────────────────────────────────────────────────
 import asyncio
 from api.background import price_alert_loop

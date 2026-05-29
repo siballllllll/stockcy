@@ -791,6 +791,88 @@ function IssuePanel({ issue }: { issue: Issue }) {
   );
 }
 
+// ── 시나리오 적중률 패널 ──────────────────────────────────────────────────────
+function ScenarioTrackingPanel() {
+  const [running, setRunning] = useState(false);
+  const [data, setData] = useState<any>(null);
+  const [msg, setMsg] = useState("");
+
+  const runTracking = async () => {
+    setRunning(true);
+    setMsg("가격 추적 중...");
+    try {
+      const res = await fetch("/backend/api/ai/scenario-tracking/run", { method: "POST" });
+      const json = await res.json();
+      setData(json);
+      setMsg(`✅ 신규 ${json.updated_now ?? 0}건 추적 완료`);
+    } catch (e: any) {
+      setMsg(`❌ ${e?.message ?? String(e)}`);
+    } finally {
+      setRunning(false);
+    }
+  };
+
+  useEffect(() => {
+    fetch("/backend/api/ai/scenario-tracking/stats").then(r => r.json()).then(setData).catch(() => {});
+  }, []);
+
+  const byScenario = data?.by_scenario ?? [];
+  const winners = data?.top_winners ?? [];
+  const losers = data?.top_losers ?? [];
+
+  return (
+    <div className="stockcy-card" style={{ padding: "12px", display: "flex", flexDirection: "column", gap: "8px" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <div style={{ fontSize: "0.82rem", fontWeight: 800, color: "var(--color-muted)" }}>📊 시나리오 적중률</div>
+        <button
+          onClick={runTracking}
+          disabled={running}
+          style={{ fontSize: "0.68rem", padding: "3px 8px", background: "rgba(168,85,247,0.15)", border: "1px solid rgba(168,85,247,0.35)", color: "#c084fc", borderRadius: "4px", fontWeight: 700, cursor: running ? "wait" : "pointer" }}
+        >
+          {running ? "..." : "추적 실행"}
+        </button>
+      </div>
+      {msg && <div style={{ fontSize: "0.68rem", color: "var(--color-muted)" }}>{msg}</div>}
+
+      {byScenario.length === 0 ? (
+        <div style={{ fontSize: "0.7rem", color: "var(--color-muted)", padding: "0.4rem 0" }}>
+          시나리오 검색 후 1일 이상 경과한 종목부터 통계 표시.
+        </div>
+      ) : (
+        <>
+          <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
+            {byScenario.slice(0, 5).map((s: any) => {
+              const c = s.avg_d3_return > 0 ? "#34d399" : s.avg_d3_return < 0 ? "#f87171" : "var(--color-muted)";
+              return (
+                <div key={s.keyword} style={{ background: "rgba(255,255,255,0.02)", padding: "4px 6px", borderRadius: "4px", fontSize: "0.7rem" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <span style={{ color: "var(--color-text)", fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "65%" }}>{s.keyword}</span>
+                    <span style={{ color: c, fontWeight: 700 }}>{s.avg_d3_return >= 0 ? "+" : ""}{s.avg_d3_return}%</span>
+                  </div>
+                  <div style={{ fontSize: "0.62rem", color: "var(--color-muted)" }}>{s.count}종목 · 3일 승률 {s.win_rate_d3}%</div>
+                </div>
+              );
+            })}
+          </div>
+
+          {winners.length > 0 && (
+            <div>
+              <div style={{ fontSize: "0.65rem", color: "var(--color-muted)", marginBottom: "3px", fontWeight: 700 }}>🏆 7일 최고 수익</div>
+              {winners.slice(0, 3).map((w: any, i: number) => (
+                <div key={i} style={{ display: "flex", justifyContent: "space-between", fontSize: "0.65rem", padding: "1px 4px" }}>
+                  <span style={{ color: "var(--color-text)", fontWeight: 600 }}>{w.name}</span>
+                  <span style={{ color: "#34d399", fontWeight: 700 }}>+{w.d7_return}%</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+
 // ── 지역 분류 헬퍼 ────────────────────────────────────────────────────────────
 type RegionFilter = "전체" | "글로벌" | "국내" | "이머징마켓" | "커스텀";
 
@@ -1184,6 +1266,9 @@ function ScenariosPageInner() {
               </div>
             )}
           </div>
+
+          {/* 시나리오 적중률 통계 */}
+          <ScenarioTrackingPanel />
 
         </div>
 

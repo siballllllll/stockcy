@@ -3687,6 +3687,10 @@ def screen_by_my_pattern() -> dict:
         return {"error": "시장 데이터를 가져오지 못했습니다. 백엔드 서버가 실행 중인지 확인해주세요."}
 
     # 3. 각 종목 지표 수집 + 패턴 매칭 점수 계산
+    # 시나리오에 등장한 종목 맵 미리 로드 (보너스 점수용)
+    from db import load_scenario_stocks_set
+    scenario_map = load_scenario_stocks_set()
+
     scored: list[dict] = []
     for code, meta in list(candidates.items())[:50]:   # 최대 50개로 제한
         ind = _get_trade_indicators(code, "")           # buy_date 없이 일봉만
@@ -3700,6 +3704,12 @@ def screen_by_my_pattern() -> dict:
             match_score = _score_stock_against_profile(ind, profile)
         if meta.get("signal") == "both":
             match_score = min(100, match_score + 8)
+
+        # 시나리오 매칭 보너스 — 등장 횟수당 +3점 (최대 +10)
+        scenario_count = scenario_map.get(code, 0)
+        if scenario_count > 0:
+            match_score = min(100, match_score + min(10, scenario_count * 3))
+
         scored.append({
             "code":           code,
             "name":           meta["name"],
@@ -3707,6 +3717,7 @@ def screen_by_my_pattern() -> dict:
             "match_score":    match_score,
             "personal_score": p_score,
             "leading_score":  l_score,
+            "scenario_count": scenario_count,
             "rsi":            ind["daily"].get("rsi"),
             "vol_ratio":      ind["daily"].get("volume_ratio"),
             "pos_52w":        ind["daily"].get("pos_52w_pct"),
@@ -3888,6 +3899,199 @@ def analyze_entry_timing(source: str = "leading", market: str = "kr") -> dict:
         "total_trades": len(rows),
         "buckets": result_buckets,
         "best_timing": best["label"] and best,
+    }
+
+
+# ── 자동 알림 — 패턴 스크리너 + 시나리오 적중률 일일 요약 ──────────────────
+
+def compose_daily_alert_message() -> tuple[str, dict]:
+    """매일 장 시작 전 알림용 메시지 작성. 반환: (telegram 텍스트, 메타데이터)"""
+    from db import load_pattern_profile, load_pattern_profile_v2
+
+    msg_parts = ["📊 *Stockcy 일일 알림*\n"]
+    meta = {"sent": False, "scenario_count": 0, "screener_picks_count": 0}
+
+    # 1. 패턴 스크리너 추천 — 캐시된 최근 결과만 사용 (Gemini 호출 안 함)
+    try:
+        from db import get_db_conn
+        conn = get_db_conn()
+        cursor = conn.cursor()
+        cursor.execute(
+            """SELECT picked_date, ticker, name, match_score, signal
+               FROM screener_picks
+               ORDER BY picked_date DESC LIMIT 10"""
+        )
+        latest = [dict(r) for r in cursor.fetchall()]
+        conn.close()
+        if latest:
+            latest_date = latest[0].get("picked_date")
+            same_day = [p for p in latest if p.get("picked_date") == latest_date]
+            meta["screener_picks_count"] = len(same_day)
+            msg_parts.append(f"\n🎯 *패턴 스크리너 추천* ({latest_date})")
+            for p in same_day[:5]:
+                msg_parts.append(f"  • {p['name']} ({p['ticker']}) — {p.get('match_score',0)}점")
+    except Exception:
+        pass
+
+    # 2. 시나리오 적중률 요약
+    try:
+        stats = track_scenario_stocks_performance()
+        by_sc = stats.get("by_scenario", [])
+        if by_sc:
+            meta["scenario_count"] = len(by_sc)
+            msg_parts.append(f"\n📋 *시나리오 적중률 TOP*")
+            for s in by_sc[:3]:
+                ret = s.get("avg_d3_return", 0)
+                sign = "+" if ret >= 0 else ""
+                msg_parts.append(f"  • {s['keyword']}: 3일 평균 {sign}{ret}% (승률 {s.get('win_rate_d3',0)}%)")
+    except Exception:
+        pass
+
+    # 3. 패턴 프로파일 신뢰도
+    try:
+        profile = load_pattern_profile() or {}
+        wr = profile.get("win_rate_pct")
+        if wr is not None:
+            msg_parts.append(f"\n📈 *현재 프로파일* 승률 {wr}% / 거래 {profile.get('total_trades',0)}건")
+    except Exception:
+        pass
+
+    text = "\n".join(msg_parts)
+    return text, meta
+
+
+def send_daily_alert() -> dict:
+    """텔레그램 일일 알림 발송 (텔레그램 설정 필요)."""
+    try:
+        import telegram_bot as tg
+        if not tg.is_configured():
+            return {"sent": False, "reason": "텔레그램 미설정"}
+        text, meta = compose_daily_alert_message()
+        ok = tg.send_message(text)
+        meta["sent"] = bool(ok)
+        meta["preview"] = text[:200]
+        return meta
+    except Exception as e:
+        return {"sent": False, "error": str(e)}
+
+
+# ── 시나리오 적중률 추적 ──────────────────────────────────────────────────────
+
+def track_scenario_stocks_performance() -> dict:
+    """시나리오에 등장한 종목들의 등장 시점 가격 + 1/3/7일 후 가격 자동 추적."""
+    from db import get_db_conn
+    from datetime import datetime, timedelta
+    import FinanceDataReader as fdr
+    import yfinance as yf
+
+    conn = get_db_conn()
+    cursor = conn.cursor()
+    cursor.execute(
+        """SELECT id, ticker, name, market, captured_at, captured_price,
+                  d1_return, d3_return, d7_return
+           FROM scenario_stocks
+           ORDER BY captured_at ASC"""
+    )
+    rows = [dict(r) for r in cursor.fetchall()]
+    today = datetime.now().date()
+    updated = 0
+
+    for row in rows:
+        try:
+            captured = datetime.fromisoformat(str(row["captured_at"])[:19]).date()
+        except Exception:
+            continue
+        if (today - captured).days < 1:
+            continue
+        # 이미 7일 후까지 다 채워졌으면 스킵
+        if row.get("d7_return") is not None:
+            continue
+
+        raw_ticker = str(row["ticker"]).strip()
+        is_us = (row.get("market") == "us") or any(c.isalpha() for c in raw_ticker)
+        ticker = raw_ticker.upper() if is_us else raw_ticker.zfill(6)
+        start_date = captured.strftime("%Y-%m-%d")
+        end_date = (captured + timedelta(days=12)).strftime("%Y-%m-%d")
+
+        try:
+            if is_us:
+                df = yf.download(ticker, start=start_date, end=end_date, progress=False, timeout=10)
+            else:
+                df = fdr.DataReader(ticker, start_date, end_date)
+            if df.empty or len(df) < 1:
+                continue
+            entry = float(df["Close"].iloc[0])
+            if entry <= 0:
+                continue
+
+            def _p(idx):
+                return float(df["Close"].iloc[idx]) if len(df) > idx else None
+
+            d1, d3, d7 = _p(1), _p(3), _p(7)
+            def _r(p): return round((p - entry) / entry * 100, 2) if p else None
+
+            now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            cursor.execute(
+                """UPDATE scenario_stocks
+                   SET captured_price = ?, d1_price = ?, d3_price = ?, d7_price = ?,
+                       d1_return = ?, d3_return = ?, d7_return = ?, updated_at = ?
+                   WHERE id = ?""",
+                (entry, d1, d3, d7, _r(d1), _r(d3), _r(d7), now, row["id"])
+            )
+            updated += 1
+        except Exception as e:
+            print(f"[scenario tracking] {ticker} 실패: {e}")
+            continue
+
+    conn.commit()
+
+    # 시나리오별 집계 통계
+    cursor.execute(
+        """SELECT scenario_keyword, scenario_title,
+                  COUNT(*) AS n,
+                  AVG(d3_return) AS avg_d3,
+                  AVG(d7_return) AS avg_d7,
+                  SUM(CASE WHEN d3_return > 0 THEN 1 ELSE 0 END) AS wins_d3,
+                  SUM(CASE WHEN d7_return > 0 THEN 1 ELSE 0 END) AS wins_d7
+           FROM scenario_stocks
+           WHERE d3_return IS NOT NULL
+           GROUP BY scenario_keyword
+           ORDER BY n DESC"""
+    )
+    by_scenario = []
+    for r in cursor.fetchall():
+        d = dict(r)
+        n = d.get("n", 0) or 0
+        by_scenario.append({
+            "keyword": d.get("scenario_keyword"),
+            "title":   d.get("scenario_title"),
+            "count":   n,
+            "avg_d3_return": round(d.get("avg_d3") or 0, 2),
+            "avg_d7_return": round(d.get("avg_d7") or 0, 2),
+            "win_rate_d3":  round((d.get("wins_d3") or 0) / n * 100, 1) if n else 0,
+            "win_rate_d7":  round((d.get("wins_d7") or 0) / n * 100, 1) if n else 0,
+        })
+
+    # 종목 단위 최고/최저 결과
+    cursor.execute(
+        """SELECT ticker, name, scenario_keyword, d7_return
+           FROM scenario_stocks WHERE d7_return IS NOT NULL
+           ORDER BY d7_return DESC LIMIT 5"""
+    )
+    top_winners = [dict(r) for r in cursor.fetchall()]
+    cursor.execute(
+        """SELECT ticker, name, scenario_keyword, d7_return
+           FROM scenario_stocks WHERE d7_return IS NOT NULL
+           ORDER BY d7_return ASC LIMIT 5"""
+    )
+    top_losers = [dict(r) for r in cursor.fetchall()]
+
+    conn.close()
+    return {
+        "updated_now": updated,
+        "by_scenario": by_scenario,
+        "top_winners": top_winners,
+        "top_losers":  top_losers,
     }
 
 

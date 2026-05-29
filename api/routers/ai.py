@@ -204,23 +204,53 @@ async def market_scenarios(use_cache: bool = Query(True)):
 
 # ── 시나리오 분석: 커스텀 이슈 ───────────────────────────────────────────────
 
+def _extract_scenario_stocks(result: dict) -> list:
+    """시나리오 결과 dict에서 등장한 모든 종목 평탄화."""
+    stocks = []
+    issues = result.get("issues") or [result]
+    for issue in issues:
+        for sc in issue.get("scenarios", []) or []:
+            for group, role in [("rising_stocks", "수혜"), ("falling_stocks", "피해"), ("theme_stocks", "테마")]:
+                for s in sc.get(group, []) or []:
+                    ticker = str(s.get("ticker") or "").strip()
+                    name = str(s.get("name") or ticker).strip()
+                    if ticker and name:
+                        stocks.append({"ticker": ticker, "name": name, "role": role})
+    # 중복 제거 (티커 단위)
+    seen = set()
+    deduped = []
+    for s in stocks:
+        if s["ticker"] not in seen:
+            seen.add(s["ticker"])
+            deduped.append(s)
+    return deduped
+
+
 @router.post("/scenarios/custom")
 async def custom_issue_scenario(req: CustomIssueRequest):
     """사용자 지정 이슈 키워드 A/B 시나리오 (SSE)."""
     from ai_engine import analyze_custom_issue
-    from db import load_ai_cache
+    from db import load_ai_cache, save_scenario_stocks
 
     async def _gen():
         # 이전 캐시 확인
         ci_key = f"ci_{req.keyword[:40]}"
         cached = await asyncio.to_thread(load_ai_cache, ci_key)
         if cached:
-            yield _sse({"status": "done", "result": cached.get("result", cached), "from_cache": True})
+            res = cached.get("result", cached)
+            # 캐시여도 저장은 한 번 더 (첫 등장만 기록되도록 DB에서 dedup)
+            stocks = _extract_scenario_stocks(res)
+            if stocks:
+                await asyncio.to_thread(save_scenario_stocks, req.keyword, res.get("title", req.keyword), stocks)
+            yield _sse({"status": "done", "result": res, "from_cache": True})
             return
 
         yield _sse({"status": "running", "message": f"🔍 [{req.keyword}] 이슈 분석 중..."})
         try:
             result = await asyncio.to_thread(analyze_custom_issue, req.keyword)
+            stocks = _extract_scenario_stocks(result)
+            if stocks:
+                await asyncio.to_thread(save_scenario_stocks, req.keyword, result.get("title", req.keyword), stocks)
             yield _sse({"status": "done", "result": result})
         except Exception as e:
             yield _sse({"status": "error", "message": str(e)})
@@ -1012,6 +1042,35 @@ async def get_screener_backtest_stats():
     from db import load_backtest_stats
     stats = await asyncio.to_thread(load_backtest_stats)
     return stats
+
+
+@router.post("/alert/send-daily")
+async def send_daily_alert_now():
+    """텔레그램 일일 알림 즉시 발송 (수동 트리거)."""
+    from ai_engine import send_daily_alert
+    return await asyncio.to_thread(send_daily_alert)
+
+
+@router.get("/alert/preview-daily")
+async def preview_daily_alert():
+    """일일 알림 메시지 미리보기 (발송 안 함)."""
+    from ai_engine import compose_daily_alert_message
+    text, meta = await asyncio.to_thread(compose_daily_alert_message)
+    return {"preview": text, "meta": meta}
+
+
+@router.post("/scenario-tracking/run")
+async def run_scenario_tracking():
+    """시나리오 등장 종목의 사후 가격 추적 실행."""
+    from ai_engine import track_scenario_stocks_performance
+    return await asyncio.to_thread(track_scenario_stocks_performance)
+
+
+@router.get("/scenario-tracking/stats")
+async def get_scenario_tracking_stats():
+    """시나리오 적중률 통계 조회 (최근 추적 결과)."""
+    from ai_engine import track_scenario_stocks_performance
+    return await asyncio.to_thread(track_scenario_stocks_performance)
 
 
 @router.get("/entry-timing")

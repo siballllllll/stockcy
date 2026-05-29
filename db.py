@@ -244,6 +244,27 @@ def init_local_db():
     """)
 
     cursor.execute("""
+        CREATE TABLE IF NOT EXISTS scenario_stocks (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            scenario_keyword TEXT,
+            scenario_title TEXT,
+            ticker TEXT,
+            name TEXT,
+            market TEXT DEFAULT 'kr',
+            role TEXT,
+            captured_at TEXT,
+            captured_price REAL,
+            d1_price REAL,
+            d3_price REAL,
+            d7_price REAL,
+            d1_return REAL,
+            d3_return REAL,
+            d7_return REAL,
+            updated_at TEXT
+        )
+    """)
+
+    cursor.execute("""
         CREATE TABLE IF NOT EXISTS screener_backtest_results (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             picked_date TEXT,
@@ -2302,6 +2323,71 @@ def load_supply_flow_patterns() -> list:
     except Exception as e:
         print(f"load_supply_flow_patterns error: {e}")
         return []
+
+
+def save_scenario_stocks(scenario_keyword: str, scenario_title: str, stocks: list):
+    """시나리오에 등장한 종목들을 DB에 저장 (중복 키워드+티커는 갱신 안 함, 첫 등장만 기록)."""
+    try:
+        conn = get_db_conn()
+        cursor = conn.cursor()
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        for s in stocks:
+            ticker = str(s.get("ticker") or s.get("code") or "").strip()
+            name = str(s.get("name") or ticker).strip()
+            role = str(s.get("role") or s.get("type") or "").strip()
+            market = "us" if any(c.isalpha() for c in ticker) else "kr"
+            if not ticker:
+                continue
+            cursor.execute(
+                """SELECT id FROM scenario_stocks WHERE scenario_keyword=? AND ticker=?""",
+                (scenario_keyword, ticker)
+            )
+            if cursor.fetchone():
+                continue
+            cursor.execute(
+                """INSERT INTO scenario_stocks
+                   (scenario_keyword, scenario_title, ticker, name, market, role, captured_at, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                (scenario_keyword, scenario_title, ticker, name, market, role, now, now)
+            )
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"save_scenario_stocks error: {e}")
+
+
+def load_scenario_stocks_by_ticker(ticker: str) -> list:
+    """특정 티커가 등장한 시나리오 목록 반환."""
+    try:
+        conn = get_db_conn()
+        cursor = conn.cursor()
+        cursor.execute(
+            """SELECT scenario_keyword, scenario_title, role, captured_at, d3_return
+               FROM scenario_stocks WHERE ticker = ? ORDER BY captured_at DESC LIMIT 5""",
+            (ticker,)
+        )
+        rows = [dict(r) for r in cursor.fetchall()]
+        conn.close()
+        return rows
+    except Exception as e:
+        print(f"load_scenario_stocks_by_ticker error: {e}")
+        return []
+
+
+def load_scenario_stocks_set() -> dict:
+    """모든 시나리오 등장 종목의 ticker → 시나리오 개수 맵."""
+    try:
+        conn = get_db_conn()
+        cursor = conn.cursor()
+        cursor.execute(
+            """SELECT ticker, COUNT(DISTINCT scenario_keyword) AS n FROM scenario_stocks GROUP BY ticker"""
+        )
+        result = {row["ticker"]: int(row["n"]) for row in cursor.fetchall()}
+        conn.close()
+        return result
+    except Exception as e:
+        print(f"load_scenario_stocks_set error: {e}")
+        return {}
 
 
 def save_backtest_result(row: dict):
