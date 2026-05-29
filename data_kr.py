@@ -943,40 +943,35 @@ def get_kr_prices_bulk(tickers_tuple: tuple) -> dict:
         # 10개 이상은 yfinance 배치로 직행 (KIS 개별 호출 스킵)
         yf_tickers = list(tickers_tuple)
 
-    # yfinance 배치 다운로드 — .KS 먼저, 미수신 종목은 .KQ 재시도
-    def _yf_batch_download(ticker_pairs):
-        tickers_str = [yt for _, yt in ticker_pairs]
-        try:
-            raw = yf.download(tickers_str, period="2d", progress=False, timeout=10)
-            if raw.empty:
-                return {}
-            close_df = raw["Close"] if isinstance(raw.columns, pd.MultiIndex) else raw[["Close"]].rename(columns={"Close": tickers_str[0]})
-            out = {}
-            for code, yf_ticker in ticker_pairs:
-                try:
-                    closes = close_df[yf_ticker].dropna() if yf_ticker in close_df.columns else pd.Series(dtype=float)
-                    if len(closes) >= 2:
-                        price = round(float(closes.iloc[-1]))
-                        prev  = float(closes.iloc[-2])
-                        out[code] = {"name": code, "price": price,
-                                     "change_pct": round(((price-prev)/prev*100) if prev>0 else 0.0, 2),
-                                     **_default_status}
-                except Exception:
-                    pass
-            return out
-        except Exception:
-            return {}
-
+    # yfinance 배치 다운로드 — KS+KQ 동시 다운로드 후 코드 매핑
     if yf_tickers:
-        # 1차: .KS 배치
-        ks_results = _yf_batch_download(yf_tickers)
-        results.update(ks_results)
-
-        # 2차: .KS 실패한 종목은 .KQ 재시도
-        missing = [(code, code + ".KQ") for code, _ in yf_tickers if code not in results]
-        if missing:
-            kq_results = _yf_batch_download(missing)
-            results.update(kq_results)
+        try:
+            # 각 종목코드에 대해 .KS와 .KQ 둘 다 요청 (한 번의 배치로)
+            codes_only = [code for code, _ in yf_tickers]
+            all_tickers = [c + ".KS" for c in codes_only] + [c + ".KQ" for c in codes_only]
+            raw = yf.download(all_tickers, period="2d", progress=False, timeout=15)
+            if not raw.empty:
+                close_df = raw["Close"] if isinstance(raw.columns, pd.MultiIndex) else raw[["Close"]].rename(columns={"Close": all_tickers[0]})
+                for code in codes_only:
+                    if code in results:
+                        continue
+                    for suffix in [".KS", ".KQ"]:
+                        yt = code + suffix
+                        if yt not in close_df.columns:
+                            continue
+                        try:
+                            closes = close_df[yt].dropna()
+                            if len(closes) >= 2:
+                                price = round(float(closes.iloc[-1]))
+                                prev  = float(closes.iloc[-2])
+                                results[code] = {"name": code, "price": price,
+                                                 "change_pct": round(((price-prev)/prev*100) if prev>0 else 0.0, 2),
+                                                 **_default_status}
+                                break
+                        except Exception:
+                            pass
+        except Exception:
+            pass
 
     # 최종 실패 건 처리
     for code, _ in tickers_tuple:
