@@ -384,8 +384,11 @@ def _parse_json_response(response) -> dict:
         raise ValueError("no_json_found")
 
 
-def _call_gemini(prompt, use_search=False, temperature=0.7, response_mime_type=None, timeout_sec=None):
-    """Gemini API 호출 공통 헬퍼 (모델 폴백 + 재시도 + 타임아웃)."""
+def _call_gemini(prompt, use_search=False, temperature=0.7, response_mime_type=None, timeout_sec=None, max_output_tokens=3000):
+    """Gemini API 호출 공통 헬퍼 (모델 폴백 + 재시도 + 타임아웃).
+    [비용방어] max_output_tokens 기본 3000 — 무제한 장문 출력으로 인한 출력토큰 과금 차단.
+    긴 시나리오가 필요하면 호출부에서 명시적으로 늘릴 것.
+    """
     import concurrent.futures
     _timeout = timeout_sec if timeout_sec else _API_TIMEOUT_SEC
     global _QUOTA_EXHAUSTED
@@ -397,6 +400,8 @@ def _call_gemini(prompt, use_search=False, temperature=0.7, response_mime_type=N
     client = genai.Client(api_key=api_key, http_options={"api_version": "v1alpha"})
 
     config_kwargs = {"temperature": temperature}
+    if max_output_tokens:
+        config_kwargs["max_output_tokens"] = max_output_tokens
     if use_search:
         config_kwargs["tools"] = [{"google_search": {}}]
     elif response_mime_type:
@@ -694,7 +699,7 @@ def generate_market_scenarios() -> dict:
         "}"
     )
     try:
-        response = _call_gemini(prompt, use_search=True, temperature=0.6, timeout_sec=120)
+        response = _call_gemini(prompt, use_search=True, temperature=0.6, timeout_sec=120, max_output_tokens=8000)
         res = _parse_json_response(response)
         _fix_scenario_names(res)
         _override_targets(res)
@@ -758,7 +763,7 @@ def analyze_custom_issue(keyword: str) -> dict:
         "}"
     )
     try:
-        response = _call_gemini(prompt, use_search=True, temperature=0.6, timeout_sec=120)
+        response = _call_gemini(prompt, use_search=True, temperature=0.6, timeout_sec=120, max_output_tokens=8000)
         res = _parse_json_response(response)
 
         _fix_scenario_names(res)
@@ -4110,7 +4115,7 @@ def analyze_agent_daily_issues() -> dict:
 
         # ── 상위 이슈로 시나리오 자동 생성 (최대 4개 — 비용/화면 균형) ──
         from db import save_agent_scenario
-        MAX_SCENARIOS = 4
+        MAX_SCENARIOS = 3
         scenario_count = 0
         for iss in issues:
             if scenario_count >= MAX_SCENARIOS:
