@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import useSWR from "swr";
 import { api, connectSSE } from "@/lib/api";
 import type { Favorite, KrStock, UsStock } from "@/lib/types";
-import { Star, RefreshCw, Send, Trash2, Plus, Zap, BarChart2, Bell, TrendingUp, BookOpen, Loader2, Brain, Sparkles, AlertCircle } from "lucide-react";
+import { Star, RefreshCw, Send, Trash2, Plus, Zap, BarChart2, Bell, TrendingUp, BookOpen, Loader2, Brain, Sparkles, AlertCircle, X } from "lucide-react";
 
 const BASE_URL = "/backend";
 import { Card } from "@/components/ui/Card";
@@ -293,28 +293,39 @@ function AddPortfolioForm({ onAdded }: { onAdded: () => void }) {
       </div>
 
       {/* 종목 검색 */}
-      <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", flexWrap: "wrap" }}>
+      <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
         <ToggleGroup
           options={[{ label: "국내", value: "국내" as const }, { label: "미국", value: "미국" as const }]}
           value={market}
           onChange={(v) => { setMarket(v); setTicker(""); setName(""); }}
           colors={{ "국내": "#0369a1", "미국": "#059669" }}
         />
-        <div style={{ flex: 1, minWidth: "200px" }}>
+        <div style={{ width: "260px" }}>
           <StockSearchInput
             market={market}
             onSelect={(t, n) => { setTicker(t); setName(n); }}
           />
         </div>
-        {ticker && (
-          <span style={{ fontSize: "0.8rem", color: "var(--color-muted)", padding: "2px 8px", background: "rgba(255,255,255,0.05)", borderRadius: "4px", border: "1px solid var(--color-border)" }}>
-            {name} ({ticker})
-          </span>
-        )}
       </div>
 
-      {/* 매수가 · 수량 */}
-      <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", flexWrap: "wrap" }}>
+      {/* 선택된 종목 표시 */}
+      {ticker && (
+        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", background: "rgba(99,102,241,0.1)", border: "1px solid rgba(99,102,241,0.35)", borderRadius: "8px", padding: "0.5rem 0.75rem" }}>
+          <span style={{ fontSize: "0.85rem", fontWeight: 700, color: "#a5b4fc" }}>{name}</span>
+          <span style={{ fontSize: "0.78rem", color: "var(--color-muted)" }}>({ticker})</span>
+          <button
+            onClick={() => { setTicker(""); setName(""); setPrice(""); setQty(""); }}
+            style={{ marginLeft: "auto", background: "transparent", border: "none", cursor: "pointer", color: "var(--color-muted)", fontSize: "0.75rem", padding: "2px 6px", borderRadius: "4px", display: "flex", alignItems: "center", gap: "3px" }}
+            onMouseEnter={e => { e.currentTarget.style.color = "var(--color-danger)"; e.currentTarget.style.background = "rgba(255,60,60,0.08)"; }}
+            onMouseLeave={e => { e.currentTarget.style.color = "var(--color-muted)"; e.currentTarget.style.background = "transparent"; }}
+          >
+            <X size={13} /> 취소
+          </button>
+        </div>
+      )}
+
+      {/* 매수가 · 수량 · 추가 */}
+      <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
         <input className="stockcy-input" type="number" placeholder="매수가" value={price} onChange={(e) => setPrice(e.target.value)} style={{ width: "110px" }} />
         <input className="stockcy-input" type="number" placeholder="수량" value={qty} onChange={(e) => setQty(e.target.value)} style={{ width: "80px" }} />
         <button className="stockcy-btn stockcy-btn-primary" onClick={handleAdd} disabled={loading || !ticker || !name || !price || !qty}>
