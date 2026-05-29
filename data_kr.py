@@ -949,20 +949,14 @@ def get_kr_prices_bulk(tickers_tuple: tuple) -> dict:
     if yf_tickers:
         try:
             tickers_str = [yt for _, yt in yf_tickers]
-            raw = yf.download(tickers_str, period="2d", progress=False, timeout=10,
-                              group_by="ticker" if len(tickers_str) > 1 else None)
+            raw = yf.download(tickers_str, period="2d", progress=False, timeout=15)
             if not raw.empty:
-                is_multi = isinstance(raw.columns, pd.MultiIndex)
+                close_df = raw["Close"] if isinstance(raw.columns, pd.MultiIndex) else raw[["Close"]].rename(columns={"Close": tickers_str[0]})
                 for code, yf_ticker in yf_tickers:
                     if code in results:
                         continue
                     try:
-                        if is_multi and yf_ticker in raw.columns.get_level_values(0):
-                            closes = raw[yf_ticker]["Close"].dropna()
-                        elif not is_multi and len(tickers_str) == 1:
-                            closes = raw["Close"].dropna()
-                        else:
-                            continue
+                        closes = close_df[yf_ticker].dropna() if yf_ticker in close_df.columns else pd.Series(dtype=float)
                         if len(closes) >= 2:
                             price = round(float(closes.iloc[-1]))
                             prev  = float(closes.iloc[-2])
