@@ -912,88 +912,74 @@ def get_kr_prebreakout_signal(stock_code: str) -> dict:
 
 @st.cache_data(ttl=60, show_spinner=False)
 def get_kr_prices_bulk(tickers_tuple: tuple) -> dict:
-    """섹터 패널용 종목 일괄 시세 조회 (code → {name, price, change_pct, + 거래상태 필드}).
-    KIS API inquire-price 병렬 조회, 실패 시 yfinance 폴백."""
+    """섹터 패널용 종목 일괄 시세 조회 (code → {name, price, change_pct}).
+    yfinance 배치 다운로드 우선 (빠름), KIS API는 소량(10개 미만)일 때만 사용."""
     import yfinance as yf
     import pandas as pd
-    from concurrent.futures import ThreadPoolExecutor, as_completed
     results = {}
     _names = {}
-    _mkt_statuses = {}
+    _default_status = {"status_code": "55", "mrkt_warn": "00", "short_over": "N",
+                       "managed": "N", "halt": "N", "vi_type": "N", "vi_ovtm": "N"}
 
-    # 1차 KIS 병렬 조회 (최대 20 스레드)
-    def _fetch_one(item):
-        code, yf_ticker = item
-        try:
-            return code, yf_ticker, get_kr_stock_price(code)
-        except Exception:
-            return code, yf_ticker, None
+    # 종목명 맵 확보
+    try:
+        name_map = get_kr_code_to_name_map()
+        for code, _ in tickers_tuple:
+            if code in name_map:
+                _names[code] = name_map[code]
+    except Exception:
+        pass
 
-    yf_tickers = []
-    with ThreadPoolExecutor(max_workers=20) as ex:
-        futures = {ex.submit(_fetch_one, item): item for item in tickers_tuple}
-        for future in as_completed(futures):
-            code, yf_ticker, kis = future.result()
-            if kis:
-                _kis_status = {
-                    "status_code": kis.get("status_code", "55"),
-                    "mrkt_warn":   kis.get("mrkt_warn", "00"),
-                    "short_over":  kis.get("short_over", "N"),
-                    "managed":     kis.get("managed", "N"),
-                    "halt":        kis.get("halt", "N"),
-                    "vi_type":     kis.get("vi_type", "N"),
-                    "vi_ovtm":     kis.get("vi_ovtm", "N"),
-                }
-                _mkt_statuses[code] = _kis_status
-                if kis.get("name"):
-                    _names[code] = kis["name"]
-                if kis.get("price", 0) > 0:
-                    results[code] = {"name": _names.get(code, code), "price": kis["price"], "change_pct": kis["change_pct"], **_kis_status}
-                    continue
-            yf_tickers.append(yf_ticker)
+    # 10개 미만은 KIS 개별 조회 (정확도 우선)
+    if len(tickers_tuple) < 10:
+        yf_tickers = []
+        for code, yf_ticker in tickers_tuple:
+            kis = get_kr_stock_price(code)
+            if kis and kis.get("price", 0) > 0:
+                results[code] = {"name": kis.get("name", _names.get(code, code)),
+                                 "price": kis["price"], "change_pct": kis["change_pct"],
+                                 **_default_status}
+            else:
+                yf_tickers.append((code, yf_ticker))
+    else:
+        # 10개 이상은 yfinance 배치로 직행 (KIS 개별 호출 스킵)
+        yf_tickers = list(tickers_tuple)
 
-    # yfinance 폴백용 이름 보강: get_kr_code_to_name_map 활용
+    # yfinance 배치 다운로드
     if yf_tickers:
         try:
-            name_map = get_kr_code_to_name_map()
-            for code, _ in tickers_tuple:
-                if code not in _names and code in name_map:
-                    _names[code] = name_map[code]
-        except Exception:
-            pass
-
-    # 2차: yfinance 일괄 다운로드 폴백
-    if yf_tickers:
-        try:
-            raw = yf.download(yf_tickers, period="2d", progress=False, timeout=1.5)
+            tickers_str = [yt for _, yt in yf_tickers]
+            raw = yf.download(tickers_str, period="2d", progress=False, timeout=10,
+                              group_by="ticker" if len(tickers_str) > 1 else None)
             if not raw.empty:
-                close_df = raw["Close"]
                 is_multi = isinstance(raw.columns, pd.MultiIndex)
-                for code, yf_ticker in tickers_tuple:
+                for code, yf_ticker in yf_tickers:
                     if code in results:
                         continue
                     try:
-                        closes = close_df[yf_ticker].dropna() if is_multi and yf_ticker in close_df.columns else raw["Close"].dropna() if len(yf_tickers) == 1 else pd.Series(dtype=float)
-                        if not closes.empty and len(closes) >= 2:
+                        if is_multi and yf_ticker in raw.columns.get_level_values(0):
+                            closes = raw[yf_ticker]["Close"].dropna()
+                        elif not is_multi and len(tickers_str) == 1:
+                            closes = raw["Close"].dropna()
+                        else:
+                            continue
+                        if len(closes) >= 2:
                             price = round(float(closes.iloc[-1]))
-                            prev = float(closes.iloc[-2])
+                            prev  = float(closes.iloc[-2])
                             change_pct = round(((price - prev) / prev * 100) if prev > 0 else 0.0, 2)
-                            _kis_status = _mkt_statuses.get(code, {
-                                "status_code": "55", "mrkt_warn": "00", "short_over": "N", "managed": "N", "halt": "N", "vi_type": "N", "vi_ovtm": "N"
-                            })
-                            results[code] = {"name": _names.get(code, code), "price": price, "change_pct": change_pct, **_kis_status}
+                            results[code] = {"name": _names.get(code, code),
+                                             "price": price, "change_pct": change_pct,
+                                             **_default_status}
                     except Exception:
                         pass
         except Exception:
             pass
 
     # 최종 실패 건 처리
-    for code, yf_ticker in tickers_tuple:
+    for code, _ in tickers_tuple:
         if code not in results:
-            _kis_status = _mkt_statuses.get(code, {
-                "status_code": "55", "mrkt_warn": "00", "short_over": "N", "managed": "N", "halt": "N", "vi_type": "N", "vi_ovtm": "N"
-            })
-            results[code] = {"name": _names.get(code, code), "price": 0, "change_pct": 0.0, **_kis_status}
+            results[code] = {"name": _names.get(code, code), "price": 0,
+                             "change_pct": 0.0, **_default_status}
 
     return results
 
