@@ -8,6 +8,7 @@ import { useMarket } from "@/lib/market-context";
 import { useAnalysisReady } from "@/lib/analysis-ready-context";
 import { useAiTask } from "@/contexts/AiTaskContext";
 import { Loader2, CheckCircle2 } from "lucide-react";
+import useSWR from "swr";
 
 function AiTaskIndicator() {
   const { tasks, clearTask } = useAiTask();
@@ -55,6 +56,12 @@ export function TopNav() {
   const [briefingOpen, setBriefingOpen] = useState(false);
   const { market, setMarket } = useMarket();
   const { ready } = useAnalysisReady();
+  const { data: versionData } = useSWR(
+    "/backend/api/admin/version",
+    (url: string) => fetch(url).then(r => r.json()),
+    { revalidateOnFocus: false, refreshInterval: 0 }
+  );
+  const appVersion = versionData?.version ?? "...";
 
   return (
     <>
@@ -94,7 +101,7 @@ export function TopNav() {
             STOCKCY
           </span>
           <span style={{ fontSize: "0.65rem", fontWeight: 500, color: "var(--color-muted)", marginLeft: "6px", opacity: 0.7 }}>
-            v2.1.0
+            v{appVersion}
           </span>
         </div>
 

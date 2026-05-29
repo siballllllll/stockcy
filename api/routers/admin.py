@@ -7,6 +7,14 @@ from typing import List
 router = APIRouter()
 
 
+# ── 앱 버전 ──────────────────────────────────────────────────────────────────
+
+@router.get("/version")
+async def get_version():
+    from version import APP_VERSION
+    return {"version": APP_VERSION}
+
+
 # ── 섹터DB 초기화 ─────────────────────────────────────────────────────────────
 
 @router.post("/init-sector-kr")
