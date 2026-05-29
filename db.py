@@ -2220,7 +2220,7 @@ def load_screener_feedback_stats() -> dict:
                       SUM(CASE WHEN profit > 0 THEN 1 ELSE 0 END) AS wins,
                       AVG(profit_pct) AS avg_pct
                FROM trade_history
-               WHERE UPPER(owner) = 'LEADING'
+               WHERE LOWER(COALESCE(trade_source,'')) LIKE '%리딩방%'
                GROUP BY COALESCE(screener_matched, 0)"""
         )
         groups = {"matched": {"cnt": 0, "wins": 0, "win_rate": 0, "avg_pct": 0},
@@ -2264,7 +2264,7 @@ def match_screener_for_trade(ticker: str, sell_date: str) -> bool:
         matched = cursor.fetchone() is not None
         if matched:
             cursor.execute(
-                "UPDATE trade_history SET screener_matched = 1 WHERE ticker = ? AND SUBSTR(sell_date, 1, 10) = ?",
+                "UPDATE trade_history SET screener_matched = 1 WHERE ticker = ? AND SUBSTR(sell_date, 1, 10) = ? AND LOWER(COALESCE(trade_source,'')) LIKE '%리딩방%'",
                 (padded, sell_day)
             )
             conn.commit()

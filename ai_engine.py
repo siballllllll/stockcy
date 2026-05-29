@@ -3406,7 +3406,7 @@ def build_pattern_profile() -> dict:
                   result, buy_date, sell_date, trade_source, owner,
                   COALESCE(screener_matched, 0) AS screener_matched
            FROM trade_history
-           WHERE UPPER(owner) IN ('USER', 'AI_AGENT', 'LEADING')
+           WHERE UPPER(owner) IN ('USER', 'AI_AGENT')
            ORDER BY sell_date DESC"""
     )
     rows = [dict(r) for r in cursor.fetchall()]
@@ -3438,9 +3438,9 @@ def build_pattern_profile() -> dict:
         except Exception:
             recency_bonus = 0
 
-        # LEADING + screener_matched: 스크리너 확인 신호로 2배 부스트
+        # 리딩방 + screener_matched: 스크리너 확인 신호로 2배 부스트
         is_screener_confirmed = (
-            str(r.get("owner", "")).upper() == "LEADING"
+            "리딩방" in str(r.get("trade_source", ""))
             and int(r.get("screener_matched", 0) or 0) == 1
         )
         weight = (1 + recency_bonus) * (2 if is_screener_confirmed else 1)

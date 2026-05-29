@@ -208,7 +208,8 @@ async def save_trade(req: TradeRecordRequest):
     from db import save_trade_record, match_screener_for_trade
     owner = str(req.trade.get("owner", "USER")).upper()
     ok, msg = await asyncio.to_thread(save_trade_record, req.trade, owner)
-    if ok and owner == "LEADING":
+    is_leading = "리딩방" in str(req.trade.get("trade_source", ""))
+    if ok and is_leading:
         sell_date = str(req.trade.get("sell_date", ""))[:10]
         await asyncio.to_thread(match_screener_for_trade, req.trade.get("ticker", ""), sell_date)
     return {"success": ok, "message": msg}
