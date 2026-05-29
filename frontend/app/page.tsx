@@ -10,6 +10,122 @@ import { StockModal } from "@/components/ui/StockModal";
 import type { StockInfo } from "@/components/ui/StockModal";
 import useSWR from "swr";
 
+function BacktestStats() {
+  const [running, setRunning] = useState(false);
+  const [msg, setMsg] = useState("");
+  const { data, mutate } = useSWR(
+    "/backend/api/ai/screener-backtest/stats",
+    (url: string) => fetch(url).then(r => r.json()),
+    { revalidateOnFocus: false }
+  );
+
+  const runBacktest = async () => {
+    setRunning(true);
+    setMsg("백테스트 실행 중...");
+    try {
+      const res = await fetch("/backend/api/ai/screener-backtest/run", { method: "POST" });
+      const json = await res.json();
+      if (json.error) {
+        setMsg(`⚠️ ${json.error}`);
+      } else {
+        setMsg(`✅ 신규 ${json.processed_now ?? 0}건 계산 / 너무 최근 ${json.skipped_too_recent ?? 0}건 스킵`);
+        mutate();
+      }
+    } catch (e: any) {
+      setMsg(`❌ 오류: ${e?.message ?? String(e)}`);
+    } finally {
+      setRunning(false);
+    }
+  };
+
+  const n = data?.total_picks_backtested ?? 0;
+  const ov = data?.overall ?? {};
+  const buckets = data?.score_buckets ?? [];
+  const recent = data?.recent ?? [];
+
+  return (
+    <div style={{ background: "rgba(99,102,241,0.05)", border: "1px solid rgba(99,102,241,0.2)", borderRadius: "10px", padding: "1rem 1.2rem", display: "flex", flexDirection: "column", gap: "0.75rem" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <div style={{ fontSize: "0.78rem", fontWeight: 700, color: "#a5b4fc", display: "flex", alignItems: "center", gap: "0.4rem" }}>
+          🧪 백테스트 — 추천 종목 실전 성과
+        </div>
+        <button
+          onClick={runBacktest}
+          disabled={running}
+          style={{ fontSize: "0.7rem", padding: "4px 10px", background: running ? "var(--color-elevated)" : "rgba(99,102,241,0.15)", border: "1px solid rgba(99,102,241,0.35)", color: "#a5b4fc", borderRadius: "5px", fontWeight: 700, cursor: running ? "wait" : "pointer" }}
+        >
+          {running ? "실행 중..." : "백테스트 실행"}
+        </button>
+      </div>
+      {msg && <div style={{ fontSize: "0.72rem", color: "var(--color-muted)" }}>{msg}</div>}
+
+      {n === 0 ? (
+        <div style={{ fontSize: "0.78rem", color: "var(--color-muted)", textAlign: "center", padding: "0.5rem 0" }}>
+          백테스트 결과 없음. 패턴 스크리너 추천 후 1일 이상 경과 시 "백테스트 실행" 버튼 클릭.
+        </div>
+      ) : (
+        <>
+          {/* 누적 성과 — 1일/3일/7일 */}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "0.5rem" }}>
+            {[
+              { label: "+1일", ret: ov.avg_d1_return, wr: ov.win_rate_d1 },
+              { label: "+3일", ret: ov.avg_d3_return, wr: ov.win_rate_d3 },
+              { label: "+7일", ret: ov.avg_d7_return, wr: ov.win_rate_d7 },
+            ].map((s: any) => {
+              const c = s.ret > 0 ? "#34d399" : s.ret < 0 ? "#f87171" : "var(--color-muted)";
+              return (
+                <div key={s.label} style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.07)", borderRadius: "8px", padding: "0.55rem", textAlign: "center" }}>
+                  <div style={{ fontSize: "0.68rem", color: "var(--color-muted)", marginBottom: "3px" }}>{s.label}</div>
+                  <div style={{ fontSize: "1rem", fontWeight: 800, color: c }}>{s.ret >= 0 ? "+" : ""}{s.ret}%</div>
+                  <div style={{ fontSize: "0.66rem", color: "var(--color-muted)" }}>승률 {s.wr}%</div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* 매칭 점수 구간별 */}
+          <div>
+            <div style={{ fontSize: "0.7rem", color: "var(--color-muted)", marginBottom: "0.4rem", fontWeight: 700 }}>매칭 점수 구간별 (+3일 기준)</div>
+            <div style={{ display: "flex", gap: "0.4rem" }}>
+              {buckets.map((b: any) => {
+                const c = b.avg_return > 0 ? "#34d399" : b.avg_return < 0 ? "#f87171" : "var(--color-muted)";
+                return (
+                  <div key={b.label} style={{ flex: 1, background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.06)", borderRadius: "6px", padding: "0.5rem", textAlign: "center" }}>
+                    <div style={{ fontSize: "0.66rem", color: "var(--color-muted)" }}>{b.label}</div>
+                    <div style={{ fontSize: "0.85rem", fontWeight: 700, color: c }}>{b.avg_return >= 0 ? "+" : ""}{b.avg_return}%</div>
+                    <div style={{ fontSize: "0.62rem", color: "var(--color-muted)" }}>{b.count}건 · 승률 {b.win_rate}%</div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* 최근 결과 */}
+          {recent.length > 0 && (
+            <div>
+              <div style={{ fontSize: "0.7rem", color: "var(--color-muted)", marginBottom: "0.4rem", fontWeight: 700 }}>최근 백테스트 결과 (총 {n}건)</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: "3px", maxHeight: "200px", overflowY: "auto" }}>
+                {recent.map((r: any, i: number) => {
+                  const ret = r.d3_return;
+                  const c = ret > 0 ? "#34d399" : ret < 0 ? "#f87171" : "var(--color-muted)";
+                  return (
+                    <div key={i} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: "0.72rem", background: "rgba(255,255,255,0.02)", padding: "4px 8px", borderRadius: "4px" }}>
+                      <span style={{ color: "var(--color-muted)", fontSize: "0.65rem" }}>{r.picked_date}</span>
+                      <span style={{ color: "var(--color-text)", fontWeight: 600, flex: 1, marginLeft: "8px" }}>{r.name}</span>
+                      <span style={{ color: "var(--color-muted)", fontSize: "0.65rem", marginRight: "8px" }}>매칭 {r.match_score}점</span>
+                      <span style={{ color: c, fontWeight: 700 }}>{ret >= 0 ? "+" : ""}{ret}%</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
 function ScreenerFeedbackStats() {
   const { data } = useSWR(
     "/backend/api/ai/screener-feedback-stats",
@@ -332,6 +448,7 @@ export default function Dashboard() {
                 </div>
               )}
 
+              <BacktestStats />
               <ScreenerFeedbackStats />
             </div>
           )}

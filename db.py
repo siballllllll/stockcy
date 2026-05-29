@@ -243,6 +243,26 @@ def init_local_db():
         )
     """)
 
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS screener_backtest_results (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            picked_date TEXT,
+            ticker TEXT,
+            name TEXT,
+            match_score REAL,
+            signal TEXT,
+            entry_price REAL,
+            d1_price REAL,
+            d3_price REAL,
+            d7_price REAL,
+            d1_return REAL,
+            d3_return REAL,
+            d7_return REAL,
+            computed_at TEXT,
+            UNIQUE(picked_date, ticker)
+        )
+    """)
+
     # 컬럼 마이그레이션 — 이미 존재하면 무시
     for migration in [
         "ALTER TABLE portfolio ADD COLUMN trade_source TEXT DEFAULT '개인'",
@@ -2280,6 +2300,95 @@ def load_supply_flow_patterns() -> list:
     except Exception as e:
         print(f"load_supply_flow_patterns error: {e}")
         return []
+
+
+def save_backtest_result(row: dict):
+    """백테스트 1건 저장 (picked_date+ticker 유니크)."""
+    try:
+        conn = get_db_conn()
+        cursor = conn.cursor()
+        cursor.execute(
+            """INSERT OR REPLACE INTO screener_backtest_results
+               (picked_date, ticker, name, match_score, signal,
+                entry_price, d1_price, d3_price, d7_price,
+                d1_return, d3_return, d7_return, computed_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (row.get("picked_date"), row.get("ticker"), row.get("name"),
+             row.get("match_score"), row.get("signal"),
+             row.get("entry_price"), row.get("d1_price"), row.get("d3_price"), row.get("d7_price"),
+             row.get("d1_return"), row.get("d3_return"), row.get("d7_return"),
+             datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+        )
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"save_backtest_result error: {e}")
+
+
+def load_backtest_stats() -> dict:
+    """백테스트 결과 집계 통계."""
+    try:
+        conn = get_db_conn()
+        cursor = conn.cursor()
+        cursor.execute(
+            """SELECT COUNT(*) AS n,
+                      AVG(d1_return) AS avg_d1, AVG(d3_return) AS avg_d3, AVG(d7_return) AS avg_d7,
+                      SUM(CASE WHEN d1_return > 0 THEN 1 ELSE 0 END) AS win_d1,
+                      SUM(CASE WHEN d3_return > 0 THEN 1 ELSE 0 END) AS win_d3,
+                      SUM(CASE WHEN d7_return > 0 THEN 1 ELSE 0 END) AS win_d7
+               FROM screener_backtest_results
+               WHERE d1_return IS NOT NULL"""
+        )
+        overall = dict(cursor.fetchone() or {})
+
+        # 매칭 점수 구간별 통계
+        buckets = []
+        for label, min_s, max_s in [("80점 이상", 80, 101), ("60~79점", 60, 80), ("60점 미만", 0, 60)]:
+            cursor.execute(
+                """SELECT COUNT(*) AS n, AVG(d3_return) AS avg_d3,
+                          SUM(CASE WHEN d3_return > 0 THEN 1 ELSE 0 END) AS wins
+                   FROM screener_backtest_results
+                   WHERE d3_return IS NOT NULL AND match_score >= ? AND match_score < ?""",
+                (min_s, max_s)
+            )
+            r = dict(cursor.fetchone() or {})
+            cnt = r.get("n", 0) or 0
+            wins = r.get("wins", 0) or 0
+            buckets.append({
+                "label": label,
+                "count": cnt,
+                "win_rate": round(wins / cnt * 100, 1) if cnt else 0,
+                "avg_return": round(r.get("avg_d3") or 0, 2),
+            })
+
+        # 최근 결과 샘플
+        cursor.execute(
+            """SELECT picked_date, ticker, name, match_score,
+                      entry_price, d3_price, d3_return
+               FROM screener_backtest_results
+               WHERE d3_return IS NOT NULL
+               ORDER BY picked_date DESC LIMIT 10"""
+        )
+        recent = [dict(r) for r in cursor.fetchall()]
+
+        conn.close()
+        n = overall.get("n", 0) or 0
+        return {
+            "total_picks_backtested": n,
+            "overall": {
+                "avg_d1_return": round(overall.get("avg_d1") or 0, 2),
+                "avg_d3_return": round(overall.get("avg_d3") or 0, 2),
+                "avg_d7_return": round(overall.get("avg_d7") or 0, 2),
+                "win_rate_d1":   round((overall.get("win_d1") or 0) / n * 100, 1) if n else 0,
+                "win_rate_d3":   round((overall.get("win_d3") or 0) / n * 100, 1) if n else 0,
+                "win_rate_d7":   round((overall.get("win_d7") or 0) / n * 100, 1) if n else 0,
+            },
+            "score_buckets": buckets,
+            "recent": recent,
+        }
+    except Exception as e:
+        print(f"load_backtest_stats error: {e}")
+        return {"total_picks_backtested": 0, "overall": {}, "score_buckets": [], "recent": []}
 
 
 def save_screener_picks(picks: list):

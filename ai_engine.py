@@ -3782,6 +3782,92 @@ def screen_by_my_pattern() -> dict:
     }
 
 
+# ── 패턴 스크리너 백테스트 ────────────────────────────────────────────────────
+
+def backtest_screener_picks() -> dict:
+    """screener_picks 테이블의 모든 추천 종목에 대해 +1/+3/+7일 가격을 조회해 사후 성과 통계를 만듭니다."""
+    from db import get_db_conn, save_backtest_result, load_backtest_stats
+    from datetime import datetime, timedelta
+    import FinanceDataReader as fdr
+
+    conn = get_db_conn()
+    cursor = conn.cursor()
+    cursor.execute(
+        """SELECT picked_date, ticker, name, match_score, signal
+           FROM screener_picks
+           ORDER BY picked_date ASC"""
+    )
+    picks = [dict(r) for r in cursor.fetchall()]
+    conn.close()
+
+    if not picks:
+        return {"error": "추천 기록 없음. 패턴 스크리너를 먼저 실행하세요."}
+
+    today = datetime.now().date()
+    processed = 0
+    skipped_too_recent = 0
+
+    for pick in picks:
+        try:
+            picked = datetime.strptime(pick["picked_date"], "%Y-%m-%d").date()
+        except Exception:
+            continue
+
+        # 최소 1일은 지나야 백테스트 가능
+        if (today - picked).days < 1:
+            skipped_too_recent += 1
+            continue
+
+        ticker = str(pick["ticker"]).strip().zfill(6)
+        try:
+            # FDR로 추천일~추천일+8일 일봉 조회
+            end_date = (picked + timedelta(days=10)).strftime("%Y-%m-%d")
+            start_date = picked.strftime("%Y-%m-%d")
+            df = fdr.DataReader(ticker, start_date, end_date)
+            if df.empty or len(df) < 2:
+                continue
+
+            entry_price = float(df["Close"].iloc[0])
+            if entry_price <= 0:
+                continue
+
+            def _price_at(days_offset):
+                if len(df) > days_offset:
+                    return float(df["Close"].iloc[days_offset])
+                return None
+
+            d1 = _price_at(1)
+            d3 = _price_at(3)
+            d7 = _price_at(7)
+
+            def _ret(p):
+                return round((p - entry_price) / entry_price * 100, 2) if p else None
+
+            save_backtest_result({
+                "picked_date":  pick["picked_date"],
+                "ticker":       ticker,
+                "name":         pick.get("name", ticker),
+                "match_score":  pick.get("match_score"),
+                "signal":       pick.get("signal"),
+                "entry_price":  entry_price,
+                "d1_price":     d1,
+                "d3_price":     d3,
+                "d7_price":     d7,
+                "d1_return":    _ret(d1),
+                "d3_return":    _ret(d3),
+                "d7_return":    _ret(d7),
+            })
+            processed += 1
+        except Exception as e:
+            print(f"[backtest] {ticker} 처리 실패: {e}")
+            continue
+
+    stats = load_backtest_stats()
+    stats["processed_now"] = processed
+    stats["skipped_too_recent"] = skipped_too_recent
+    return stats
+
+
 # ── ② 수급 이동 시퀀스 패턴 빌드 ─────────────────────────────────────────────
 
 def build_supply_flow_patterns() -> dict:

@@ -998,6 +998,22 @@ async def get_screener_feedback_stats():
     return {"stats": stats}
 
 
+@router.post("/screener-backtest/run")
+async def run_screener_backtest():
+    """패턴 스크리너 추천 종목의 +1/+3/+7일 사후 성과 백테스트 실행."""
+    from ai_engine import backtest_screener_picks
+    result = await asyncio.to_thread(backtest_screener_picks)
+    return result
+
+
+@router.get("/screener-backtest/stats")
+async def get_screener_backtest_stats():
+    """저장된 백테스트 통계 조회."""
+    from db import load_backtest_stats
+    stats = await asyncio.to_thread(load_backtest_stats)
+    return stats
+
+
 @router.post("/pattern-profile/build")
 async def build_pattern_profile_endpoint():
     """패턴 프로파일(전체/개인/리딩방) + 수급 흐름 패턴을 즉시 재빌드합니다."""
