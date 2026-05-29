@@ -2062,13 +2062,17 @@ def analyze_box_pattern(ticker: str, name: str, price_data: dict, market: str = 
         }
 
 
-@st.cache_data(ttl=600)
 def generate_dynamic_themes():
     """
     미국 주식 시장 전체를 스캔하여 현재 가장 핫한 테마 5개를 분류하고
     각 테마의 대장주, 관련주, 상관관계 설명을 JSON 형태로 반환합니다.
-    (10분 단위 캐싱으로 API 과호출 방지)
+    [비용방어] DB 캐시 우선 (30분) — 검색 호출 과금 차단.
     """
+    from db import load_ai_cache, save_ai_cache
+    _DT_KEY = "dynamic_themes_latest"
+    _c = load_ai_cache(_DT_KEY)
+    if _c and "error" not in _c:
+        return _c
     prompt = """
     당신은 월스트리트의 저명한 섹터 애널리스트입니다.\n절대로 한자(漢字)를 사용하지 마세요. 모든 출력은 한글과 영문만 사용하세요.
     지금 바로 구글 검색을 통해 오늘 미국 주식 시장을 이끌고 있는 '가장 주목받고 뜨거운 테마(섹터)' 5가지를 완벽하게 분류해주세요.
@@ -2103,18 +2107,28 @@ def generate_dynamic_themes():
     """
     try:
         response = _call_gemini(prompt, use_search=True, temperature=0.7)
-        return _parse_json_response(response)
+        result = _parse_json_response(response)
+        if result and "error" not in result:
+            save_ai_cache(_DT_KEY, result, ttl_hours=0.5)  # DB 캐시 30분
+        return result
     except Exception as e:
         return {"error": _friendly_error(e), "themes": []}
 
 
-@st.cache_data(ttl=3600)  # 1시간 캐싱 (할당량 절약)
 def analyze_kr_hot_sectors() -> dict:
     """
     Gemini + Google Search로 오늘 증권사 리포트·금융 뉴스를 분석하여
     핫 섹터를 선별하고 sectors_kr.py DB와 매핑합니다.
     실시간 급등 종목(KIS API)을 프롬프트에 주입하여 정확도를 높입니다.
+    [비용방어] DB 캐시 우선 — 1시간 내 재요청은 검색 호출 없이 즉시 반환.
     """
+    # ── DB 캐시 게이트 (st.cache_data는 FastAPI에서 불안정 → SQLite 캐시로 검색 호출 차단) ──
+    from db import load_ai_cache, save_ai_cache
+    _CACHE_KEY = "kr_hot_sectors_latest"
+    _cached = load_ai_cache(_CACHE_KEY)
+    if _cached and "error" not in _cached:
+        return _cached
+
     from sectors_kr import KR_SECTOR_MAP
     from data_kr import get_kr_change_ranking
 
@@ -2182,6 +2196,8 @@ def analyze_kr_hot_sectors() -> dict:
         response = _call_gemini(prompt, use_search=True, temperature=0.5)
         result = _parse_json_response(response)
         _update_hs_cache(result)  # 모듈 레벨 캐시도 갱신
+        if result and "error" not in result:
+            save_ai_cache(_CACHE_KEY, result, ttl_hours=1)  # DB 캐시 1시간 저장
         return result
     except Exception as e:
         err_str = str(e)
