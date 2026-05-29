@@ -935,7 +935,7 @@ function ScenarioTrackingPanel() {
 
 
 // ── 지역 분류 헬퍼 ────────────────────────────────────────────────────────────
-type RegionFilter = "전체" | "글로벌" | "국내" | "이머징마켓" | "커스텀";
+type RegionFilter = "전체" | "글로벌" | "국내" | "이머징마켓" | "커스텀" | "에이전트";
 
 function classifyIssueRegion(issue: Issue): "글로벌" | "국내" | "이머징마켓" | "mixed" {
   const cat = (issue.category ?? "").toLowerCase();
@@ -978,6 +978,18 @@ function ScenariosPageInner() {
 
   const [customIssues, setCustomIssues] = useState<Array<Issue & { isCustom: true; keyword: string }>>([]);
   const [recentSearches, setRecentSearches] = useState<string[]>([]);
+
+  // 에이전트가 자동 생성한 오늘의 시나리오 (네가 AI업데이트 안 눌러도 자동 표시)
+  const { data: agentScenarioData } = useSWR(
+    "/backend/api/ai/agent-scenarios?days=1",
+    (url: string) => fetch(url).then(r => r.json()),
+    { refreshInterval: 300000 }
+  );
+  const agentScenarios: any[] = (agentScenarioData?.scenarios ?? []).map((s: any) => ({
+    ...s,
+    isAgent: true,
+    keyword: s._keyword,
+  }));
 
   // 마운트 직후 localStorage 안전 조회 (Hydration Mismatch 방지)
   useEffect(() => {
@@ -1139,7 +1151,9 @@ function ScenariosPageInner() {
     setIssueIdx(prev => (prev >= idx ? Math.max(0, prev - 1) : prev));
   };
 
-  const filteredIssues: Array<Issue & { isCustom?: boolean }> = regionFilter === "커스텀"
+  const filteredIssues: Array<Issue & { isCustom?: boolean; isAgent?: boolean }> = regionFilter === "에이전트"
+    ? agentScenarios
+    : regionFilter === "커스텀"
     ? customIssues
     : regionFilter === "전체"
       ? issues
@@ -1366,9 +1380,10 @@ function ScenariosPageInner() {
             <>
               {/* 지역 필터 탭 */}
               <div style={{ display: "flex", gap: "4px", flexWrap: "wrap", marginBottom: "12px" }}>
-                {(["전체", "글로벌", "국내", "이머징마켓", "커스텀"] as RegionFilter[]).map(r => {
+                {(["전체", "에이전트", "글로벌", "국내", "이머징마켓", "커스텀"] as RegionFilter[]).map(r => {
                   const labels: Record<RegionFilter, string> = {
                     "전체":      "전체",
+                    "에이전트":  `🤖 에이전트${agentScenarios.length > 0 ? ` (${agentScenarios.length})` : ""}`,
                     "글로벌":    "🌍 글로벌 (미국)",
                     "국내":      "🇰🇷 국내",
                     "이머징마켓": "🌏 이머징마켓",
@@ -1382,9 +1397,9 @@ function ScenariosPageInner() {
                       style={{
                         padding: "5px 12px", fontSize: "0.78rem", fontWeight: 700, borderRadius: "6px",
                         border: "1px solid",
-                        borderColor: active ? (r === "커스텀" ? "var(--color-warning)" : "var(--color-accent)") : "var(--color-border)",
-                        background: active ? (r === "커스텀" ? "rgba(255,180,50,0.12)" : "rgba(255,255,255,0.1)") : "transparent",
-                        color: active ? (r === "커스텀" ? "var(--color-warning)" : "var(--color-text)") : "var(--color-muted)",
+                        borderColor: active ? (r === "커스텀" ? "var(--color-warning)" : r === "에이전트" ? "#a5b4fc" : "var(--color-accent)") : "var(--color-border)",
+                        background: active ? (r === "커스텀" ? "rgba(255,180,50,0.12)" : r === "에이전트" ? "rgba(99,102,241,0.15)" : "rgba(255,255,255,0.1)") : "transparent",
+                        color: active ? (r === "커스텀" ? "var(--color-warning)" : r === "에이전트" ? "#a5b4fc" : "var(--color-text)") : "var(--color-muted)",
                         cursor: "pointer",
                         transition: "0.15s",
                       }}
@@ -1423,6 +1438,8 @@ function ScenariosPageInner() {
                 <div style={{ color: "var(--color-muted)", fontSize: "0.85rem", padding: "2rem", textAlign: "center" }}>
                   {regionFilter === "커스텀"
                     ? "위 검색창에 키워드를 입력하고 분석하기를 눌러보세요."
+                    : regionFilter === "에이전트"
+                    ? "에이전트가 아직 오늘의 시나리오를 생성하지 않았습니다. 평일 아침 자동 생성되며, 좌측 '에이전트 오늘의 이슈'에서 갱신할 수 있습니다."
                     : "해당 지역의 이슈가 없습니다."
                   }
                 </div>
@@ -1447,6 +1464,11 @@ function ScenariosPageInner() {
                             <span>
                               <span style={{ display: "block" }}>Custom {idx + 1}: {String(issue.title).slice(0, 14)}{issue.title.length > 14 ? "…" : ""}</span>
                               {(issue as any).searchedAt && <span style={{ fontSize: "0.65rem", color: "var(--color-muted)", display: "block" }}>{(issue as any).searchedAt}</span>}
+                            </span>
+                          ) : (issue as any).isAgent ? (
+                            <span>
+                              <span style={{ display: "block" }}>🤖 {String(issue.title || (issue as any)._keyword).slice(0, 14)}{(issue.title || "").length > 14 ? "…" : ""}</span>
+                              {(issue as any)._scenario_date && <span style={{ fontSize: "0.65rem", color: "var(--color-muted)", display: "block" }}>{(issue as any)._scenario_date}</span>}
                             </span>
                           ) : `Issue ${idx + 1}: ${String(issue.title).slice(0, 16)}${issue.title.length > 16 ? "…" : ""}`}
                         </button>

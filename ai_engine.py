@@ -4091,7 +4091,26 @@ def analyze_agent_daily_issues() -> dict:
         issues = result.get("issues", []) if isinstance(result, dict) else []
         if issues:
             save_agent_daily_issues(issues)
-        return {"count": len(issues), "issues": issues}
+
+        # ── 상위 이슈로 시나리오 자동 생성 (최대 4개 — 비용/화면 균형) ──
+        from db import save_agent_scenario
+        MAX_SCENARIOS = 4
+        scenario_count = 0
+        for iss in issues:
+            if scenario_count >= MAX_SCENARIOS:
+                break
+            kw = (iss.get("title") or iss.get("theme") or "").strip()
+            if not kw:
+                continue
+            try:
+                sc = analyze_custom_issue(kw)
+                if sc and "error" not in sc:
+                    save_agent_scenario(kw, sc)
+                    scenario_count += 1
+            except Exception as se:
+                print(f"[agent scenario] '{kw}' 생성 실패: {se}")
+
+        return {"count": len(issues), "issues": issues, "scenarios_generated": scenario_count}
     except Exception as e:
         return {"error": str(e), "count": 0, "issues": []}
 

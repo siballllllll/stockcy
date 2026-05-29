@@ -1052,6 +1052,14 @@ async def get_agent_daily_issues(days: int = 2):
     return {"issues": issues}
 
 
+@router.get("/agent-scenarios")
+async def get_agent_scenarios(days: int = 1):
+    """에이전트가 자동 생성한 시나리오 조회 (시나리오 탭 표시용)."""
+    from db import load_agent_scenarios
+    scenarios = await asyncio.to_thread(load_agent_scenarios, days)
+    return {"scenarios": scenarios}
+
+
 @router.post("/agent-daily-issues/refresh")
 async def refresh_agent_daily_issues():
     """오늘의 이슈 즉시 재분석 (수동 트리거)."""

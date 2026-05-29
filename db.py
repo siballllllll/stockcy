@@ -257,6 +257,17 @@ def init_local_db():
     """)
 
     cursor.execute("""
+        CREATE TABLE IF NOT EXISTS agent_scenarios (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            scenario_date TEXT,
+            keyword TEXT,
+            scenario_json TEXT,
+            created_at TEXT,
+            UNIQUE(scenario_date, keyword)
+        )
+    """)
+
+    cursor.execute("""
         CREATE TABLE IF NOT EXISTS agent_decisions (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             decided_at TEXT,
@@ -2384,6 +2395,66 @@ def save_agent_daily_issues(issues: list):
         conn.close()
     except Exception as e:
         print(f"save_agent_daily_issues error: {e}")
+
+
+def save_agent_scenario(keyword: str, scenario_obj: dict):
+    """에이전트가 자동 생성한 시나리오 1건 저장 (당일+키워드 유니크). 20일 이전 정리."""
+    try:
+        conn = get_db_conn()
+        cursor = conn.cursor()
+        today = datetime.now().strftime("%Y-%m-%d")
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        cursor.execute(
+            """INSERT OR REPLACE INTO agent_scenarios (scenario_date, keyword, scenario_json, created_at)
+               VALUES (?, ?, ?, ?)""",
+            (today, keyword, _json.dumps(scenario_obj, ensure_ascii=False), now)
+        )
+        cursor.execute("DELETE FROM agent_scenarios WHERE scenario_date < date('now', '-20 days')")
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"save_agent_scenario error: {e}")
+
+
+def load_agent_scenarios(days: int = 1) -> list:
+    """최근 N일 에이전트 자동 생성 시나리오 로드 (시나리오 탭 표시용)."""
+    try:
+        conn = get_db_conn()
+        cursor = conn.cursor()
+        cursor.execute(
+            f"""SELECT scenario_date, keyword, scenario_json FROM agent_scenarios
+                WHERE scenario_date >= date('now', '-{int(days)} days')
+                ORDER BY scenario_date DESC, id ASC"""
+        )
+        rows = cursor.fetchall()
+        conn.close()
+        out = []
+        for r in rows:
+            try:
+                obj = _json.loads(r["scenario_json"])
+                obj["_scenario_date"] = r["scenario_date"]
+                obj["_keyword"] = r["keyword"]
+                out.append(obj)
+            except Exception:
+                pass
+        return out
+    except Exception as e:
+        print(f"load_agent_scenarios error: {e}")
+        return []
+
+
+def has_today_agent_scenarios() -> bool:
+    """오늘 생성된 에이전트 시나리오가 있는지."""
+    try:
+        conn = get_db_conn()
+        cursor = conn.cursor()
+        today = datetime.now().strftime("%Y-%m-%d")
+        cursor.execute("SELECT COUNT(*) FROM agent_scenarios WHERE scenario_date = ?", (today,))
+        n = cursor.fetchone()[0]
+        conn.close()
+        return n > 0
+    except Exception:
+        return False
 
 
 def has_today_agent_issues() -> bool:
