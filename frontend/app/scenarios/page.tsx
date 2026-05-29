@@ -967,7 +967,8 @@ function ScenariosPageInner() {
         { keyword },
         () => {}
       );
-      const newIssue = { ...(result as Issue), isCustom: true as const, keyword };
+      const searchedAt = new Date().toLocaleString("ko-KR", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false });
+      const newIssue = { ...(result as Issue), isCustom: true as const, keyword, searchedAt };
       const updated = [...customIssues, newIssue].slice(-6); // FIFO max 6
       setCustomIssues(updated);
       localStorage.setItem(CUSTOM_KEY, JSON.stringify(updated));
@@ -1159,7 +1160,10 @@ function ScenariosPageInner() {
                       }}
                       title={issue.title}
                     >
-                      {issue.keyword || issue.title.slice(0, 16)}
+                      <span>{issue.keyword || issue.title.slice(0, 16)}</span>
+                      {(issue as any).searchedAt && (
+                        <span style={{ fontSize: "0.65rem", color: "var(--color-muted)", display: "block", marginTop: "1px" }}>{(issue as any).searchedAt}</span>
+                      )}
                     </button>
                     <button
                       onClick={() => handleDeleteCustomIssue(i)}
@@ -1283,10 +1287,12 @@ function ScenariosPageInner() {
                             transition: "0.15s",
                           }}
                         >
-                          {(issue as any).isCustom
-                            ? `Custom ${idx + 1}: ${String(issue.title).slice(0, 14)}${issue.title.length > 14 ? "…" : ""}`
-                            : `Issue ${idx + 1}: ${String(issue.title).slice(0, 16)}${issue.title.length > 16 ? "…" : ""}`
-                          }
+                          {(issue as any).isCustom ? (
+                            <span>
+                              <span style={{ display: "block" }}>Custom {idx + 1}: {String(issue.title).slice(0, 14)}{issue.title.length > 14 ? "…" : ""}</span>
+                              {(issue as any).searchedAt && <span style={{ fontSize: "0.65rem", color: "var(--color-muted)", display: "block" }}>{(issue as any).searchedAt}</span>}
+                            </span>
+                          ) : `Issue ${idx + 1}: ${String(issue.title).slice(0, 16)}${issue.title.length > 16 ? "…" : ""}`}
                         </button>
                         {(issue as any).isCustom && (
                           <button
