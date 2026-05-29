@@ -135,13 +135,17 @@ def _daily_issue_loop():
     """매일 07:50 KST에 오늘의 핫이슈/심리 자동 분석 (서버 시작 시 1회 즉시 실행)."""
     global _LAST_ISSUE_DATE
     import datetime as _dt
-    # 서버 시작 직후 1회 즉시 분석 (오늘 데이터 없으면)
+    # 서버 시작 직후 1회 즉시 분석 — 단, 오늘 이미 분석한 기록이 있으면 스킵 (재시작 중복 방지)
     try:
-        from db import load_agent_daily_issues
-        if not load_agent_daily_issues(days=0):
+        from db import has_today_agent_issues
+        today_str = _dt.datetime.now().strftime("%Y-%m-%d")
+        if has_today_agent_issues():
+            _LAST_ISSUE_DATE = today_str   # 오늘 이미 있음 → 오늘 정기분석도 스킵
+            print(f"[daily issue] 오늘({today_str}) 이미 분석됨 → 시작 시 분석 스킵 (비용 절약)")
+        else:
             from ai_engine import analyze_agent_daily_issues
             r = analyze_agent_daily_issues()
-            _LAST_ISSUE_DATE = _dt.datetime.now().strftime("%Y-%m-%d")
+            _LAST_ISSUE_DATE = today_str
             print(f"[daily issue] 서버 시작 시 분석 완료: {r.get('count',0)}개 이슈")
     except Exception as e:
         print(f"[daily issue] 시작 시 분석 오류: {e}")

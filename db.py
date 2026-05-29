@@ -2386,6 +2386,21 @@ def save_agent_daily_issues(issues: list):
         print(f"save_agent_daily_issues error: {e}")
 
 
+def has_today_agent_issues() -> bool:
+    """오늘 날짜로 분석된 에이전트 이슈가 이미 있는지 확인 (서버 재시작 시 중복 분석 방지)."""
+    try:
+        conn = get_db_conn()
+        cursor = conn.cursor()
+        today = datetime.now().strftime("%Y-%m-%d")
+        cursor.execute("SELECT COUNT(*) FROM agent_daily_issues WHERE issue_date = ?", (today,))
+        n = cursor.fetchone()[0]
+        conn.close()
+        return n > 0
+    except Exception as e:
+        print(f"has_today_agent_issues error: {e}")
+        return False
+
+
 def load_agent_daily_issues(days: int = 3) -> list:
     """최근 N일 에이전트 핫이슈 로드."""
     try:
