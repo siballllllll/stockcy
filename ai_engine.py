@@ -1055,7 +1055,33 @@ def analyze_autonomous_trading(ticker: str, name: str, current_price: float, mar
         except Exception:
             pass
 
-        info = info + tech_info + supply_info + learning_info
+        # ── [강화] 오늘의 이슈/심리 매칭 (에이전트 자동분석 + 수동 시나리오 공용) ──
+        issue_info = ""
+        try:
+            from db import load_agent_daily_issues, load_scenario_stocks_by_ticker
+            tk_norm = str(ticker).zfill(6) if str(ticker).isdigit() else str(ticker).upper()
+
+            # 1) 에이전트 일일 이슈에서 이 종목 관련 항목 찾기
+            matched_issues = []
+            for iss in load_agent_daily_issues(days=2):
+                related = str(iss.get("related_tickers", ""))
+                if tk_norm in related or str(ticker) in related:
+                    matched_issues.append(f"{iss.get('title','')} (심리: {iss.get('sentiment','')})")
+
+            # 2) 수동 시나리오에 등장한 이력
+            scenario_hits = load_scenario_stocks_by_ticker(tk_norm)
+
+            if matched_issues:
+                issue_info += "\n[★ 오늘의 이슈 연관] 이 종목은 오늘 핫이슈와 직접 연관됨:\n  - " + "\n  - ".join(matched_issues[:3])
+            if scenario_hits:
+                sc_lines = [f"{s.get('scenario_keyword','')}({s.get('role','')})" for s in scenario_hits[:3]]
+                issue_info += f"\n[시나리오 등장 이력] {', '.join(sc_lines)} — 과거 시나리오 분석에서 주목받은 종목"
+            if not matched_issues and not scenario_hits:
+                issue_info = "\n[이슈 연관] 오늘 핫이슈·시나리오와 직접 연관성 낮음"
+        except Exception:
+            pass
+
+        info = info + tech_info + supply_info + learning_info + issue_info
 
         # 쉐도우 연관 리스크 감지 로직
         shadow_warning = ""
@@ -4022,6 +4048,52 @@ def analyze_entry_timing(source: str = "leading", market: str = "kr") -> dict:
         "buckets": result_buckets,
         "best_timing": best["label"] and best,
     }
+
+
+# ── 에이전트 일일 이슈/심리 자동 분석 ────────────────────────────────────────
+
+def analyze_agent_daily_issues() -> dict:
+    """매일 아침 자동 실행 — 오늘의 시장 핫이슈/테마/투자심리를 분석해 DB 저장.
+    에이전트 매매 판단 + 시나리오 탭 표시에 공용으로 사용.
+    뉴스 검색 1회만 사용 (하루 1~2회 호출이라 비용 최소).
+    """
+    from db import save_agent_daily_issues
+
+    news_text = ""
+    try:
+        news_text = get_market_news("general") or ""
+    except Exception:
+        pass
+
+    prompt = f"""당신은 한국·미국 주식시장을 함께 보는 시장 분석가입니다. 절대로 한자를 사용하지 마세요.
+아래 최신 뉴스를 바탕으로 '오늘 시장을 움직이는 핵심 이슈/테마'를 5~7개 추출하세요.
+각 이슈마다 그 이슈에 대한 투자자들의 심리(sentiment)와 관련 종목을 함께 정리하세요.
+
+=== 최신 뉴스 ===
+{news_text[:3000]}
+
+반드시 아래 JSON 형식으로만 응답하세요 (마크다운 없이):
+{{
+  "issues": [
+    {{
+      "title": "이슈 제목 (간결하게)",
+      "theme": "관련 테마/섹터 (예: AI반도체, 2차전지, 방산 등)",
+      "sentiment": "긍정 | 부정 | 혼조 중 하나 + 한줄 심리 설명 (예: '긍정 — 실적 기대감으로 매수세 유입')",
+      "related_tickers": ["관련 종목 티커 배열 (국내는 6자리, 미국은 심볼)"],
+      "summary": "이 이슈가 시장에 미치는 영향 1~2문장"
+    }}
+  ]
+}}"""
+
+    try:
+        response = _call_gemini(prompt, use_search=True, temperature=0.4, timeout_sec=90)
+        result = _parse_json_response(response)
+        issues = result.get("issues", []) if isinstance(result, dict) else []
+        if issues:
+            save_agent_daily_issues(issues)
+        return {"count": len(issues), "issues": issues}
+    except Exception as e:
+        return {"error": str(e), "count": 0, "issues": []}
 
 
 # ── 자금 회전(Capital Rotation) 어드바이저 ───────────────────────────────────

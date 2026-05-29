@@ -791,6 +791,67 @@ function IssuePanel({ issue }: { issue: Issue }) {
   );
 }
 
+// ── 에이전트 오늘의 이슈 패널 ─────────────────────────────────────────────────
+function AgentDailyIssuesPanel() {
+  const [refreshing, setRefreshing] = useState(false);
+  const { data, mutate } = useSWR(
+    "/backend/api/ai/agent-daily-issues?days=2",
+    (url: string) => fetch(url).then(r => r.json()),
+    { refreshInterval: 300000 }
+  );
+  const issues = data?.issues ?? [];
+
+  const refresh = async () => {
+    setRefreshing(true);
+    try {
+      await fetch("/backend/api/ai/agent-daily-issues/refresh", { method: "POST" });
+      await mutate();
+    } catch {}
+    setRefreshing(false);
+  };
+
+  const sentColor = (s: string) => {
+    if ((s ?? "").includes("긍정")) return "#34d399";
+    if ((s ?? "").includes("부정")) return "#f87171";
+    return "#fbbf24";
+  };
+
+  return (
+    <div className="stockcy-card" style={{ padding: "12px", display: "flex", flexDirection: "column", gap: "8px" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <div style={{ fontSize: "0.82rem", fontWeight: 800, color: "#a5b4fc" }}>🤖 에이전트 오늘의 이슈</div>
+        <button
+          onClick={refresh}
+          disabled={refreshing}
+          style={{ fontSize: "0.68rem", padding: "3px 8px", background: "rgba(99,102,241,0.15)", border: "1px solid rgba(99,102,241,0.35)", color: "#a5b4fc", borderRadius: "4px", fontWeight: 700, cursor: refreshing ? "wait" : "pointer" }}
+        >
+          {refreshing ? "분석 중..." : "갱신"}
+        </button>
+      </div>
+      <div style={{ fontSize: "0.66rem", color: "var(--color-muted)" }}>
+        에이전트가 매일 아침 자동 분석하는 이슈입니다. 이 종목 판단의 근거로도 쓰입니다.
+      </div>
+      {issues.length === 0 ? (
+        <div style={{ fontSize: "0.7rem", color: "var(--color-muted)", padding: "0.4rem 0" }}>
+          아직 분석된 이슈가 없습니다. "갱신"을 누르거나 평일 아침 자동 분석을 기다리세요.
+        </div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: "5px", maxHeight: "320px", overflowY: "auto" }}>
+          {issues.map((iss: any, i: number) => (
+            <div key={i} style={{ background: "rgba(255,255,255,0.02)", borderLeft: `3px solid ${sentColor(iss.sentiment)}`, borderRadius: "4px", padding: "6px 8px" }}>
+              <div style={{ fontSize: "0.74rem", fontWeight: 700, color: "var(--color-text)" }}>{iss.title}</div>
+              <div style={{ display: "flex", gap: "6px", marginTop: "2px", flexWrap: "wrap" }}>
+                {iss.theme && <span style={{ fontSize: "0.62rem", padding: "1px 5px", borderRadius: "3px", background: "rgba(99,102,241,0.12)", color: "#a5b4fc" }}>{iss.theme}</span>}
+                {iss.sentiment && <span style={{ fontSize: "0.62rem", color: sentColor(iss.sentiment) }}>{iss.sentiment}</span>}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── 시나리오 적중률 패널 ──────────────────────────────────────────────────────
 function ScenarioTrackingPanel() {
   const [running, setRunning] = useState(false);
@@ -1058,7 +1119,7 @@ function ScenariosPageInner() {
       );
       const searchedAt = new Date().toLocaleString("ko-KR", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false });
       const newIssue = { ...(result as Issue), isCustom: true as const, keyword, searchedAt };
-      const updated = [...customIssues, newIssue].slice(-6); // FIFO max 6
+      const updated = [...customIssues, newIssue].slice(-10); // FIFO max 10
       setCustomIssues(updated);
       localStorage.setItem(CUSTOM_KEY, JSON.stringify(updated));
       setRegionFilter("커스텀");
@@ -1233,7 +1294,7 @@ function ScenariosPageInner() {
             {/* 저장된 커스텀 이슈 목록 */}
             {customIssues.length > 0 && (
               <div style={{ display: "flex", flexDirection: "column", gap: "4px", marginTop: "4px" }}>
-                <div style={{ fontSize: "0.72rem", color: "var(--color-muted)", fontWeight: 700 }}>저장된 이슈 ({customIssues.length}/6)</div>
+                <div style={{ fontSize: "0.72rem", color: "var(--color-muted)", fontWeight: 700 }}>저장된 이슈 ({customIssues.length}/10)</div>
                 {customIssues.map((issue, i) => (
                   <div
                     key={i}
@@ -1266,6 +1327,9 @@ function ScenariosPageInner() {
               </div>
             )}
           </div>
+
+          {/* 에이전트 오늘의 이슈 */}
+          <AgentDailyIssuesPanel />
 
           {/* 시나리오 적중률 통계 */}
           <ScenarioTrackingPanel />

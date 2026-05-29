@@ -244,6 +244,19 @@ def init_local_db():
     """)
 
     cursor.execute("""
+        CREATE TABLE IF NOT EXISTS agent_daily_issues (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            issue_date TEXT,
+            title TEXT,
+            theme TEXT,
+            sentiment TEXT,
+            related_tickers TEXT,
+            summary TEXT,
+            created_at TEXT
+        )
+    """)
+
+    cursor.execute("""
         CREATE TABLE IF NOT EXISTS agent_decisions (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             decided_at TEXT,
@@ -2342,6 +2355,53 @@ def load_supply_flow_patterns() -> list:
         return rows
     except Exception as e:
         print(f"load_supply_flow_patterns error: {e}")
+        return []
+
+
+def save_agent_daily_issues(issues: list):
+    """에이전트가 매일 아침 분석한 핫이슈를 저장 (당일 기존 항목 교체). 최근 20일치만 유지."""
+    try:
+        conn = get_db_conn()
+        cursor = conn.cursor()
+        today = datetime.now().strftime("%Y-%m-%d")
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        cursor.execute("DELETE FROM agent_daily_issues WHERE issue_date = ?", (today,))
+        for iss in issues:
+            tickers = iss.get("related_tickers", [])
+            tickers_str = ",".join(str(t) for t in tickers) if isinstance(tickers, list) else str(tickers)
+            cursor.execute(
+                """INSERT INTO agent_daily_issues
+                   (issue_date, title, theme, sentiment, related_tickers, summary, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                (today, iss.get("title", ""), iss.get("theme", ""), iss.get("sentiment", ""),
+                 tickers_str, iss.get("summary", ""), now)
+            )
+        # 20일 이전 데이터 정리
+        cursor.execute(
+            "DELETE FROM agent_daily_issues WHERE issue_date < date('now', '-20 days')"
+        )
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"save_agent_daily_issues error: {e}")
+
+
+def load_agent_daily_issues(days: int = 3) -> list:
+    """최근 N일 에이전트 핫이슈 로드."""
+    try:
+        conn = get_db_conn()
+        cursor = conn.cursor()
+        cursor.execute(
+            f"""SELECT issue_date, title, theme, sentiment, related_tickers, summary
+                FROM agent_daily_issues
+                WHERE issue_date >= date('now', '-{int(days)} days')
+                ORDER BY issue_date DESC, id ASC"""
+        )
+        rows = [dict(r) for r in cursor.fetchall()]
+        conn.close()
+        return rows
+    except Exception as e:
+        print(f"load_agent_daily_issues error: {e}")
         return []
 
 

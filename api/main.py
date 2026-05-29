@@ -128,7 +128,51 @@ def start_price_cache():
     print("[KRX cache] 백그라운드 가격 캐시 스케줄러 시작")
 
 
-# ── 9. 일일 알림 자동 발송 스케줄러 ──────────────────────────────────────────
+# ── 9. 에이전트 일일 이슈 자동 분석 스케줄러 ─────────────────────────────────
+_LAST_ISSUE_DATE = ""
+
+def _daily_issue_loop():
+    """매일 07:50 KST에 오늘의 핫이슈/심리 자동 분석 (서버 시작 시 1회 즉시 실행)."""
+    global _LAST_ISSUE_DATE
+    import datetime as _dt
+    # 서버 시작 직후 1회 즉시 분석 (오늘 데이터 없으면)
+    try:
+        from db import load_agent_daily_issues
+        if not load_agent_daily_issues(days=0):
+            from ai_engine import analyze_agent_daily_issues
+            r = analyze_agent_daily_issues()
+            _LAST_ISSUE_DATE = _dt.datetime.now().strftime("%Y-%m-%d")
+            print(f"[daily issue] 서버 시작 시 분석 완료: {r.get('count',0)}개 이슈")
+    except Exception as e:
+        print(f"[daily issue] 시작 시 분석 오류: {e}")
+
+    while True:
+        try:
+            now = _dt.datetime.now()
+            today = now.strftime("%Y-%m-%d")
+            if (now.weekday() < 5
+                and now.hour == 7 and now.minute >= 50
+                and _LAST_ISSUE_DATE != today):
+                try:
+                    from ai_engine import analyze_agent_daily_issues
+                    r = analyze_agent_daily_issues()
+                    _LAST_ISSUE_DATE = today
+                    print(f"[daily issue] 분석 완료: {r.get('count',0)}개 이슈 ({today})")
+                except Exception as e:
+                    print(f"[daily issue] 오류: {e}")
+        except Exception:
+            pass
+        _time.sleep(300)   # 5분마다 체크
+
+
+@app.on_event("startup")
+def start_daily_issue_scheduler():
+    t = _threading.Thread(target=_daily_issue_loop, daemon=True)
+    t.start()
+    print("[daily issue] 에이전트 일일 이슈 분석 스케줄러 시작 (평일 07:50 + 시작 시 1회)")
+
+
+# ── 10. 일일 알림 자동 발송 스케줄러 ──────────────────────────────────────────
 _LAST_ALERT_DATE = ""
 
 def _daily_alert_loop():

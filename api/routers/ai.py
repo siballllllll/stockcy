@@ -1044,6 +1044,21 @@ async def get_screener_backtest_stats():
     return stats
 
 
+@router.get("/agent-daily-issues")
+async def get_agent_daily_issues(days: int = 2):
+    """에이전트가 자동 분석한 오늘의 핫이슈/심리 조회."""
+    from db import load_agent_daily_issues
+    issues = await asyncio.to_thread(load_agent_daily_issues, days)
+    return {"issues": issues}
+
+
+@router.post("/agent-daily-issues/refresh")
+async def refresh_agent_daily_issues():
+    """오늘의 이슈 즉시 재분석 (수동 트리거)."""
+    from ai_engine import analyze_agent_daily_issues
+    return await asyncio.to_thread(analyze_agent_daily_issues)
+
+
 @router.get("/agent-learning")
 async def get_agent_learning():
     """AI 에이전트 자기학습 요약 — 조건별 승률 규칙 (다른 AI 기능 공용)."""
