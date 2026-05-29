@@ -3784,39 +3784,57 @@ def screen_by_my_pattern() -> dict:
 
 # ── 시간대별 진입 타이밍 분석 ────────────────────────────────────────────────
 
-def analyze_entry_timing(source: str = "leading") -> dict:
-    """리딩방 거래의 매수 시간을 시간대별로 그룹화해 승률·평균 수익률 산출."""
+def analyze_entry_timing(source: str = "leading", market: str = "kr") -> dict:
+    """거래의 매수 시간을 시간대별로 그룹화해 승률·평균 수익률 산출.
+    market: 'kr'=국내장 시간대, 'us'=미국장 시간대(한국시간 기준)
+    """
     from db import get_db_conn
 
+    where_parts = []
     if source == "leading":
-        where = "WHERE LOWER(COALESCE(trade_source,'')) LIKE '%리딩방%'"
+        where_parts.append("LOWER(COALESCE(trade_source,'')) LIKE '%리딩방%'")
     elif source == "personal":
-        where = "WHERE UPPER(owner) IN ('USER','AI_AGENT') AND LOWER(COALESCE(trade_source,'')) NOT LIKE '%리딩방%'"
-    else:
-        where = "WHERE 1=1"
+        where_parts.append("UPPER(owner) IN ('USER','AI_AGENT') AND LOWER(COALESCE(trade_source,'')) NOT LIKE '%리딩방%'")
+
+    # 시장 필터 — KR은 숫자 티커, US는 알파벳 포함
+    if market == "us":
+        where_parts.append("ticker GLOB '*[A-Za-z]*'")
+    elif market == "kr":
+        where_parts.append("ticker NOT GLOB '*[A-Za-z]*'")
+
+    where = ("WHERE " + " AND ".join(where_parts) + " AND ") if where_parts else "WHERE "
 
     conn = get_db_conn()
     cursor = conn.cursor()
     cursor.execute(
         f"""SELECT buy_date, profit_pct, result
             FROM trade_history
-            {where}
-            AND buy_date IS NOT NULL AND TRIM(buy_date) != ''"""
+            {where} buy_date IS NOT NULL AND TRIM(buy_date) != ''"""
     )
     rows = [dict(r) for r in cursor.fetchall()]
     conn.close()
 
     if not rows:
-        return {"error": "거래 데이터 없음", "buckets": []}
+        return {"error": "거래 데이터 없음", "buckets": [], "market": market}
 
-    # 시간대 정의 (한국장 기준)
-    buckets = {
-        "장초반 (09:00-10:00)":   {"start": 9,  "end": 10, "trades": []},
-        "오전 (10:00-11:30)":     {"start": 10, "end": 11.5, "trades": []},
-        "점심 (11:30-13:00)":     {"start": 11.5, "end": 13, "trades": []},
-        "오후 (13:00-14:30)":     {"start": 13, "end": 14.5, "trades": []},
-        "장마감 (14:30-15:30)":   {"start": 14.5, "end": 15.5, "trades": []},
-    }
+    # 시간대 정의
+    if market == "us":
+        # 미국장 (한국시간 기준, 서머타임 평균)
+        buckets = {
+            "프리장 (22:00-23:30)":       {"start": 22, "end": 23.5, "trades": []},
+            "정규장 초반 (23:30-01:00)":  {"start": 23.5, "end": 25, "trades": []},
+            "정규장 중반 (01:00-04:00)":  {"start": 1, "end": 4, "trades": [], "is_us_mid": True},
+            "정규장 후반 (04:00-05:30)":  {"start": 4, "end": 5.5, "trades": []},
+            "장마감 (05:30-06:00)":       {"start": 5.5, "end": 6, "trades": []},
+        }
+    else:
+        buckets = {
+            "장초반 (09:00-10:00)":   {"start": 9,  "end": 10, "trades": []},
+            "오전 (10:00-11:30)":     {"start": 10, "end": 11.5, "trades": []},
+            "점심 (11:30-13:00)":     {"start": 11.5, "end": 13, "trades": []},
+            "오후 (13:00-14:30)":     {"start": 13, "end": 14.5, "trades": []},
+            "장마감 (14:30-15:30)":   {"start": 14.5, "end": 15.5, "trades": []},
+        }
 
     for r in rows:
         try:
@@ -3829,9 +3847,12 @@ def analyze_entry_timing(source: str = "leading") -> dict:
                 continue
             hour, minute = int(time_part[:2]), int(time_part[3:5])
             hour_float = hour + minute / 60.0
+            # 미국장 자정 넘어가는 정규장 초반(23:30-01:00) 매칭용: 0~1시는 24~25로 처리
+            adj_hour = hour_float + 24 if (market == "us" and hour_float < 22) else hour_float
 
             for label, b in buckets.items():
-                if b["start"] <= hour_float < b["end"]:
+                in_bucket = b["start"] <= adj_hour < b["end"] or b["start"] <= hour_float < b["end"]
+                if in_bucket:
                     b["trades"].append({
                         "profit_pct": float(r.get("profit_pct", 0) or 0),
                         "result": r.get("result", "")
@@ -3863,6 +3884,7 @@ def analyze_entry_timing(source: str = "leading") -> dict:
 
     return {
         "source": source,
+        "market": market,
         "total_trades": len(rows),
         "buckets": result_buckets,
         "best_timing": best["label"] and best,
@@ -3872,10 +3894,13 @@ def analyze_entry_timing(source: str = "leading") -> dict:
 # ── 패턴 스크리너 백테스트 ────────────────────────────────────────────────────
 
 def backtest_screener_picks() -> dict:
-    """screener_picks 테이블의 모든 추천 종목에 대해 +1/+3/+7일 가격을 조회해 사후 성과 통계를 만듭니다."""
+    """screener_picks 테이블의 모든 추천 종목에 대해 +1/+3/+7일 가격을 조회해 사후 성과 통계를 만듭니다.
+    국내(숫자 티커)는 FDR, 미국(알파벳 티커)은 yfinance 사용.
+    """
     from db import get_db_conn, save_backtest_result, load_backtest_stats
     from datetime import datetime, timedelta
     import FinanceDataReader as fdr
+    import yfinance as yf
 
     conn = get_db_conn()
     cursor = conn.cursor()
@@ -3905,12 +3930,21 @@ def backtest_screener_picks() -> dict:
             skipped_too_recent += 1
             continue
 
-        ticker = str(pick["ticker"]).strip().zfill(6)
+        raw_ticker = str(pick["ticker"]).strip()
+        is_us = any(c.isalpha() for c in raw_ticker)
+        ticker = raw_ticker.upper() if is_us else raw_ticker.zfill(6)
+
         try:
-            # FDR로 추천일~추천일+8일 일봉 조회
             end_date = (picked + timedelta(days=10)).strftime("%Y-%m-%d")
             start_date = picked.strftime("%Y-%m-%d")
-            df = fdr.DataReader(ticker, start_date, end_date)
+            if is_us:
+                df = yf.download(ticker, start=start_date, end=end_date, progress=False, timeout=10)
+                if not df.empty and "Close" in df.columns:
+                    pass
+                else:
+                    continue
+            else:
+                df = fdr.DataReader(ticker, start_date, end_date)
             if df.empty or len(df) < 2:
                 continue
 
@@ -4012,6 +4046,114 @@ def build_supply_flow_patterns() -> dict:
 
 
 # ── ③ 실시간 수급 이동 감지 ──────────────────────────────────────────────────
+
+def detect_us_supply_rotation() -> dict:
+    """미국 주식 수급 분석 — 즐겨찾기·보유 종목의 yfinance institutional/insider/volume 데이터 기반."""
+    import yfinance as yf
+    from db import get_db_conn
+
+    # 사용자 보유 + 즐겨찾기 미국 종목 수집
+    conn = get_db_conn()
+    cursor = conn.cursor()
+    tickers = set()
+    try:
+        for row in cursor.execute("SELECT ticker FROM portfolio").fetchall():
+            t = str(row["ticker"]).strip()
+            if t and any(c.isalpha() for c in t):
+                tickers.add(t.upper())
+        for row in cursor.execute("SELECT ticker FROM favorites").fetchall():
+            t = str(row["ticker"]).strip()
+            if t and any(c.isalpha() for c in t):
+                tickers.add(t.upper())
+    except Exception:
+        pass
+    conn.close()
+
+    # 부족 시 메이저 미국 종목으로 보강
+    fallback = ["AAPL", "MSFT", "NVDA", "GOOGL", "AMZN", "META", "TSLA",
+                "AMD", "AVGO", "TSM", "PLTR", "COIN", "MSTR"]
+    for t in fallback:
+        if len(tickers) >= 15:
+            break
+        tickers.add(t)
+
+    if not tickers:
+        return {"error": "분석할 미국 종목 없음 (포트폴리오·즐겨찾기에 미국 종목 추가 필요)"}
+
+    # yfinance로 종목별 데이터 수집 (병렬화)
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    def _fetch(t):
+        try:
+            tk = yf.Ticker(t)
+            info = tk.info or {}
+            hist = tk.history(period="10d")
+            recent_vol = float(hist["Volume"].iloc[-1]) if not hist.empty else 0
+            avg_vol = float(hist["Volume"].iloc[-6:-1].mean()) if len(hist) >= 6 else recent_vol
+            vol_ratio = round(recent_vol / avg_vol, 2) if avg_vol > 0 else 1.0
+            price = float(hist["Close"].iloc[-1]) if not hist.empty else 0
+            prev = float(hist["Close"].iloc[-2]) if len(hist) >= 2 else price
+            chg_pct = round((price - prev) / prev * 100, 2) if prev > 0 else 0
+            return {
+                "ticker": t,
+                "name": info.get("shortName") or info.get("longName") or t,
+                "price": price,
+                "change_pct": chg_pct,
+                "vol_ratio": vol_ratio,
+                "institutional_pct": round(float(info.get("heldPercentInstitutions") or 0) * 100, 1),
+                "insider_pct": round(float(info.get("heldPercentInsiders") or 0) * 100, 1),
+                "float_short_pct": round(float(info.get("shortPercentOfFloat") or 0) * 100, 2),
+                "sector": info.get("sector", ""),
+            }
+        except Exception as e:
+            return {"ticker": t, "error": str(e)[:80]}
+
+    results = []
+    with ThreadPoolExecutor(max_workers=8) as ex:
+        for fut in as_completed([ex.submit(_fetch, t) for t in tickers]):
+            r = fut.result()
+            if r and "error" not in r:
+                results.append(r)
+
+    # 거래량 급증 (vol_ratio > 1.5) 종목 우선 정렬
+    results.sort(key=lambda r: (-r["vol_ratio"], -abs(r["change_pct"])))
+    top = results[:12]
+
+    def _fmt(items):
+        return "\n".join(
+            f"- {s['name']}({s['ticker']}): 등락 {s['change_pct']:+.2f}% / 거래량 {s['vol_ratio']}배 / "
+            f"기관 보유 {s['institutional_pct']}% / 내부자 {s['insider_pct']}% / 공매도 {s['float_short_pct']}% / {s['sector']}"
+            for s in items
+        ) or "(데이터 없음)"
+
+    prompt = f"""당신은 미국 주식 수급 분석 전문가입니다. 절대로 한자를 사용하지 마세요.
+아래는 분석 대상 미국 종목의 실시간 가격 변화 + 거래량 비율 + 기관/내부자 보유 비율 + 공매도 비중입니다.
+
+=== 분석 대상 (거래량 급증 순) ===
+{_fmt(top)}
+
+다음 5가지를 분석해주세요:
+
+1. **기관 진입 의심 종목** — 기관 보유 비중이 높으면서(>60%) 거래량 급증(>1.5배) + 양봉 → 기관 추가 매수 신호
+2. **공매도 압박 종목** — 공매도 비중 높고(>10%) 거래량 급증 → Short Squeeze 가능성
+3. **내부자 매수 신호** — 내부자 보유 비중이 의미 있는 수준(>3%)이면서 거래량 동반 → CEO/임원 매수 가능성
+4. **세력 이동 시나리오** — 어느 섹터/테마에서 다른 곳으로 자금이 옮겨가는지
+5. **주의 종목** — 가짜 수급(거래량만 폭증, 기관 보유 낮음) 또는 펀더멘털 미반영 종목
+
+실전 투자자가 바로 활용할 수 있게 구체적으로 답해주세요."""
+
+    try:
+        response = _call_gemini(prompt, use_search=False, temperature=0.5, timeout_sec=90)
+        raw = response.text if hasattr(response, "text") and response.text else str(response)
+        narrative = _strip_hanja(raw)
+    except Exception as e:
+        narrative = f"AI 분석 오류: {str(e)}"
+
+    return {
+        "narrative": narrative,
+        "stocks": top,
+        "analyzed_count": len(results),
+    }
+
 
 def detect_realtime_supply_rotation() -> dict:
     """오늘의 거래량·등락률 데이터 + 뉴스 + 과거 수급 패턴으로 실시간 수급 이동을 분석합니다."""

@@ -271,6 +271,8 @@ def init_local_db():
         "ALTER TABLE trade_history ADD COLUMN trade_type TEXT DEFAULT '실매매'",
         "ALTER TABLE trade_history ADD COLUMN buy_date TEXT DEFAULT ''",
         "ALTER TABLE trade_history ADD COLUMN screener_matched INTEGER DEFAULT 0",
+        "ALTER TABLE screener_picks ADD COLUMN market TEXT DEFAULT 'kr'",
+        "ALTER TABLE screener_backtest_results ADD COLUMN market TEXT DEFAULT 'kr'",
     ]:
         try:
             cursor.execute(migration)

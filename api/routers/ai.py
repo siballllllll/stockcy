@@ -1015,10 +1015,10 @@ async def get_screener_backtest_stats():
 
 
 @router.get("/entry-timing")
-async def get_entry_timing(source: str = "leading"):
-    """시간대별 진입 타이밍 통계 (source: leading/personal/all)."""
+async def get_entry_timing(source: str = "leading", market: str = "kr"):
+    """시간대별 진입 타이밍 통계 (source: leading/personal/all, market: kr/us)."""
     from ai_engine import analyze_entry_timing
-    result = await asyncio.to_thread(analyze_entry_timing, source)
+    result = await asyncio.to_thread(analyze_entry_timing, source, market)
     return result
 
 
@@ -1058,6 +1058,22 @@ async def supply_rotation_detect():
         yield _sse({"status": "running", "message": "📡 실시간 시장 데이터 수집 중..."})
         try:
             result = await asyncio.to_thread(detect_realtime_supply_rotation)
+            yield _sse({"status": "done", "result": result})
+        except Exception as e:
+            yield _sse({"status": "error", "message": str(e)})
+
+    return _sse_response(_gen())
+
+
+@router.post("/supply-rotation-detect/us")
+async def supply_rotation_detect_us():
+    """미국 주식 수급 이동 감지 — yfinance institutional/insider/volume 기반 (SSE)."""
+    from ai_engine import detect_us_supply_rotation
+
+    async def _gen():
+        yield _sse({"status": "running", "message": "📡 미국 종목 yfinance 데이터 수집 중..."})
+        try:
+            result = await asyncio.to_thread(detect_us_supply_rotation)
             yield _sse({"status": "done", "result": result})
         except Exception as e:
             yield _sse({"status": "error", "message": str(e)})
