@@ -223,11 +223,25 @@ def kr_daily_chart(
 
 @router.get("/stocks-bulk")
 def kr_stocks_bulk(codes: str = Query(..., description="콤마로 구분된 종목코드 목록")):
-    """국내 종목 복수 시세 일괄 조회."""
+    """국내 종목 복수 시세 일괄 조회 (GET — 소량용)."""
     fns = _kr()
-    # get_kr_prices_bulk expects tuples of (code, yf_ticker)
-    # Since suffix isn't provided here, fallback to .KS (KIS API works regardless)
     code_list = tuple((c.strip(), c.strip() + ".KS") for c in codes.split(",") if c.strip())
+    try:
+        result = fns["prices_bulk"](code_list)
+        return result or {}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+from pydantic import BaseModel as _BaseModel
+class _BulkCodesBody(_BaseModel):
+    codes: list[str]
+
+@router.post("/stocks-bulk")
+def kr_stocks_bulk_post(body: _BulkCodesBody):
+    """국내 종목 복수 시세 일괄 조회 (POST — 대량 코드 지원, 431 방지)."""
+    fns = _kr()
+    code_list = tuple((c.strip(), c.strip() + ".KS") for c in body.codes if c.strip())
     try:
         result = fns["prices_bulk"](code_list)
         return result or {}
