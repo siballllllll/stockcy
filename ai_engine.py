@@ -3904,9 +3904,10 @@ def analyze_entry_timing(source: str = "leading", market: str = "kr") -> dict:
 
 # ── 자금 회전(Capital Rotation) 어드바이저 ───────────────────────────────────
 
-def analyze_capital_rotation(owner: str = "USER") -> dict:
+def analyze_capital_rotation(owner: str = "USER", target_ticker: str = "") -> dict:
     """보유 종목별로 '홀딩 / 차익실현+재진입 / 다른 섹터 로테이션' 판단.
     보유 종목 지표 + 패턴 프로파일(성공 RSI 구간) + 수급 유입 후보를 종합해 Gemini가 판단.
+    target_ticker 지정 시 해당 종목만 분석.
     """
     import requests as req_lib
     from db import load_portfolio_from_gsheet, load_pattern_profile
@@ -3915,6 +3916,18 @@ def analyze_capital_rotation(owner: str = "USER") -> dict:
     portfolio = load_portfolio_from_gsheet(owner)
     if not portfolio:
         return {"error": "보유 종목이 없습니다. 포트폴리오에 종목을 먼저 추가하세요."}
+
+    # 단일 종목 모드 — 해당 종목만 필터
+    if target_ticker:
+        tt = str(target_ticker).strip()
+        tt_norm = tt.zfill(6) if tt.isdigit() else tt.upper()
+        portfolio = [
+            p for p in portfolio
+            if str(p.get("ticker", "")).strip().zfill(6) == tt_norm
+            or str(p.get("ticker", "")).strip().upper() == tt_norm
+        ]
+        if not portfolio:
+            return {"error": f"보유 종목 중 {target_ticker}을(를) 찾을 수 없습니다."}
 
     # 2. 각 보유 종목 현재 지표 수집
     holdings = []

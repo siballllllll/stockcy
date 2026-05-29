@@ -1045,14 +1045,15 @@ async def get_screener_backtest_stats():
 
 
 @router.post("/capital-rotation")
-async def capital_rotation():
-    """보유 종목 자금 회전 분석 — 홀딩/차익실현/로테이션 판단 (SSE)."""
+async def capital_rotation(ticker: str = ""):
+    """보유 종목 자금 회전 분석 — 홀딩/차익실현/로테이션 판단 (SSE). ticker 지정 시 단일 종목."""
     from ai_engine import analyze_capital_rotation
 
     async def _gen():
-        yield _sse({"status": "running", "message": "💼 보유 종목 지표 + 수급 데이터 분석 중..."})
+        msg = f"💼 {ticker} 진단 중..." if ticker else "💼 보유 종목 지표 + 수급 데이터 분석 중..."
+        yield _sse({"status": "running", "message": msg})
         try:
-            result = await asyncio.to_thread(analyze_capital_rotation, "USER")
+            result = await asyncio.to_thread(analyze_capital_rotation, "USER", ticker)
             if "error" in result:
                 yield _sse({"status": "error", "message": result["error"]})
             else:

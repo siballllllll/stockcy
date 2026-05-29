@@ -338,18 +338,22 @@ function AddPortfolioForm({ onAdded }: { onAdded: () => void }) {
 }
 
 // ── 자금 회전 분석 카드 ────────────────────────────────────────────────────────
-function CapitalRotationCard() {
+function CapitalRotationCard({ singleTicker, singleName, onClose }: { singleTicker?: string; singleName?: string; onClose?: () => void } = {}) {
+  const isSingle = !!singleTicker;
   const [status, setStatus] = useState<"idle" | "loading" | "done" | "error">("idle");
   const [statusMsg, setStatusMsg] = useState("");
   const [result, setResult] = useState<any>(null);
 
   const run = async () => {
     setStatus("loading");
-    setStatusMsg("보유 종목 + 수급 데이터 분석 중...");
+    setStatusMsg(isSingle ? `${singleName ?? singleTicker} 진단 중...` : "보유 종목 + 수급 데이터 분석 중...");
     setResult(null);
     try {
+      const path = isSingle
+        ? `/api/ai/capital-rotation?ticker=${encodeURIComponent(singleTicker!)}`
+        : "/api/ai/capital-rotation";
       await connectSSE(
-        "/api/ai/capital-rotation",
+        path,
         (evt) => {
           if (evt.status === "running") setStatusMsg(evt.message ?? "분석 중...");
           else if (evt.status === "done") { setResult(evt.result); setStatus("done"); }
@@ -363,6 +367,12 @@ function CapitalRotationCard() {
     }
   };
 
+  // 단일 종목 모드는 마운트 시 자동 실행
+  useEffect(() => {
+    if (isSingle) run();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [singleTicker]);
+
   const decisionStyle = (d: string) => {
     if (d === "TAKE_PROFIT") return { bg: "rgba(239,68,68,0.1)", border: "rgba(239,68,68,0.35)", color: "#f87171" };
     if (d === "ROTATE")      return { bg: "rgba(168,85,247,0.1)", border: "rgba(168,85,247,0.35)", color: "#c084fc" };
@@ -373,20 +383,35 @@ function CapitalRotationCard() {
     <div style={{ background: "rgba(99,102,241,0.05)", border: "1px solid rgba(99,102,241,0.2)", borderRadius: "10px", padding: "1rem 1.2rem", display: "flex", flexDirection: "column", gap: "0.75rem" }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
         <div style={{ fontSize: "0.85rem", fontWeight: 800, color: "#a5b4fc", display: "flex", alignItems: "center", gap: "0.4rem" }}>
-          🔄 자금 회전 분석
+          🔄 자금 회전 분석 {isSingle && <span style={{ color: "var(--color-text)" }}>— {singleName ?? singleTicker}</span>}
         </div>
-        <button
-          className="stockcy-btn stockcy-btn-primary"
-          onClick={run}
-          disabled={status === "loading"}
-          style={{ fontSize: "0.75rem", padding: "5px 12px", fontWeight: 700 }}
-        >
-          {status === "loading" ? <><Loader2 className="animate-spin" size={13} /> 분석 중...</> : "보유 종목 진단"}
-        </button>
+        {isSingle ? (
+          <div style={{ display: "flex", gap: "6px" }}>
+            <button className="stockcy-btn stockcy-btn-secondary" onClick={run} disabled={status === "loading"} style={{ fontSize: "0.72rem", padding: "4px 10px" }}>
+              {status === "loading" ? <><Loader2 className="animate-spin" size={12} /> 분석 중</> : <><RefreshCw size={12} /> 재분석</>}
+            </button>
+            {onClose && (
+              <button className="stockcy-btn stockcy-btn-secondary" onClick={onClose} style={{ fontSize: "0.72rem", padding: "4px 8px" }}>
+                <X size={13} />
+              </button>
+            )}
+          </div>
+        ) : (
+          <button
+            className="stockcy-btn stockcy-btn-primary"
+            onClick={run}
+            disabled={status === "loading"}
+            style={{ fontSize: "0.75rem", padding: "5px 12px", fontWeight: 700 }}
+          >
+            {status === "loading" ? <><Loader2 className="animate-spin" size={13} /> 분석 중...</> : "전체 보유 종목 진단"}
+          </button>
+        )}
       </div>
-      <div style={{ fontSize: "0.72rem", color: "var(--color-muted)" }}>
-        보유 종목이 과열·소화 구간인지, 다른 수급 유입 종목으로 잠시 자금을 돌릴지 AI가 판단합니다. (참고용)
-      </div>
+      {!isSingle && (
+        <div style={{ fontSize: "0.72rem", color: "var(--color-muted)" }}>
+          보유 종목이 과열·소화 구간인지, 다른 수급 유입 종목으로 잠시 자금을 돌릴지 AI가 판단합니다. (참고용)
+        </div>
+      )}
       {status === "loading" && <div style={{ fontSize: "0.75rem", color: "var(--color-muted)" }}>{statusMsg}</div>}
       {status === "error" && <StatusBox type="danger">{statusMsg}</StatusBox>}
 
@@ -439,6 +464,9 @@ function CapitalRotationCard() {
 // ── 보유 종목 탭 ──────────────────────────────────────────────────────────────
 function PortfolioTab({ gapBulkMap }: { gapBulkMap: Record<string, any> }) {
   const { data: portfolio, isLoading, mutate } = useSWR<any[]>("/api/portfolio", () => api.portfolio.loadPortfolio() as Promise<any[]>);
+
+  // 단일 종목 자금 회전 분석 대상
+  const [rotationTarget, setRotationTarget] = useState<{ ticker: string; name: string } | null>(null);
 
   // KR/US 종목 분류 (1~6자리 숫자 = KR, 6자리로 패딩)
   const isKrCode  = (t: string) => /^\d{1,6}$/.test(String(t).trim());
@@ -670,7 +698,17 @@ function PortfolioTab({ gapBulkMap }: { gapBulkMap: Record<string, any> }) {
         </div>
       )}
 
-      {/* 자금 회전 분석 */}
+      {/* 자금 회전 분석 — 단일 종목 (행에서 🔄 클릭 시) */}
+      {rotationTarget && (
+        <CapitalRotationCard
+          key={rotationTarget.ticker}
+          singleTicker={rotationTarget.ticker}
+          singleName={rotationTarget.name}
+          onClose={() => setRotationTarget(null)}
+        />
+      )}
+
+      {/* 자금 회전 분석 — 전체 */}
       {portfolio && portfolio.length > 0 && <CapitalRotationCard />}
 
       {!portfolio || portfolio.length === 0 ? (
@@ -772,6 +810,10 @@ function PortfolioTab({ gapBulkMap }: { gapBulkMap: Record<string, any> }) {
                   <div style={{ display: "flex", gap: "4px", flexWrap: "wrap" }}>
                     <button className="stockcy-btn stockcy-btn-secondary" style={{ padding: "2px 6px", fontSize: "0.7rem" }} title={p.hasPrice ? "AI 매도 타이밍" : "현재가 로딩 중"} disabled={!p.hasPrice} onClick={() => openSellAnalysis(p)}>
                       AI
+                    </button>
+                    <button className="stockcy-btn stockcy-btn-secondary" style={{ padding: "2px 6px", fontSize: "0.7rem" }} title="자금 회전 진단 (홀딩/차익실현/로테이션)"
+                      onClick={() => setRotationTarget({ ticker: p.normalTicker || p.ticker, name: p.name || p.ticker })}>
+                      🔄
                     </button>
                     <button className="stockcy-btn stockcy-btn-secondary" style={{ padding: "2px 6px", fontSize: "0.7rem" }} title="편집"
                       onClick={() => { setEditTicker(isEditing ? null : p.ticker); setEditPrice(String(p.buy_price)); setEditQty(String(p.quantity)); setEditSource((p.trade_source as "리딩방" | "개인") || "개인"); setEditType((p.trade_type as "실매매" | "테스트") || "실매매"); }}>
