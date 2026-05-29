@@ -3915,7 +3915,8 @@ def detect_realtime_supply_rotation() -> dict:
 
     try:
         response = _call_gemini(prompt, use_search=True, temperature=0.5, timeout_sec=90)
-        narrative = _strip_hanja(response.text if hasattr(response, "text") else str(response))
+        raw = response.text if hasattr(response, "text") and response.text else str(response)
+        narrative = _strip_hanja(raw)
     except Exception as e:
         narrative = f"AI 분석 오류: {str(e)}"
 
