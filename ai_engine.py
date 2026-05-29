@@ -3782,6 +3782,93 @@ def screen_by_my_pattern() -> dict:
     }
 
 
+# ── 시간대별 진입 타이밍 분석 ────────────────────────────────────────────────
+
+def analyze_entry_timing(source: str = "leading") -> dict:
+    """리딩방 거래의 매수 시간을 시간대별로 그룹화해 승률·평균 수익률 산출."""
+    from db import get_db_conn
+
+    if source == "leading":
+        where = "WHERE LOWER(COALESCE(trade_source,'')) LIKE '%리딩방%'"
+    elif source == "personal":
+        where = "WHERE UPPER(owner) IN ('USER','AI_AGENT') AND LOWER(COALESCE(trade_source,'')) NOT LIKE '%리딩방%'"
+    else:
+        where = "WHERE 1=1"
+
+    conn = get_db_conn()
+    cursor = conn.cursor()
+    cursor.execute(
+        f"""SELECT buy_date, profit_pct, result
+            FROM trade_history
+            {where}
+            AND buy_date IS NOT NULL AND TRIM(buy_date) != ''"""
+    )
+    rows = [dict(r) for r in cursor.fetchall()]
+    conn.close()
+
+    if not rows:
+        return {"error": "거래 데이터 없음", "buckets": []}
+
+    # 시간대 정의 (한국장 기준)
+    buckets = {
+        "장초반 (09:00-10:00)":   {"start": 9,  "end": 10, "trades": []},
+        "오전 (10:00-11:30)":     {"start": 10, "end": 11.5, "trades": []},
+        "점심 (11:30-13:00)":     {"start": 11.5, "end": 13, "trades": []},
+        "오후 (13:00-14:30)":     {"start": 13, "end": 14.5, "trades": []},
+        "장마감 (14:30-15:30)":   {"start": 14.5, "end": 15.5, "trades": []},
+    }
+
+    for r in rows:
+        try:
+            bd_str = str(r["buy_date"])
+            if "T" in bd_str:
+                time_part = bd_str.split("T")[1]
+            elif " " in bd_str:
+                time_part = bd_str.split(" ")[1]
+            else:
+                continue
+            hour, minute = int(time_part[:2]), int(time_part[3:5])
+            hour_float = hour + minute / 60.0
+
+            for label, b in buckets.items():
+                if b["start"] <= hour_float < b["end"]:
+                    b["trades"].append({
+                        "profit_pct": float(r.get("profit_pct", 0) or 0),
+                        "result": r.get("result", "")
+                    })
+                    break
+        except Exception:
+            continue
+
+    result_buckets = []
+    best = {"label": None, "win_rate": -1, "avg_pct": 0}
+    for label, b in buckets.items():
+        trades = b["trades"]
+        cnt = len(trades)
+        if cnt == 0:
+            result_buckets.append({"label": label, "count": 0, "win_rate": 0, "avg_pct": 0})
+            continue
+        wins = sum(1 for t in trades if t["profit_pct"] > 0)
+        win_rate = round(wins / cnt * 100, 1)
+        avg_pct = round(sum(t["profit_pct"] for t in trades) / cnt, 2)
+        result_buckets.append({
+            "label": label,
+            "count": cnt,
+            "win_rate": win_rate,
+            "avg_pct": avg_pct,
+        })
+        # 거래 3건 이상인 시간대 중 승률 최고
+        if cnt >= 3 and win_rate > best["win_rate"]:
+            best = {"label": label, "win_rate": win_rate, "avg_pct": avg_pct, "count": cnt}
+
+    return {
+        "source": source,
+        "total_trades": len(rows),
+        "buckets": result_buckets,
+        "best_timing": best["label"] and best,
+    }
+
+
 # ── 패턴 스크리너 백테스트 ────────────────────────────────────────────────────
 
 def backtest_screener_picks() -> dict:

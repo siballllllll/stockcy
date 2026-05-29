@@ -10,6 +10,77 @@ import { StockModal } from "@/components/ui/StockModal";
 import type { StockInfo } from "@/components/ui/StockModal";
 import useSWR from "swr";
 
+function EntryTimingStats() {
+  const [source, setSource] = useState<"leading" | "personal">("leading");
+  const { data } = useSWR(
+    `/backend/api/ai/entry-timing?source=${source}`,
+    (url: string) => fetch(url).then(r => r.json()),
+    { revalidateOnFocus: false }
+  );
+
+  if (!data || data.error || !data.buckets) {
+    return (
+      <div style={{ background: "rgba(251,146,60,0.05)", border: "1px solid rgba(251,146,60,0.2)", borderRadius: "10px", padding: "1rem 1.2rem" }}>
+        <div style={{ fontSize: "0.78rem", fontWeight: 700, color: "#fb923c", marginBottom: "0.5rem" }}>⏰ 시간대별 진입 타이밍</div>
+        <div style={{ fontSize: "0.75rem", color: "var(--color-muted)" }}>{data?.error ?? "데이터 로딩 중..."}</div>
+      </div>
+    );
+  }
+
+  const buckets = data.buckets ?? [];
+  const best = data.best_timing;
+  const maxCount = Math.max(...buckets.map((b: any) => b.count), 1);
+
+  return (
+    <div style={{ background: "rgba(251,146,60,0.05)", border: "1px solid rgba(251,146,60,0.2)", borderRadius: "10px", padding: "1rem 1.2rem", display: "flex", flexDirection: "column", gap: "0.75rem" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <div style={{ fontSize: "0.78rem", fontWeight: 700, color: "#fb923c", display: "flex", alignItems: "center", gap: "0.4rem" }}>
+          ⏰ 시간대별 진입 타이밍 분석 ({data.total_trades}건)
+        </div>
+        <div style={{ display: "flex", gap: "3px" }}>
+          {(["leading", "personal"] as const).map((s) => (
+            <button
+              key={s}
+              onClick={() => setSource(s)}
+              style={{ fontSize: "0.65rem", padding: "3px 8px", borderRadius: "4px", border: "1px solid", borderColor: source === s ? "rgba(251,146,60,0.5)" : "rgba(255,255,255,0.08)", background: source === s ? "rgba(251,146,60,0.15)" : "transparent", color: source === s ? "#fb923c" : "var(--color-muted)", fontWeight: 700, cursor: "pointer" }}
+            >
+              {s === "leading" ? "리딩방" : "개인"}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {best && best.label && (
+        <div style={{ background: "rgba(251,146,60,0.1)", border: "1px solid rgba(251,146,60,0.3)", borderRadius: "6px", padding: "0.5rem 0.75rem", fontSize: "0.78rem", color: "#fbbf24" }}>
+          🏆 <b>최고 승률 시간대:</b> {best.label} — 승률 {best.win_rate}% / 평균 {best.avg_pct >= 0 ? "+" : ""}{best.avg_pct}% ({best.count}건)
+        </div>
+      )}
+
+      <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
+        {buckets.map((b: any) => {
+          const widthPct = (b.count / maxCount) * 100;
+          const c = b.avg_pct > 0 ? "#34d399" : b.avg_pct < 0 ? "#f87171" : "var(--color-muted)";
+          return (
+            <div key={b.label} style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "0.72rem" }}>
+              <div style={{ minWidth: "150px", color: "var(--color-muted)" }}>{b.label}</div>
+              <div style={{ flex: 1, height: "18px", background: "rgba(255,255,255,0.03)", borderRadius: "4px", position: "relative", overflow: "hidden" }}>
+                <div style={{ width: `${widthPct}%`, height: "100%", background: "rgba(251,146,60,0.25)" }} />
+                <span style={{ position: "absolute", left: "6px", top: "1px", fontSize: "0.65rem", color: "var(--color-text)", lineHeight: "16px" }}>{b.count}건</span>
+              </div>
+              <div style={{ minWidth: "60px", textAlign: "right", color: c, fontWeight: 700 }}>
+                {b.win_rate > 0 ? `${b.win_rate}%` : "-"}
+              </div>
+              <div style={{ minWidth: "60px", textAlign: "right", color: c, fontWeight: 700 }}>
+                {b.avg_pct !== 0 ? `${b.avg_pct >= 0 ? "+" : ""}${b.avg_pct}%` : "-"}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function BacktestStats() {
   const [running, setRunning] = useState(false);
   const [msg, setMsg] = useState("");
@@ -449,6 +520,7 @@ export default function Dashboard() {
               )}
 
               <BacktestStats />
+              <EntryTimingStats />
               <ScreenerFeedbackStats />
             </div>
           )}
@@ -527,6 +599,8 @@ export default function Dashboard() {
                   <div style={{ fontSize: "0.87rem", color: "var(--color-text)", lineHeight: 1.85, whiteSpace: "pre-wrap" }}>{data.narrative}</div>
                 </div>
               )}
+
+              <EntryTimingStats />
             </div>
           )}
         </SSEPanel>

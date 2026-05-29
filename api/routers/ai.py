@@ -1014,6 +1014,14 @@ async def get_screener_backtest_stats():
     return stats
 
 
+@router.get("/entry-timing")
+async def get_entry_timing(source: str = "leading"):
+    """시간대별 진입 타이밍 통계 (source: leading/personal/all)."""
+    from ai_engine import analyze_entry_timing
+    result = await asyncio.to_thread(analyze_entry_timing, source)
+    return result
+
+
 @router.post("/pattern-profile/build")
 async def build_pattern_profile_endpoint():
     """패턴 프로파일(전체/개인/리딩방) + 수급 흐름 패턴을 즉시 재빌드합니다."""
