@@ -593,6 +593,11 @@ export default function Dashboard() {
                                 📋 시나리오 {p.scenario_count}건
                               </span>
                             )}
+                            {p.agent_adjust != null && p.agent_adjust !== 0 && (
+                              <span style={{ fontSize: "0.72rem", padding: "2px 7px", borderRadius: "6px", background: p.agent_adjust > 0 ? "rgba(16,185,129,0.15)" : "rgba(239,68,68,0.15)", border: `1px solid ${p.agent_adjust > 0 ? "rgba(16,185,129,0.3)" : "rgba(239,68,68,0.3)"}`, color: p.agent_adjust > 0 ? "#34d399" : "#f87171", fontWeight: 700 }} title={`AI 자기학습 보정: ${p.agent_label}`}>
+                                🧠 {p.agent_adjust > 0 ? "+" : ""}{p.agent_adjust}
+                              </span>
+                            )}
                           </div>
 
                           {/* 액션 버튼 */}

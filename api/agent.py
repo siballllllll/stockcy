@@ -286,14 +286,31 @@ async def ai_trading_loop():
                 except Exception as e:
                     logger.error(f"Failed to fetch US change ranking: {e}")
             
+            # 2. AI의 현재 포트폴리오(보유 종목) 조회
+            ai_portfolio = load_portfolio_from_gsheet(owner=AI_OWNER_NAME)
+            ai_holdings = {p["ticker"]: p for p in ai_portfolio}
+
+            # ★ 보유 종목을 스캔 유니버스 최우선으로 강제 편입 (매도 판단 기회 보장)
+            #   기존엔 보유 종목이 핫종목/즐겨찾기에 없으면 평가조차 안 돼 영영 HOLD되는 버그가 있었음
+            holding_universe = []
+            for tk, hp in ai_holdings.items():
+                if tk in seen_tickers:
+                    continue
+                seen_tickers.add(tk)
+                is_kr_tk = str(tk).strip().isdigit()
+                holding_universe.append({
+                    "티커": tk,
+                    "종목명": hp.get("name", tk),
+                    "시장": "국내" if is_kr_tk else "미국",
+                    "source": "HOLDING",
+                })
+            # 보유 종목을 맨 앞에 배치 (우선 평가)
+            scan_universe = holding_universe + scan_universe
+
             if not scan_universe:
                 logger.info("AI Agent: 스캔할 감시 대상 종목이 없습니다. 대기...")
                 await asyncio.sleep(INTERVAL_SECONDS)
                 continue
-                
-            # 2. AI의 현재 포트폴리오(보유 종목) 조회
-            ai_portfolio = load_portfolio_from_gsheet(owner=AI_OWNER_NAME)
-            ai_holdings = {p["ticker"]: p for p in ai_portfolio}
             
             # 3. 각 종목 순회하며 AI 판단 요청
             from data_kr import get_kr_stock_price
@@ -306,6 +323,7 @@ async def ai_trading_loop():
                 source_type = fav.get("source", "FAVORITE")
                 
                 source_korean = {
+                    "HOLDING": "보유 종목",
                     "FAVORITE": "즐겨찾기",
                     "KR_HOT_VOLUME": "국내 거래대금 핫종목",
                     "KR_HOT_CHANGE": "국내 상승률 핫종목",

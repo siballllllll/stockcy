@@ -3770,8 +3770,41 @@ def screen_by_my_pattern() -> dict:
 
     # 3. 각 종목 지표 수집 + 패턴 매칭 점수 계산
     # 시나리오에 등장한 종목 맵 미리 로드 (보너스 점수용)
-    from db import load_scenario_stocks_set
+    from db import load_scenario_stocks_set, load_agent_learning_summary
     scenario_map = load_scenario_stocks_set()
+
+    # AI 에이전트 자기학습 규칙 로드 (조건별 승률 보정용)
+    agent_learning = load_agent_learning_summary()
+    agent_rules = {r["label"]: r for r in agent_learning.get("rules", [])} if agent_learning.get("sample", 0) >= 5 else {}
+
+    def _agent_score_adjust(daily: dict) -> tuple[float, str]:
+        """에이전트 학습 규칙으로 점수 보정. 반환: (보정점수, 매칭규칙라벨)"""
+        if not agent_rules:
+            return 0.0, ""
+        rsi = daily.get("rsi")
+        ma  = daily.get("ma_aligned")
+        vr  = daily.get("volume_ratio")
+        p52 = daily.get("pos_52w_pct")
+        # 현재 종목 상태에 해당하는 규칙 찾기
+        matched = []
+        if rsi is not None:
+            if rsi < 40: matched.append("RSI 40 미만 매수")
+            elif rsi < 60: matched.append("RSI 40~60 매수")
+            else: matched.append("RSI 60 이상 매수")
+        if ma: matched.append("MA 정배열 매수")
+        if vr and vr >= 2: matched.append("거래량 2배+ 매수")
+        if p52 and p52 >= 80: matched.append("52주 고점권 매수")
+
+        best_adj, best_label = 0.0, ""
+        for label in matched:
+            rule = agent_rules.get(label)
+            if not rule:
+                continue
+            # 승률 50% 기준으로 ±보정 (승률 70% → +6점, 30% → -6점, 최대 ±10)
+            adj = max(-10, min(10, (rule["win_rate"] - 50) * 0.3))
+            if abs(adj) > abs(best_adj):
+                best_adj, best_label = adj, f"{label} 승률 {rule['win_rate']}%"
+        return round(best_adj, 1), best_label
 
     scored: list[dict] = []
     for code, meta in list(candidates.items())[:50]:   # 최대 50개로 제한
@@ -3792,6 +3825,11 @@ def screen_by_my_pattern() -> dict:
         if scenario_count > 0:
             match_score = min(100, match_score + min(10, scenario_count * 3))
 
+        # AI 에이전트 자기학습 보정 — 검증된 조건별 승률 반영 (±10점)
+        agent_adj, agent_label = _agent_score_adjust(ind["daily"])
+        if agent_adj != 0:
+            match_score = max(0, min(100, match_score + agent_adj))
+
         scored.append({
             "code":           code,
             "name":           meta["name"],
@@ -3800,6 +3838,8 @@ def screen_by_my_pattern() -> dict:
             "personal_score": p_score,
             "leading_score":  l_score,
             "scenario_count": scenario_count,
+            "agent_adjust":   agent_adj,
+            "agent_label":    agent_label,
             "rsi":            ind["daily"].get("rsi"),
             "vol_ratio":      ind["daily"].get("volume_ratio"),
             "pos_52w":        ind["daily"].get("pos_52w_pct"),
