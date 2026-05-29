@@ -292,15 +292,30 @@ function AddPortfolioForm({ onAdded }: { onAdded: () => void }) {
         </div>
       </div>
 
-      {/* 종목 입력 */}
-      <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", alignItems: "center" }}>
-        <select className="stockcy-input" style={{ width: "80px", flexShrink: 0 }} value={market} onChange={(e) => setMarket(e.target.value as "국내" | "미국")}>
-          <option value="국내">국내</option>
-          <option value="미국">미국</option>
-        </select>
-        <input className="stockcy-input" placeholder="티커 (예: 005930, NVDA)" value={ticker} onChange={(e) => setTicker(e.target.value)} style={{ flex: 1, minWidth: "120px" }} />
-        <input className="stockcy-input" placeholder="종목명" value={name} onChange={(e) => setName(e.target.value)} style={{ flex: 1, minWidth: "100px" }} />
-        <input className="stockcy-input" type="number" placeholder="매수가" value={price} onChange={(e) => setPrice(e.target.value)} style={{ width: "100px" }} />
+      {/* 종목 검색 */}
+      <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", flexWrap: "wrap" }}>
+        <ToggleGroup
+          options={[{ label: "국내", value: "국내" as const }, { label: "미국", value: "미국" as const }]}
+          value={market}
+          onChange={(v) => { setMarket(v); setTicker(""); setName(""); }}
+          colors={{ "국내": "#0369a1", "미국": "#059669" }}
+        />
+        <div style={{ flex: 1, minWidth: "200px" }}>
+          <StockSearchInput
+            market={market}
+            onSelect={(t, n) => { setTicker(t); setName(n); }}
+          />
+        </div>
+        {ticker && (
+          <span style={{ fontSize: "0.8rem", color: "var(--color-muted)", padding: "2px 8px", background: "rgba(255,255,255,0.05)", borderRadius: "4px", border: "1px solid var(--color-border)" }}>
+            {name} ({ticker})
+          </span>
+        )}
+      </div>
+
+      {/* 매수가 · 수량 */}
+      <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", flexWrap: "wrap" }}>
+        <input className="stockcy-input" type="number" placeholder="매수가" value={price} onChange={(e) => setPrice(e.target.value)} style={{ width: "110px" }} />
         <input className="stockcy-input" type="number" placeholder="수량" value={qty} onChange={(e) => setQty(e.target.value)} style={{ width: "80px" }} />
         <button className="stockcy-btn stockcy-btn-primary" onClick={handleAdd} disabled={loading || !ticker || !name || !price || !qty}>
           <Plus size={14} /> 추가
