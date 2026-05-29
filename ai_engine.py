@@ -3389,24 +3389,32 @@ def analyze_leading_room_patterns() -> dict:
 
 # ── 패턴 프로파일 빌드 & 저장 ────────────────────────────────────────────────
 
-def build_pattern_profile() -> dict:
-    """USER·AI_AGENT·LEADING 거래에서 성공 패턴 프로파일을 빌드하고 DB에 저장합니다.
-    가중치 규칙:
-      - 기본: 1배
-      - 최근 30일: +1 (총 2배)
-      - LEADING + screener_matched=1: ×2 추가 (스크리너가 잡고 리딩방이 실거래 확인한 강한 신호)
+def build_pattern_profile(source: str = 'all') -> dict:
+    """패턴 프로파일 빌드 및 DB 저장.
+    source:
+      'all'      — 전체 USER·AI_AGENT 거래 (v1 + v2 저장)
+      'personal' — 리딩방 제외 개인 거래만 (v2 저장)
+      'leading'  — 리딩방 거래만 (v2 저장)
+    가중치: 기본 1배, 최근 30일 2배, 리딩방+screener_matched 추가 2배
     """
-    from db import get_db_conn, save_pattern_profile
+    from db import get_db_conn, save_pattern_profile, save_pattern_profile_v2
     from datetime import datetime, timedelta
+
+    if source == 'personal':
+        where = "WHERE UPPER(owner) IN ('USER','AI_AGENT') AND LOWER(COALESCE(trade_source,'')) NOT LIKE '%리딩방%'"
+    elif source == 'leading':
+        where = "WHERE UPPER(owner)='USER' AND LOWER(COALESCE(trade_source,'')) LIKE '%리딩방%'"
+    else:
+        where = "WHERE UPPER(owner) IN ('USER','AI_AGENT')"
 
     conn = get_db_conn()
     cursor = conn.cursor()
     cursor.execute(
-        """SELECT ticker, name, buy_price, sell_price, profit, profit_pct,
+        f"""SELECT ticker, name, buy_price, sell_price, profit, profit_pct,
                   result, buy_date, sell_date, trade_source, owner,
                   COALESCE(screener_matched, 0) AS screener_matched
            FROM trade_history
-           WHERE UPPER(owner) IN ('USER', 'AI_AGENT')
+           {where}
            ORDER BY sell_date DESC"""
     )
     rows = [dict(r) for r in cursor.fetchall()]
@@ -3507,7 +3515,9 @@ def build_pattern_profile() -> dict:
         "data_sources": list(set(str(r.get("trade_source", "")) for r in rows)),
     }
 
-    save_pattern_profile(profile, total)
+    if source == 'all':
+        save_pattern_profile(profile, total)
+    save_pattern_profile_v2(profile, total, source)
     return profile
 
 
@@ -3595,14 +3605,21 @@ def _score_stock_against_profile(ind: dict, profile: dict) -> float:
 
 
 def screen_by_my_pattern() -> dict:
-    """오늘 거래량·등락률 상위 종목 중 내 패턴 프로파일에 가장 가까운 종목을 추천합니다."""
+    """오늘 거래량·등락률 상위 종목 중 패턴 프로파일(개인+리딩방 교집합)에 가장 가까운 종목을 추천합니다."""
     import requests as req_lib
-    from db import load_pattern_profile
+    from db import load_pattern_profile, load_pattern_profile_v2
 
-    # 1. 패턴 프로파일 로드 (없으면 즉석 빌드)
+    # 1. 프로파일 로드 — v2(개인/리딩방 분리) 우선, 없으면 v1 폴백
+    personal_profile = load_pattern_profile_v2('personal')
+    leading_profile  = load_pattern_profile_v2('leading')
+    dual_mode = (
+        personal_profile and personal_profile.get('total_trades', 0) >= 5 and
+        leading_profile  and leading_profile.get('total_trades', 0) >= 5
+    )
+
     profile = load_pattern_profile()
     if not profile:
-        profile = build_pattern_profile()
+        profile = build_pattern_profile('all')
         if "error" in profile:
             return {"error": profile["error"]}
 
@@ -3673,20 +3690,28 @@ def screen_by_my_pattern() -> dict:
     scored: list[dict] = []
     for code, meta in list(candidates.items())[:50]:   # 최대 50개로 제한
         ind = _get_trade_indicators(code, "")           # buy_date 없이 일봉만
-        match_score = _score_stock_against_profile(ind, profile)
-        # 거래량·등락률 양쪽 신호면 보너스
+        if dual_mode:
+            p_score = _score_stock_against_profile(ind, personal_profile)
+            l_score = _score_stock_against_profile(ind, leading_profile)
+            match_score = round((p_score * l_score) ** 0.5, 1)  # 기하평균: 둘 다 높아야 높은 점수
+        else:
+            p_score = None
+            l_score = None
+            match_score = _score_stock_against_profile(ind, profile)
         if meta.get("signal") == "both":
             match_score = min(100, match_score + 8)
         scored.append({
-            "code":         code,
-            "name":         meta["name"],
-            "signal":       meta["signal"],
-            "match_score":  match_score,
-            "rsi":          ind["daily"].get("rsi"),
-            "vol_ratio":    ind["daily"].get("volume_ratio"),
-            "pos_52w":      ind["daily"].get("pos_52w_pct"),
-            "ma_aligned":   ind["daily"].get("ma_aligned"),
-            "gap_pct":      ind["daily"].get("gap_pct"),
+            "code":           code,
+            "name":           meta["name"],
+            "signal":         meta["signal"],
+            "match_score":    match_score,
+            "personal_score": p_score,
+            "leading_score":  l_score,
+            "rsi":            ind["daily"].get("rsi"),
+            "vol_ratio":      ind["daily"].get("volume_ratio"),
+            "pos_52w":        ind["daily"].get("pos_52w_pct"),
+            "ma_aligned":     ind["daily"].get("ma_aligned"),
+            "gap_pct":        ind["daily"].get("gap_pct"),
         })
 
     scored.sort(key=lambda x: x["match_score"], reverse=True)
@@ -3696,13 +3721,22 @@ def screen_by_my_pattern() -> dict:
         return {"error": "매칭 종목 없음"}
 
     # 4. Gemini 최종 판단
-    profile_summary = (
-        f"승률 {profile.get('win_rate_pct')}% / "
-        f"평균수익률 {profile.get('avg_profit_pct')}% / "
-        f"성공 RSI 구간 {profile['win'].get('rsi', {}).get('p25','?')}~{profile['win'].get('rsi', {}).get('p75','?')} / "
-        f"거래량비율 {profile['win'].get('volume_ratio', {}).get('p25','?')}~{profile['win'].get('volume_ratio', {}).get('p75','?')}배 / "
-        f"MA정배열 비율 {profile['win'].get('ma_aligned_rate_pct','?')}%"
-    )
+    if dual_mode:
+        profile_summary = (
+            f"[개인 패턴] 승률 {personal_profile.get('win_rate_pct')}% / 평균수익률 {personal_profile.get('avg_profit_pct')}% / "
+            f"RSI {personal_profile['win'].get('rsi',{}).get('p25','?')}~{personal_profile['win'].get('rsi',{}).get('p75','?')}\n"
+            f"[리딩방 패턴] 승률 {leading_profile.get('win_rate_pct')}% / 평균수익률 {leading_profile.get('avg_profit_pct')}% / "
+            f"RSI {leading_profile['win'].get('rsi',{}).get('p25','?')}~{leading_profile['win'].get('rsi',{}).get('p75','?')}\n"
+            f"[교집합 스코어] 개인×리딩방 기하평균으로 계산 — 양쪽 모두 높아야 높은 점수"
+        )
+    else:
+        profile_summary = (
+            f"승률 {profile.get('win_rate_pct')}% / "
+            f"평균수익률 {profile.get('avg_profit_pct')}% / "
+            f"성공 RSI 구간 {profile['win'].get('rsi', {}).get('p25','?')}~{profile['win'].get('rsi', {}).get('p75','?')} / "
+            f"거래량비율 {profile['win'].get('volume_ratio', {}).get('p25','?')}~{profile['win'].get('volume_ratio', {}).get('p75','?')}배 / "
+            f"MA정배열 비율 {profile['win'].get('ma_aligned_rate_pct','?')}%"
+        )
     candidates_text = "\n".join(
         f"- {s['name']}({s['code']}): 매칭점수={s['match_score']}, RSI={s['rsi']}, "
         f"거래량비율={s['vol_ratio']}배, 52주위치={s['pos_52w']}%, "
@@ -3739,8 +3773,157 @@ def screen_by_my_pattern() -> dict:
             "total_trades":      profile.get("total_trades"),
             "updated_time":      profile.get("_updated_time"),
             "reliability_warning": reliability_warning,
+            "dual_mode":         dual_mode,
+            "personal_trades":   personal_profile.get("total_trades") if dual_mode else None,
+            "leading_trades":    leading_profile.get("total_trades") if dual_mode else None,
         },
         "top_picks":    top[:5],
         "ai_narrative": narrative,
+    }
+
+
+# ── ② 수급 이동 시퀀스 패턴 빌드 ─────────────────────────────────────────────
+
+def build_supply_flow_patterns() -> dict:
+    """리딩방 거래 시퀀스에서 A→B 수급 이동 패턴을 추출하고 DB에 저장합니다."""
+    from db import get_db_conn, save_supply_flow_patterns
+    from datetime import datetime, timedelta
+
+    conn = get_db_conn()
+    cursor = conn.cursor()
+    cursor.execute(
+        """SELECT ticker, name, buy_date, sell_date
+           FROM trade_history
+           WHERE LOWER(COALESCE(trade_source,'')) LIKE '%리딩방%'
+             AND buy_date != '' AND sell_date != ''
+           ORDER BY sell_date ASC"""
+    )
+    trades = [dict(r) for r in cursor.fetchall()]
+    conn.close()
+
+    if len(trades) < 3:
+        return {"error": "리딩방 거래 데이터 부족 (최소 3건 필요)"}
+
+    patterns: dict = {}
+    for i, t1 in enumerate(trades):
+        for t2 in trades[i + 1:]:
+            if t1["ticker"] == t2["ticker"]:
+                continue
+            try:
+                sell_d = datetime.strptime(str(t1["sell_date"])[:10], "%Y-%m-%d")
+                buy_d  = datetime.strptime(str(t2["buy_date"])[:10], "%Y-%m-%d")
+                gap = (buy_d - sell_d).days
+                if not (0 <= gap <= 7):
+                    continue
+                key = f"{t1['ticker']}→{t2['ticker']}"
+                if key not in patterns:
+                    patterns[key] = {
+                        "from_ticker": t1["ticker"], "from_name": t1["name"],
+                        "to_ticker":   t2["ticker"], "to_name":   t2["name"],
+                        "count": 0, "days_list": [], "last_observed": ""
+                    }
+                patterns[key]["count"] += 1
+                patterns[key]["days_list"].append(gap)
+                patterns[key]["last_observed"] = str(t1["sell_date"])[:10]
+            except Exception:
+                continue
+
+    result = [
+        {**{k: v for k, v in p.items() if k != "days_list"},
+         "avg_days": round(sum(p["days_list"]) / len(p["days_list"]), 1)}
+        for p in patterns.values() if p["count"] >= 2
+    ]
+    result.sort(key=lambda x: x["count"], reverse=True)
+    save_supply_flow_patterns(result)
+    return {"patterns": result, "total": len(result)}
+
+
+# ── ③ 실시간 수급 이동 감지 ──────────────────────────────────────────────────
+
+def detect_realtime_supply_rotation() -> dict:
+    """오늘의 거래량·등락률 데이터 + 뉴스 + 과거 수급 패턴으로 실시간 수급 이동을 분석합니다."""
+    import requests as req_lib
+    from db import load_supply_flow_patterns
+
+    BASE = "http://127.0.0.1:8000"
+    headers = {"ngrok-skip-browser-warning": "69420"}
+
+    def _safe_get(url):
+        try:
+            r = req_lib.get(url, timeout=10, headers=headers)
+            return r.json() if r.ok else []
+        except Exception:
+            return []
+
+    vol_up  = _safe_get(f"{BASE}/api/kr/volume-ranking?market=ALL")
+    chg_up  = _safe_get(f"{BASE}/api/kr/change-ranking?market=ALL&direction=up")
+    chg_dn  = _safe_get(f"{BASE}/api/kr/change-ranking?market=ALL&direction=down")
+    sectors = _safe_get(f"{BASE}/api/kr/hot-sectors")
+
+    known_patterns = load_supply_flow_patterns()
+
+    def _fmt(items, key_name, key_val, n=12):
+        lines = []
+        for s in items[:n]:
+            name = s.get("종목명") or s.get("name","?")
+            code = s.get("종목코드") or s.get("code","")
+            val  = s.get(key_val, "")
+            lines.append(f"- {name}({code}): {key_name} {val}")
+        return "\n".join(lines) if lines else "(없음)"
+
+    vol_text    = _fmt(vol_up,  "거래량", "거래량")
+    chg_up_text = _fmt(chg_up, "등락률", "등락률")
+    chg_dn_text = _fmt(chg_dn, "등락률", "등락률")
+
+    sector_list = sectors.get("sectors", []) if isinstance(sectors, dict) else []
+    hot_text = "\n".join(
+        f"- {s.get('sector','?')}: 핫스코어 {s.get('hot_score','?')}"
+        for s in sorted(sector_list, key=lambda x: x.get("hot_score",0), reverse=True)[:8]
+    ) if sector_list else "(없음)"
+
+    flow_text = ""
+    if known_patterns:
+        flow_text = "\n=== 과거 리딩방 수급 이동 패턴 ===\n" + "\n".join(
+            f"- {p['from_name']}({p['from_ticker']}) → {p['to_name']}({p['to_ticker']}): {p['observed_count']}회 관찰, 평균 {p['avg_days']}일 후"
+            for p in known_patterns[:10]
+        )
+
+    prompt = f"""당신은 주식 수급 분석 전문가입니다. 절대로 한자를 사용하지 마세요.
+오늘의 실시간 시장 데이터와 뉴스를 분석해 수급 이동 흐름을 파악해주세요.
+
+=== 오늘 거래량 상위 종목 ===
+{vol_text}
+
+=== 등락률 상위 (상승) ===
+{chg_up_text}
+
+=== 등락률 상위 (하락/소화) ===
+{chg_dn_text}
+
+=== 섹터 핫스코어 ===
+{hot_text}
+{flow_text}
+
+위 데이터와 오늘의 뉴스·이슈를 종합하여 다음 4가지를 분석해주세요:
+
+1. **수급 이탈 징후 종목/섹터** — 거래량 과열 또는 급등 후 소화 중인 곳
+2. **수급 유입 가능 종목/섹터** — 아직 덜 달았지만 자금이 넘어올 가능성이 있는 곳
+3. **오늘의 수급 이동 시나리오** — 이슈·테마 연결고리 기반으로 자금 흐름 예측
+4. **과거 패턴 매칭** — 위 수급 이동 패턴 중 오늘 상황과 유사한 사례 언급
+
+실전 투자자가 즉시 활용할 수 있는 구체적인 분석을 해주세요."""
+
+    try:
+        response = _call_gemini(prompt, use_search=True, temperature=0.5, timeout_sec=90)
+        narrative = _strip_hanja(response.text if hasattr(response, "text") else str(response))
+    except Exception as e:
+        narrative = f"AI 분석 오류: {str(e)}"
+
+    return {
+        "narrative":       narrative,
+        "vol_ranking":     vol_up[:12],
+        "chg_up":          chg_up[:10],
+        "chg_dn":          chg_dn[:10],
+        "known_patterns":  known_patterns[:10],
     }
 

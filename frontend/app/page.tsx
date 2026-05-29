@@ -85,12 +85,13 @@ function getPickStatus(rsi?: number, signal?: string) {
   return                        { label: "⚪ 관망",         color: "#888",    bg: "rgba(150,150,150,0.10)", border: "rgba(150,150,150,0.3)" };
 }
 
-type Tab = "picks" | "rotation" | "mypattern";
+type Tab = "picks" | "rotation" | "mypattern" | "supply";
 
 const TABS: { id: Tab; label: string }[] = [
   { id: "picks",     label: "🎯 AI 타점 포착" },
   { id: "rotation",  label: "📊 섹터 순환매" },
   { id: "mypattern", label: "🧠 내 패턴 스크리너" },
+  { id: "supply",    label: "🔄 수급 이동 감지" },
 ];
 
 export default function Dashboard() {
@@ -105,6 +106,10 @@ export default function Dashboard() {
   const myPick = useSSE<{ profile_summary: any; top_picks: any[]; ai_narrative: string }>(
     "/api/ai/pattern-screener",
     { method: "POST", globalId: "pattern-screener", globalTitle: "내 패턴 스크리너" }
+  );
+  const supplyRotation = useSSE<{ narrative: string; vol_ranking: any[]; chg_up: any[]; chg_dn: any[]; known_patterns: any[] }>(
+    "/api/ai/supply-rotation-detect",
+    { method: "POST", globalId: "supply-rotation", globalTitle: "수급 이동 감지" }
   );
 
   return (
@@ -250,7 +255,15 @@ export default function Dashboard() {
                               <div style={{ fontWeight: 700, fontSize: "0.95rem", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name}</div>
                               <div style={{ fontSize: "0.72rem", color: "var(--color-muted)" }}>{p.code}</div>
                             </div>
-                            <div style={{ background: scoreBg, color: scoreColor, fontWeight: 800, fontSize: "0.85rem", padding: "2px 8px", borderRadius: "6px", flexShrink: 0 }}>{score}점</div>
+                            <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: "2px", flexShrink: 0 }}>
+                              <div style={{ background: scoreBg, color: scoreColor, fontWeight: 800, fontSize: "0.85rem", padding: "2px 8px", borderRadius: "6px" }}>{score}점</div>
+                              {p.personal_score != null && p.leading_score != null && (
+                                <div style={{ display: "flex", gap: "3px" }}>
+                                  <span style={{ fontSize: "0.62rem", padding: "1px 5px", borderRadius: "4px", background: "rgba(99,102,241,0.12)", border: "1px solid rgba(99,102,241,0.25)", color: "#a5b4fc" }}>개인 {p.personal_score}</span>
+                                  <span style={{ fontSize: "0.62rem", padding: "1px 5px", borderRadius: "4px", background: "rgba(16,185,129,0.12)", border: "1px solid rgba(16,185,129,0.25)", color: "#34d399" }}>리딩 {p.leading_score}</span>
+                                </div>
+                              )}
+                            </div>
                           </div>
 
                           {/* 상태 배지 */}
@@ -320,6 +333,46 @@ export default function Dashboard() {
               )}
 
               <ScreenerFeedbackStats />
+            </div>
+          )}
+        </SSEPanel>
+      )}
+
+      {/* 수급 이동 감지 */}
+      {activeTab === "supply" && (
+        <SSEPanel
+          status={supplyRotation.status} message={supplyRotation.message}
+          result={supplyRotation.result} fromCache={supplyRotation.fromCache} completedAt={supplyRotation.completedAt}
+          onStart={supplyRotation.start} startLabel="수급 이동 분석 시작"
+          idleHint="오늘의 거래량·등락률 데이터와 뉴스를 종합해 어느 종목/섹터에서 수급이 이탈 중이고 어디로 이동할지 실시간 분석합니다. (1~2분 소요)"
+        >
+          {(data) => (
+            <div style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
+
+              {/* 과거 수급 이동 패턴 */}
+              {data.known_patterns?.length > 0 && (
+                <div style={{ background: "rgba(245,158,11,0.06)", border: "1px solid rgba(245,158,11,0.2)", borderRadius: "10px", padding: "1rem 1.2rem" }}>
+                  <div style={{ fontSize: "0.78rem", fontWeight: 700, color: "#fbbf24", marginBottom: "0.6rem" }}>📋 과거 리딩방 수급 이동 패턴</div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+                    {data.known_patterns.map((p: any, i: number) => (
+                      <div key={i} style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "0.8rem" }}>
+                        <span style={{ color: "var(--color-text)", fontWeight: 600 }}>{p.from_name}</span>
+                        <span style={{ color: "#fbbf24" }}>→</span>
+                        <span style={{ color: "var(--color-text)", fontWeight: 600 }}>{p.to_name}</span>
+                        <span style={{ color: "var(--color-muted)", fontSize: "0.7rem" }}>{p.observed_count}회 · 평균 {p.avg_days}일</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* AI 수급 이동 분석 */}
+              {data.narrative && (
+                <div style={{ background: "rgba(245,158,11,0.05)", border: "1px solid rgba(245,158,11,0.15)", borderRadius: "10px", padding: "1.1rem 1.3rem" }}>
+                  <div style={{ fontSize: "0.78rem", fontWeight: 700, color: "#fbbf24", marginBottom: "0.75rem" }}>🔄 AI 수급 이동 분석</div>
+                  <div style={{ fontSize: "0.87rem", color: "var(--color-text)", lineHeight: 1.85, whiteSpace: "pre-wrap" }}>{data.narrative}</div>
+                </div>
+              )}
             </div>
           )}
         </SSEPanel>

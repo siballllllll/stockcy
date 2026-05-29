@@ -1000,15 +1000,45 @@ async def get_screener_feedback_stats():
 
 @router.post("/pattern-profile/build")
 async def build_pattern_profile_endpoint():
-    """패턴 프로파일을 즉시 재빌드하고 DB에 저장합니다."""
-    from ai_engine import build_pattern_profile
+    """패턴 프로파일(전체/개인/리딩방) + 수급 흐름 패턴을 즉시 재빌드합니다."""
+    from ai_engine import build_pattern_profile, build_supply_flow_patterns
     try:
-        profile = await asyncio.to_thread(build_pattern_profile)
-        if "error" in profile:
-            return {"success": False, "message": profile["error"]}
-        return {"success": True, "profile": profile}
+        profile_all      = await asyncio.to_thread(build_pattern_profile, 'all')
+        profile_personal = await asyncio.to_thread(build_pattern_profile, 'personal')
+        profile_leading  = await asyncio.to_thread(build_pattern_profile, 'leading')
+        flow             = await asyncio.to_thread(build_supply_flow_patterns)
+        if "error" in profile_all:
+            return {"success": False, "message": profile_all["error"]}
+        return {"success": True, "profile": profile_all,
+                "personal_trades": profile_personal.get("total_trades"),
+                "leading_trades":  profile_leading.get("total_trades"),
+                "supply_flow_patterns": flow.get("total", 0)}
     except Exception as e:
         return {"success": False, "message": str(e)}
+
+
+@router.get("/supply-flow-patterns")
+async def get_supply_flow_patterns():
+    """리딩방 수급 이동 시퀀스 패턴 조회."""
+    from db import load_supply_flow_patterns
+    patterns = await asyncio.to_thread(load_supply_flow_patterns)
+    return {"patterns": patterns, "total": len(patterns)}
+
+
+@router.post("/supply-rotation-detect")
+async def supply_rotation_detect():
+    """실시간 수급 이동 감지 — 오늘 거래량·등락률·뉴스 종합 분석 (SSE)."""
+    from ai_engine import detect_realtime_supply_rotation
+
+    async def _gen():
+        yield _sse({"status": "running", "message": "📡 실시간 시장 데이터 수집 중..."})
+        try:
+            result = await asyncio.to_thread(detect_realtime_supply_rotation)
+            yield _sse({"status": "done", "result": result})
+        except Exception as e:
+            yield _sse({"status": "error", "message": str(e)})
+
+    return _sse_response(_gen())
 
 
 @router.get("/pattern-profile")
