@@ -1027,18 +1027,45 @@ function ScenariosPageInner() {
     }
   }, []);
 
-  // 유효한 캐시가 없으면 자동 분석 시작
+  // 마운트 시: 서버 캐시(오늘 자동 생성된 최신 시나리오)를 가볍게 동기화 — 비용 0 (캐시 사용)
+  // localStorage에 옛 데이터가 있어도 서버에 더 최신 캐시가 있으면 화면을 갱신한다.
   useEffect(() => {
     if (!mounted) return;
-    try {
-      const stored = localStorage.getItem(SC_DATA_KEY);
-      const parsed = stored ? JSON.parse(stored) : null;
-      if (!parsed || !Array.isArray(parsed) || parsed.length === 0) {
-        setFetchTrigger(0);
+    let cancelled = false;
+    (async () => {
+      try {
+        const result = await readSSE(`/api/ai/scenarios?use_cache=true`, "GET");
+        if (cancelled) return;
+        const serverIssues = result?.issues ?? [];
+        if (serverIssues.length > 0) {
+          setIssues(serverIssues);
+          const now = new Date().toLocaleString("ko-KR");
+          setLastUpdated(now);
+          try {
+            localStorage.setItem(SC_DATA_KEY, JSON.stringify(serverIssues));
+            localStorage.setItem(SC_TS_KEY, now);
+          } catch {}
+          setReady("scenarios", true);
+        } else {
+          // 서버에도 캐시가 없으면 → localStorage도 비었을 때만 신규 분석
+          const stored = localStorage.getItem(SC_DATA_KEY);
+          const parsed = stored ? JSON.parse(stored) : null;
+          if (!parsed || !Array.isArray(parsed) || parsed.length === 0) {
+            setFetchTrigger(0);
+          }
+        }
+      } catch {
+        // 서버 동기화 실패 시 기존 동작 유지
+        try {
+          const stored = localStorage.getItem(SC_DATA_KEY);
+          const parsed = stored ? JSON.parse(stored) : null;
+          if (!parsed || !Array.isArray(parsed) || parsed.length === 0) {
+            setFetchTrigger(0);
+          }
+        } catch { setFetchTrigger(0); }
       }
-    } catch {
-      setFetchTrigger(0);
-    }
+    })();
+    return () => { cancelled = true; };
   }, [mounted]);
 
   const { data: us } = useSWR("us-indices", () => api.us.indices() as Promise<any>, { refreshInterval: 60000 });
