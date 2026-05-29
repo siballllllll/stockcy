@@ -276,17 +276,18 @@ export default function SectorsPage() {
     return result;
   }, [sectorMap, searchQuery, selectedSector]);
 
-  // 스톡시 DB 전체 + 사전 쉐도우 앵커 + 실시간 RAG 결과 내의 모든 국내(KR) 고유 종목 코드 추출
+  // 현재 화면에 보이는 섹터 종목 + 쉐도우 앵커만 가격 조회 (전체 2940개 일괄 조회 방지)
   const allCodes = useMemo(() => {
     const codes = new Set<string>();
-    
-    // (1) sectorMap 전체 종목 수집
-    if (sectorMap) {
-      Object.values(sectorMap as Record<string, any>).forEach(subMap => {
-        Object.values(subMap as Record<string, any[]>).forEach(stocks => {
-          stocks.forEach(s => {
-            if (s.code) codes.add(s.code);
-          });
+
+    // (1) 현재 선택된 섹터의 종목만 수집 (전체 선택 시 첫 3개 섹터만)
+    if (sectorMap && filteredData.length > 0) {
+      const targetSectors = selectedSector !== "전체"
+        ? filteredData
+        : filteredData.slice(0, 3); // 전체 탭은 상위 3개 섹터만 미리 로드
+      targetSectors.forEach(({ subSectors }) => {
+        subSectors.forEach(({ stocks }) => {
+          stocks.forEach((s: any) => { if (s.code) codes.add(s.code); });
         });
       });
     }
@@ -294,23 +295,19 @@ export default function SectorsPage() {
     // (2) 사전 정의된 쉐도우 앵커 종목 중 국내 종목 수집
     SHADOW_ANCHORS.forEach(anchor => {
       anchor.stocks.forEach(s => {
-        if (s.market === "KR" && s.code) {
-          codes.add(s.code);
-        }
+        if (s.market === "KR" && s.code) codes.add(s.code);
       });
     });
 
     // (3) 실시간 RAG 쉐도우 발굴 결과 중 국내 종목 수집
     if (shadowDiscoverResult?.stocks) {
       shadowDiscoverResult.stocks.forEach((s: any) => {
-        if (s.market === "KR" && s.ticker) {
-          codes.add(s.ticker);
-        }
+        if (s.market === "KR" && s.ticker) codes.add(s.ticker);
       });
     }
 
     return Array.from(codes);
-  }, [sectorMap, shadowDiscoverResult]);
+  }, [sectorMap, filteredData, selectedSector, shadowDiscoverResult]);
 
   // 일괄 현재가 조회
   const { data: bulkPrices } = useSWR(
