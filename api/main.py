@@ -77,6 +77,56 @@ def health():
 def get_version():
     return {"version": APP_VERSION}
 
+
+# ── 8. 백그라운드 전종목 가격 캐시 스케줄러 ──────────────────────────────────
+import threading as _threading
+import time as _time
+
+# 전종목 가격 인메모리 캐시: {"code": {"price": ..., "change_pct": ...}}
+KRX_PRICE_CACHE: dict = {}
+_KRX_CACHE_UPDATED: float = 0.0
+_KRX_REFRESH_SEC = 90   # 90초마다 갱신
+
+
+def _refresh_krx_prices():
+    """FDR StockListing으로 전종목 가격을 갱신해 KRX_PRICE_CACHE에 저장."""
+    global _KRX_CACHE_UPDATED
+    try:
+        import FinanceDataReader as fdr
+        df = fdr.StockListing("KRX")
+        if df is None or df.empty:
+            return
+        tmp = {}
+        for _, row in df.iterrows():
+            code = str(row.get("Code", "")).strip().zfill(6)
+            try:
+                price    = int(row.get("Close", 0) or 0)
+                chg_pct  = round(float(row.get("ChagesRatio", 0) or 0), 2)
+                if price > 0:
+                    tmp[code] = {"price": price, "change_pct": chg_pct}
+            except Exception:
+                pass
+        KRX_PRICE_CACHE.update(tmp)
+        _KRX_CACHE_UPDATED = _time.time()
+        print(f"[KRX cache] {len(tmp)}종목 갱신 완료")
+    except Exception as e:
+        print(f"[KRX cache] 갱신 실패: {e}")
+
+
+def _price_refresh_loop():
+    """서버 시작 후 즉시 1회 갱신, 이후 90초마다 반복."""
+    _refresh_krx_prices()
+    while True:
+        _time.sleep(_KRX_REFRESH_SEC)
+        _refresh_krx_prices()
+
+
+@app.on_event("startup")
+def start_price_cache():
+    t = _threading.Thread(target=_price_refresh_loop, daemon=True)
+    t.start()
+    print("[KRX cache] 백그라운드 가격 캐시 스케줄러 시작")
+
 # ── 8. 백그라운드 태스크 ───────────────────────────────────────────────────────
 import asyncio
 from api.background import price_alert_loop
