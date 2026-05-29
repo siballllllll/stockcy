@@ -4110,7 +4110,25 @@ def analyze_agent_daily_issues() -> dict:
             except Exception as se:
                 print(f"[agent scenario] '{kw}' 생성 실패: {se}")
 
-        return {"count": len(issues), "issues": issues, "scenarios_generated": scenario_count}
+        # ── 메인 매크로 시나리오도 미리 생성해 캐시에 저장 (탭 들어오면 바로 표시) ──
+        main_scenario_ok = False
+        try:
+            from db import load_ai_cache, save_ai_cache
+            # 오늘 캐시가 이미 있으면 스킵
+            existing = load_ai_cache("market_scenarios_latest")
+            if not (existing and "error" not in existing):
+                main_res = generate_market_scenarios()
+                if main_res and "error" not in main_res:
+                    save_ai_cache("market_scenarios_latest", main_res, 12)
+                    main_scenario_ok = True
+            else:
+                main_scenario_ok = True  # 이미 있음
+        except Exception as me:
+            print(f"[agent main scenario] 생성 실패: {me}")
+
+        return {"count": len(issues), "issues": issues,
+                "scenarios_generated": scenario_count,
+                "main_scenario_ready": main_scenario_ok}
     except Exception as e:
         return {"error": str(e), "count": 0, "issues": []}
 
