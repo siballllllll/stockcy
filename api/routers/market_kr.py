@@ -229,34 +229,20 @@ def kr_daily_chart(
 
 @router.get("/stocks-bulk")
 def kr_stocks_bulk(codes: str = Query(..., description="콤마로 구분된 종목코드 목록")):
-    """국내 종목 복수 시세 일괄 조회 — 인메모리 캐시 우선, 없으면 KIS 폴백."""
+    """국내 종목 복수 시세 일괄 조회 — 인메모리 캐시 즉시 반환 (캐시 미스는 0원 반환)."""
     from api.main import KRX_PRICE_CACHE
     _default = {"status_code": "55", "mrkt_warn": "00", "short_over": "N",
                 "managed": "N", "halt": "N", "vi_type": "N", "vi_ovtm": "N"}
     code_list = [c.strip().zfill(6) for c in codes.split(",") if c.strip()]
 
-    # 캐시 히트: 즉시 반환 (0ms)
     if KRX_PRICE_CACHE:
         result = {}
-        missing = []
         for code in code_list:
             hit = KRX_PRICE_CACHE.get(code)
             if hit:
                 result[code] = {"name": code, **hit, **_default}
             else:
-                missing.append(code)
-        # 캐시에 없는 종목만 KIS 보완
-        if missing:
-            from data_kr import get_kr_stock_price as _gksp
-            for code in missing:
-                try:
-                    kis = _gksp(code)
-                    if kis and kis.get("price", 0) > 0:
-                        result[code] = {"name": kis.get("name", code),
-                                        "price": kis["price"],
-                                        "change_pct": kis["change_pct"], **_default}
-                except Exception:
-                    pass
+                result[code] = {"name": code, "price": 0, "change_pct": 0.0, **_default}
         return result
 
     # 캐시 미준비 시 기존 방식 폴백
