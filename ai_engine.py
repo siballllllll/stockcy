@@ -381,6 +381,11 @@ def _parse_json_response(response) -> dict:
     try:
         return json.loads(text)
     except Exception:
+        # [진단] 파싱 실패 시 원문 일부를 로그로 남김 (서버 콘솔 확인용)
+        try:
+            print(f"[_parse_json_response 실패] 길이={len(raw)} 앞150={raw[:150]!r} 끝150={raw[-150:]!r}")
+        except Exception:
+            pass
         raise ValueError("no_json_found")
 
 
