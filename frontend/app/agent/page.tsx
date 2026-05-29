@@ -7,6 +7,63 @@ import { StatusBox } from "@/components/ui/StatusBox";
 
 const BASE_URL = "/backend";
 
+// ── AI 자기학습 현황 대시보드 ──────────────────────────────────────────────────
+function AgentLearningDashboard() {
+  const { data } = useSWR(
+    "/backend/api/ai/agent-learning",
+    (url: string) => fetch(url).then(r => r.json()),
+    { refreshInterval: 60000 }
+  );
+
+  const sample = data?.sample ?? 0;
+  const rules = data?.rules ?? [];
+
+  return (
+    <div style={{ background: "var(--color-card)", border: "1px solid rgba(99,102,241,0.25)", borderRadius: "12px", padding: "1.25rem 1.5rem", marginBottom: "1rem" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.75rem" }}>
+        <Brain size={18} color="#a5b4fc" />
+        <span style={{ fontSize: "1rem", fontWeight: 800, color: "var(--color-text)" }}>AI 자기학습 현황</span>
+        <span style={{ fontSize: "0.75rem", color: "var(--color-muted)", marginLeft: "auto" }}>
+          학습 표본 {sample}건 {sample > 0 && `· 전체 승률 ${data?.overall_win_rate ?? 0}% · 평균 ${data?.overall_avg_return >= 0 ? "+" : ""}${data?.overall_avg_return ?? 0}%`}
+        </span>
+      </div>
+
+      {sample < 5 ? (
+        <div style={{ fontSize: "0.82rem", color: "var(--color-muted)", lineHeight: 1.6 }}>
+          아직 학습 데이터가 부족합니다. AI 에이전트가 매수→매도를 완료할수록 "어떤 조건에서 승률이 높은지"를 스스로 학습하고,
+          그 결과를 패턴 스크리너·시나리오 분석에도 공유합니다. (최소 5건 필요, 현재 {sample}건)
+        </div>
+      ) : (
+        <div>
+          <div style={{ fontSize: "0.78rem", color: "var(--color-muted)", marginBottom: "0.6rem" }}>
+            📚 모의매매 결과로 학습한 조건별 승률 (승률 높은 순)
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: "0.6rem" }}>
+            {rules.map((r: any, i: number) => {
+              const good = r.win_rate >= 55;
+              const bad = r.win_rate < 45;
+              const c = good ? "#34d399" : bad ? "#f87171" : "#fbbf24";
+              return (
+                <div key={i} style={{ background: "var(--color-elevated)", border: `1px solid ${c}33`, borderLeft: `3px solid ${c}`, borderRadius: "8px", padding: "0.7rem 0.85rem" }}>
+                  <div style={{ fontSize: "0.82rem", fontWeight: 700, color: "var(--color-text)", marginBottom: "4px" }}>{r.label}</div>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+                    <span style={{ fontSize: "1.1rem", fontWeight: 800, color: c }}>승률 {r.win_rate}%</span>
+                    <span style={{ fontSize: "0.72rem", color: r.avg_return >= 0 ? "#34d399" : "#f87171" }}>{r.avg_return >= 0 ? "+" : ""}{r.avg_return}%</span>
+                  </div>
+                  <div style={{ fontSize: "0.68rem", color: "var(--color-muted)", marginTop: "2px" }}>{r.count}건 표본</div>
+                </div>
+              );
+            })}
+          </div>
+          <div style={{ fontSize: "0.7rem", color: "var(--color-muted)", marginTop: "0.75rem", lineHeight: 1.5 }}>
+            💡 이 학습 결과는 에이전트의 다음 매매 판단에 자동 반영되며, 패턴 스크리너 점수 보정에도 활용됩니다.
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function AgentDashboardPage() {
   const [activeTab, setActiveTab] = useState<"portfolio" | "trades" | "scanLogs">("portfolio");
 
@@ -196,6 +253,9 @@ export default function AgentDashboardPage() {
           </div>
         </div>
       </div>
+
+      {/* 자기학습 현황 */}
+      <AgentLearningDashboard />
 
       {/* 프리미엄 세그먼트형 버튼형 탭 네비게이터 */}
       <div style={{

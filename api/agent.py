@@ -512,7 +512,27 @@ async def ai_trading_loop():
                         "learning_point": learning_point
                     }
                     save_trade_record(trade_record, owner=AI_OWNER_NAME)
-                    
+
+                    # 2-b. 자기학습 루프 — 이 종목의 가장 최근 BUY 판단에 실제 결과(수익률) 기록
+                    try:
+                        from db import get_db_conn
+                        _conn = get_db_conn()
+                        _cur = _conn.cursor()
+                        _cur.execute(
+                            """UPDATE agent_decisions
+                               SET outcome_return = ?, outcome_checked_at = ?
+                               WHERE id = (
+                                   SELECT id FROM agent_decisions
+                                   WHERE ticker = ? AND action='BUY' AND outcome_return IS NULL
+                                   ORDER BY decided_at DESC LIMIT 1
+                               )""",
+                            (float(profit_pct), datetime.now().strftime("%Y-%m-%d %H:%M:%S"), ticker)
+                        )
+                        _conn.commit()
+                        _conn.close()
+                    except Exception as _le:
+                        logger.error(f"agent learning update failed: {_le}")
+
                     # 3. 보유종목(AI)에서 삭제 + ai_holdings 즉시 동기화 (매도 후 재매수 방지)
                     ai_portfolio = [p for p in ai_portfolio if p["ticker"] != ticker]
                     ai_holdings.pop(ticker, None)  # 즉시 동기화

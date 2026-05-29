@@ -244,6 +244,26 @@ def init_local_db():
     """)
 
     cursor.execute("""
+        CREATE TABLE IF NOT EXISTS agent_decisions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            decided_at TEXT,
+            ticker TEXT,
+            name TEXT,
+            market TEXT,
+            action TEXT,
+            confidence INTEGER,
+            entry_price REAL,
+            rsi REAL,
+            ma_aligned INTEGER,
+            pos_52w REAL,
+            vol_ratio REAL,
+            reason TEXT,
+            outcome_return REAL,
+            outcome_checked_at TEXT
+        )
+    """)
+
+    cursor.execute("""
         CREATE TABLE IF NOT EXISTS scenario_stocks (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             scenario_keyword TEXT,
@@ -2323,6 +2343,85 @@ def load_supply_flow_patterns() -> list:
     except Exception as e:
         print(f"load_supply_flow_patterns error: {e}")
         return []
+
+
+def save_agent_decision(d: dict):
+    """AI 에이전트의 매수/매도 판단 1건을 지표와 함께 기록 (학습용)."""
+    try:
+        conn = get_db_conn()
+        cursor = conn.cursor()
+        cursor.execute(
+            """INSERT INTO agent_decisions
+               (decided_at, ticker, name, market, action, confidence, entry_price,
+                rsi, ma_aligned, pos_52w, vol_ratio, reason)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+             d.get("ticker"), d.get("name"), d.get("market"), d.get("action"),
+             int(d.get("confidence", 0) or 0), d.get("entry_price"),
+             d.get("rsi"), 1 if d.get("ma_aligned") else 0, d.get("pos_52w"),
+             d.get("vol_ratio"), d.get("reason"))
+        )
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"save_agent_decision error: {e}")
+
+
+def load_agent_learning_summary() -> dict:
+    """에이전트 자기학습 요약 — 결과가 기록된 BUY 판단들의 조건별 승률.
+    다른 AI 기능(스크리너/시나리오)에서도 공용으로 참조 가능.
+    """
+    try:
+        conn = get_db_conn()
+        cursor = conn.cursor()
+        # 결과(outcome_return)가 채워진 BUY 판단만
+        cursor.execute(
+            """SELECT rsi, ma_aligned, pos_52w, vol_ratio, outcome_return
+               FROM agent_decisions
+               WHERE action='BUY' AND outcome_return IS NOT NULL"""
+        )
+        rows = [dict(r) for r in cursor.fetchall()]
+        conn.close()
+
+        if not rows:
+            return {"sample": 0, "rules": []}
+
+        wins = [r for r in rows if (r["outcome_return"] or 0) > 0]
+        rules = []
+
+        def _bucket_winrate(predicate, label):
+            subset = [r for r in rows if predicate(r)]
+            if len(subset) < 3:
+                return None
+            w = sum(1 for r in subset if (r["outcome_return"] or 0) > 0)
+            avg = sum(r["outcome_return"] or 0 for r in subset) / len(subset)
+            return {"label": label, "count": len(subset),
+                    "win_rate": round(w / len(subset) * 100, 1),
+                    "avg_return": round(avg, 2)}
+
+        candidates = [
+            (lambda r: (r["rsi"] or 0) < 40, "RSI 40 미만 매수"),
+            (lambda r: 40 <= (r["rsi"] or 0) < 60, "RSI 40~60 매수"),
+            (lambda r: (r["rsi"] or 0) >= 60, "RSI 60 이상 매수"),
+            (lambda r: r["ma_aligned"] == 1, "MA 정배열 매수"),
+            (lambda r: (r["vol_ratio"] or 0) >= 2, "거래량 2배+ 매수"),
+            (lambda r: (r["pos_52w"] or 0) >= 80, "52주 고점권 매수"),
+        ]
+        for pred, label in candidates:
+            res = _bucket_winrate(pred, label)
+            if res:
+                rules.append(res)
+        rules.sort(key=lambda x: x["win_rate"], reverse=True)
+
+        return {
+            "sample": len(rows),
+            "overall_win_rate": round(len(wins) / len(rows) * 100, 1),
+            "overall_avg_return": round(sum(r["outcome_return"] or 0 for r in rows) / len(rows), 2),
+            "rules": rules,
+        }
+    except Exception as e:
+        print(f"load_agent_learning_summary error: {e}")
+        return {"sample": 0, "rules": []}
 
 
 def save_scenario_stocks(scenario_keyword: str, scenario_title: str, stocks: list):

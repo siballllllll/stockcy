@@ -984,7 +984,7 @@ def analyze_autonomous_trading(ticker: str, name: str, current_price: float, mar
             
         from data_kr import get_kr_stock_price
         from data import get_us_stock_detail
-        
+
         info = ""
         if market == "국내":
             d = get_kr_stock_price(ticker)
@@ -994,7 +994,69 @@ def analyze_autonomous_trading(ticker: str, name: str, current_price: float, mar
             d = get_us_stock_detail(ticker)
             if d:
                 info = f"변동률: {d.get('change_pct', 0)}%, P/E: {d.get('trailingPE', 'N/A')}, P/B: {d.get('priceToBook', 'N/A')}"
-                
+
+        # ── [강화] 기술적 지표 수집 (RSI/MA/52주위치/거래량비율/갭) ──
+        tech_info = ""
+        ind_snapshot = {}
+        try:
+            ind = _get_trade_indicators(ticker, "")
+            daily = ind.get("daily", {})
+            ind_snapshot = {
+                "rsi":        daily.get("rsi"),
+                "ma_aligned": daily.get("ma_aligned"),
+                "pos_52w":    daily.get("pos_52w_pct"),
+                "vol_ratio":  daily.get("volume_ratio"),
+                "gap_pct":    daily.get("gap_pct"),
+            }
+            tech_info = (
+                f"\n[기술적 지표] RSI(14)={daily.get('rsi','N/A')}, "
+                f"MA정배열(5>20>60)={'O' if daily.get('ma_aligned') else 'X'}, "
+                f"52주위치={daily.get('pos_52w_pct','N/A')}%, "
+                f"거래량비율(20일평균대비)={daily.get('volume_ratio','N/A')}배, "
+                f"당일갭={daily.get('gap_pct','N/A')}%"
+            )
+        except Exception:
+            pass
+
+        # ── [강화] 외국인·기관 수급 (국내만) ──
+        supply_info = ""
+        if market == "국내":
+            try:
+                from data_kr import get_kr_frgn_inst_rank
+                buy_set = {}
+                for mkt in ["J", "Q"]:
+                    for s in get_kr_frgn_inst_rank(mkt, top_n=30, sort="buy") or []:
+                        buy_set[str(s.get("종목코드", "")).zfill(6)] = (s.get("외국인순매수", 0), s.get("기관순매수", 0))
+                tk6 = str(ticker).zfill(6)
+                if tk6 in buy_set:
+                    frgn, orgn = buy_set[tk6]
+                    supply_info = f"\n[수급 신호] ★ 이 종목은 현재 외국인·기관 순매수 상위권 (외인 {frgn:,}주 / 기관 {orgn:,}주) — 주포 자금 유입 중"
+                else:
+                    supply_info = "\n[수급 신호] 외국인·기관 순매수 상위권에 없음 (개인 매수 위주일 가능성)"
+            except Exception:
+                pass
+
+        # ── [강화] 자기학습 인사이트 (과거 모의매매 결과로 학습한 규칙) ──
+        learning_info = ""
+        try:
+            from db import load_agent_learning_summary
+            summary = load_agent_learning_summary()
+            if summary.get("sample", 0) >= 5 and summary.get("rules"):
+                top_rules = summary["rules"][:4]
+                rule_lines = "\n".join(
+                    f"  - {r['label']}: 승률 {r['win_rate']}% (평균 {r['avg_return']:+.1f}%, {r['count']}건)"
+                    for r in top_rules
+                )
+                learning_info = (
+                    f"\n[★ 나의 과거 모의매매 학습 결과 — {summary['sample']}건 기준, 전체 승률 {summary.get('overall_win_rate',0)}%]\n"
+                    f"{rule_lines}\n"
+                    f"  → 위 통계에서 승률 높은 조건과 현재 종목 상태가 일치하면 적극적으로, 승률 낮은 조건이면 신중하게 판단하세요."
+                )
+        except Exception:
+            pass
+
+        info = info + tech_info + supply_info + learning_info
+
         # 쉐도우 연관 리스크 감지 로직
         shadow_warning = ""
         shadow_anchors_map = {
@@ -1084,10 +1146,30 @@ def analyze_autonomous_trading(ticker: str, name: str, current_price: float, mar
             res_text = res_text[7:-3]
         result_dict = json.loads(res_text)
         
+        # 지표 스냅샷을 결과에 병합 (에이전트 기록용)
+        result_dict["_indicators"] = ind_snapshot
+
+        # BUY 판단이면 학습 테이블에 지표와 함께 기록 (나중에 결과 채워짐)
+        try:
+            if str(result_dict.get("action", "")).upper() == "BUY":
+                from db import save_agent_decision
+                save_agent_decision({
+                    "ticker": ticker, "name": name, "market": market,
+                    "action": "BUY", "confidence": result_dict.get("confidence", 0),
+                    "entry_price": current_price,
+                    "rsi": ind_snapshot.get("rsi"),
+                    "ma_aligned": ind_snapshot.get("ma_aligned"),
+                    "pos_52w": ind_snapshot.get("pos_52w"),
+                    "vol_ratio": ind_snapshot.get("vol_ratio"),
+                    "reason": result_dict.get("reason", ""),
+                })
+        except Exception:
+            pass
+
         # 2차: 캐시 저장 (NONE 은 4시간, HOLDING 은 30분)
         ttl_hours = 4.0 if position == "NONE" else 0.5
         save_ai_cache(cache_key, result_dict, ttl_hours=ttl_hours)
-        
+
         return result_dict
     except Exception as e:
         print(f"analyze_autonomous_trading error: {e}")

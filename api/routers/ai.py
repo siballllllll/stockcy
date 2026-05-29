@@ -1044,6 +1044,13 @@ async def get_screener_backtest_stats():
     return stats
 
 
+@router.get("/agent-learning")
+async def get_agent_learning():
+    """AI 에이전트 자기학습 요약 — 조건별 승률 규칙 (다른 AI 기능 공용)."""
+    from db import load_agent_learning_summary
+    return await asyncio.to_thread(load_agent_learning_summary)
+
+
 @router.post("/capital-rotation")
 async def capital_rotation(ticker: str = ""):
     """보유 종목 자금 회전 분석 — 홀딩/차익실현/로테이션 판단 (SSE). ticker 지정 시 단일 종목."""
