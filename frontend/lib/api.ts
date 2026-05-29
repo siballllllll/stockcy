@@ -57,7 +57,16 @@ export const api = {
     investorTrend:  (market = "KOSPI")       => req(`/api/kr/investor-trend?market=${market}`),
     minuteChart:    (code: string, iv = 5)   => req(`/api/kr/chart/${code}/minute?interval=${iv}`),
     dailyChart:     (code: string, p = 600, unit = "D") => req(`/api/kr/chart/${code}/daily?period=${p}&unit=${unit}`),
-    stocksBulk:     (codes: string[])        => req(`/api/kr/stocks-bulk`, { method: "POST", body: JSON.stringify({ codes }) }),
+    stocksBulk:     async (codes: string[]) => {
+      const CHUNK = 50;
+      const results: Record<string, any> = {};
+      for (let i = 0; i < codes.length; i += CHUNK) {
+        const chunk = codes.slice(i, i + CHUNK);
+        const data = await req<Record<string, any>>(`/api/kr/stocks-bulk?codes=${chunk.join(",")}`);
+        Object.assign(results, data);
+      }
+      return results;
+    },
     sectorMap:      ()                       => req("/api/kr/sector-map"),
     hotSectors:     ()                       => req("/api/kr/hot-sectors"),
     todayMarket:    ()                       => req("/api/kr/today-market"),
