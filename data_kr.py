@@ -913,35 +913,44 @@ def get_kr_prebreakout_signal(stock_code: str) -> dict:
 @st.cache_data(ttl=60, show_spinner=False)
 def get_kr_prices_bulk(tickers_tuple: tuple) -> dict:
     """섹터 패널용 종목 일괄 시세 조회 (code → {name, price, change_pct, + 거래상태 필드}).
-    KIS API inquire-price 우선, 실패 시 yfinance 폴백."""
+    KIS API inquire-price 병렬 조회, 실패 시 yfinance 폴백."""
     import yfinance as yf
     import pandas as pd
+    from concurrent.futures import ThreadPoolExecutor, as_completed
     results = {}
-    _names = {}  # code → 종목명 (KIS에서 확보)
-
-    # 1차 KIS 조회 시도 및 yfinance 폴백 대상 티커 수집
-    yf_tickers = []
+    _names = {}
     _mkt_statuses = {}
-    for code, yf_ticker in tickers_tuple:
-        kis = get_kr_stock_price(code)
-        _kis_status = {}
-        if kis:
-            _kis_status = {
-                "status_code": kis.get("status_code", "55"),
-                "mrkt_warn":   kis.get("mrkt_warn", "00"),
-                "short_over":  kis.get("short_over", "N"),
-                "managed":     kis.get("managed", "N"),
-                "halt":        kis.get("halt", "N"),
-                "vi_type":     kis.get("vi_type", "N"),
-                "vi_ovtm":     kis.get("vi_ovtm", "N"),
-            }
-            _mkt_statuses[code] = _kis_status
-            if kis.get("name"):
-                _names[code] = kis["name"]
-            if kis.get("price", 0) > 0:
-                results[code] = {"name": _names.get(code, code), "price": kis["price"], "change_pct": kis["change_pct"], **_kis_status}
-                continue
-        yf_tickers.append(yf_ticker)
+
+    # 1차 KIS 병렬 조회 (최대 20 스레드)
+    def _fetch_one(item):
+        code, yf_ticker = item
+        try:
+            return code, yf_ticker, get_kr_stock_price(code)
+        except Exception:
+            return code, yf_ticker, None
+
+    yf_tickers = []
+    with ThreadPoolExecutor(max_workers=20) as ex:
+        futures = {ex.submit(_fetch_one, item): item for item in tickers_tuple}
+        for future in as_completed(futures):
+            code, yf_ticker, kis = future.result()
+            if kis:
+                _kis_status = {
+                    "status_code": kis.get("status_code", "55"),
+                    "mrkt_warn":   kis.get("mrkt_warn", "00"),
+                    "short_over":  kis.get("short_over", "N"),
+                    "managed":     kis.get("managed", "N"),
+                    "halt":        kis.get("halt", "N"),
+                    "vi_type":     kis.get("vi_type", "N"),
+                    "vi_ovtm":     kis.get("vi_ovtm", "N"),
+                }
+                _mkt_statuses[code] = _kis_status
+                if kis.get("name"):
+                    _names[code] = kis["name"]
+                if kis.get("price", 0) > 0:
+                    results[code] = {"name": _names.get(code, code), "price": kis["price"], "change_pct": kis["change_pct"], **_kis_status}
+                    continue
+            yf_tickers.append(yf_ticker)
 
     # yfinance 폴백용 이름 보강: get_kr_code_to_name_map 활용
     if yf_tickers:
