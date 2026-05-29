@@ -95,6 +95,45 @@ function EntryTimingStats() {
   );
 }
 
+function PerformanceVerification() {
+  const [tab, setTab] = useState<"backtest" | "feedback" | "timing">("backtest");
+  const tabs: { id: typeof tab; label: string; color: string }[] = [
+    { id: "backtest", label: "📊 자동 백테스트", color: "#a5b4fc" },
+    { id: "feedback", label: "🎯 리딩방 검증",  color: "#34d399" },
+    { id: "timing",   label: "⏰ 시간대 분석",  color: "#fb923c" },
+  ];
+  return (
+    <div style={{ background: "rgba(255,255,255,0.02)", border: "1px solid var(--color-border)", borderRadius: "10px", padding: "1rem 1.2rem", display: "flex", flexDirection: "column", gap: "0.75rem" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "8px", flexWrap: "wrap" }}>
+        <div style={{ fontSize: "0.85rem", fontWeight: 800, color: "var(--color-text)" }}>🧪 추천 성과 검증</div>
+        <div style={{ display: "flex", gap: "4px" }}>
+          {tabs.map((t) => (
+            <button
+              key={t.id}
+              onClick={() => setTab(t.id)}
+              style={{
+                fontSize: "0.72rem", padding: "4px 10px", borderRadius: "5px",
+                border: "1px solid",
+                borderColor: tab === t.id ? `${t.color}80` : "rgba(255,255,255,0.08)",
+                background: tab === t.id ? `${t.color}1f` : "transparent",
+                color: tab === t.id ? t.color : "var(--color-muted)",
+                fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap",
+              }}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div>
+        {tab === "backtest" && <BacktestStats />}
+        {tab === "feedback" && <ScreenerFeedbackStats />}
+        {tab === "timing"   && <EntryTimingStats />}
+      </div>
+    </div>
+  );
+}
+
 function DailyAlertCard() {
   const [sending, setSending] = useState(false);
   const [msg, setMsg] = useState("");
@@ -601,9 +640,7 @@ export default function Dashboard() {
                 </div>
               )}
 
-              <BacktestStats />
-              <EntryTimingStats />
-              <ScreenerFeedbackStats />
+              <PerformanceVerification />
               <DailyAlertCard />
             </div>
           )}
@@ -696,8 +733,6 @@ export default function Dashboard() {
                   <div style={{ fontSize: "0.87rem", color: "var(--color-text)", lineHeight: 1.85, whiteSpace: "pre-wrap" }}>{data.narrative}</div>
                 </div>
               )}
-
-              <EntryTimingStats />
             </div>
           )}
         </SSEPanel>
@@ -753,8 +788,6 @@ export default function Dashboard() {
                   <div style={{ fontSize: "0.87rem", color: "var(--color-text)", lineHeight: 1.85, whiteSpace: "pre-wrap" }}>{data.narrative}</div>
                 </div>
               )}
-
-              <EntryTimingStats />
             </div>
           )}
         </SSEPanel>
