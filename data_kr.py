@@ -910,12 +910,28 @@ def get_kr_prebreakout_signal(stock_code: str) -> dict:
     }
 
 
-_BULK_CACHE: dict = {}   # {cache_key: (timestamp, result)}
-_BULK_TTL = 60           # 60초 TTL
+_BULK_CACHE: dict = {}    # {cache_key: (timestamp, result)}
+_FDR_CACHE:  dict = {}    # {"krx": (timestamp, DataFrame)}
+_BULK_TTL = 60            # 종목별 캐시 TTL (초)
+_FDR_TTL  = 120           # FDR 전종목 캐시 TTL (초)
+
+def _get_fdr_krx():
+    """FDR StockListing("KRX") — 0.6초로 전종목 가격 반환, 2분 캐시."""
+    import time as _t
+    cached = _FDR_CACHE.get("krx")
+    if cached and (_t.time() - cached[0]) < _FDR_TTL:
+        return cached[1]
+    try:
+        import FinanceDataReader as fdr
+        df = fdr.StockListing("KRX")
+        _FDR_CACHE["krx"] = (_t.time(), df)
+        return df
+    except Exception:
+        return None
 
 def get_kr_prices_bulk(tickers_tuple: tuple) -> dict:
     """섹터 패널용 종목 일괄 시세 조회 (code → {name, price, change_pct}).
-    yfinance 배치 다운로드 우선 (빠름), KIS API는 소량(10개 미만)일 때만 사용."""
+    FDR StockListing 우선(0.6초), 소량(10개 미만)은 KIS 직접 조회."""
     import time as _time
     cache_key = tickers_tuple
     cached = _BULK_CACHE.get(cache_key)
@@ -940,18 +956,33 @@ def get_kr_prices_bulk(tickers_tuple: tuple) -> dict:
             else:
                 yf_tickers.append((code, yf_ticker))
     else:
-        # 10개 이상은 yfinance 배치로 직행 (KIS 개별 호출 스킵)
-        yf_tickers = list(tickers_tuple)
+        # 10개 이상 — FDR StockListing으로 직행 (0.6초로 전종목 커버)
+        fdr_df = _get_fdr_krx()
+        if fdr_df is not None and not fdr_df.empty:
+            fdr_map = {}
+            for _, row in fdr_df.iterrows():
+                code = str(row.get("Code", "")).strip().zfill(6)
+                try:
+                    price = int(row.get("Close", 0) or 0)
+                    chg_pct = round(float(row.get("ChagesRatio", 0) or 0), 2)
+                    if price > 0:
+                        fdr_map[code] = {"name": code, "price": price,
+                                         "change_pct": chg_pct, **_default_status}
+                except Exception:
+                    pass
+            for code, _ in tickers_tuple:
+                if code not in results and code in fdr_map:
+                    results[code] = fdr_map[code]
+        yf_tickers = [(code, yf_t) for code, yf_t in tickers_tuple if code not in results]
 
-    # yfinance 배치 다운로드 — KS+KQ 동시 다운로드 후 코드 매핑
+    # FDR에서 못 가져온 종목은 yfinance 배치 폴백
     if yf_tickers:
         try:
-            # 각 종목코드에 대해 .KS와 .KQ 둘 다 요청 (한 번의 배치로)
             codes_only = [code for code, _ in yf_tickers]
             all_tickers = [c + ".KS" for c in codes_only] + [c + ".KQ" for c in codes_only]
             raw = yf.download(all_tickers, period="2d", progress=False, timeout=15)
             if not raw.empty:
-                close_df = raw["Close"] if isinstance(raw.columns, pd.MultiIndex) else raw[["Close"]].rename(columns={"Close": all_tickers[0]})
+                close_df = raw["Close"] if isinstance(raw.columns, pd.MultiIndex) else raw
                 for code in codes_only:
                     if code in results:
                         continue
