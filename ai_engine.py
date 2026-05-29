@@ -3860,6 +3860,17 @@ def detect_realtime_supply_rotation() -> dict:
     chg_dn  = _safe_get(f"{BASE}/api/kr/change-ranking?market=ALL&direction=down")
     sectors = _safe_get(f"{BASE}/api/kr/hot-sectors")
 
+    # 외국인·기관 순매수/순매도 TOP 10 (KOSPI/KOSDAQ 각각)
+    try:
+        from data_kr import get_kr_frgn_inst_rank
+        kospi_buy   = get_kr_frgn_inst_rank("J", top_n=10, sort="buy")  or []
+        kospi_sell  = get_kr_frgn_inst_rank("J", top_n=10, sort="sell") or []
+        kosdaq_buy  = get_kr_frgn_inst_rank("Q", top_n=10, sort="buy")  or []
+        kosdaq_sell = get_kr_frgn_inst_rank("Q", top_n=10, sort="sell") or []
+    except Exception as e:
+        print(f"[supply rotation] 외국인/기관 데이터 실패: {e}")
+        kospi_buy = kospi_sell = kosdaq_buy = kosdaq_sell = []
+
     known_patterns = load_supply_flow_patterns()
 
     def _fmt(items, key_name, key_val, n=12):
@@ -3874,6 +3885,23 @@ def detect_realtime_supply_rotation() -> dict:
     vol_text    = _fmt(vol_up,  "거래량", "거래량")
     chg_up_text = _fmt(chg_up, "등락률", "등락률")
     chg_dn_text = _fmt(chg_dn, "등락률", "등락률")
+
+    def _fmt_inst(items, n=8):
+        lines = []
+        for s in items[:n]:
+            name = s.get("종목명","?")
+            code = s.get("종목코드","")
+            frgn = s.get("외국인순매수", 0)
+            orgn = s.get("기관순매수", 0)
+            total = frgn + orgn
+            sign = "+" if total >= 0 else ""
+            lines.append(f"- {name}({code}): 외인 {frgn:,}주 / 기관 {orgn:,}주 / 합계 {sign}{total:,}주")
+        return "\n".join(lines) if lines else "(데이터 없음)"
+
+    kospi_buy_text   = _fmt_inst(kospi_buy)
+    kospi_sell_text  = _fmt_inst(kospi_sell)
+    kosdaq_buy_text  = _fmt_inst(kosdaq_buy)
+    kosdaq_sell_text = _fmt_inst(kosdaq_sell)
 
     sector_list = sectors.get("sectors", []) if isinstance(sectors, dict) else []
     hot_text = "\n".join(
@@ -3890,6 +3918,7 @@ def detect_realtime_supply_rotation() -> dict:
 
     prompt = f"""당신은 주식 수급 분석 전문가입니다. 절대로 한자를 사용하지 마세요.
 오늘의 실시간 시장 데이터와 뉴스를 분석해 수급 이동 흐름을 파악해주세요.
+**특히 외국인·기관 순매수/순매도 데이터를 핵심 신호로 활용하세요. 단순 거래량만으로는 단타 개인 자금일 수 있지만, 외인·기관 매수가 동반되면 진짜 주포 진입 신호입니다.**
 
 === 오늘 거래량 상위 종목 ===
 {vol_text}
@@ -3900,16 +3929,29 @@ def detect_realtime_supply_rotation() -> dict:
 === 등락률 상위 (하락/소화) ===
 {chg_dn_text}
 
+=== [핵심] 외국인·기관 순매수 TOP (KOSPI) ===
+{kospi_buy_text}
+
+=== [핵심] 외국인·기관 순매도 TOP (KOSPI) ===
+{kospi_sell_text}
+
+=== [핵심] 외국인·기관 순매수 TOP (KOSDAQ) ===
+{kosdaq_buy_text}
+
+=== [핵심] 외국인·기관 순매도 TOP (KOSDAQ) ===
+{kosdaq_sell_text}
+
 === 섹터 핫스코어 ===
 {hot_text}
 {flow_text}
 
-위 데이터와 오늘의 뉴스·이슈를 종합하여 다음 4가지를 분석해주세요:
+위 데이터와 오늘의 뉴스·이슈를 종합하여 다음 5가지를 분석해주세요:
 
-1. **수급 이탈 징후 종목/섹터** — 거래량 과열 또는 급등 후 소화 중인 곳
-2. **수급 유입 가능 종목/섹터** — 아직 덜 달았지만 자금이 넘어올 가능성이 있는 곳
-3. **오늘의 수급 이동 시나리오** — 이슈·테마 연결고리 기반으로 자금 흐름 예측
-4. **과거 패턴 매칭** — 위 수급 이동 패턴 중 오늘 상황과 유사한 사례 언급
+1. **주포 진입 종목/섹터** — 외인·기관 순매수 TOP 중 진짜 자금 유입 신호가 강한 곳 (단순 거래량 급증 vs 외인·기관 동반 매수 구분)
+2. **주포 이탈 종목/섹터** — 외인·기관 순매도 TOP 중 자금 빠지는 곳 (개인 매수만 남은 위험 신호)
+3. **수급 이동 시나리오** — 어느 종목/섹터에서 어디로 외인·기관 자금이 옮겨가고 있는지
+4. **가짜 수급 vs 진짜 수급** — 거래량은 폭증했지만 외인·기관은 빠지는 종목 (단타 개미 집중) 경고
+5. **과거 패턴 매칭** — 과거 수급 이동 패턴 중 오늘 상황과 유사한 사례 언급
 
 실전 투자자가 즉시 활용할 수 있는 구체적인 분석을 해주세요."""
 
@@ -3926,5 +3968,11 @@ def detect_realtime_supply_rotation() -> dict:
         "chg_up":          chg_up[:10],
         "chg_dn":          chg_dn[:10],
         "known_patterns":  known_patterns[:10],
+        "frgn_inst": {
+            "kospi_buy":   kospi_buy[:8],
+            "kospi_sell":  kospi_sell[:8],
+            "kosdaq_buy":  kosdaq_buy[:8],
+            "kosdaq_sell": kosdaq_sell[:8],
+        },
     }
 

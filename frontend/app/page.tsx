@@ -349,6 +349,43 @@ export default function Dashboard() {
           {(data) => (
             <div style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
 
+              {/* 외국인·기관 수급 현황 (KOSPI / KOSDAQ × 매수/매도) */}
+              {data.frgn_inst && (
+                <div style={{ background: "rgba(34,197,94,0.05)", border: "1px solid rgba(34,197,94,0.2)", borderRadius: "10px", padding: "1rem 1.2rem" }}>
+                  <div style={{ fontSize: "0.78rem", fontWeight: 700, color: "#34d399", marginBottom: "0.75rem", display: "flex", alignItems: "center", gap: "0.4rem" }}>
+                    💎 외국인·기관 수급 현황 (주포 자금 흐름)
+                  </div>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem" }}>
+                    {[
+                      { label: "🇰🇷 KOSPI 매수 TOP", items: data.frgn_inst.kospi_buy,   color: "#f87171", bg: "rgba(239,68,68,0.06)", border: "rgba(239,68,68,0.2)" },
+                      { label: "🇰🇷 KOSPI 매도 TOP", items: data.frgn_inst.kospi_sell,  color: "#60a5fa", bg: "rgba(96,165,250,0.06)", border: "rgba(96,165,250,0.2)" },
+                      { label: "📈 KOSDAQ 매수 TOP", items: data.frgn_inst.kosdaq_buy,  color: "#f87171", bg: "rgba(239,68,68,0.06)", border: "rgba(239,68,68,0.2)" },
+                      { label: "📈 KOSDAQ 매도 TOP", items: data.frgn_inst.kosdaq_sell, color: "#60a5fa", bg: "rgba(96,165,250,0.06)", border: "rgba(96,165,250,0.2)" },
+                    ].map((card: any) => (
+                      <div key={card.label} style={{ background: card.bg, border: `1px solid ${card.border}`, borderRadius: "8px", padding: "0.6rem 0.75rem" }}>
+                        <div style={{ fontSize: "0.7rem", fontWeight: 700, color: card.color, marginBottom: "0.4rem" }}>{card.label}</div>
+                        {!card.items || card.items.length === 0 ? (
+                          <div style={{ fontSize: "0.7rem", color: "var(--color-muted)" }}>데이터 없음</div>
+                        ) : (
+                          <div style={{ display: "flex", flexDirection: "column", gap: "3px" }}>
+                            {card.items.slice(0, 5).map((s: any, i: number) => {
+                              const total = (s["외국인순매수"] || 0) + (s["기관순매수"] || 0);
+                              const sign = total >= 0 ? "+" : "";
+                              return (
+                                <div key={i} style={{ display: "flex", justifyContent: "space-between", fontSize: "0.72rem" }}>
+                                  <span style={{ color: "var(--color-text)", fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "60%" }}>{s["종목명"]}</span>
+                                  <span style={{ color: card.color, fontWeight: 700 }}>{sign}{(total/1000).toFixed(0)}K주</span>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {/* 과거 수급 이동 패턴 */}
               {data.known_patterns?.length > 0 && (
                 <div style={{ background: "rgba(245,158,11,0.06)", border: "1px solid rgba(245,158,11,0.2)", borderRadius: "10px", padding: "1rem 1.2rem" }}>

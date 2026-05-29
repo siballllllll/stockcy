@@ -491,13 +491,14 @@ def get_kr_investor_rank_bulk(stock_list: tuple) -> list:
 
 
 @st.cache_data(ttl=120, show_spinner=False)
-def get_kr_frgn_inst_rank(market: str = "J", top_n: int = 30) -> list:
-    """KIS 외국인·기관 순매수 상위 종목 순위 (1회 API 호출, IP 화이트리스트 필요).
+def get_kr_frgn_inst_rank(market: str = "J", top_n: int = 30, sort: str = "buy") -> list:
+    """KIS 외국인·기관 순매수/순매도 상위 종목 순위 (1회 API 호출, IP 화이트리스트 필요).
 
     market: "J"=KOSPI, "Q"=KOSDAQ
+    sort: "buy"=순매수 많은 순, "sell"=순매도 많은 순
     반환: [{'종목코드', '종목명', '외국인순매수', '기관순매수'}, ...]
-    IP 화이트리스트 미등록 등으로 실패 시 빈 리스트 반환.
     """
+    sort_code = "0" if sort == "buy" else "1"   # KIS: 0=순매수, 1=순매도
     data = _get(
         "/uapi/domestic-stock/v1/ranking/foreign-institution-total",
         "FHPST01710000",
@@ -506,7 +507,7 @@ def get_kr_frgn_inst_rank(market: str = "J", top_n: int = 30) -> list:
             "fid_cond_scr_div_code": "20171",
             "fid_input_iscd": "0000",
             "fid_div_cls_code": "0",          # 0=외국인+기관 합산
-            "fid_rank_sort_cls_code": "0",    # 0=순매수 많은 순
+            "fid_rank_sort_cls_code": sort_code,
             "fid_etc_cls_code": "0",
             "fid_trgt_cls_code": "111111111",
             "fid_trgt_exls_cls_code": "000000",
