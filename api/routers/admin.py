@@ -15,6 +15,21 @@ async def get_version():
     return {"version": APP_VERSION}
 
 
+@router.get("/cache-status")
+async def get_cache_status():
+    """KRX 가격 캐시 상태 확인."""
+    try:
+        from api.main import KRX_PRICE_CACHE, _KRX_CACHE_UPDATED
+        import time
+        return {
+            "cached_stocks": len(KRX_PRICE_CACHE),
+            "last_updated_sec_ago": round(time.time() - _KRX_CACHE_UPDATED, 1) if _KRX_CACHE_UPDATED else None,
+            "sample": {k: v for k, v in list(KRX_PRICE_CACHE.items())[:3]} if KRX_PRICE_CACHE else {}
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
+
 # ── 섹터DB 초기화 ─────────────────────────────────────────────────────────────
 
 @router.post("/init-sector-kr")
