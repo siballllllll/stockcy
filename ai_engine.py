@@ -4113,11 +4113,16 @@ def analyze_agent_daily_issues() -> dict:
         if issues:
             save_agent_daily_issues(issues)
 
-        # ── 상위 이슈로 시나리오 자동 생성 (최대 4개 — 비용/화면 균형) ──
+        # ── 상위 이슈로 시나리오 자동 생성 (최대 3개) ──
+        # 종목(related_tickers)이 매핑된 이슈를 우선 — 시나리오화 성공률이 높음
         from db import save_agent_scenario
         MAX_SCENARIOS = 3
+        sorted_issues = sorted(
+            issues,
+            key=lambda x: 0 if (x.get("related_tickers") and len(x.get("related_tickers")) > 0) else 1
+        )
         scenario_count = 0
-        for iss in issues:
+        for iss in sorted_issues:
             if scenario_count >= MAX_SCENARIOS:
                 break
             kw = (iss.get("title") or iss.get("theme") or "").strip()
@@ -4128,6 +4133,8 @@ def analyze_agent_daily_issues() -> dict:
                 if sc and "error" not in sc:
                     save_agent_scenario(kw, sc)
                     scenario_count += 1
+                else:
+                    print(f"[agent scenario] '{kw}' 빈 결과 또는 오류")
             except Exception as se:
                 print(f"[agent scenario] '{kw}' 생성 실패: {se}")
 
