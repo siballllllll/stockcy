@@ -3831,7 +3831,7 @@ def build_supply_flow_patterns() -> dict:
     result = [
         {**{k: v for k, v in p.items() if k != "days_list"},
          "avg_days": round(sum(p["days_list"]) / len(p["days_list"]), 1)}
-        for p in patterns.values() if p["count"] >= 2
+        for p in patterns.values() if p["count"] >= 1
     ]
     result.sort(key=lambda x: x["count"], reverse=True)
     save_supply_flow_patterns(result)
