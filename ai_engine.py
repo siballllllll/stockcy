@@ -763,7 +763,7 @@ def analyze_custom_issue(keyword: str) -> dict:
         "}"
     )
     try:
-        response = _call_gemini(prompt, use_search=True, temperature=0.6, timeout_sec=120, max_output_tokens=8000)
+        response = _call_gemini(prompt, use_search=True, temperature=0.6, timeout_sec=130, max_output_tokens=16000)
         res = _parse_json_response(response)
 
         _fix_scenario_names(res)
