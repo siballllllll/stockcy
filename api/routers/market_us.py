@@ -183,6 +183,21 @@ def us_exchange_rate():
     return {"rate": 1350.0, "symbol": "USDKRW", "fallback": True}
 
 
+@router.get("/treasury-10y")
+def us_treasury_10y():
+    """미 10년물 국채금리 (yfinance ^TNX)."""
+    try:
+        import yfinance as yf
+        hist = yf.Ticker("^TNX").history(period="5d")
+        if not hist.empty:
+            cur = float(hist["Close"].iloc[-1])
+            prev = float(hist["Close"].iloc[-2]) if len(hist) >= 2 else cur
+            return {"yield": round(cur, 3), "change": round(cur - prev, 3), "fallback": False}
+    except Exception:
+        pass
+    return {"yield": 0.0, "change": 0.0, "fallback": True}
+
+
 @router.get("/exchange-rates-historical")
 def us_exchange_rates_historical(dates: str = Query(..., description="콤마로 구분된 YYYY-MM-DD 날짜")):
     """여러 날짜에 대한 USD/KRW 종가 환율 반환 (로컬 파일 캐싱 지원)"""

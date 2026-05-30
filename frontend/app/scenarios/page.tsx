@@ -1069,6 +1069,8 @@ function ScenariosPageInner() {
   }, [mounted]);
 
   const { data: us } = useSWR("us-indices", () => api.us.indices() as Promise<any>, { refreshInterval: 60000 });
+  const { data: fxRate } = useSWR("sc-usd-krw", () => api.us.exchangeRate(), { refreshInterval: 300000, revalidateOnFocus: false });
+  const { data: tnx } = useSWR("sc-treasury-10y", () => api.us.treasury10y(), { refreshInterval: 300000, revalidateOnFocus: false });
 
   // fetchTrigger가 null이 아닐 때만 실행
   useEffect(() => {
@@ -1268,11 +1270,15 @@ function ScenariosPageInner() {
             </div>
             <div style={{ display: "flex", justifyContent: "space-between", borderBottom: "1px solid rgba(255,255,255,0.04)", paddingBottom: "6px" }}>
               <span style={{ fontSize: "0.8rem", fontWeight: 700 }}>원/달러</span>
-              <span style={{ fontSize: "0.8rem", fontWeight: 800, color: "var(--color-warning)" }}>—</span>
+              <span style={{ fontSize: "0.8rem", fontWeight: 800, color: "var(--color-warning)" }}>
+                {fxRate?.rate ? `₩${fxRate.rate.toLocaleString()}` : "—"}
+              </span>
             </div>
             <div style={{ display: "flex", justifyContent: "space-between" }}>
               <span style={{ fontSize: "0.8rem", fontWeight: 700 }}>미 10년물</span>
-              <span style={{ fontSize: "0.8rem", fontWeight: 800, color: "var(--color-primary)" }}>—</span>
+              <span style={{ fontSize: "0.8rem", fontWeight: 800, color: "var(--color-primary)" }}>
+                {tnx?.yield ? `${tnx.yield}%${tnx.change != null ? ` (${tnx.change >= 0 ? "+" : ""}${tnx.change})` : ""}` : "—"}
+              </span>
             </div>
           </div>
 
