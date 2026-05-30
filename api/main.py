@@ -191,8 +191,9 @@ def _daily_issue_loop():
         try:
             now = _dt.datetime.now()
             today = now.strftime("%Y-%m-%d")
-            if (now.weekday() < 5
-                and now.hour == 7 and now.minute >= 50
+            # 미국장 마감 직후 (한국시간 새벽 06:10). 미국 월~금장 마감 = 한국 화~토 새벽 → weekday 1~5
+            if (1 <= now.weekday() <= 5
+                and now.hour == 6 and now.minute >= 10
                 and _LAST_ISSUE_DATE != today):
                 try:
                     from ai_engine import analyze_agent_daily_issues
