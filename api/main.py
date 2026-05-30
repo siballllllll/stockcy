@@ -187,21 +187,28 @@ def _daily_issue_loop():
     except Exception as e:
         print(f"[daily issue] 시작 시 분석 오류: {e}")
 
+    # 하루 2회 자동 분석 — 슬롯별로 마지막 실행일을 따로 추적
+    _slot_done = {"us": "", "kr": ""}
     while True:
         try:
             now = _dt.datetime.now()
             today = now.strftime("%Y-%m-%d")
-            # 미국장 마감 직후 (한국시간 새벽 06:10). 미국 월~금장 마감 = 한국 화~토 새벽 → weekday 1~5
-            if (1 <= now.weekday() <= 5
-                and now.hour == 6 and now.minute >= 10
-                and _LAST_ISSUE_DATE != today):
+            wd = now.weekday()  # 월=0 ... 일=6
+
+            # 🇺🇸 미국장 마감 직후 (한국 새벽 06:10). 미국 월~금장 = 한국 화~토 → wd 1~5
+            us_slot = (1 <= wd <= 5 and now.hour == 6 and now.minute >= 10)
+            # 🇰🇷 한국장 마감 직후 (15:40). 한국 월~금 → wd 0~4
+            kr_slot = (0 <= wd <= 4 and now.hour == 15 and now.minute >= 40)
+
+            slot = "us" if us_slot else ("kr" if kr_slot else None)
+            if slot and _slot_done[slot] != today:
                 try:
                     from ai_engine import analyze_agent_daily_issues
                     r = analyze_agent_daily_issues()
-                    _LAST_ISSUE_DATE = today
-                    print(f"[daily issue] 분석 완료: {r.get('count',0)}개 이슈 ({today})")
+                    _slot_done[slot] = today
+                    print(f"[daily issue] {slot} 슬롯 분석 완료: {r.get('count',0)}개 이슈 ({today})")
                 except Exception as e:
-                    print(f"[daily issue] 오류: {e}")
+                    print(f"[daily issue] {slot} 슬롯 오류: {e}")
         except Exception:
             pass
         _time.sleep(300)   # 5분마다 체크
