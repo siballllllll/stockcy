@@ -309,7 +309,7 @@ async def us_stock_report(req: StockReportRequest):
                 req.change_pct,
             )
             # 2차 캐시 저장 (파싱 실패/분석 오류 결과는 캐시하지 않아 일시적 오류가 12시간 고착되는 것 방지)
-            if result and "error" not in result and result.get("rating") != "분석 오류":
+            if isinstance(result, dict) and "error" not in result and result.get("rating") != "분석 오류":
                 await asyncio.to_thread(save_ai_cache, CACHE_KEY, result, 12)
                 
             # AI 가격 알림 자동 등록
@@ -361,7 +361,7 @@ async def kr_stock_report(req: KrStockReportRequest):
                 req.pattern_context,
             )
             # 2차 캐시 저장 (파싱 실패/분석 오류 결과는 캐시하지 않아 일시적 오류가 12시간 고착되는 것 방지)
-            if result and "error" not in result and result.get("rating") != "분석 오류":
+            if isinstance(result, dict) and "error" not in result and result.get("rating") != "분석 오류":
                 await asyncio.to_thread(save_ai_cache, CACHE_KEY, result, 12)
                 
             # AI 가격 알림 자동 등록
@@ -825,7 +825,7 @@ async def box_pattern_analysis(req: BoxPatternRequest):
                 req.market
             )
             # 2차 캐시 저장 (파싱 실패/분석 오류 결과는 캐시하지 않아 일시적 오류가 12시간 고착되는 것 방지)
-            if result and "error" not in result and result.get("rating") != "분석 오류":
+            if isinstance(result, dict) and "error" not in result and result.get("rating") != "분석 오류":
                 await asyncio.to_thread(save_ai_cache, CACHE_KEY, result, 12)
                 
             yield _sse({"status": "done", "result": result})

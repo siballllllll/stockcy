@@ -1327,6 +1327,14 @@ def generate_stock_report(ticker, current_price, change_pct):
         response = _call_gemini(prompt, use_search=False, temperature=0.7, max_output_tokens=6000)
         res = _parse_json_response(response)
 
+        # AI가 객체가 아닌 배열/문자열 등 비정상 형식으로 응답한 경우 오류 dict 반환 (이후 .get 크래시 방지)
+        if not isinstance(res, dict):
+            return {
+                "rating": "분석 오류",
+                "buy_target": "-", "sell_target": "-", "stop_loss": "-",
+                "analysis": "AI 응답 형식 오류입니다 (예상과 다른 형식). 잠시 후 다시 시도해주세요.",
+            }
+
         # [Python Override - Conditional & No-Fallback - 동적 하이브리드 타점 적용]
         try:
             cp = float(current_price)
@@ -1927,6 +1935,14 @@ PER: {price_data.get('per', '-')} | PBR: {price_data.get('pbr', '-')}
     try:
         response = _call_gemini(prompt, use_search=True, temperature=0.7, max_output_tokens=6000)
         res = _parse_json_response(response)
+
+        # AI가 객체가 아닌 배열/문자열 등 비정상 형식으로 응답한 경우 오류 dict 반환 (이후 .get 크래시 방지)
+        if not isinstance(res, dict):
+            return {
+                "rating": "분석 오류",
+                "buy_target": "-", "sell_target": "-", "stop_loss": "-",
+                "analysis": "AI 응답 형식 오류입니다 (예상과 다른 형식). 잠시 후 다시 시도해주세요.",
+            }
 
         # [Python Override - Conditional & No-Fallback - 동적 하이브리드 타점 적용]
         try:
