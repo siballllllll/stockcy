@@ -12,19 +12,20 @@ import ReactMarkdown from "react-markdown";
 // ── 종목 AI 분석 결과 localStorage 캐시 (페이지 이동 후 복원용, 6시간 유효) ──
 const _AI_CACHE_PREFIX = "stockcy_ai_stock_";
 const _AI_CACHE_TTL = 6 * 60 * 60 * 1000;
+function _aiKey(code: string) { return _AI_CACHE_PREFIX + String(code).trim().toUpperCase(); }
 function _saveAiCache(code: string, result: any) {
   if (typeof window === "undefined" || !code || !result) return;
   try {
-    localStorage.setItem(_AI_CACHE_PREFIX + code, JSON.stringify({ result, ts: Date.now() }));
+    localStorage.setItem(_aiKey(code), JSON.stringify({ result, ts: Date.now() }));
   } catch {}
 }
 function _loadAiCache(code: string): any | null {
   if (typeof window === "undefined" || !code) return null;
   try {
-    const raw = localStorage.getItem(_AI_CACHE_PREFIX + code);
+    const raw = localStorage.getItem(_aiKey(code));
     if (!raw) return null;
     const { result, ts } = JSON.parse(raw);
-    if (Date.now() - ts > _AI_CACHE_TTL) { localStorage.removeItem(_AI_CACHE_PREFIX + code); return null; }
+    if (Date.now() - ts > _AI_CACHE_TTL) { localStorage.removeItem(_aiKey(code)); return null; }
     return result;
   } catch { return null; }
 }
