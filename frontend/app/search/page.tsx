@@ -13,8 +13,12 @@ import ReactMarkdown from "react-markdown";
 const _AI_CACHE_PREFIX = "stockcy_ai_stock_";
 const _AI_CACHE_TTL = 6 * 60 * 60 * 1000;
 function _aiKey(code: string) { return _AI_CACHE_PREFIX + String(code).trim().toUpperCase(); }
+// 분석 결과가 정상적인 객체 형태인지 검증 (구버전 배열 캐시 등 비정상 형태 차단)
+function _isValidAiResult(r: any): boolean {
+  return !!r && typeof r === "object" && !Array.isArray(r) && typeof r.rating !== "undefined";
+}
 function _saveAiCache(code: string, result: any) {
-  if (typeof window === "undefined" || !code || !result) return;
+  if (typeof window === "undefined" || !code || !_isValidAiResult(result)) return;
   try {
     localStorage.setItem(_aiKey(code), JSON.stringify({ result, ts: Date.now() }));
   } catch {}
@@ -26,6 +30,8 @@ function _loadAiCache(code: string): any | null {
     if (!raw) return null;
     const { result, ts } = JSON.parse(raw);
     if (Date.now() - ts > _AI_CACHE_TTL) { localStorage.removeItem(_aiKey(code)); return null; }
+    // 구버전 배열 캐시 등 비정상 형태면 제거하고 재분석 유도 (가짜 '분석 중' 표시 방지)
+    if (!_isValidAiResult(result)) { localStorage.removeItem(_aiKey(code)); return null; }
     return result;
   } catch { return null; }
 }
@@ -1584,7 +1590,7 @@ function SearchPageInner() {
                 <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
                   <div style={{ display: "flex", gap: "10px", alignItems: "center", flexWrap: "wrap" }}>
                     <span style={{ fontWeight: 800, fontSize: "1rem", padding: "4px 12px", borderRadius: "6px", background: aiResult.rating?.includes("추천") ? "rgba(0,200,83,0.15)" : "rgba(255,75,75,0.1)", color: aiResult.rating?.includes("추천") ? "#00c853" : "#ff4b4b", border: `1px solid ${aiResult.rating?.includes("추천") ? "#00c853" : "#ff4b4b"}` }}>
-                      {aiResult.rating || "분석 중"}
+                      {aiResult.rating || "분석 완료"}
                     </span>
                     {aiResult.verified_name && aiResult.ticker_mismatch && (
                       <span style={{ fontSize: "0.8rem", color: "var(--color-warning)" }}>⚠️ 실제 종목: {aiResult.verified_name}</span>
