@@ -10,6 +10,30 @@ import { useAnalysisReady } from "@/lib/analysis-ready-context";
 // Next.js 프록시 우회 — 프록시가 큰 done JSON을 버퍼링해서 결과가 안 뜨는 문제 방지
 const BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8000";
 
+// ── 시나리오 상세 분석 localStorage 캐시 (새로고침·페이지 이동 후 복원, 24시간 유효) ──
+const _DETAIL_CACHE_PREFIX = "stockcy_scenario_detail_";
+const _DETAIL_CACHE_TTL = 24 * 60 * 60 * 1000;
+function _detailKey(issueTitle: string, scenarioTitle: string) {
+  // 이슈+시나리오 제목으로 안정적 키 생성 (공백 정규화)
+  return _DETAIL_CACHE_PREFIX + `${issueTitle}__${scenarioTitle}`.replace(/\s+/g, " ").trim();
+}
+function _saveDetailCache(issueTitle: string, scenarioTitle: string, result: any) {
+  if (typeof window === "undefined" || !result || result.error) return;
+  try {
+    localStorage.setItem(_detailKey(issueTitle, scenarioTitle), JSON.stringify({ result, ts: Date.now() }));
+  } catch {}
+}
+function _loadDetailCache(issueTitle: string, scenarioTitle: string): any | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = localStorage.getItem(_detailKey(issueTitle, scenarioTitle));
+    if (!raw) return null;
+    const { result, ts } = JSON.parse(raw);
+    if (Date.now() - ts > _DETAIL_CACHE_TTL) { localStorage.removeItem(_detailKey(issueTitle, scenarioTitle)); return null; }
+    return result;
+  } catch { return null; }
+}
+
 // ── 타입 정의 ──────────────────────────────────────────────────────────────────
 interface StockEntry {
   name: string;
@@ -481,6 +505,13 @@ function ScenarioContent({ scenario, issueTitle }: { scenario: Scenario; issueTi
   const [detailResult, setDetailResult] = useState<DetailResult | null>(null);
   const [showDetail, setShowDetail] = useState(false);
 
+  // 새로고침·페이지 이동 후 캐시된 상세 분석 복원 (접힌 상태로 두고 '펼치기'로 다시 볼 수 있게)
+  useEffect(() => {
+    const cached = _loadDetailCache(issueTitle, scenario.title);
+    if (cached) { setDetailResult(cached); setDetailStatus("done"); }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [issueTitle, scenario.title]);
+
   const krRising   = scenario.rising_stocks?.filter(s => isKrTicker(s.ticker))  ?? [];
   const usRising   = scenario.rising_stocks?.filter(s => !isKrTicker(s.ticker)) ?? [];
   const krFalling  = scenario.falling_stocks?.filter(s => isKrTicker(s.ticker)) ?? [];
@@ -553,6 +584,7 @@ function ScenarioContent({ scenario, issueTitle }: { scenario: Scenario; issueTi
       );
       setDetailResult(result);
       setDetailStatus("done");
+      _saveDetailCache(issueTitle, scenario.title, result);
     } catch (e) {
       setDetailMsg(String(e));
       setDetailStatus("error");
