@@ -50,6 +50,7 @@ interface StockEntry {
 interface ThemeStock {
   name: string;
   ticker: string;
+  horizon?: string;   // "단타" | "중장기"
   type: string;
   historical_pattern: string;
   reason: string;
@@ -300,6 +301,16 @@ function ThemeStockRow({ stock, priceEntry, onClick }: {
           <span style={{ fontWeight: 700, fontSize: "0.88rem" }}>{stock.name}</span>
           <span style={{ fontSize: "0.7rem", color: "var(--color-muted)" }}>({stock.ticker})</span>
           <MarketBadge ticker={stock.ticker} />
+          {stock.horizon && (
+            <span style={{
+              display: "inline-block", padding: "1px 7px", borderRadius: "10px", fontSize: "0.7rem", fontWeight: 800,
+              background: stock.horizon === "중장기" ? "rgba(80,160,255,0.18)" : "rgba(255,140,50,0.18)",
+              border: stock.horizon === "중장기" ? "1px solid #5aa0ff" : "1px solid #ff8c32",
+              color: stock.horizon === "중장기" ? "#5aa0ff" : "#ff8c32",
+            }}>
+              {stock.horizon === "중장기" ? "📆 중장기" : "⚡ 단타"}
+            </span>
+          )}
           <span style={{
             display: "inline-block", padding: "1px 7px", borderRadius: "10px", fontSize: "0.7rem", fontWeight: 700,
             background: stock.type === "직접관련주" ? "rgba(255,180,50,0.15)" : "rgba(180,100,255,0.15)",
@@ -666,6 +677,26 @@ function ScenarioContent({ scenario, issueTitle }: { scenario: Scenario; issueTi
         </div>
       )}
 
+      {/* 추가 관련주 (단타·중장기) — 강조 박스, 대장주(상승 수혜주) 바로 아래 배치 */}
+      {themeStocks.length > 0 && (
+        <div style={{
+          background: "rgba(255,140,50,0.06)",
+          border: "1px solid rgba(255,140,50,0.35)",
+          borderRadius: "10px",
+          padding: "12px 14px",
+        }}>
+          <SectionHeader title="🔥 추가 관련주 (단타 · 중장기)" count={themeStocks.length} />
+          <div style={{ fontSize: "0.72rem", color: "var(--color-muted)", marginBottom: "8px", lineHeight: 1.5 }}>
+            대장주 외에 이 이슈로 수혜가 예상되는 종목 — <span style={{ color: "#ff8c32", fontWeight: 700 }}>⚡ 단타</span> 급등주와 <span style={{ color: "#5aa0ff", fontWeight: 700 }}>📆 중장기</span> 성장주를 함께 제시합니다.
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+            {themeStocks.map((s, i) => (
+              <ThemeStockRow key={i} stock={s} priceEntry={priceMap[s.ticker]} onClick={() => navigate(s.ticker)} />
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* 하락 예상 종목 */}
       {(krFalling.length > 0 || usFalling.length > 0) && (
         <div>
@@ -690,18 +721,6 @@ function ScenarioContent({ scenario, issueTitle }: { scenario: Scenario; issueTi
               </div>
             </div>
           )}
-        </div>
-      )}
-
-      {/* 테마주 */}
-      {themeStocks.length > 0 && (
-        <div>
-          <SectionHeader title="🔥 테마 연동주" count={themeStocks.length} />
-          <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
-            {themeStocks.map((s, i) => (
-              <ThemeStockRow key={i} stock={s} priceEntry={priceMap[s.ticker]} onClick={() => navigate(s.ticker)} />
-            ))}
-          </div>
         </div>
       )}
 
