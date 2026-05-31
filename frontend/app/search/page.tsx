@@ -805,6 +805,7 @@ function SearchPageInner() {
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
       let buffer = "";
+      let gotTerminal = false;
       while (true) {
         const { value, done } = await reader.read();
         if (done) break;
@@ -817,11 +818,13 @@ function SearchPageInner() {
           try {
             const parsed = JSON.parse(line.slice(5).trim());
             if (parsed.status === "running") setAiMsg(parsed.message ?? aiMsg);
-            else if (parsed.status === "done") { setAiResult(parsed.result); setAiStatus("done"); _saveAiCache(currentCode, parsed.result); notifyDone(`stock-${currentCode}`, `${stockName || currentCode} AI 분석`, `/search?q=${currentCode}&market=KR`); }
-            else if (parsed.status === "error") { setAiMsg(`❌ ${parsed.message}`); setAiStatus("error"); }
+            else if (parsed.status === "done") { gotTerminal = true; setAiResult(parsed.result); setAiStatus("done"); _saveAiCache(currentCode, parsed.result); notifyDone(`stock-${currentCode}`, `${stockName || currentCode} AI 분석`, `/search?q=${currentCode}&market=KR`); }
+            else if (parsed.status === "error") { gotTerminal = true; setAiMsg(`❌ ${parsed.message}`); setAiStatus("error"); }
           } catch {}
         }
       }
+      // 스트림이 done/error 없이 종료된 경우 로딩 상태가 영구히 고착되는 것 방지
+      if (!gotTerminal) { setAiMsg("❌ 분석이 완료되지 못했습니다. 다시 시도해주세요."); setAiStatus("error"); }
     } catch (err: any) {
       setAiMsg(`❌ 오류: ${err.message}`);
       setAiStatus("error");
@@ -847,6 +850,7 @@ function SearchPageInner() {
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
       let buffer = "";
+      let gotTerminal = false;
       while (true) {
         const { value, done } = await reader.read();
         if (done) break;
@@ -859,11 +863,13 @@ function SearchPageInner() {
           try {
             const parsed = JSON.parse(line.slice(5).trim());
             if (parsed.status === "running") setAiMsg(parsed.message ?? aiMsg);
-            else if (parsed.status === "done") { setAiResult(parsed.result); setAiStatus("done"); _saveAiCache(currentCode, parsed.result); notifyDone(`stock-${currentCode}`, `${stockName || currentCode} AI 분석`, `/search?q=${currentCode}&market=US`); }
-            else if (parsed.status === "error") { setAiMsg(`❌ ${parsed.message}`); setAiStatus("error"); }
+            else if (parsed.status === "done") { gotTerminal = true; setAiResult(parsed.result); setAiStatus("done"); _saveAiCache(currentCode, parsed.result); notifyDone(`stock-${currentCode}`, `${stockName || currentCode} AI 분석`, `/search?q=${currentCode}&market=US`); }
+            else if (parsed.status === "error") { gotTerminal = true; setAiMsg(`❌ ${parsed.message}`); setAiStatus("error"); }
           } catch {}
         }
       }
+      // 스트림이 done/error 없이 종료된 경우 로딩 상태가 영구히 고착되는 것 방지
+      if (!gotTerminal) { setAiMsg("❌ 분석이 완료되지 못했습니다. 다시 시도해주세요."); setAiStatus("error"); }
     } catch (err: any) {
       setAiMsg(`❌ 오류: ${err.message}`);
       setAiStatus("error");
