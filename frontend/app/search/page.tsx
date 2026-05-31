@@ -8,6 +8,26 @@ import { Search, Star, Briefcase, Bell, BarChart2, DollarSign, Activity, Loader2
 import Chart from "@/components/Chart";
 import ReactMarkdown from "react-markdown";
 
+// ── 종목 AI 분석 결과 localStorage 캐시 (페이지 이동 후 복원용, 6시간 유효) ──
+const _AI_CACHE_PREFIX = "stockcy_ai_stock_";
+const _AI_CACHE_TTL = 6 * 60 * 60 * 1000;
+function _saveAiCache(code: string, result: any) {
+  if (typeof window === "undefined" || !code || !result) return;
+  try {
+    localStorage.setItem(_AI_CACHE_PREFIX + code, JSON.stringify({ result, ts: Date.now() }));
+  } catch {}
+}
+function _loadAiCache(code: string): any | null {
+  if (typeof window === "undefined" || !code) return null;
+  try {
+    const raw = localStorage.getItem(_AI_CACHE_PREFIX + code);
+    if (!raw) return null;
+    const { result, ts } = JSON.parse(raw);
+    if (Date.now() - ts > _AI_CACHE_TTL) { localStorage.removeItem(_AI_CACHE_PREFIX + code); return null; }
+    return result;
+  } catch { return null; }
+}
+
 // 즐겨찾기 버튼 (검색 페이지에서 즉시 추가/제거)
 function FavButton({ ticker, name, market }: { ticker: string; name: string; market: string }) {
   const { data: checkData, mutate } = useSWR(
@@ -545,8 +565,10 @@ function SearchPageInner() {
     setSearchQuery("");
     setShowDropdown(false);
     setCurrentCode(upper);
-    setAiStatus("idle");
-    setAiResult(null);
+    // 종목 AI 분석 결과 캐시 복원 (이전에 분석했던 종목이면 결과 즉시 표시)
+    const _cachedAi = _loadAiCache(upper);
+    if (_cachedAi) { setAiResult(_cachedAi); setAiStatus("done"); }
+    else { setAiStatus("idle"); setAiResult(null); }
     // 최근 검색 저장
     let displayName = nameHint || upper;
     if (!nameHint) {
@@ -792,7 +814,7 @@ function SearchPageInner() {
           try {
             const parsed = JSON.parse(line.slice(5).trim());
             if (parsed.status === "running") setAiMsg(parsed.message ?? aiMsg);
-            else if (parsed.status === "done") { setAiResult(parsed.result); setAiStatus("done"); }
+            else if (parsed.status === "done") { setAiResult(parsed.result); setAiStatus("done"); _saveAiCache(currentCode, parsed.result); }
             else if (parsed.status === "error") { setAiMsg(`❌ ${parsed.message}`); setAiStatus("error"); }
           } catch {}
         }
@@ -834,7 +856,7 @@ function SearchPageInner() {
           try {
             const parsed = JSON.parse(line.slice(5).trim());
             if (parsed.status === "running") setAiMsg(parsed.message ?? aiMsg);
-            else if (parsed.status === "done") { setAiResult(parsed.result); setAiStatus("done"); }
+            else if (parsed.status === "done") { setAiResult(parsed.result); setAiStatus("done"); _saveAiCache(currentCode, parsed.result); }
             else if (parsed.status === "error") { setAiMsg(`❌ ${parsed.message}`); setAiStatus("error"); }
           } catch {}
         }
