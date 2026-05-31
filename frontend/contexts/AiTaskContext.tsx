@@ -13,6 +13,7 @@ export interface AiTask {
   fromCache:   boolean;
   timestamp:   number;   // 시작 시각
   completedAt?: number;  // 완료 시각 (localStorage 복원 포함)
+  route?:      string;   // 알림 클릭 시 이동할 경로 (외부 등록 알림용)
 }
 
 interface AiTaskContextType {
@@ -20,6 +21,7 @@ interface AiTaskContextType {
   startTask: (id: string, title: string, path: string, options?: { method?: "GET" | "POST"; body?: any }) => void;
   clearTask: (id: string) => void;
   getTask:   (id: string) => AiTask | undefined;
+  notifyDone: (id: string, title: string, route: string) => void;  // 외부 분석 완료 알림 직접 등록
 }
 
 export const AiTaskContext = createContext<AiTaskContextType | null>(null);
@@ -120,8 +122,16 @@ export function AiTaskProvider({ children }: { children: ReactNode }) {
 
   const getTask = useCallback((id: string) => tasks[id], [tasks]);
 
+  // 외부(페이지)에서 분석 완료 시 알림만 직접 등록 (분석은 페이지가 자체 실행)
+  const notifyDone = useCallback((id: string, title: string, route: string) => {
+    setTasks(prev => ({
+      ...prev,
+      [id]: { id, title, status: "done", message: "", result: null, fromCache: false, timestamp: Date.now(), completedAt: Date.now(), route },
+    }));
+  }, []);
+
   return (
-    <AiTaskContext.Provider value={{ tasks, startTask, clearTask, getTask }}>
+    <AiTaskContext.Provider value={{ tasks, startTask, clearTask, getTask, notifyDone }}>
       {children}
     </AiTaskContext.Provider>
   );

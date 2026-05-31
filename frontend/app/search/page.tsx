@@ -4,6 +4,7 @@ import { useSearchParams } from "next/navigation";
 import useSWR from "swr";
 import { api, connectSSE } from "@/lib/api";
 import { useMarket } from "@/lib/market-context";
+import { useAiTask } from "@/contexts/AiTaskContext";
 import { Search, Star, Briefcase, Bell, BarChart2, DollarSign, Activity, Loader2, PlusCircle, X } from "lucide-react";
 import Chart from "@/components/Chart";
 import ReactMarkdown from "react-markdown";
@@ -202,6 +203,7 @@ function SearchPageInner() {
   const currSymbol = isKR ? "₩" : "$";
 
   const searchParams = useSearchParams();
+  const { notifyDone } = useAiTask();
   const [searchQuery, setSearchQuery] = useState("");
   const [activeTab, setActiveTab] = useState("시세");
   const [currentCode, setCurrentCode] = useState<string>(isKR ? "005930" : "AAPL");
@@ -814,7 +816,7 @@ function SearchPageInner() {
           try {
             const parsed = JSON.parse(line.slice(5).trim());
             if (parsed.status === "running") setAiMsg(parsed.message ?? aiMsg);
-            else if (parsed.status === "done") { setAiResult(parsed.result); setAiStatus("done"); _saveAiCache(currentCode, parsed.result); }
+            else if (parsed.status === "done") { setAiResult(parsed.result); setAiStatus("done"); _saveAiCache(currentCode, parsed.result); notifyDone(`stock-${currentCode}`, `${stockName || currentCode} AI 분석`, `/search?q=${currentCode}&market=KR`); }
             else if (parsed.status === "error") { setAiMsg(`❌ ${parsed.message}`); setAiStatus("error"); }
           } catch {}
         }
@@ -856,7 +858,7 @@ function SearchPageInner() {
           try {
             const parsed = JSON.parse(line.slice(5).trim());
             if (parsed.status === "running") setAiMsg(parsed.message ?? aiMsg);
-            else if (parsed.status === "done") { setAiResult(parsed.result); setAiStatus("done"); _saveAiCache(currentCode, parsed.result); }
+            else if (parsed.status === "done") { setAiResult(parsed.result); setAiStatus("done"); _saveAiCache(currentCode, parsed.result); notifyDone(`stock-${currentCode}`, `${stockName || currentCode} AI 분석`, `/search?q=${currentCode}&market=US`); }
             else if (parsed.status === "error") { setAiMsg(`❌ ${parsed.message}`); setAiStatus("error"); }
           } catch {}
         }

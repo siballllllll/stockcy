@@ -44,7 +44,7 @@ function AiTaskIndicator() {
   const badgeCount = runningCount > 0 ? runningCount : doneCount;
 
   const goTo = (t: any) => {
-    router.push(_taskRoute(t.id));
+    router.push(t.route || _taskRoute(t.id));
     setOpen(false);
   };
 
