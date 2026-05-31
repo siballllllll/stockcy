@@ -389,12 +389,15 @@ def _parse_json_response(response) -> dict:
         raise ValueError("no_json_found")
 
 
-def _call_gemini(prompt, use_search=False, temperature=0.7, response_mime_type=None, timeout_sec=None, max_output_tokens=3000):
+def _call_gemini(prompt, use_search=False, temperature=0.7, response_mime_type=None, timeout_sec=None, max_output_tokens=8000):
     """Gemini API 호출 공통 헬퍼 (모델 폴백 + 재시도 + 타임아웃).
-    [비용방어] max_output_tokens 기본 3000 — 무제한 장문 출력으로 인한 출력토큰 과금 차단.
-    긴 시나리오가 필요하면 호출부에서 명시적으로 늘릴 것.
+    [비용방어] gemini-2.5 계열은 thinking_budget=0으로 thinking 토큰(출력 토큰으로 과금되는 주범)을
+    차단하여 비용을 억제한다. 기본 max_output_tokens=8000 — thinking이 꺼져 실제 출력만 과금되므로
+    구조화 JSON이 잘리지 않도록 충분히 확보하되, 출력은 자연 종료(STOP)되어 비용은 낮게 유지된다.
+    초장문 시나리오가 필요하면 호출부에서 명시적으로 더 늘릴 것.
     """
     import concurrent.futures
+    import copy
     _timeout = timeout_sec if timeout_sec else _API_TIMEOUT_SEC
     global _QUOTA_EXHAUSTED
 
@@ -415,6 +418,14 @@ def _call_gemini(prompt, use_search=False, temperature=0.7, response_mime_type=N
     config = types.GenerateContentConfig(**config_kwargs)
 
     def _do_call(mdl, cfg):
+        # gemini-2.5 계열은 thinking이 기본 활성화되어 max_output_tokens 예산을 소모 → 실제 출력이
+        # 수백 자에서 잘려 JSON 파싱이 실패함. thinking_budget=0으로 비활성화하여 출력 예산 확보 + 비용 절감.
+        if str(mdl).startswith("gemini-2.5"):
+            try:
+                cfg = copy.copy(cfg)
+                cfg.thinking_config = types.ThinkingConfig(thinking_budget=0)
+            except Exception:
+                pass
         return client.models.generate_content(model=mdl, contents=prompt, config=cfg)
 
     last_err = None
@@ -839,7 +850,7 @@ def generate_scenario_detail(issue_title: str, scenario_title: str, economic_ana
         "}"
     )
     try:
-        response = _call_gemini(prompt, use_search=False, temperature=0.5, timeout_sec=45)
+        response = _call_gemini(prompt, use_search=False, temperature=0.5, timeout_sec=45, max_output_tokens=8000)
         res = _parse_json_response(response)
         # [Python Override - 실시간 현재가 기반 단타 & 장타 타점 교정]
         try:
