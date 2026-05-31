@@ -14,6 +14,7 @@ export interface AiTask {
   timestamp:   number;   // 시작 시각
   completedAt?: number;  // 완료 시각 (localStorage 복원 포함)
   route?:      string;   // 알림 클릭 시 이동할 경로 (외부 등록 알림용)
+  read?:       boolean;  // 사용자가 클릭하여 확인한 알림 여부
 }
 
 interface AiTaskContextType {
@@ -22,12 +23,14 @@ interface AiTaskContextType {
   clearTask: (id: string) => void;
   getTask:   (id: string) => AiTask | undefined;
   notifyDone: (id: string, title: string, route: string) => void;  // 외부 분석 완료 알림 직접 등록
+  markRead:  (id: string) => void;  // 알림 읽음 처리
 }
 
 export const AiTaskContext = createContext<AiTaskContextType | null>(null);
 
 // ── localStorage 헬퍼 ──────────────────────────────────────────────────────────
 const STORAGE_KEY = "stockcy_ai_results";
+const MAX_AGE_MS = 3 * 24 * 60 * 60 * 1000;  // 알림 보관 기간: 3일 (이후 자동 삭제)
 
 function loadFromStorage(): Record<string, AiTask> {
   if (typeof window === "undefined") return {};
@@ -36,8 +39,9 @@ function loadFromStorage(): Record<string, AiTask> {
     if (!raw) return {};
     const parsed = JSON.parse(raw) as Record<string, AiTask>;
     const out: Record<string, AiTask> = {};
+    const cutoff = Date.now() - MAX_AGE_MS;
     for (const [id, task] of Object.entries(parsed)) {
-      if (task.status === "done") out[id] = task;
+      if (task.status === "done" && (task.completedAt ?? task.timestamp) >= cutoff) out[id] = task;
     }
     return out;
   } catch {
@@ -49,8 +53,9 @@ function saveToStorage(tasks: Record<string, AiTask>) {
   if (typeof window === "undefined") return;
   try {
     const toSave: Record<string, AiTask> = {};
+    const cutoff = Date.now() - MAX_AGE_MS;
     for (const [id, task] of Object.entries(tasks)) {
-      if (task.status === "done") toSave[id] = task;
+      if (task.status === "done" && (task.completedAt ?? task.timestamp) >= cutoff) toSave[id] = task;
     }
     localStorage.setItem(STORAGE_KEY, JSON.stringify(toSave));
   } catch {}
@@ -65,6 +70,25 @@ export function AiTaskProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     saveToStorage(tasks);
   }, [tasks]);
+
+  // 3일 지난 알림 주기적 정리 (1시간마다, 마운트 직후 1회)
+  useEffect(() => {
+    const prune = () => {
+      const cutoff = Date.now() - MAX_AGE_MS;
+      setTasks(prev => {
+        const next: Record<string, AiTask> = {};
+        let changed = false;
+        for (const [id, t] of Object.entries(prev)) {
+          if ((t.completedAt ?? t.timestamp) >= cutoff) next[id] = t;
+          else changed = true;
+        }
+        return changed ? next : prev;
+      });
+    };
+    prune();
+    const iv = setInterval(prune, 60 * 60 * 1000);
+    return () => clearInterval(iv);
+  }, []);
 
   const startTask = useCallback((
     id: string, title: string, path: string,
@@ -126,12 +150,21 @@ export function AiTaskProvider({ children }: { children: ReactNode }) {
   const notifyDone = useCallback((id: string, title: string, route: string) => {
     setTasks(prev => ({
       ...prev,
-      [id]: { id, title, status: "done", message: "", result: null, fromCache: false, timestamp: Date.now(), completedAt: Date.now(), route },
+      [id]: { id, title, status: "done", message: "", result: null, fromCache: false, timestamp: Date.now(), completedAt: Date.now(), route, read: false },
     }));
   }, []);
 
+  // 알림 클릭 시 읽음 처리 (배지에서 제외, UI에서 어둡게 표시)
+  const markRead = useCallback((id: string) => {
+    setTasks(prev => {
+      const t = prev[id];
+      if (!t || t.read) return prev;
+      return { ...prev, [id]: { ...t, read: true } };
+    });
+  }, []);
+
   return (
-    <AiTaskContext.Provider value={{ tasks, startTask, clearTask, getTask, notifyDone }}>
+    <AiTaskContext.Provider value={{ tasks, startTask, clearTask, getTask, notifyDone, markRead }}>
       {children}
     </AiTaskContext.Provider>
   );

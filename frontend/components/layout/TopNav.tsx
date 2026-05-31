@@ -10,6 +10,19 @@ import { useAiTask } from "@/contexts/AiTaskContext";
 import { Loader2, CheckCircle2 } from "lucide-react";
 import useSWR from "swr";
 
+// 완료 시각 → "방금 전 / N분 전 / N시간 전 / N일 전" 상대시간 문자열
+function _relTime(ts?: number): string {
+  if (!ts) return "";
+  const diff = Date.now() - ts;
+  const m = Math.floor(diff / 60000);
+  if (m < 1) return "방금 전";
+  if (m < 60) return `${m}분 전`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}시간 전`;
+  const d = Math.floor(h / 24);
+  return `${d}일 전`;
+}
+
 // task id → 이동할 페이지 경로 매핑 (id에 키워드가 포함되면 매칭)
 function _taskRoute(id: string): string {
   const s = id.toLowerCase();
@@ -23,10 +36,11 @@ function _taskRoute(id: string): string {
 }
 
 function AiTaskIndicator() {
-  const { tasks, clearTask } = useAiTask();
+  const { tasks, clearTask, markRead } = useAiTask();
   const router = useRouter();
   const [mounted, setMounted] = useState(false);
   const [open, setOpen] = useState(false);
+  const [, setTick] = useState(0);  // 상대시간 주기적 갱신용
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => { setMounted(true); }, []);
   useEffect(() => {
@@ -34,16 +48,22 @@ function AiTaskIndicator() {
     document.addEventListener("mousedown", h);
     return () => document.removeEventListener("mousedown", h);
   }, []);
+  // 1분마다 리렌더하여 "N분 전" 표시 갱신
+  useEffect(() => {
+    const iv = setInterval(() => setTick(x => x + 1), 60000);
+    return () => clearInterval(iv);
+  }, []);
   if (!mounted) return null;
   const taskList = Object.values(tasks).sort((a, b) => (b.completedAt ?? b.timestamp) - (a.completedAt ?? a.timestamp));
   if (taskList.length === 0) return null;
 
   const runningCount = taskList.filter(t => t.status === "running").length;
   const doneCount = taskList.filter(t => t.status === "done").length;
+  const unreadCount = taskList.filter(t => t.status === "done" && !t.read).length;
   const errorCount = taskList.filter(t => t.status === "error").length;
-  const badgeCount = runningCount > 0 ? runningCount : doneCount;
 
   const goTo = (t: any) => {
+    markRead(t.id);
     router.push(t.route || _taskRoute(t.id));
     setOpen(false);
   };
@@ -59,10 +79,15 @@ function AiTaskIndicator() {
             <Loader2 className="stockcy-spin" size={12} color="var(--color-primary)" />
             <span>AI 분석 중 ({runningCount})</span>
           </>
-        ) : doneCount > 0 ? (
+        ) : unreadCount > 0 ? (
           <>
             <Bell size={12} color="var(--color-up)" />
-            <span style={{ color: "var(--color-up)" }}>알림 ({doneCount})</span>
+            <span style={{ color: "var(--color-up)" }}>알림 ({unreadCount})</span>
+          </>
+        ) : doneCount > 0 ? (
+          <>
+            <Bell size={12} color="var(--color-muted)" />
+            <span style={{ color: "var(--color-muted)" }}>알림</span>
           </>
         ) : (
           <span style={{ color: "var(--color-danger)" }}>에러 ({errorCount})</span>
@@ -80,16 +105,21 @@ function AiTaskIndicator() {
           {taskList.map(t => {
             const c = t.status === "done" ? "var(--color-up)" : t.status === "error" ? "var(--color-danger)" : "var(--color-primary)";
             const label = t.status === "done" ? "완료" : t.status === "error" ? "오류" : "진행 중";
+            const isRead = t.status === "done" && t.read;
+            const rel = _relTime(t.completedAt ?? t.timestamp);
             return (
-              <div key={t.id} style={{ display: "flex", alignItems: "center", gap: "8px", padding: "8px", borderRadius: "6px", cursor: t.status === "done" ? "pointer" : "default" }}
+              <div key={t.id} style={{ display: "flex", alignItems: "center", gap: "8px", padding: "8px", borderRadius: "6px", cursor: t.status === "done" ? "pointer" : "default", opacity: isRead ? 0.45 : 1, transition: "opacity 0.2s" }}
                 onClick={() => t.status === "done" && goTo(t)}
                 onMouseEnter={e => { if (t.status === "done") e.currentTarget.style.background = "var(--color-surface)"; }}
                 onMouseLeave={e => e.currentTarget.style.background = "transparent"}
               >
-                {t.status === "running" ? <Loader2 className="stockcy-spin" size={13} color={c} /> : <div style={{ width: 8, height: 8, borderRadius: "50%", background: c, flexShrink: 0 }} />}
+                {t.status === "running" ? <Loader2 className="stockcy-spin" size={13} color={c} /> : <div style={{ width: 8, height: 8, borderRadius: "50%", background: isRead ? "var(--color-muted)" : c, flexShrink: 0 }} />}
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: "0.76rem", fontWeight: 700, color: "var(--color-text)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.title}</div>
-                  <div style={{ fontSize: "0.66rem", color: c }}>{label}{t.fromCache ? " (캐시)" : ""} {t.status === "done" ? "· 클릭하여 보기 →" : ""}</div>
+                  <div style={{ display: "flex", justifyContent: "space-between", gap: "6px", alignItems: "baseline" }}>
+                    <span style={{ fontSize: "0.76rem", fontWeight: isRead ? 500 : 700, color: "var(--color-text)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.title}</span>
+                    {rel && <span style={{ fontSize: "0.62rem", color: "var(--color-muted)", flexShrink: 0 }}>{rel}</span>}
+                  </div>
+                  <div style={{ fontSize: "0.66rem", color: c }}>{label}{t.fromCache ? " (캐시)" : ""} {t.status === "done" ? (isRead ? "· 확인함" : "· 클릭하여 보기 →") : ""}</div>
                 </div>
                 <button onClick={(e) => { e.stopPropagation(); clearTask(t.id); }} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--color-muted)", fontSize: "0.85rem", flexShrink: 0 }}>&times;</button>
               </div>
