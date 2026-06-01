@@ -1139,6 +1139,78 @@ async def get_scenario_tracking_stats():
     return await asyncio.to_thread(load_scenario_tracking_stats)
 
 
+def _enrich_scenario_list_current(rows: list) -> list:
+    """추적 목록에 현재가/현재수익률 보강.
+    KR=KRX_PRICE_CACHE(인메모리, 즉시), US=1회 배치 yfinance(서킷 브레이커 가드).
+    소스 장애 시 현재가는 None으로 두고 등장가/d수익률만 그대로 반환한다."""
+    def _is_us(tk) -> bool:
+        return any(ch.isalpha() for ch in str(tk))
+
+    # KR 현재가: 백그라운드로 갱신되는 인메모리 캐시 재사용
+    kr_cache = {}
+    try:
+        from api.main import KRX_PRICE_CACHE
+        kr_cache = KRX_PRICE_CACHE
+    except Exception:
+        pass
+
+    # US 현재가: 1회 배치 다운로드 (서킷 열려있으면 건너뜀)
+    us_tickers = sorted({str(r["ticker"]).strip().upper() for r in rows if _is_us(r["ticker"])})
+    us_prices: dict = {}
+    if us_tickers:
+        from api.circuit import yf_breaker
+        if not yf_breaker.is_open():
+            try:
+                import yfinance as yf
+                import pandas as pd
+                data = yf.download(us_tickers, period="1d", progress=False, timeout=8, threads=True)
+                try:
+                    close = data["Close"]
+                except Exception:
+                    close = data
+                if isinstance(close, pd.DataFrame):
+                    last = close.dropna(how="all")
+                    if not last.empty:
+                        last = last.iloc[-1]
+                        for t in us_tickers:
+                            v = last.get(t)
+                            if v is not None and pd.notna(v):
+                                us_prices[t] = float(v)
+                else:  # 단일 티커 → Series
+                    s = close.dropna()
+                    if len(s):
+                        us_prices[us_tickers[0]] = float(s.iloc[-1])
+                yf_breaker.record_success()
+            except Exception:
+                yf_breaker.record_failure()
+
+    for r in rows:
+        tk = str(r["ticker"]).strip()
+        cur_price = None
+        if _is_us(tk):
+            cur_price = us_prices.get(tk.upper())
+        else:
+            c = kr_cache.get(tk.zfill(6)) or kr_cache.get(tk)
+            if c:
+                cur_price = c.get("price")
+        cap = r.get("captured_price")
+        r["current_price"] = round(cur_price, 2) if cur_price else None
+        r["current_return"] = (
+            round((cur_price - cap) / cap * 100, 2)
+            if (cur_price and cap and cap > 0) else None
+        )
+    return rows
+
+
+@router.get("/scenario-tracking/list")
+async def get_scenario_tracking_list():
+    """추적 중인 시나리오 종목 목록 + 현재가/현재수익률 (가격 추적 재실행 없음)."""
+    from ai_engine import load_scenario_tracking_list
+    rows = await asyncio.to_thread(load_scenario_tracking_list)
+    rows = await asyncio.to_thread(_enrich_scenario_list_current, rows)
+    return rows
+
+
 @router.get("/entry-timing")
 async def get_entry_timing(source: str = "leading", market: str = "kr"):
     """시간대별 진입 타이밍 통계 (source: leading/personal/all, market: kr/us)."""

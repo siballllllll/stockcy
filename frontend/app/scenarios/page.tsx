@@ -909,6 +909,30 @@ function ScenarioTrackingPanel() {
   const [data, setData] = useState<any>(null);
   const [msg, setMsg] = useState("");
 
+  // 추적 중인 종목 목록 (펼쳐보기) — 무거우니 펼칠 때 최초 1회만 로드
+  const [list, setList] = useState<any[]>([]);
+  const [listOpen, setListOpen] = useState(false);
+  const [listLoaded, setListLoaded] = useState(false);
+  const [listLoading, setListLoading] = useState(false);
+
+  const loadList = async () => {
+    setListLoading(true);
+    try {
+      const res = await fetch("/backend/api/ai/scenario-tracking/list");
+      if (res.ok) {
+        const txt = await res.text();
+        try { setList(JSON.parse(txt)); setListLoaded(true); } catch { /* 비-JSON 무시 */ }
+      }
+    } catch { /* 네트워크 오류 무시 */ }
+    finally { setListLoading(false); }
+  };
+
+  const toggleList = () => {
+    const next = !listOpen;
+    setListOpen(next);
+    if (next && !listLoaded) loadList();
+  };
+
   // 통계만 빠르게 조회 (가격 재추적 없음). 비-JSON 응답에도 안전.
   const loadStats = async () => {
     try {
@@ -1025,6 +1049,69 @@ function ScenarioTrackingPanel() {
           )}
         </>
       )}
+
+      {/* 추적 중인 종목 목록 펼쳐보기 */}
+      <div style={{ borderTop: "1px solid var(--color-border)", paddingTop: "6px", marginTop: "2px" }}>
+        <button
+          onClick={toggleList}
+          style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between", background: "transparent", border: "none", cursor: "pointer", color: "var(--color-text)", fontSize: "0.72rem", fontWeight: 700, padding: "2px 0" }}
+        >
+          <span>🔎 추적 중인 종목{listLoaded ? ` ${list.length}건` : ""}</span>
+          <span style={{ color: "var(--color-muted)" }}>{listOpen ? "▲ 접기" : "▼ 펼치기"}</span>
+        </button>
+
+        {listOpen && (
+          <div style={{ marginTop: "6px", display: "flex", flexDirection: "column", gap: "4px", maxHeight: "320px", overflowY: "auto", paddingRight: "4px" }}>
+            {listLoading ? (
+              <div style={{ fontSize: "0.68rem", color: "var(--color-muted)", padding: "0.3rem 0" }}>불러오는 중...</div>
+            ) : list.length === 0 ? (
+              <div style={{ fontSize: "0.68rem", color: "var(--color-muted)", padding: "0.3rem 0" }}>추적 중인 종목이 없습니다.</div>
+            ) : (
+              list.map((s: any, i: number) => {
+                const isUs = /[A-Za-z]/.test(String(s.ticker));
+                const cr = s.current_return;
+                const crColor = cr == null ? "var(--color-text)" : cr >= 0 ? "#34d399" : "#f87171";
+                const roleColor = s.role === "피해" ? "#f87171" : s.role === "수혜" ? "#34d399" : "#a78bfa";
+                return (
+                  <div key={i} style={{ background: "rgba(255,255,255,0.02)", borderRadius: "5px", padding: "5px 7px", fontSize: "0.68rem" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "6px" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: "4px", overflow: "hidden" }}>
+                        <span style={{ fontWeight: 700, color: "var(--color-text)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{s.name}</span>
+                        <span style={{ color: "var(--color-muted)", fontSize: "0.6rem" }}>{s.ticker}</span>
+                        {isUs && <span style={{ fontSize: "0.55rem", padding: "0 3px", borderRadius: "3px", background: "rgba(50,200,100,0.15)", color: "#34d399", border: "1px solid rgba(50,200,100,0.3)" }}>US</span>}
+                        {s.role && <span style={{ fontSize: "0.55rem", padding: "0 3px", borderRadius: "3px", color: roleColor, border: `1px solid ${roleColor}55` }}>{s.role}</span>}
+                        {s.horizon && <span style={{ fontSize: "0.55rem", padding: "0 3px", borderRadius: "3px", color: "var(--color-muted)", border: "1px solid var(--color-border)" }}>{s.horizon}</span>}
+                      </div>
+                      <span style={{ color: crColor, fontWeight: 700, whiteSpace: "nowrap" }}>
+                        {cr != null
+                          ? `${cr >= 0 ? "+" : ""}${cr}%`
+                          : s.current_price != null
+                            ? `${isUs ? "$" : "₩"}${Number(s.current_price).toLocaleString()}`
+                            : "–"}
+                      </span>
+                    </div>
+                    <div style={{ display: "flex", justifyContent: "space-between", marginTop: "2px", color: "var(--color-muted)", fontSize: "0.6rem" }}>
+                      <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "55%" }}>{s.scenario_keyword}</span>
+                      <span>
+                        {String(s.captured_at ?? "").slice(0, 10)}
+                        {" · "}
+                        {s.captured_price ? `등장가 ${Number(s.captured_price).toLocaleString()}` : "등장가 집계대기"}
+                      </span>
+                    </div>
+                    {(s.d1_return != null || s.d3_return != null || s.d7_return != null) && (
+                      <div style={{ display: "flex", gap: "8px", marginTop: "2px", fontSize: "0.6rem", color: "var(--color-muted)" }}>
+                        {s.d1_return != null && <span>1일 {s.d1_return >= 0 ? "+" : ""}{s.d1_return}%</span>}
+                        {s.d3_return != null && <span>3일 {s.d3_return >= 0 ? "+" : ""}{s.d3_return}%</span>}
+                        {s.d7_return != null && <span>7일 {s.d7_return >= 0 ? "+" : ""}{s.d7_return}%</span>}
+                      </div>
+                    )}
+                  </div>
+                );
+              })
+            )}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

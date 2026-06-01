@@ -4757,6 +4757,27 @@ def load_scenario_tracking_stats() -> dict:
     return {"updated_now": 0, **stats}
 
 
+def load_scenario_tracking_list(limit: int = 300) -> list:
+    """추적 중인 시나리오 종목 원본 목록 (DB만, 네트워크 0).
+    현재가/현재수익률 보강은 라우터에서 캐시/배치로 처리한다."""
+    from db import get_db_conn
+    conn = get_db_conn()
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            """SELECT ticker, name, market, scenario_keyword, role, horizon,
+                      captured_at, captured_price, d1_return, d3_return, d7_return
+               FROM scenario_stocks
+               ORDER BY captured_at DESC
+               LIMIT ?""",
+            (limit,)
+        )
+        rows = [dict(r) for r in cur.fetchall()]
+    finally:
+        conn.close()
+    return rows
+
+
 def track_scenario_stocks_performance() -> dict:
     """시나리오에 등장한 종목들의 등장 시점 가격 + 1/3/7일 후 가격 자동 추적."""
     from db import get_db_conn
