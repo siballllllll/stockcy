@@ -731,7 +731,7 @@ function PortfolioTab({ gapBulkMap }: { gapBulkMap: Record<string, any> }) {
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: "0" }}>
           {/* 헤더 행 */}
-          <div style={{ display: "grid", gridTemplateColumns: "2.2fr 1fr 1fr 0.7fr 1fr 0.8fr 1.2fr auto", gap: "6px", padding: "8px 12px", fontSize: "0.75rem", color: "var(--color-muted)", fontWeight: 600, borderBottom: "1px solid var(--color-border)" }}>
+          <div style={{ display: "grid", gridTemplateColumns: "2.2fr 1fr 1fr 0.7fr 1fr 0.8fr 1.2fr 124px", gap: "6px", padding: "8px 12px", fontSize: "0.75rem", color: "var(--color-muted)", fontWeight: 600, borderBottom: "1px solid var(--color-border)" }}>
             <div>종목명</div>
             <div style={{ textAlign: "right" }}>평단가</div>
             <div style={{ textAlign: "right" }}>현재가</div>
@@ -766,7 +766,7 @@ function PortfolioTab({ gapBulkMap }: { gapBulkMap: Record<string, any> }) {
 
             return (
               <div key={i} style={{ borderBottom: "1px solid rgba(255,255,255,0.04)" }}>
-                <div style={{ display: "grid", gridTemplateColumns: "2.2fr 1fr 1fr 0.7fr 1fr 0.8fr 1.2fr auto", gap: "6px", padding: "10px 12px", alignItems: "center", fontSize: "0.85rem" }}>
+                <div style={{ display: "grid", gridTemplateColumns: "2.2fr 1fr 1fr 0.7fr 1fr 0.8fr 1.2fr 124px", gap: "6px", padding: "10px 12px", alignItems: "center", fontSize: "0.85rem" }}>
                   <div style={{ fontWeight: 600, display: "flex", flexDirection: "column", gap: "2px" }}>
                     <div style={{ display: "flex", alignItems: "center", gap: "4px", flexWrap: "wrap" }}>
                       <span>{p.name || p.normalTicker || p.ticker}</span>
@@ -829,9 +829,14 @@ function PortfolioTab({ gapBulkMap }: { gapBulkMap: Record<string, any> }) {
                     <button className="stockcy-btn stockcy-btn-secondary" style={{ padding: "2px 6px", fontSize: "0.7rem" }} title={p.hasPrice ? "AI 매도 타이밍" : "현재가 로딩 중"} disabled={!p.hasPrice} onClick={() => openSellAnalysis(p)}>
                       AI
                     </button>
-                    {p.trade_type !== "테스트" && (
+                    {p.trade_type !== "테스트" ? (
                       <button className="stockcy-btn stockcy-btn-secondary" style={{ padding: "2px 6px", fontSize: "0.7rem" }} title="자금 회전 진단 (홀딩/차익실현/로테이션)"
                         onClick={() => setRotationTarget({ ticker: p.normalTicker || p.ticker, name: p.name || p.ticker })}>
+                        🔄
+                      </button>
+                    ) : (
+                      // 테스트 종목은 자금 회전 진단 대상이 아님 — 자리만 비워 버튼 정렬 유지
+                      <button className="stockcy-btn stockcy-btn-secondary" aria-hidden tabIndex={-1} disabled style={{ padding: "2px 6px", fontSize: "0.7rem", visibility: "hidden" }}>
                         🔄
                       </button>
                     )}
