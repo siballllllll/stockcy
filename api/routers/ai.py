@@ -1139,6 +1139,21 @@ async def preview_scenario_alert():
     return {"preview": text, "meta": meta}
 
 
+@router.post("/alert/send-scenario-tracking")
+async def send_scenario_tracking_alert_now():
+    """시나리오 추적 결과(등장가 대비 수익률) 텔레그램 즉시 발송 (수동 트리거)."""
+    from ai_engine import send_scenario_tracking_alert
+    return await asyncio.to_thread(send_scenario_tracking_alert)
+
+
+@router.get("/alert/preview-scenario-tracking")
+async def preview_scenario_tracking_alert():
+    """시나리오 추적 결과 알림 메시지 미리보기 (발송 안 함)."""
+    from ai_engine import compose_scenario_tracking_alert_message
+    text, meta = await asyncio.to_thread(compose_scenario_tracking_alert_message)
+    return {"preview": text, "meta": meta}
+
+
 @router.post("/scenario-tracking/run")
 async def run_scenario_tracking():
     """시나리오 등장 종목의 사후 가격 추적 실행."""

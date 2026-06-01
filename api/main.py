@@ -343,6 +343,13 @@ def _scenario_tracking_loop():
                     r = track_scenario_stocks_performance()
                     _LAST_SCENARIO_TRACK_DATE = today
                     print(f"[scenario track] 자동 추적 완료: {r.get('updated_now', 0)}건 갱신 ({today})")
+                    # 추적 직후 결과를 텔레그램으로 요약 발송 (US 포함 등장가 대비 수익률)
+                    try:
+                        from ai_engine import send_scenario_tracking_alert
+                        tres = send_scenario_tracking_alert()
+                        print(f"[scenario track] 텔레그램 발송: {tres}")
+                    except Exception as te:
+                        print(f"[scenario track] 텔레그램 발송 오류: {te}")
                 except Exception as e:
                     print(f"[scenario track] 자동 추적 오류: {e}")
         except Exception:

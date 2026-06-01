@@ -4746,6 +4746,86 @@ def send_scenario_alert() -> dict:
         return {"sent": False, "error": str(e)}
 
 
+def compose_scenario_tracking_alert_message() -> tuple:
+    """추적 완료된 시나리오 종목의 '등장가 대비 수익률'을 요약한 텔레그램 메시지.
+    DB의 d1/d3/d7 수익률 중 가장 성숙한 값을 사용(네트워크/순환참조 없음). 반환 (text, meta)."""
+    from db import get_db_conn
+    from datetime import datetime
+
+    conn = get_db_conn()
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            """SELECT ticker, name, market, scenario_keyword,
+                      d1_return, d3_return, d7_return
+               FROM scenario_stocks
+               WHERE captured_price IS NOT NULL
+                 AND (d1_return IS NOT NULL OR d3_return IS NOT NULL OR d7_return IS NOT NULL)"""
+        )
+        rows = [dict(r) for r in cur.fetchall()]
+    finally:
+        conn.close()
+
+    _HZ = {"d7_return": "7일", "d3_return": "3일", "d1_return": "1일"}
+    items = []
+    for r in rows:
+        ret, hz = None, ""
+        for k in ("d7_return", "d3_return", "d1_return"):
+            if r.get(k) is not None:
+                ret, hz = r[k], _HZ[k]
+                break
+        if ret is None:
+            continue
+        is_us = any(c.isalpha() for c in str(r.get("ticker", "")))
+        items.append({**r, "ret": ret, "hz": hz, "is_us": is_us})
+
+    meta = {"sent": False, "count": len(items)}
+    if not items:
+        return "", meta
+
+    today = datetime.now().strftime("%Y-%m-%d")
+
+    def _line(x):
+        nm = _tg_escape(x.get("name") or x.get("ticker"))
+        tk = _tg_escape(x.get("ticker"))
+        sign = "+" if x["ret"] >= 0 else ""
+        return f"  • {nm}({tk}) {sign}{x['ret']}% ({x['hz']})"
+
+    us_items = sorted([x for x in items if x["is_us"]], key=lambda x: x["ret"], reverse=True)
+    kr_items = sorted([x for x in items if not x["is_us"]], key=lambda x: x["ret"], reverse=True)
+
+    lines = [f"📈 <b>Stockcy 시나리오 추적 결과</b> ({today}) · {len(items)}종목"]
+    if us_items:
+        lines.append("\n🇺🇸 <b>미국 종목</b> (등장가 대비)")
+        for x in us_items[:8]:
+            lines.append(_line(x))
+    if kr_items:
+        lines.append("\n🇰🇷 <b>국내 상위</b>")
+        for x in kr_items[:4]:
+            lines.append(_line(x))
+        if len(kr_items) > 6:
+            lines.append("  …")
+            for x in kr_items[-2:]:
+                lines.append(_line(x))
+    return "\n".join(lines), meta
+
+
+def send_scenario_tracking_alert() -> dict:
+    """시나리오 추적 결과(등장가 대비 수익률)를 텔레그램으로 발송 (매일 추적 직후 호출)."""
+    try:
+        import telegram_bot as tg
+        if not tg.is_configured():
+            return {"sent": False, "reason": "텔레그램 미설정"}
+        text, meta = compose_scenario_tracking_alert_message()
+        if not text:
+            return {"sent": False, "reason": "발송할 추적 결과 없음"}
+        ok = tg.send_message(text)
+        meta["sent"] = bool(ok)
+        return meta
+    except Exception as e:
+        return {"sent": False, "error": str(e)}
+
+
 # ── 시나리오 적중률 추적 ──────────────────────────────────────────────────────
 
 def _aggregate_scenario_stats(cursor) -> dict:
