@@ -181,16 +181,35 @@ def get_us_stock_detail(ticker: str, exchange: str = "NASDAQ"):
         post_change = round(info.get('postMarketChange', 0) or 0, 2)
         post_pct    = round((info.get('postMarketChangePercent', 0) or 0) * 100, 2)
 
-        # yfinance history를 통한 최신가 보정 (Pre/Post 포함)
-        try:
-            h_tmp = stock.history(period="1d", interval="1m", prepost=True)
-            if not h_tmp.empty:
-                last_row = h_tmp.iloc[-1]
-                # 현재 시장 상태에 따라 pre/post 가격 업데이트 (info가 0인 경우)
-                # (주의: yfinance info가 지연될 때 history가 더 정확할 수 있음)
+        # fast_info는 소형주(페니주)에서 전일종가·52주가가 누락되거나 액면병합 잔재로
+        # 왜곡되는 경우가 많다. 등락률이 0이거나 52주 범위가 비정상(현재가가 범위 밖)이면
+        # 실제 일봉(분할조정 history)으로 보정한다.
+        need_chg = (not change_pct) and bool(price and price > 0)
+        need_w52 = (
+            (not w52_high) or (not w52_low)
+            or bool(price and (price > w52_high or price < w52_low))
+            # 52주 고가/저가 비율이 비정상적으로 크면(예: 액면병합 잔재) 분할조정 일봉으로 재계산
+            or bool(w52_high and w52_low and w52_high > w52_low * 50)
+        )
+        if need_chg or need_w52:
+            try:
+                hist = stock.history(period="1y", interval="1d", auto_adjust=True)
+                if hist is not None and not hist.empty:
+                    closes = hist["Close"].dropna()
+                    if need_chg and len(closes) >= 2:
+                        prev_c = float(closes.iloc[-2])
+                        if prev_c > 0:
+                            change = round(price - prev_c, 2)
+                            change_pct = round((price - prev_c) / prev_c * 100, 2)
+                    if need_w52:
+                        hi = float(hist["High"].dropna().max()) if "High" in hist.columns else 0.0
+                        lo = float(hist["Low"].dropna().min()) if "Low" in hist.columns else 0.0
+                        if hi > 0:
+                            w52_high = round(hi, 2)
+                        if lo > 0:
+                            w52_low = round(lo, 2)
+            except Exception:
                 pass
-        except:
-            pass
 
         return {
             "name":             name,
