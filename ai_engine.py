@@ -1822,7 +1822,49 @@ KOSDAQ: {kosdaq.get('index',0):,.2f}  ({kosdaq.get('change_pct',0):+.2f}%)
 
     try:
         response = _call_gemini(prompt, use_search=True, temperature=0.35)
-        return _parse_json_response(response)
+        result = _parse_json_response(response)
+
+        # 현재가/등락률을 실시간 랭킹 데이터로 덮어쓰기 — AI가 구글검색으로 채우는 값이
+        # 누락/부정확해 PicksBoard에 현재가·등락률이 안 뜨던 문제 보정.
+        try:
+            price_map: dict[str, dict] = {}
+            for s in (list(volume_rank or []) + list(change_rank or []) +
+                      list(prebreakout or []) + list(already_done or [])):
+                code = str(s.get("종목코드", "")).strip().zfill(6)
+                if not code or code == "000000":
+                    continue
+                pm = price_map.setdefault(code, {})
+                pr = s.get("현재가")
+                cg = s.get("등락률(%)")
+                if pr not in (None, "", 0) and "price" not in pm:
+                    pm["price"] = pr
+                if cg not in (None, "") and "chg" not in pm:
+                    pm["chg"] = cg
+
+            if isinstance(result, dict):
+                for p in result.get("picks", []) or []:
+                    code = str(p.get("code", "")).strip().zfill(6)
+                    pm = price_map.get(code)
+                    if pm and "price" in pm:
+                        p["current_price"] = pm["price"]
+                        if "chg" in pm:
+                            p["change_pct"] = pm["chg"]
+                    elif not p.get("current_price"):
+                        # 랭킹에 없는(검색으로 고른) 종목 → FDR로 현재가·등락률 직접 조회
+                        try:
+                            import FinanceDataReader as _fdr
+                            from datetime import datetime as _dt, timedelta as _tdd
+                            _df = _fdr.DataReader(code, (_dt.now() - _tdd(days=10)).strftime("%Y-%m-%d"))
+                            if _df is not None and len(_df) >= 2:
+                                cur = float(_df["Close"].iloc[-1]); prv = float(_df["Close"].iloc[-2])
+                                p["current_price"] = round(cur)
+                                p["change_pct"] = round((cur - prv) / prv * 100, 2) if prv else 0
+                        except Exception:
+                            pass
+        except Exception:
+            pass
+
+        return result
     except Exception as e:
         return {"error": _friendly_error(e), "picks": []}
 
