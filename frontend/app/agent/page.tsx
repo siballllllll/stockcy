@@ -89,8 +89,14 @@ export default function AgentDashboardPage() {
     setScanningNow(true);
     setScanNowMsg("AI 에이전트 스캔 실행 중... (최대 수십 초)");
     try {
-      const res = await fetch("/backend/api/portfolio/agent/scan-now", { method: "POST" }) ;
-      const j = await res.json();
+      const res = await fetch("/backend/api/portfolio/agent/scan-now", { method: "POST" });
+      const raw = await res.text();
+      let j: any = null;
+      try { j = JSON.parse(raw); } catch { /* 비-JSON 응답 */ }
+      if (!res.ok || !j) {
+        setScanNowMsg(`실패: 서버 응답 오류 (${res.status}). 백엔드 재시작이 필요할 수 있어요.`);
+        return;
+      }
       if (j.success) {
         const s = j.summary || {};
         setScanNowMsg(s.skipped ? `스캔 건너뜀: ${s.skipped}` : `완료 — 분석 ${s.scanned ?? 0}종목 (매수 ${s.buy ?? 0} / 매도 ${s.sell ?? 0} / 홀드 ${s.hold ?? 0})`);
