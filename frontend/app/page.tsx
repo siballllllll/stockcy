@@ -600,6 +600,36 @@ export default function Dashboard() {
                             )}
                           </div>
 
+                          {/* 현재가 + 추천 매수 구간 + 과열 경고 */}
+                          {p.current_price != null && (
+                            <div style={{ background: p.overheated ? "rgba(239,68,68,0.06)" : "rgba(16,185,129,0.05)", border: `1px solid ${p.overheated ? "rgba(239,68,68,0.25)" : "rgba(16,185,129,0.2)"}`, borderRadius: "6px", padding: "6px 8px", display: "flex", flexDirection: "column", gap: "3px" }}>
+                              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+                                <span style={{ fontSize: "0.68rem", color: "var(--color-muted)" }}>현재가</span>
+                                <span style={{ fontWeight: 800, fontSize: "0.9rem" }}>
+                                  ₩{Number(p.current_price).toLocaleString()}
+                                  {p.today_change_pct != null && (
+                                    <span style={{ marginLeft: "5px", fontSize: "0.72rem", fontWeight: 700, color: p.today_change_pct >= 0 ? "var(--color-danger)" : "var(--color-primary)" }}>
+                                      {p.today_change_pct >= 0 ? "▲" : "▼"}{Math.abs(p.today_change_pct).toFixed(2)}%
+                                    </span>
+                                  )}
+                                </span>
+                              </div>
+                              {p.buy_low != null && p.buy_high != null && (
+                                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+                                  <span style={{ fontSize: "0.68rem", color: "var(--color-muted)" }}>추천 매수가</span>
+                                  <span style={{ fontWeight: 700, fontSize: "0.82rem", color: "#34d399" }}>
+                                    ₩{Number(p.buy_low).toLocaleString()} ~ ₩{Number(p.buy_high).toLocaleString()}
+                                  </span>
+                                </div>
+                              )}
+                              {p.entry_comment && (
+                                <div style={{ fontSize: "0.66rem", color: p.overheated ? "#f87171" : "var(--color-muted)", lineHeight: 1.4 }}>
+                                  {p.overheated ? "⚠️ " : ""}{p.entry_comment}
+                                </div>
+                              )}
+                            </div>
+                          )}
+
                           {/* 액션 버튼 */}
                           <div style={{ display: "flex", gap: "5px" }}>
                             <button

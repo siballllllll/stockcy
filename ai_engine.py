@@ -3357,12 +3357,17 @@ def _get_trade_indicators(ticker: str, buy_date_str: str) -> dict:
             prev_close = float(closes[-2]) if len(closes) >= 2 else current
             gap_pct    = (float(opens[-1]) - prev_close) / prev_close * 100
 
+            today_change_pct = (current - prev_close) / prev_close * 100 if prev_close > 0 else 0.0
+
             result["daily"] = {
                 "rsi":          round(rsi, 1),
                 "volume_ratio": round(vol_ratio, 2),
                 "pos_52w_pct":  round(pos_52w, 1),
                 "ma_aligned":   ma_aligned,
                 "gap_pct":      round(gap_pct, 2),
+                "current_price":   round(current, 2),
+                "today_change_pct": round(today_change_pct, 2),
+                "ma20":            round(ma20, 2),
             }
     except Exception as e:
         result["daily"]["error"] = str(e)[:80]
@@ -3912,6 +3917,30 @@ def screen_by_my_pattern() -> dict:
         if agent_adj != 0:
             match_score = max(0, min(100, match_score + agent_adj))
 
+        # ── 현재가 기반 추천 매수 구간 + 과열(추격 주의) 판정 ──
+        cur   = ind["daily"].get("current_price")
+        chg   = ind["daily"].get("today_change_pct")
+        ma20  = ind["daily"].get("ma20")
+        rsi_v = ind["daily"].get("rsi")
+        p52   = ind["daily"].get("pos_52w_pct")
+        is_kr = str(code).strip().isdigit()
+        buy_low = buy_high = None
+        entry_comment = None
+        overheated = False
+        if cur:
+            # 모멘텀(이미 오른) 종목 추격 방지 — 현재가 약간 아래 눌림목 구간 권장
+            overheated = bool((p52 is not None and p52 >= 85) or (chg is not None and chg >= 8) or (rsi_v is not None and rsi_v >= 75))
+            low_mult, high_mult = (0.96, 0.99) if overheated else (0.985, 1.0)
+            raw_low  = max(cur * low_mult, ma20) if ma20 else cur * low_mult
+            raw_low  = min(raw_low, cur * 0.999)  # 항상 현재가보다 약간 아래
+            raw_high = cur * high_mult
+            if is_kr:
+                buy_low, buy_high = int(round(raw_low)), int(round(raw_high))
+            else:
+                buy_low, buy_high = round(raw_low, 2), round(raw_high, 2)
+            entry_comment = ("이미 과열 구간 — 추격 자제, 눌림목 대기 권장" if overheated
+                             else "현재가 부근 분할 매수 가능 (이탈 시 손절)")
+
         scored.append({
             "code":           code,
             "name":           meta["name"],
@@ -3927,6 +3956,12 @@ def screen_by_my_pattern() -> dict:
             "pos_52w":        ind["daily"].get("pos_52w_pct"),
             "ma_aligned":     ind["daily"].get("ma_aligned"),
             "gap_pct":        ind["daily"].get("gap_pct"),
+            "current_price":  cur,
+            "today_change_pct": chg,
+            "buy_low":        buy_low,
+            "buy_high":       buy_high,
+            "entry_comment":  entry_comment,
+            "overheated":     overheated,
         })
 
     scored.sort(key=lambda x: x["match_score"], reverse=True)
