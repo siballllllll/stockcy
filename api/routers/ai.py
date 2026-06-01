@@ -165,9 +165,20 @@ async def mindmap():
 async def market_scenarios(use_cache: bool = Query(True)):
     """6대 매크로 이슈 A/B 시나리오 분석 (SSE). GSheet 캐시 우선 사용."""
     from ai_engine import generate_market_scenarios
-    from db import load_ai_cache, save_ai_cache
+    from db import load_ai_cache, save_ai_cache, save_scenario_stocks
 
     CACHE_KEY = "market_scenarios_latest"
+
+    def _capture_main_scenario_stocks(res: dict):
+        """메인 시나리오 등장 종목을 이슈별로 적중률 추적 대상에 저장."""
+        try:
+            for issue in res.get("issues", []) or []:
+                title = str(issue.get("title") or "메인시나리오").strip()
+                stocks = _extract_scenario_stocks({"issues": [issue]})
+                if stocks:
+                    save_scenario_stocks(f"[메인] {title}", title, stocks)
+        except Exception as _e:
+            print(f"[main scenario capture] 실패: {_e}")
 
     async def _gen():
         from ai_engine import _override_targets
@@ -180,6 +191,8 @@ async def market_scenarios(use_cache: bool = Query(True)):
                     await asyncio.to_thread(_override_targets, cached)
                 except Exception:
                     pass
+                # 캐시본도 적중률 추적 대상에 등록 (save_scenario_stocks가 중복 제거하므로 멱등)
+                await asyncio.to_thread(_capture_main_scenario_stocks, cached)
                 yield _sse({"status": "done", "result": cached, "from_cache": True})
                 return
 
@@ -195,6 +208,7 @@ async def market_scenarios(use_cache: bool = Query(True)):
                 return
             if "error" not in result:
                 await asyncio.to_thread(save_ai_cache, CACHE_KEY, result, 12)
+                await asyncio.to_thread(_capture_main_scenario_stocks, result)
             yield _sse({"status": "done", "result": result})
         except Exception as e:
             yield _sse({"status": "error", "message": str(e)})
@@ -215,7 +229,8 @@ def _extract_scenario_stocks(result: dict) -> list:
                     ticker = str(s.get("ticker") or "").strip()
                     name = str(s.get("name") or ticker).strip()
                     if ticker and name:
-                        stocks.append({"ticker": ticker, "name": name, "role": role})
+                        # theme_stocks만 horizon(단타/중장기) 보유. rising/falling은 미지정.
+                        stocks.append({"ticker": ticker, "name": name, "role": role, "horizon": str(s.get("horizon") or "").strip()})
     # 중복 제거 (티커 단위)
     seen = set()
     deduped = []

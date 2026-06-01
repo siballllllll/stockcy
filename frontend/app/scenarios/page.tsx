@@ -929,6 +929,7 @@ function ScenarioTrackingPanel() {
   }, []);
 
   const byScenario = data?.by_scenario ?? [];
+  const byHorizon = data?.by_horizon ?? [];
   const winners = data?.top_winners ?? [];
   const losers = data?.top_losers ?? [];
 
@@ -945,6 +946,33 @@ function ScenarioTrackingPanel() {
         </button>
       </div>
       {msg && <div style={{ fontSize: "0.68rem", color: "var(--color-muted)" }}>{msg}</div>}
+
+      <div style={{ fontSize: "0.6rem", color: "var(--color-muted)", lineHeight: 1.4 }}>
+        ※ 적중 = 방향성 기준 (수혜·테마주는 상승 시, 하락 위험주는 하락 시 적중)
+      </div>
+
+      {byHorizon.length > 0 && (
+        <div style={{ display: "flex", gap: "6px" }}>
+          {byHorizon.map((h: any) => {
+            const isLong = h.horizon === "중장기";
+            return (
+              <div key={h.horizon} style={{
+                flex: 1,
+                background: isLong ? "rgba(80,160,255,0.1)" : "rgba(255,140,50,0.1)",
+                border: `1px solid ${isLong ? "#5aa0ff" : "#ff8c32"}`,
+                borderRadius: "6px", padding: "6px 8px",
+              }}>
+                <div style={{ fontSize: "0.66rem", fontWeight: 800, color: isLong ? "#5aa0ff" : "#ff8c32" }}>
+                  {isLong ? "📆 중장기" : "⚡ 단타"} ({h.count})
+                </div>
+                <div style={{ fontSize: "0.62rem", color: "var(--color-muted)" }}>
+                  {isLong ? "7일 승률" : "3일 승률"} {isLong ? h.win_rate_d7 : h.win_rate_d3}%
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
 
       {byScenario.length === 0 ? (
         <div style={{ fontSize: "0.7rem", color: "var(--color-muted)", padding: "0.4rem 0" }}>

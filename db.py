@@ -296,6 +296,7 @@ def init_local_db():
             name TEXT,
             market TEXT DEFAULT 'kr',
             role TEXT,
+            horizon TEXT,
             captured_at TEXT,
             captured_price REAL,
             d1_price REAL,
@@ -338,6 +339,7 @@ def init_local_db():
         "ALTER TABLE trade_history ADD COLUMN screener_matched INTEGER DEFAULT 0",
         "ALTER TABLE screener_picks ADD COLUMN market TEXT DEFAULT 'kr'",
         "ALTER TABLE screener_backtest_results ADD COLUMN market TEXT DEFAULT 'kr'",
+        "ALTER TABLE scenario_stocks ADD COLUMN horizon TEXT",
     ]:
         try:
             cursor.execute(migration)
@@ -2580,6 +2582,7 @@ def save_scenario_stocks(scenario_keyword: str, scenario_title: str, stocks: lis
             ticker = str(s.get("ticker") or s.get("code") or "").strip()
             name = str(s.get("name") or ticker).strip()
             role = str(s.get("role") or s.get("type") or "").strip()
+            horizon = str(s.get("horizon") or "").strip()
             market = "us" if any(c.isalpha() for c in ticker) else "kr"
             if not ticker:
                 continue
@@ -2591,9 +2594,9 @@ def save_scenario_stocks(scenario_keyword: str, scenario_title: str, stocks: lis
                 continue
             cursor.execute(
                 """INSERT INTO scenario_stocks
-                   (scenario_keyword, scenario_title, ticker, name, market, role, captured_at, updated_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-                (scenario_keyword, scenario_title, ticker, name, market, role, now, now)
+                   (scenario_keyword, scenario_title, ticker, name, market, role, horizon, captured_at, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (scenario_keyword, scenario_title, ticker, name, market, role, horizon, now, now)
             )
         conn.commit()
         conn.close()

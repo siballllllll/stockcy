@@ -4494,14 +4494,18 @@ def track_scenario_stocks_performance() -> dict:
 
     conn.commit()
 
+    # 방향성 반영 적중 판정: 피해(하락 예상)는 하락해야 적중, 그 외(수혜/테마)는 상승해야 적중
+    _WIN_D3 = "(COALESCE(role,'') != '피해' AND d3_return > 0) OR (role = '피해' AND d3_return < 0)"
+    _WIN_D7 = "(COALESCE(role,'') != '피해' AND d7_return > 0) OR (role = '피해' AND d7_return < 0)"
+
     # 시나리오별 집계 통계
     cursor.execute(
-        """SELECT scenario_keyword, scenario_title,
+        f"""SELECT scenario_keyword, scenario_title,
                   COUNT(*) AS n,
                   AVG(d3_return) AS avg_d3,
                   AVG(d7_return) AS avg_d7,
-                  SUM(CASE WHEN d3_return > 0 THEN 1 ELSE 0 END) AS wins_d3,
-                  SUM(CASE WHEN d7_return > 0 THEN 1 ELSE 0 END) AS wins_d7
+                  SUM(CASE WHEN {_WIN_D3} THEN 1 ELSE 0 END) AS wins_d3,
+                  SUM(CASE WHEN {_WIN_D7} THEN 1 ELSE 0 END) AS wins_d7
            FROM scenario_stocks
            WHERE d3_return IS NOT NULL
            GROUP BY scenario_keyword
@@ -4535,10 +4539,36 @@ def track_scenario_stocks_performance() -> dict:
     )
     top_losers = [dict(r) for r in cursor.fetchall()]
 
+    # horizon별 집계 (단타 vs 중장기) — 방향성 반영 승률
+    cursor.execute(
+        f"""SELECT horizon,
+                  COUNT(*) AS n,
+                  AVG(d3_return) AS avg_d3,
+                  AVG(d7_return) AS avg_d7,
+                  SUM(CASE WHEN {_WIN_D3} THEN 1 ELSE 0 END) AS wins_d3,
+                  SUM(CASE WHEN {_WIN_D7} THEN 1 ELSE 0 END) AS wins_d7
+           FROM scenario_stocks
+           WHERE d3_return IS NOT NULL AND horizon IN ('단타', '중장기')
+           GROUP BY horizon"""
+    )
+    by_horizon = []
+    for r in cursor.fetchall():
+        d = dict(r)
+        n = d.get("n", 0) or 0
+        by_horizon.append({
+            "horizon": d.get("horizon"),
+            "count":   n,
+            "avg_d3_return": round(d.get("avg_d3") or 0, 2),
+            "avg_d7_return": round(d.get("avg_d7") or 0, 2),
+            "win_rate_d3":  round((d.get("wins_d3") or 0) / n * 100, 1) if n else 0,
+            "win_rate_d7":  round((d.get("wins_d7") or 0) / n * 100, 1) if n else 0,
+        })
+
     conn.close()
     return {
         "updated_now": updated,
         "by_scenario": by_scenario,
+        "by_horizon":  by_horizon,
         "top_winners": top_winners,
         "top_losers":  top_losers,
     }
