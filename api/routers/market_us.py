@@ -43,58 +43,77 @@ def us_stocks(tickers: str = Query(..., description="콤마로 구분된 티커 
 
 import threading
 
-_US_ALL_STOCKS_CACHE = None
+_US_ALL_STOCKS_CACHE = None     # 검색 자동완성용 {ticker: 한글/영문명}
+_US_FULL_LOADED = False          # FDR 전체 상장목록 로드 성공 여부
+_US_FETCH_INPROGRESS = False     # 백그라운드 FDR 로드 진행 중 여부
 _US_ALL_STOCKS_LOCK = threading.Lock()
 
-def _load_all_us_stocks():
-    global _US_ALL_STOCKS_CACHE
-    if _US_ALL_STOCKS_CACHE is not None:
-        return _US_ALL_STOCKS_CACHE
-        
-    with _US_ALL_STOCKS_LOCK:
-        if _US_ALL_STOCKS_CACHE is not None:
-            return _US_ALL_STOCKS_CACHE
 
-        from sectors_us import US_SECTOR_MAP
-        result: dict[str, str] = {}
-        for sectors in US_SECTOR_MAP.values():
-            for stocks in sectors.values():
-                for s in stocks:
-                    result[s["ticker"]] = s["name"]
-        
-        # FDR 백그라운드 로드
-        def _fetch_fdr():
+def _fetch_fdr_us():
+    """FDR로 NASDAQ/NYSE/AMEX 전체 상장 종목을 받아 캐시에 병합.
+    성공해야 _US_FULL_LOADED=True. 실패하면 플래그가 False로 남아 다음 호출에서 재시도된다."""
+    global _US_ALL_STOCKS_CACHE, _US_FULL_LOADED, _US_FETCH_INPROGRESS
+    try:
+        import FinanceDataReader as fdr
+        from us_kr_names import get_kr_name, US_KR_NAME_MAP
+        temp_map = dict(_US_ALL_STOCKS_CACHE or {})
+        # 수동 한글명 매핑 최우선 적재
+        for ticker, kr_name in US_KR_NAME_MAP.items():
+            temp_map[ticker] = kr_name
+        got_any = False
+        for ex in ['NASDAQ', 'NYSE', 'AMEX']:
             try:
-                import FinanceDataReader as fdr
-                from us_kr_names import get_kr_name, US_KR_NAME_MAP
-                temp_map = result.copy()
-                
-                # 수동 매핑 사전의 한글 주식명을 최우선으로 적재
-                for ticker, kr_name in US_KR_NAME_MAP.items():
-                    temp_map[ticker] = kr_name
-                
-                for ex in ['NASDAQ', 'NYSE', 'AMEX']:
-                    try:
-                        df = fdr.StockListing(ex)
-                        for _, row in df.iterrows():
-                            t = str(row['Symbol'])
-                            n = str(row['Name'])
-                            if t not in temp_map:
-                                temp_map[t] = get_kr_name(t, n)
-                            else:
-                                # 이미 존재하더라도 수동 매핑 사전에 최신화된 정보가 있다면 우선 적용
-                                if t in US_KR_NAME_MAP:
-                                    temp_map[t] = US_KR_NAME_MAP[t]
-                    except Exception:
-                        pass
-                global _US_ALL_STOCKS_CACHE
-                _US_ALL_STOCKS_CACHE = temp_map
+                df = fdr.StockListing(ex)
+                if df is None or df.empty:
+                    continue
+                for _, row in df.iterrows():
+                    t = str(row['Symbol'])
+                    n = str(row['Name'])
+                    if t not in temp_map:
+                        temp_map[t] = get_kr_name(t, n)
+                    elif t in US_KR_NAME_MAP:
+                        temp_map[t] = US_KR_NAME_MAP[t]
+                got_any = True
             except Exception:
                 pass
-        
-        threading.Thread(target=_fetch_fdr, daemon=True).start()
-        _US_ALL_STOCKS_CACHE = result
-        return _US_ALL_STOCKS_CACHE
+        if got_any:
+            _US_ALL_STOCKS_CACHE = temp_map
+            _US_FULL_LOADED = True
+            print(f"[US stocks] 전체 상장목록 로드 완료: {len(temp_map)}종목")
+        else:
+            print("[US stocks] FDR 상장목록 로드 실패 — 다음 요청 때 재시도")
+    except Exception as e:
+        print(f"[US stocks] 로드 오류: {e}")
+    finally:
+        _US_FETCH_INPROGRESS = False
+
+
+def _load_all_us_stocks():
+    """미국 종목 {ticker: 이름} 맵 반환 (검색 자동완성용).
+    기본 큐레이션 목록을 즉시 제공하고, FDR 전체 목록은 백그라운드로 로드한다.
+    [자가복구] FDR 로드가 실패해도 작은 목록에 갇히지 않고 다음 호출에서 재시도한다."""
+    global _US_ALL_STOCKS_CACHE, _US_FETCH_INPROGRESS
+
+    # 1) 기본 큐레이션 목록(US_SECTOR_MAP) 즉시 확보
+    if _US_ALL_STOCKS_CACHE is None:
+        with _US_ALL_STOCKS_LOCK:
+            if _US_ALL_STOCKS_CACHE is None:
+                from sectors_us import US_SECTOR_MAP
+                result: dict[str, str] = {}
+                for sectors in US_SECTOR_MAP.values():
+                    for stocks in sectors.values():
+                        for s in stocks:
+                            result[s["ticker"]] = s["name"]
+                _US_ALL_STOCKS_CACHE = result
+
+    # 2) 전체 목록이 아직 안 실렸고 진행 중도 아니면 백그라운드 로드(재)시도
+    if not _US_FULL_LOADED and not _US_FETCH_INPROGRESS:
+        with _US_ALL_STOCKS_LOCK:
+            if not _US_FULL_LOADED and not _US_FETCH_INPROGRESS:
+                _US_FETCH_INPROGRESS = True
+                threading.Thread(target=_fetch_fdr_us, daemon=True).start()
+
+    return _US_ALL_STOCKS_CACHE
 
 @router.get("/stocks/all")
 def us_stocks_all():
