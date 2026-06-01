@@ -363,6 +363,16 @@ def start_scenario_tracking_scheduler():
     t.start()
     print("[scenario track] 시나리오 적중률 추적 스케줄러 시작 (매일 07:00)")
 
+
+@app.on_event("startup")
+def resume_gap_bulk_job():
+    """서버 재시작으로 중단된 시간외 갭 일괄 분석 작업이 있으면 이어서 진행."""
+    try:
+        from api.routers.ai import resume_gap_bulk_job_if_any
+        resume_gap_bulk_job_if_any()
+    except Exception as e:
+        print(f"[gap bulk] 재개 시도 오류: {e}")
+
 # ── 8. 백그라운드 태스크 ───────────────────────────────────────────────────────
 import asyncio
 from api.background import price_alert_loop

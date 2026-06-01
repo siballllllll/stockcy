@@ -1016,6 +1016,7 @@ from datetime import datetime as _dt_gap
 
 _GAP_BULK_JOB = {"running": False, "total": 0, "done": 0, "current": "", "errors": 0, "started_at": None}
 _GAP_BULK_JOB_LOCK = _threading_gap.Lock()
+_GAP_JOB_DB_KEY = "gap_bulk_job"   # 서버 재시작 후 이어하기용 영속 작업 명세 (ai_cache 저장)
 
 
 class GapBulkStartRequest(BaseModel):
@@ -1048,6 +1049,12 @@ def _run_gap_bulk_job(tickers: list, names: dict):
     finally:
         _GAP_BULK_JOB["running"] = False
         _GAP_BULK_JOB["current"] = ""
+        # 작업 완료 → 재시작 이어하기용 영속 명세 정리
+        try:
+            from db import delete_ai_cache
+            delete_ai_cache(_GAP_JOB_DB_KEY)
+        except Exception:
+            pass
 
 
 @router.post("/overnight-gap-bulk/start")
@@ -1061,11 +1068,18 @@ async def start_gap_bulk(req: GapBulkStartRequest):
             return {"status": "already_running", "job": dict(_GAP_BULK_JOB)}
         if not tickers:
             return {"status": "empty", "job": dict(_GAP_BULK_JOB)}
+        started_at = _dt_gap.now().strftime("%Y-%m-%d %H:%M:%S")
         _GAP_BULK_JOB.update({
             "running": True, "total": len(tickers), "done": 0,
-            "current": "", "errors": 0,
-            "started_at": _dt_gap.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "current": "", "errors": 0, "started_at": started_at,
         })
+        # 서버 재시작 후 이어하기용 작업 명세 영속화 (6시간 보존)
+        try:
+            from db import save_ai_cache
+            save_ai_cache(_GAP_JOB_DB_KEY,
+                          {"tickers": tickers, "names": req.names or {}, "started_at": started_at}, 6)
+        except Exception:
+            pass
         _threading_gap.Thread(
             target=_run_gap_bulk_job, args=(tickers, req.names or {}), daemon=True
         ).start()
@@ -1076,6 +1090,50 @@ async def start_gap_bulk(req: GapBulkStartRequest):
 async def gap_bulk_status():
     """일괄 갭 분석 백그라운드 작업 진행 상황."""
     return dict(_GAP_BULK_JOB)
+
+
+def resume_gap_bulk_job_if_any():
+    """서버 시작 시 호출 — 재시작으로 중단된 일괄 갭 작업이 있으면(미캐시 종목 잔존) 재개한다.
+    완료된 종목은 캐시에 남아있으므로 작업 루프가 자동으로 스킵한다."""
+    global _GAP_BULK_JOB
+    try:
+        from db import load_ai_cache, delete_ai_cache
+        rec = load_ai_cache(_GAP_JOB_DB_KEY)
+    except Exception:
+        return
+    if not rec:
+        return
+    tickers = [str(t).upper().strip() for t in (rec.get("tickers") or []) if str(t).strip()]
+    names = rec.get("names") or {}
+    if not tickers:
+        try:
+            delete_ai_cache(_GAP_JOB_DB_KEY)
+        except Exception:
+            pass
+        return
+    # 미캐시(미완료) 종목이 없으면 재개 불필요 → 기록 정리
+    try:
+        remaining = [t for t in tickers if not load_ai_cache(f"gap_{t}")]
+    except Exception:
+        remaining = tickers
+    if not remaining:
+        try:
+            delete_ai_cache(_GAP_JOB_DB_KEY)
+        except Exception:
+            pass
+        return
+    with _GAP_BULK_JOB_LOCK:
+        if _GAP_BULK_JOB["running"]:
+            return
+        _GAP_BULK_JOB.update({
+            "running": True, "total": len(tickers), "done": 0,
+            "current": "", "errors": 0,
+            "started_at": rec.get("started_at"),
+        })
+        _threading_gap.Thread(
+            target=_run_gap_bulk_job, args=(tickers, names), daemon=True
+        ).start()
+    print(f"[gap bulk] 서버 재시작 후 일괄 갭 작업 재개: 총 {len(tickers)}종목 중 {len(remaining)}종목 남음")
 
 
 # ── 리딩방 패턴 AI 분석 ────────────────────────────────────────────────────────
