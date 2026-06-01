@@ -1,5 +1,5 @@
 "use client";
-import { useState, useMemo, useEffect, useCallback } from "react";
+import { useState, useMemo, useEffect, useCallback, useRef } from "react";
 import useSWR from "swr";
 import { api } from "@/lib/api";
 import { Brain, TrendingUp, History, Clock, Loader2, Sparkles } from "lucide-react";
@@ -169,82 +169,77 @@ export default function AgentDashboardPage() {
     }, 0);
   }, [trades, usRates]);
 
-  // ── 갭 일괄 스캔 핸들러 ─────────────────────────────────────────────────────
-  const handleGapBulkScan = useCallback(async () => {
-    const allTickers = Array.from(
-      new Set(portfolio.map((p: any) => String(p.ticker ?? "").toUpperCase().trim()))
-    ).filter(Boolean);
+  // ── 갭 일괄 스캔: 서버 백그라운드 실행 + 폴링 (화면 나가도 계속 진행) ──────────
+  const gapPollingRef = useRef(false);
 
-    if (allTickers.length === 0) return;
+  const gapTickers = useCallback(() => Array.from(
+    new Set(portfolio.map((p: any) => String(p.ticker ?? "").toUpperCase().trim()))
+  ).filter(Boolean), [portfolio]);
+
+  // 진행 상황 폴링: 서버 작업이 끝날 때까지 상태 + 캐시 결과를 주기적으로 갱신
+  const pollGapBulk = useCallback(async (tickers: string[]) => {
+    if (gapPollingRef.current) return;   // 중복 폴링 방지
+    gapPollingRef.current = true;
     setGapBulkStatus("loading");
-    setGapBulkMsg("🌙 시간외 갭 분석 작동 중...");
-
     try {
-      const bulkRes = await api.ai.overnightGapBulk(allTickers) as any;
-      const initialMap: Record<string, any> = { ...(bulkRes.results ?? {}) };
-      setGapBulkMap(initialMap);
-
-      const unanalyzed = allTickers.filter(t => !initialMap[t]);
-      for (let i = 0; i < unanalyzed.length; i++) {
-        const ticker = unanalyzed[i];
-        const isKr = /^\d+$/.test(ticker);
-        setGapBulkMsg(`📡 [${i + 1}/${unanalyzed.length}] ${ticker} 시간외 공시 추적 중...`);
+      for (;;) {
+        let job: any = null;
         try {
-          const singleRes = await fetch(`${BASE_URL}/api/ai/overnight-gap`, {
-            method: "POST",
-            headers: { 
-              "Content-Type": "application/json",
-              "ngrok-skip-browser-warning": "69420"
-            },
-            body: JSON.stringify({
-              ticker: isKr ? ticker.padStart(6, "0") : ticker,
-              name: ticker,
-              market: isKr ? "국내" : "미국"
-            })
-          });
-          if (singleRes.ok && singleRes.body) {
-            const reader = singleRes.body.getReader();
-            const dec = new TextDecoder();
-            let buf = "";
-            while (true) {
-              const { done, value } = await reader.read();
-              if (done) break;
-              buf += dec.decode(value, { stream: true });
-              const parts = buf.split("\n\n");
-              buf = parts.pop() ?? "";
-              for (const part of parts) {
-                if (part.trim().startsWith("data:")) {
-                  try {
-                    const d = JSON.parse(part.trim().slice(5).trim());
-                    if (d.status === "done" && d.result) {
-                      initialMap[ticker] = d.result;
-                      setGapBulkMap({ ...initialMap });
-                    }
-                  } catch {}
-                }
-              }
-            }
-          }
+          const sres = await fetch(`${BASE_URL}/api/ai/overnight-gap-bulk/status`);
+          job = await sres.json();
         } catch {}
+        try {
+          const res: any = await api.ai.overnightGapBulk(tickers);
+          if (res?.results) setGapBulkMap(prev => ({ ...prev, ...res.results }));
+        } catch {}
+        if (job && job.running) {
+          setGapBulkMsg(`📡 분석 중... (${job.done}/${job.total})${job.current ? " · 현재: " + job.current : ""}`);
+          await new Promise(r => setTimeout(r, 4000));
+        } else {
+          setGapBulkStatus("done");
+          setGapBulkMsg("🌙 시간외 갭 일괄 분석이 완료되었습니다!");
+          break;
+        }
       }
-      setGapBulkStatus("done");
-      setGapBulkMsg("🌙 시간외 갭 일괄 스캔이 완료되었습니다!");
+    } finally {
+      gapPollingRef.current = false;
+    }
+  }, []);
+
+  const handleGapBulkScan = useCallback(async () => {
+    const allTickers = gapTickers();
+    if (allTickers.length === 0) return;
+    const names: Record<string, string> = {};
+    portfolio.forEach((p: any) => {
+      const t = String(p.ticker ?? "").toUpperCase().trim();
+      if (t) names[t] = p.name || t;
+    });
+    setGapBulkStatus("loading");
+    setGapBulkMsg("🌙 서버에서 시간외 갭 일괄 분석을 시작합니다... (화면을 나가도 계속 진행돼요)");
+    try {
+      await fetch(`${BASE_URL}/api/ai/overnight-gap-bulk/start`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "ngrok-skip-browser-warning": "69420" },
+        body: JSON.stringify({ tickers: allTickers, names }),
+      });
+      pollGapBulk(allTickers);
     } catch (err: any) {
       setGapBulkStatus("done");
-      setGapBulkMsg(`❌ 갭 스캔 오류: ${err.message}`);
+      setGapBulkMsg(`❌ 갭 스캔 시작 오류: ${err.message}`);
     }
-  }, [portfolio]);
+  }, [portfolio, gapTickers, pollGapBulk]);
 
-  // 보유 종목 로드 후 캐시 초기 체크
+  // 마운트/포트폴리오 로드 시: 캐시 결과 로드 + 서버 작업 진행 중이면 폴링 재개
   useEffect(() => {
     if (portfolio.length === 0) return;
-    const tickers = Array.from(
-      new Set(portfolio.map((p: any) => String(p.ticker ?? "").toUpperCase().trim()))
-    ).filter(Boolean);
+    const tickers = gapTickers();
     api.ai.overnightGapBulk(tickers).then((res: any) => {
-      if (res?.results) setGapBulkMap(res.results);
+      if (res?.results) setGapBulkMap(prev => ({ ...prev, ...res.results }));
     }).catch(() => {});
-  }, [portfolio]);
+    fetch(`${BASE_URL}/api/ai/overnight-gap-bulk/status`).then(r => r.json()).then((job: any) => {
+      if (job?.running) pollGapBulk(tickers);
+    }).catch(() => {});
+  }, [portfolio, gapTickers, pollGapBulk]);
 
   return (
     <main style={{ padding: "2rem", maxWidth: "1200px", margin: "0 auto", color: "var(--color-text)" }}>

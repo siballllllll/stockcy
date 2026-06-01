@@ -997,7 +997,7 @@ async def overnight_gap_bulk_analysis(req: OvernightGapBulkRequest):
     """
     from db import load_ai_cache
     results = {}
-    
+
     # 1. 캐시된 갭 정보 일괄 로드
     for t in req.tickers:
         t_upper = str(t).upper().strip()
@@ -1006,8 +1006,76 @@ async def overnight_gap_bulk_analysis(req: OvernightGapBulkRequest):
         cached = load_ai_cache(f"gap_{t_upper}")
         if cached:
             results[t_upper] = cached
-            
+
     return {"status": "success", "results": results}
+
+
+# ── 일괄 갭 분석 서버 백그라운드 작업 (화면을 나가도 계속 진행) ─────────────────
+import threading as _threading_gap
+from datetime import datetime as _dt_gap
+
+_GAP_BULK_JOB = {"running": False, "total": 0, "done": 0, "current": "", "errors": 0, "started_at": None}
+_GAP_BULK_JOB_LOCK = _threading_gap.Lock()
+
+
+class GapBulkStartRequest(BaseModel):
+    tickers: list[str]
+    names: dict[str, str] | None = None
+
+
+def _run_gap_bulk_job(tickers: list, names: dict):
+    """티커들을 순차로 갭 분석해 캐시에 저장하는 백그라운드 작업.
+    블로킹(종목당 ~60초)이라 데몬 스레드에서 실행 — 프론트가 떠나도 계속 진행된다."""
+    from ai_engine import analyze_overnight_gap_risk
+    from db import load_ai_cache, save_ai_cache
+    global _GAP_BULK_JOB
+    try:
+        for t in tickers:
+            tu = str(t).upper().strip()
+            if not tu:
+                continue
+            _GAP_BULK_JOB["current"] = tu
+            try:
+                if not load_ai_cache(f"gap_{tu}"):  # 이미 분석된 건 스킵
+                    market = "국내" if tu.isdigit() else "미국"
+                    nm = (names or {}).get(tu) or (names or {}).get(t) or tu
+                    res = analyze_overnight_gap_risk(tu, nm, market)
+                    if res and "error" not in res:
+                        save_ai_cache(f"gap_{tu}", res, 2)
+            except Exception:
+                _GAP_BULK_JOB["errors"] += 1
+            _GAP_BULK_JOB["done"] += 1
+    finally:
+        _GAP_BULK_JOB["running"] = False
+        _GAP_BULK_JOB["current"] = ""
+
+
+@router.post("/overnight-gap-bulk/start")
+async def start_gap_bulk(req: GapBulkStartRequest):
+    """일괄 갭 분석을 서버 백그라운드에서 시작 (즉시 반환, 화면 이탈해도 계속 진행).
+    진행 상황은 GET /overnight-gap-bulk/status, 결과는 POST /overnight-gap-bulk(캐시)로 확인."""
+    global _GAP_BULK_JOB
+    tickers = [str(t).upper().strip() for t in (req.tickers or []) if str(t).strip()]
+    with _GAP_BULK_JOB_LOCK:
+        if _GAP_BULK_JOB["running"]:
+            return {"status": "already_running", "job": dict(_GAP_BULK_JOB)}
+        if not tickers:
+            return {"status": "empty", "job": dict(_GAP_BULK_JOB)}
+        _GAP_BULK_JOB.update({
+            "running": True, "total": len(tickers), "done": 0,
+            "current": "", "errors": 0,
+            "started_at": _dt_gap.now().strftime("%Y-%m-%d %H:%M:%S"),
+        })
+        _threading_gap.Thread(
+            target=_run_gap_bulk_job, args=(tickers, req.names or {}), daemon=True
+        ).start()
+    return {"status": "started", "job": dict(_GAP_BULK_JOB)}
+
+
+@router.get("/overnight-gap-bulk/status")
+async def gap_bulk_status():
+    """일괄 갭 분석 백그라운드 작업 진행 상황."""
+    return dict(_GAP_BULK_JOB)
 
 
 # ── 리딩방 패턴 AI 분석 ────────────────────────────────────────────────────────
