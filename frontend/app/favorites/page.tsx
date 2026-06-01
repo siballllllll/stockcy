@@ -233,6 +233,7 @@ function AddPortfolioForm({ onAdded }: { onAdded: () => void }) {
   const [qty,         setQty]         = useState("");
   const [tradeSource, setTradeSource] = useState<"리딩방" | "개인">("개인");
   const [tradeType,   setTradeType]   = useState<"실매매" | "테스트">("실매매");
+  const [buyReason,   setBuyReason]   = useState("");
   const [msg,         setMsg]         = useState<{ type: "success" | "danger"; text: string } | null>(null);
   const [loading,     setLoading]     = useState(false);
 
@@ -249,6 +250,7 @@ function AddPortfolioForm({ onAdded }: { onAdded: () => void }) {
         rating:       "-",
         trade_source: tradeSource,
         trade_type:   tradeType,
+        buy_reason:   buyReason,
       }];
       const res = await fetch(`${BASE_URL}/api/portfolio`, {
         method: "POST",
@@ -257,7 +259,7 @@ function AddPortfolioForm({ onAdded }: { onAdded: () => void }) {
       });
       if (!res.ok) throw new Error(`서버 오류: ${res.status}`);
       setMsg({ type: "success", text: `${name.trim()} (${ticker.trim().toUpperCase()}) 추가 완료 [${tradeSource} · ${tradeType}]` });
-      setTicker(""); setName(""); setPrice(""); setQty("");
+      setTicker(""); setName(""); setPrice(""); setQty(""); setBuyReason("");
       onAdded();
     } catch (e) {
       setMsg({ type: "danger", text: String(e) });
@@ -332,6 +334,14 @@ function AddPortfolioForm({ onAdded }: { onAdded: () => void }) {
           <Plus size={14} /> 추가
         </button>
       </div>
+      {/* 매수 근거 (리딩방 추천 사유 등) */}
+      <textarea
+        className="stockcy-input"
+        placeholder="매수 근거 — 리딩방이 왜 사라고 했는지 / 매수 이유 (선택)"
+        value={buyReason}
+        onChange={(e) => setBuyReason(e.target.value)}
+        style={{ width: "100%", minHeight: "40px", resize: "vertical", fontSize: "0.82rem" }}
+      />
       {msg && <StatusBox type={msg.type}>{msg.text}</StatusBox>}
     </div>
   );
@@ -563,6 +573,7 @@ function PortfolioTab({ gapBulkMap }: { gapBulkMap: Record<string, any> }) {
   const [editSource, setEditSource] = useState<"리딩방" | "개인">("개인");
   const [editType,   setEditType]   = useState<"실매매" | "테스트">("실매매");
   const [editBuyTime, setEditBuyTime] = useState<string>("");
+  const [editReason,  setEditReason]  = useState<string>("");
 
   // AI 매도 타이밍 패널
   const [sellTarget, setSellTarget] = useState<any | null>(null);
@@ -650,8 +661,8 @@ function PortfolioTab({ gapBulkMap }: { gapBulkMap: Record<string, any> }) {
     const newBuyTime = editBuyTime ? editBuyTime + ":00" : (p.buy_date || "");
     const updated = (portfolio ?? []).map((item: any) =>
       item.ticker === p.ticker
-        ? { ...item, buy_price: newBuy, quantity: newQty, trade_source: editSource, trade_type: editType, buy_date: newBuyTime }
-        : { ...item, buy_date: item.buy_date }   // 다른 종목도 기존 매수시각 보존
+        ? { ...item, buy_price: newBuy, quantity: newQty, trade_source: editSource, trade_type: editType, buy_date: newBuyTime, buy_reason: editReason }
+        : { ...item, buy_date: item.buy_date, buy_reason: item.buy_reason }   // 다른 종목도 기존 매수시각·근거 보존
     );
     await fetch(`${BASE_URL}/api/portfolio`, {
       method: "POST",
@@ -771,6 +782,9 @@ function PortfolioTab({ gapBulkMap }: { gapBulkMap: Record<string, any> }) {
                       {p.trade_type === "테스트" && (
                         <span style={{ fontSize: "0.62rem", padding: "1px 5px", background: "rgba(217,119,6,0.15)", border: "1px solid rgba(217,119,6,0.35)", borderRadius: "3px", color: "#fbbf24", fontWeight: 700 }}>테스트</span>
                       )}
+                      {p.buy_reason && (
+                        <span title={p.buy_reason} style={{ fontSize: "0.62rem", padding: "1px 5px", background: "rgba(56,189,248,0.12)", border: "1px solid rgba(56,189,248,0.35)", borderRadius: "3px", color: "#38bdf8", fontWeight: 700, cursor: "help" }}>💬 매수근거</span>
+                      )}
                     </div>
 
                     {/* 시간외 갭 배지 인라인 노출 */}
@@ -822,7 +836,7 @@ function PortfolioTab({ gapBulkMap }: { gapBulkMap: Record<string, any> }) {
                       </button>
                     )}
                     <button className="stockcy-btn stockcy-btn-secondary" style={{ padding: "2px 6px", fontSize: "0.7rem" }} title="편집"
-                      onClick={() => { setEditTicker(isEditing ? null : p.ticker); setEditPrice(String(p.buy_price)); setEditQty(String(p.quantity)); setEditSource((p.trade_source as "리딩방" | "개인") || "개인"); setEditType((p.trade_type as "실매매" | "테스트") || "실매매"); setEditBuyTime(String(p.buy_date ?? "").slice(0, 16).replace(" ", "T")); }}>
+                      onClick={() => { setEditTicker(isEditing ? null : p.ticker); setEditPrice(String(p.buy_price)); setEditQty(String(p.quantity)); setEditSource((p.trade_source as "리딩방" | "개인") || "개인"); setEditType((p.trade_type as "실매매" | "테스트") || "실매매"); setEditBuyTime(String(p.buy_date ?? "").slice(0, 16).replace(" ", "T")); setEditReason(String(p.buy_reason ?? "")); }}>
                       ✏️
                     </button>
                     <button
@@ -857,6 +871,7 @@ function PortfolioTab({ gapBulkMap }: { gapBulkMap: Record<string, any> }) {
                     <input className="stockcy-input" type="number" value={editQty} onChange={e => setEditQty(e.target.value)} style={{ width: "80px" }} />
                     <span style={{ fontSize: "0.75rem", color: "var(--color-muted)" }}>매수시각</span>
                     <input className="stockcy-input" type="datetime-local" value={editBuyTime} onChange={e => setEditBuyTime(e.target.value)} style={{ padding: "3px 6px", fontSize: "0.76rem", minWidth: "170px" }} title="매수한 시각 (누락 시 보정)" />
+                    <input className="stockcy-input" placeholder="매수 근거 (리딩방 사유 등)" value={editReason} onChange={e => setEditReason(e.target.value)} style={{ padding: "3px 6px", fontSize: "0.78rem", flex: 1, minWidth: "200px" }} />
                     <button className="stockcy-btn stockcy-btn-primary" style={{ padding: "4px 10px", fontSize: "0.8rem" }} onClick={() => handleUpdateEntry(p)}>저장</button>
                     <div style={{ marginLeft: "auto" }}>
                       <SellButton p={p} onSell={handleSellRecord} />
@@ -1188,7 +1203,7 @@ function TradesTab() {
 
   const nowLocal = () => new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16);
   const [formMarket, setFormMarket] = useState<"국내" | "미국">("국내");
-  const [form, setForm] = useState({ ticker: "", name: "", buy_price: "", sell_price: "", quantity: "", trade_source: "개인", trade_type: "실매매", buy_date: nowLocal(), sell_date: nowLocal() });
+  const [form, setForm] = useState({ ticker: "", name: "", buy_price: "", sell_price: "", quantity: "", trade_source: "개인", trade_type: "실매매", buy_date: nowLocal(), sell_date: nowLocal(), buy_reason: "" });
   const [addMsg, setAddMsg] = useState<{ type: "success" | "danger"; text: string } | null>(null);
   const [adding, setAdding] = useState(false);
   const [showForm, setShowForm] = useState(false);
@@ -1201,6 +1216,7 @@ function TradesTab() {
   const [editSrc,         setEditSrc]         = useState<"리딩방" | "개인">("개인");
   const [editTyp,         setEditTyp]         = useState<"실매매" | "테스트">("실매매");
   const [editBuyDate,     setEditBuyDate]     = useState<string>("");
+  const [editBuyReason,   setEditBuyReason]   = useState<string>("");
   const [savingTag,       setSavingTag]       = useState(false);
 
   // 리딩방 패턴 분석
@@ -1276,15 +1292,16 @@ function TradesTab() {
         sell_date: form.sell_date ? form.sell_date + ":00" : new Date().toISOString().slice(0, 19),
         trade_source: form.trade_source,
         trade_type: form.trade_type,
+        buy_reason: form.buy_reason || "",
       };
       const res = await api.portfolio.saveTrade(trade) as { success: boolean; message: string };
       setAddMsg({ type: res.success ? "success" : "danger", text: res.message });
-      if (res.success) { setForm({ ticker: "", name: "", buy_price: "", sell_price: "", quantity: "", trade_source: "개인", trade_type: "실매매", buy_date: nowLocal(), sell_date: nowLocal() }); mutate(); setShowForm(false); }
+      if (res.success) { setForm({ ticker: "", name: "", buy_price: "", sell_price: "", quantity: "", trade_source: "개인", trade_type: "실매매", buy_date: nowLocal(), sell_date: nowLocal(), buy_reason: "" }); mutate(); setShowForm(false); }
     } catch (e) { setAddMsg({ type: "danger", text: String(e) }); }
     finally { setAdding(false); }
   };
 
-  const handleUpdateTag = async (ticker: string, sellDate: string, origBuyDate: string) => {
+  const handleUpdateTag = async (ticker: string, sellDate: string, origBuyDate: string, origBuyReason: string) => {
     setSavingTag(true);
     try {
       await (api.portfolio as any).updateTradeTag(ticker, sellDate, editSrc, editTyp);
@@ -1292,6 +1309,10 @@ function TradesTab() {
       const origNorm = String(origBuyDate || "").slice(0, 16).replace(" ", "T");
       if (editBuyDate && editBuyDate !== origNorm) {
         await (api.portfolio as any).updateTradeBuyDate(ticker, sellDate, editBuyDate + ":00");
+      }
+      // 매수 근거가 변경됐으면 함께 저장
+      if (editBuyReason !== origBuyReason) {
+        await (api.portfolio as any).updateTradeBuyReason(ticker, sellDate, editBuyReason);
       }
       mutate();
       setEditTradeKey(null);
@@ -1418,6 +1439,16 @@ function TradesTab() {
             <input className="stockcy-input" type="datetime-local" value={form.buy_date} onChange={e => setForm(f => ({...f, buy_date: e.target.value}))} style={{ flex: 1, minWidth: "180px" }} />
             <span style={{ fontSize: "0.75rem", color: "var(--color-muted)", flexShrink: 0 }}>매도일시</span>
             <input className="stockcy-input" type="datetime-local" value={form.sell_date} onChange={e => setForm(f => ({...f, sell_date: e.target.value}))} style={{ flex: 1, minWidth: "180px" }} />
+          </div>
+          <div style={{ display: "flex", gap: "0.5rem", alignItems: "flex-start", flexWrap: "wrap" }}>
+            <span style={{ fontSize: "0.75rem", color: "var(--color-muted)", flexShrink: 0, paddingTop: "6px" }}>매수 근거</span>
+            <textarea
+              className="stockcy-input"
+              placeholder="리딩방이 왜 사라고 했는지 / 매수 이유 (예: OO 수주 기대, 차트 눌림목 등)"
+              value={form.buy_reason}
+              onChange={e => setForm(f => ({...f, buy_reason: e.target.value}))}
+              style={{ flex: 1, minWidth: "260px", minHeight: "44px", resize: "vertical", fontSize: "0.82rem" }}
+            />
             <button className="stockcy-btn stockcy-btn-primary" onClick={handleAdd} disabled={adding}>저장</button>
           </div>
           {addMsg && <StatusBox type={addMsg.type}>{addMsg.text}</StatusBox>}
@@ -1465,6 +1496,7 @@ function TradesTab() {
               const profitKrw = profit * rate;
               const tradeSource = t["출처"] ?? t.trade_source ?? "개인";
               const tradeType   = t["유형"] ?? t.trade_type   ?? "실매매";
+              const buyReason   = String(t["매수사유"] ?? t.buy_reason ?? "");
               const rowKey = `${i}_${ticker}_${sellDate}`;
               const isEditingTag = editTradeKey === rowKey;
 
@@ -1481,7 +1513,15 @@ function TradesTab() {
                         {tradeType === "테스트" && (
                           <span style={{ fontSize: "0.62rem", padding: "1px 5px", background: "rgba(217,119,6,0.15)", border: "1px solid rgba(217,119,6,0.35)", borderRadius: "3px", color: "#fbbf24", fontWeight: 700 }}>테스트</span>
                         )}
+                        {buyReason && (
+                          <span title={buyReason} style={{ fontSize: "0.62rem", padding: "1px 5px", background: "rgba(56,189,248,0.12)", border: "1px solid rgba(56,189,248,0.35)", borderRadius: "3px", color: "#38bdf8", fontWeight: 700, cursor: "help" }}>💬 매수근거</span>
+                        )}
                       </div>
+                      {buyReason && (
+                        <div style={{ fontSize: "0.68rem", color: "var(--color-muted)", marginTop: "2px", maxWidth: "220px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={buyReason}>
+                          💡 {buyReason}
+                        </div>
+                      )}
                     </td>
                     <td style={{ textAlign: "right" }}>{buyStr}</td>
                     <td style={{ textAlign: "right" }}>{sellStr}</td>
@@ -1520,6 +1560,7 @@ function TradesTab() {
                             setEditSrc((tradeSource as "리딩방" | "개인") || "개인");
                             setEditTyp((tradeType as "실매매" | "테스트") || "실매매");
                             setEditBuyDate(String(t["매수시간"] ?? t.buy_date ?? "").slice(0, 16).replace(" ", "T"));
+                            setEditBuyReason(buyReason);
                             setEditTradeKey(rowKey);
                           }}
                         >✏️</button>
@@ -1554,10 +1595,20 @@ function TradesTab() {
                             style={{ padding: "3px 6px", fontSize: "0.76rem", minWidth: "170px" }}
                             title="시세창에서 즉시 매수해 시각이 누락된 경우 여기서 보정하세요"
                           />
-                          <button className="stockcy-btn stockcy-btn-primary" style={{ padding: "3px 10px", fontSize: "0.78rem" }} disabled={savingTag} onClick={() => handleUpdateTag(ticker, sellDate, String(t["매수시간"] ?? t.buy_date ?? ""))}>
+                          <button className="stockcy-btn stockcy-btn-primary" style={{ padding: "3px 10px", fontSize: "0.78rem" }} disabled={savingTag} onClick={() => handleUpdateTag(ticker, sellDate, String(t["매수시간"] ?? t.buy_date ?? ""), buyReason)}>
                             {savingTag ? "저장 중..." : "저장"}
                           </button>
                           <button className="stockcy-btn stockcy-btn-secondary" style={{ padding: "3px 8px", fontSize: "0.78rem" }} onClick={() => setEditTradeKey(null)}>취소</button>
+                        </div>
+                        <div style={{ display: "flex", alignItems: "flex-start", gap: "0.6rem", marginTop: "8px" }}>
+                          <span style={{ fontSize: "0.75rem", color: "var(--color-muted)", flexShrink: 0, paddingTop: "6px" }}>매수 근거</span>
+                          <textarea
+                            className="stockcy-input"
+                            placeholder="리딩방이 왜 사라고 했는지 / 매수 이유"
+                            value={editBuyReason}
+                            onChange={e => setEditBuyReason(e.target.value)}
+                            style={{ flex: 1, minWidth: "260px", minHeight: "40px", resize: "vertical", fontSize: "0.82rem" }}
+                          />
                         </div>
                       </td>
                     </tr>

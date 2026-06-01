@@ -51,6 +51,11 @@ class UpdatePortfolioBuyTimeRequest(BaseModel):
     buy_time: str    # "YYYY-MM-DD HH:MM" 또는 "YYYY-MM-DD"
     owner:    str = "USER"
 
+class UpdateTradeBuyReasonRequest(BaseModel):
+    ticker:     str
+    sell_date:  str
+    buy_reason: str
+
 
 class AlertRequest(BaseModel):
     market:       str
@@ -245,6 +250,14 @@ async def update_portfolio_buy_time_ep(req: UpdatePortfolioBuyTimeRequest):
     """보유종목의 매수 시각(updated_time) 수정."""
     from db import update_portfolio_buy_time
     ok, msg = await asyncio.to_thread(update_portfolio_buy_time, req.ticker, req.owner, req.buy_time)
+    return {"success": ok, "message": msg}
+
+
+@router.patch("/trades/buy-reason")
+async def update_trade_buy_reason_ep(req: UpdateTradeBuyReasonRequest):
+    """거래내역의 매수 근거(리딩방 추천 사유 등) 수정."""
+    from db import update_trade_buy_reason
+    ok, msg = await asyncio.to_thread(update_trade_buy_reason, req.ticker, req.sell_date, req.buy_reason)
     return {"success": ok, "message": msg}
 
 

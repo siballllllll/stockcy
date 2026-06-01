@@ -54,6 +54,7 @@ def init_local_db():
             buy_price REAL,
             rating TEXT,
             updated_time TEXT,
+            buy_reason TEXT,
             PRIMARY KEY (owner, ticker)
         )
     """)
@@ -84,6 +85,7 @@ def init_local_db():
             profit_pct REAL,
             result TEXT,
             learning_point TEXT,
+            buy_reason TEXT,
             PRIMARY KEY (owner, sell_date, ticker)
         )
     """)
@@ -340,6 +342,8 @@ def init_local_db():
         "ALTER TABLE screener_picks ADD COLUMN market TEXT DEFAULT 'kr'",
         "ALTER TABLE screener_backtest_results ADD COLUMN market TEXT DEFAULT 'kr'",
         "ALTER TABLE scenario_stocks ADD COLUMN horizon TEXT",
+        "ALTER TABLE portfolio ADD COLUMN buy_reason TEXT DEFAULT ''",
+        "ALTER TABLE trade_history ADD COLUMN buy_reason TEXT DEFAULT ''",
     ]:
         try:
             cursor.execute(migration)
@@ -621,24 +625,30 @@ def save_portfolio_to_gsheet(portfolio_list, current_prices_df=None, owner="USER
         conn = get_db_conn()
         cursor = conn.cursor()
         
-        # 기존 DB의 포트폴리오 종목별 최초 매수 시각(updated_time) 조회하여 백업
+        # 기존 DB의 포트폴리오 종목별 최초 매수 시각(updated_time)·매수 근거 조회하여 백업
         existing_times = {}
-        cursor.execute("SELECT ticker, updated_time FROM portfolio WHERE UPPER(owner) = ?", (owner.upper(),))
+        existing_reasons = {}
+        cursor.execute("SELECT ticker, updated_time, buy_reason FROM portfolio WHERE UPPER(owner) = ?", (owner.upper(),))
         for r in cursor.fetchall():
             existing_times[str(r["ticker"])] = str(r["updated_time"])
-            
+            existing_reasons[str(r["ticker"])] = str(r["buy_reason"] or "")
+
         # 해당 owner의 기존 포트폴리오를 지우고 새로 채움
         cursor.execute("DELETE FROM portfolio WHERE UPPER(owner) = ?", (owner.upper(),))
-        
+
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         for item in portfolio_list:
             ticker = _pad_kr_ticker(item["ticker"])
             buy_time = item.get("buy_date") or item.get("updated_time") or existing_times.get(ticker) or now
-            
+            # 매수 근거: 들어온 값 우선, 없으면 기존 값 보존
+            buy_reason = item.get("buy_reason")
+            if buy_reason is None:
+                buy_reason = existing_reasons.get(ticker, "")
+
             cursor.execute(
-                "INSERT OR REPLACE INTO portfolio (owner, ticker, name, quantity, buy_price, rating, updated_time, trade_source, trade_type) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "INSERT OR REPLACE INTO portfolio (owner, ticker, name, quantity, buy_price, rating, updated_time, trade_source, trade_type, buy_reason) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (owner.upper(), ticker, str(item.get("name", item["ticker"])), float(item["quantity"]), float(item["buy_price"]), str(item.get("rating", "-")), buy_time,
-                 str(item.get("trade_source", "개인")), str(item.get("trade_type", "실매매")))
+                 str(item.get("trade_source", "개인")), str(item.get("trade_type", "실매매")), str(buy_reason or ""))
             )
         conn.commit()
         conn.close()
@@ -656,7 +666,7 @@ def load_portfolio_from_gsheet(owner="USER"):
         conn = get_db_conn()
         cursor = conn.cursor()
         cursor.execute(
-            "SELECT ticker, name, buy_price, quantity, updated_time as buy_date, rating, owner, trade_source, trade_type FROM portfolio WHERE UPPER(owner) = ?",
+            "SELECT ticker, name, buy_price, quantity, updated_time as buy_date, rating, owner, trade_source, trade_type, buy_reason FROM portfolio WHERE UPPER(owner) = ?",
             (owner.upper(),)
         )
         rows = cursor.fetchall()
@@ -677,6 +687,7 @@ def load_portfolio_from_gsheet(owner="USER"):
                 "owner": str(r["owner"]).upper(),
                 "trade_source": str(r["trade_source"] or "개인"),
                 "trade_type": str(r["trade_type"] or "실매매"),
+                "buy_reason": str(r["buy_reason"] or ""),
             })
         return portfolio_list
     except Exception as e:
@@ -791,11 +802,11 @@ def save_trade_record(trade, owner="USER"):
         buy_date  = trade.get("buy_date") or ""
         ticker    = _pad_kr_ticker(trade.get("ticker", ""))
         cursor.execute(
-            "INSERT OR REPLACE INTO trade_history (owner, sell_date, ticker, name, quantity, buy_price, sell_price, profit, profit_pct, result, learning_point, trade_source, trade_type, buy_date) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT OR REPLACE INTO trade_history (owner, sell_date, ticker, name, quantity, buy_price, sell_price, profit, profit_pct, result, learning_point, trade_source, trade_type, buy_date, buy_reason) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (owner.upper(), sell_date, ticker, str(trade.get("name", "")),
              float(trade.get("quantity", 0)), float(trade.get("buy_price", 0)), float(trade.get("sell_price", 0)),
              float(trade.get("profit", 0)), float(trade.get("profit_pct", 0)), str(trade.get("result", "")), str(trade.get("learning_point", "")),
-             str(trade.get("trade_source", "개인")), str(trade.get("trade_type", "실매매")), buy_date)
+             str(trade.get("trade_source", "개인")), str(trade.get("trade_type", "실매매")), buy_date, str(trade.get("buy_reason", "")))
         )
         conn.commit()
         conn.close()
@@ -937,6 +948,26 @@ def _gsheet_backup_update_trade_buy_date(ticker, sell_date, buy_date):
     return True, "ok"
 
 
+def update_trade_buy_reason(ticker: str, sell_date: str, buy_reason: str):
+    """거래내역의 매수 근거(리딩방이 왜 사라고 했는지 등)를 수정합니다."""
+    try:
+        conn = get_db_conn()
+        cursor = conn.cursor()
+        cursor.execute(
+            """UPDATE trade_history
+               SET buy_reason = ?
+               WHERE LTRIM(TRIM(ticker), '0') = LTRIM(TRIM(?), '0')
+                 AND REPLACE(TRIM(sell_date), 'T', ' ') = REPLACE(TRIM(?), 'T', ' ')""",
+            (buy_reason, ticker, sell_date)
+        )
+        n = cursor.rowcount
+        conn.commit()
+        conn.close()
+        return (True, "매수 근거 업데이트 완료!") if n else (False, "해당 거래를 찾을 수 없습니다.")
+    except Exception as e:
+        return False, f"로컬 업데이트 오류: {e}"
+
+
 def update_portfolio_buy_time(ticker: str, owner: str, buy_time: str):
     """보유종목(portfolio)의 매수 시각(updated_time)을 수정합니다."""
     try:
@@ -1004,7 +1035,7 @@ def load_trade_history_from_gsheet(owner="USER"):
         conn = get_db_conn()
         cursor = conn.cursor()
         cursor.execute(
-            "SELECT owner as 소유자, sell_date as 매도시간, buy_date as 매수시간, ticker as 티커, name as 종목명, quantity as 수량, buy_price as `매수가($)`, sell_price as `매도가($)`, profit as `수익금($)`, profit_pct as `수익률(%)`, result as 결과, learning_point as 학습포인트, trade_source as 출처, trade_type as 유형 FROM trade_history WHERE UPPER(owner) = ?",
+            "SELECT owner as 소유자, sell_date as 매도시간, buy_date as 매수시간, ticker as 티커, name as 종목명, quantity as 수량, buy_price as `매수가($)`, sell_price as `매도가($)`, profit as `수익금($)`, profit_pct as `수익률(%)`, result as 결과, learning_point as 학습포인트, trade_source as 출처, trade_type as 유형, buy_reason as 매수사유 FROM trade_history WHERE UPPER(owner) = ?",
             (owner.upper(),)
         )
         rows = cursor.fetchall()
