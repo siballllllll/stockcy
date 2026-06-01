@@ -610,6 +610,16 @@ export default function Dashboard() {
                                 📋 시나리오 {p.scenario_count}건
                               </span>
                             )}
+                            {p.supply_signal && (
+                              <span style={{ fontSize: "0.72rem", padding: "2px 7px", borderRadius: "6px", background: "rgba(59,130,246,0.15)", border: "1px solid rgba(59,130,246,0.35)", color: "#60a5fa", fontWeight: 700 }} title="외국인·기관 순매수 상위 (객관적 수급 신호 — 가점)">
+                                🏦 {p.supply_signal}
+                              </span>
+                            )}
+                            {p.hot_sector && (
+                              <span style={{ fontSize: "0.72rem", padding: "2px 7px", borderRadius: "6px", background: "rgba(244,63,94,0.13)", border: "1px solid rgba(244,63,94,0.35)", color: "#fb7185", fontWeight: 700 }} title="오늘의 핫섹터 소속 (객관적 모멘텀 — 가점)">
+                                🔥 {p.hot_sector}
+                              </span>
+                            )}
                             {p.agent_adjust != null && p.agent_adjust !== 0 && (
                               <span style={{ fontSize: "0.72rem", padding: "2px 7px", borderRadius: "6px", background: p.agent_adjust > 0 ? "rgba(16,185,129,0.15)" : "rgba(239,68,68,0.15)", border: `1px solid ${p.agent_adjust > 0 ? "rgba(16,185,129,0.3)" : "rgba(239,68,68,0.3)"}`, color: p.agent_adjust > 0 ? "#34d399" : "#f87171", fontWeight: 700 }} title={`AI 자기학습 보정: ${p.agent_label}`}>
                                 🧠 {p.agent_adjust > 0 ? "+" : ""}{p.agent_adjust}

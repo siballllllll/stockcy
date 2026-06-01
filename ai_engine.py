@@ -3955,6 +3955,32 @@ def screen_by_my_pattern() -> dict:
     agent_learning = load_agent_learning_summary()
     agent_rules = {r["label"]: r for r in agent_learning.get("rules", [])} if agent_learning.get("sample", 0) >= 5 else {}
 
+    # ── 객관적 시장 신호 주입: 외국인·기관 순매수(수급) + 핫섹터 ──
+    # 내 패턴 매칭(주관)에만 의존하지 않도록 실시간 타점포착이 쓰는 신호를 가점으로 반영.
+    supply_map: dict[str, dict] = {}   # code -> {rank, frgn, orgn}
+    try:
+        from data_kr import get_kr_frgn_inst_rank
+        _inv = (get_kr_frgn_inst_rank("J", 30, "buy") or []) + (get_kr_frgn_inst_rank("Q", 30, "buy") or [])
+        for _i, _s in enumerate(_inv):
+            _c = str(_s.get("종목코드", "")).strip().zfill(6)
+            if _c and _c not in supply_map:
+                supply_map[_c] = {"rank": _i, "frgn": _s.get("외국인순매수", 0), "orgn": _s.get("기관순매수", 0)}
+    except Exception as _e:
+        print(f"[screener] 수급 랭킹 로드 실패: {_e}")
+
+    hot_code_map: dict[str, str] = {}   # code -> 핫섹터 키워드
+    try:
+        _hs = get_hot_sectors_nowait()
+        if _hs:
+            for _sec in _hs.get("sectors", []):
+                _kw = _sec.get("keyword", "")
+                for _hc in _sec.get("hot_codes", []) or []:
+                    _hcs = str(_hc).strip().zfill(6)
+                    if _hcs and _hcs not in hot_code_map:
+                        hot_code_map[_hcs] = _kw
+    except Exception as _e:
+        print(f"[screener] 핫섹터 로드 실패: {_e}")
+
     def _agent_score_adjust(daily: dict) -> tuple[float, str]:
         """에이전트 학습 규칙으로 점수 보정. 반환: (보정점수, 매칭규칙라벨)"""
         if not agent_rules:
@@ -4007,6 +4033,21 @@ def screen_by_my_pattern() -> dict:
         agent_adj, agent_label = _agent_score_adjust(ind["daily"])
         if agent_adj != 0:
             match_score = max(0, min(100, match_score + agent_adj))
+
+        # ── 객관적 시장 신호 가점 ──
+        # 외국인·기관 순매수(수급): 스마트머니 매집 = 객관적 강세. 상위일수록 가점 (최대 +10)
+        sup = supply_map.get(code)
+        supply_signal = None
+        if sup:
+            supply_bonus = 10 if sup["rank"] < 10 else 6
+            match_score = min(100, match_score + supply_bonus)
+            _f = sup.get("frgn", 0) or 0; _o = sup.get("orgn", 0) or 0
+            _who = "외국인·기관" if (_f > 0 and _o > 0) else ("외국인" if _f > 0 else "기관")
+            supply_signal = f"{_who} 순매수 상위"
+        # 핫섹터 소속: 오늘 주도 테마 = 객관적 모멘텀 (+6)
+        hot_sector = hot_code_map.get(code)
+        if hot_sector:
+            match_score = min(100, match_score + 6)
 
         # ── 모멘텀 단계 판정: 돌파직전 / 강한추세지속(대시세 후보) / 과열추격 ──
         # '이미 올랐다'고 무조건 감점하지 않음. 추세가 살아있으면(대시세 가능) 가점, 과열일 때만 감점.
@@ -4092,6 +4133,8 @@ def screen_by_my_pattern() -> dict:
             "is_prebreakout":    momentum_stage == "prebreak",
             "already_surged":    surged,          # 오늘 +8%↑ 이미 급등
             "momentum_stage":    momentum_stage,  # prebreak | runner | exhausted | extended | ""
+            "supply_signal":     supply_signal,   # 외국인·기관 순매수 상위 (객관 수급)
+            "hot_sector":        hot_sector,      # 오늘 핫섹터 키워드 (객관 모멘텀)
         })
 
     scored.sort(key=lambda x: x["match_score"], reverse=True)
@@ -4128,10 +4171,17 @@ def screen_by_my_pattern() -> dict:
         if st == "extended":
             return " [이미 상승 — 추세 애매, 중립]"
         return ""
+    def _market_tag(s):
+        parts = []
+        if s.get("supply_signal"):
+            parts.append(s["supply_signal"])
+        if s.get("hot_sector"):
+            parts.append(f"핫섹터:{s['hot_sector']}")
+        return f" [객관신호: {', '.join(parts)}]" if parts else ""
     candidates_text = "\n".join(
         f"- {s['name']}({s['code']}): 매칭점수={s['match_score']}, RSI={s['rsi']}, "
         f"거래량비율={s['vol_ratio']}배, 52주위치={s['pos_52w']}%, 당일등락={s.get('today_change_pct')}%, "
-        f"MA정배열={'O' if s['ma_aligned'] else 'X'}, 갭={s['gap_pct']}%, 신호={s['signal']}{_stage_tag(s)}"
+        f"MA정배열={'O' if s['ma_aligned'] else 'X'}, 갭={s['gap_pct']}%, 신호={s['signal']}{_stage_tag(s)}{_market_tag(s)}"
         for s in top
     )
 
