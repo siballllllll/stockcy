@@ -3438,7 +3438,7 @@ def analyze_leading_room_patterns() -> dict:
         cursor = conn.cursor()
         cursor.execute(
             """SELECT ticker, name, buy_price, sell_price, profit, profit_pct,
-                      result, buy_date, sell_date, trade_type
+                      result, buy_date, sell_date, trade_type, buy_reason
                FROM trade_history
                WHERE UPPER(owner) = 'USER'
                  AND LOWER(COALESCE(trade_source,'')) LIKE '%리딩방%'
@@ -3467,6 +3467,7 @@ def analyze_leading_room_patterns() -> dict:
         ind["name"]       = r.get("name", "")
         ind["profit_pct"] = float(r.get("profit_pct", 0) or 0)
         ind["result"]     = r.get("result", "")
+        ind["buy_reason"] = str(r.get("buy_reason", "") or "").strip()
         indicators.append(ind)
 
     def _avg(lst):
@@ -3499,6 +3500,10 @@ def analyze_leading_room_patterns() -> dict:
         "prev3_bullish_rate_pct": round(prev3_cnt / minute_cnt * 100, 1) if minute_cnt > 0 else None,
     }
 
+    # 리딩방 추천 근거(매수근거) 보유 거래 수
+    reason_cnt = sum(1 for ind in indicators if ind.get("buy_reason"))
+    agg["buy_reason_count"] = reason_cnt
+
     # Gemini 분석 프롬프트
     detail_lines = "\n".join(
         f"- {ind.get('name','')}({ind['ticker']}): "
@@ -3510,6 +3515,7 @@ def analyze_leading_room_patterns() -> dict:
         f"매수시간대={ind['minute'].get('time_class','N/A')}, "
         f"이전3봉양봉={'O' if ind['minute'].get('prev3_bullish') else 'X'}, "
         f"수익률={ind['profit_pct']}%"
+        + (f", 리딩방추천근거=\"{ind['buy_reason'][:80]}\"" if ind.get("buy_reason") else "")
         for ind in indicators
     )
 
@@ -3517,7 +3523,7 @@ def analyze_leading_room_patterns() -> dict:
 아래는 한 투자자의 '리딩방' 출처 실매매 내역과 각 거래 시점의 기술적 지표입니다.
 
 === 집계 통계 ===
-- 총 거래: {total}건 (분봉 데이터 활용 가능: {minute_cnt}건)
+- 총 거래: {total}건 (분봉 데이터 활용 가능: {minute_cnt}건, 리딩방 추천근거 기록: {reason_cnt}건)
 - 승률: {win_rate:.1f}%
 - 평균 수익률: {avg_pct:.2f}%
 - 평균 RSI(14) 매수 시점: {agg['avg_rsi_at_entry']}
@@ -3531,13 +3537,14 @@ def analyze_leading_room_patterns() -> dict:
 === 개별 거래 ===
 {detail_lines}
 
-위 데이터를 분석해 다음 5가지를 작성해주세요:
+위 데이터를 분석해 다음을 작성해주세요:
 
 1. **매수 패턴 특징**: RSI 구간·거래량·시간대·MA 배열 등 반복 패턴
 2. **승패 가르는 핵심 요인**: 수익/손실 거래의 구체적 차이
 3. **종목 선정 특징**: 52주 위치·거래량·섹터 경향
-4. **개선 권고사항**: 더 높은 승률을 위해 조정할 매수 조건
-5. **리스크 경고**: 현재 패턴의 주요 위험 요소
+4. **리딩방 추천 근거 분석** (매수근거가 있는 거래 {reason_cnt}건 기준): 리딩방이 제시한 추천 근거를 테마·논리 유형(예: 실적/수주, 정책수혜, 차트 돌파, 테마 순환, 세력 수급 등)으로 분류하고, **어떤 유형의 근거가 실제 수익/손실로 이어졌는지(근거↔결과 상관)**를 정리하세요. 근거가 비어있는 거래는 이 항목에서 제외. (근거 데이터가 부족하면 '데이터 부족'으로 표기)
+5. **개선 권고사항**: 더 높은 승률을 위해 조정할 매수 조건 + 신뢰할 만한/피해야 할 추천 근거 유형
+6. **리스크 경고**: 현재 패턴의 주요 위험 요소
 
 투자자가 실제로 활용할 수 있는 구체적 인사이트로 작성해주세요."""
 
@@ -3557,6 +3564,7 @@ def analyze_leading_room_patterns() -> dict:
                 "profit_pct": ind["profit_pct"],
                 "rsi":        ind["daily"].get("rsi"),
                 "time_class": ind["minute"].get("time_class"),
+                "buy_reason": ind.get("buy_reason", ""),
             }
             for ind in indicators
         ],
