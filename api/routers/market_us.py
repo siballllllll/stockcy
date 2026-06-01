@@ -108,8 +108,13 @@ def us_stocks_all():
 @router.get("/stocks/{ticker}")
 def us_stock_detail(ticker: str, exchange: str = Query("NASDAQ")):
     """미국 개별 종목 상세 (현재가, 지표, 재무 요약)."""
+    from api.circuit import yf_breaker
+    if yf_breaker.is_open():
+        return {}  # 시세 소스 장애 중 — 즉시 반환
     _, _, get_detail, _ = _data()
     result = get_detail(ticker.upper(), exchange)
+    if result:
+        yf_breaker.record_success()
     return result or {}
 
 
@@ -120,10 +125,14 @@ def us_chart(
     interval: str = Query("1d", description="yfinance interval: 1m,5m,15m,30m,60m,1d,1wk,1mo"),
 ):
     """미국 주식 OHLCV 차트 데이터 (yfinance 기반). 분봉 포함."""
+    from api.circuit import yf_breaker
+    if yf_breaker.is_open():
+        return []  # 시세 소스 장애 중 — 스레드 점유 없이 즉시 반환
     try:
         import yfinance as yf
         is_minute = interval.endswith("m") and interval != "1mo"
-        df = yf.Ticker(ticker.upper()).history(period=period, interval=interval, auto_adjust=True, prepost=is_minute)
+        df = yf.Ticker(ticker.upper()).history(period=period, interval=interval, auto_adjust=True, prepost=is_minute, timeout=4)
+        yf_breaker.record_success()
         if df is None or df.empty:
             return []
         records = []
@@ -145,56 +154,66 @@ def us_chart(
             })
         return records
     except Exception:
+        yf_breaker.record_failure()
         return []
 
 
 @router.get("/crypto/{symbol}")
 def crypto_price(symbol: str = "BTC"):
     """암호화폐 현재가 (yfinance BTC-USD 등)."""
-    try:
-        import yfinance as yf
-        ticker = f"{symbol.upper()}-USD"
-        fi = yf.Ticker(ticker).fast_info
-        price = float(fi.get("regularMarketPrice", 0) or fi.get("lastPrice", 0) or 0)
-        prev  = float(fi.get("previousClose", 0) or 0)
-        change_pct = round(((price - prev) / prev * 100) if prev > 0 else 0.0, 2)
-        if price > 0:
-            return {"symbol": symbol.upper(), "price": round(price, 2), "change_pct": change_pct}
-    except Exception:
-        pass
+    from api.circuit import yf_breaker
+    if not yf_breaker.is_open():
+        try:
+            import yfinance as yf
+            ticker = f"{symbol.upper()}-USD"
+            fi = yf.Ticker(ticker).fast_info
+            price = float(fi.get("regularMarketPrice", 0) or fi.get("lastPrice", 0) or 0)
+            prev  = float(fi.get("previousClose", 0) or 0)
+            change_pct = round(((price - prev) / prev * 100) if prev > 0 else 0.0, 2)
+            if price > 0:
+                yf_breaker.record_success()
+                return {"symbol": symbol.upper(), "price": round(price, 2), "change_pct": change_pct}
+        except Exception:
+            yf_breaker.record_failure()
     return {"symbol": symbol.upper(), "price": 0, "change_pct": 0, "error": True}
 
 
 @router.get("/exchange-rate")
 def us_exchange_rate():
     """USD/KRW 실시간 환율 (yfinance USDKRW=X)."""
-    try:
-        import yfinance as yf
-        fi = yf.Ticker("USDKRW=X").fast_info
-        rate = float(fi.get("regularMarketPrice", 0) or fi.get("lastPrice", 0) or 0)
-        if rate <= 0:
-            hist = yf.Ticker("USDKRW=X").history(period="2d")
-            if not hist.empty:
-                rate = float(hist["Close"].iloc[-1])
-        if rate > 0:
-            return {"rate": round(rate, 2), "symbol": "USDKRW", "fallback": False}
-    except Exception:
-        pass
+    from api.circuit import yf_breaker
+    if not yf_breaker.is_open():
+        try:
+            import yfinance as yf
+            fi = yf.Ticker("USDKRW=X").fast_info
+            rate = float(fi.get("regularMarketPrice", 0) or fi.get("lastPrice", 0) or 0)
+            if rate <= 0:
+                hist = yf.Ticker("USDKRW=X").history(period="2d", timeout=4)
+                if not hist.empty:
+                    rate = float(hist["Close"].iloc[-1])
+            if rate > 0:
+                yf_breaker.record_success()
+                return {"rate": round(rate, 2), "symbol": "USDKRW", "fallback": False}
+        except Exception:
+            yf_breaker.record_failure()
     return {"rate": 1350.0, "symbol": "USDKRW", "fallback": True}
 
 
 @router.get("/treasury-10y")
 def us_treasury_10y():
     """미 10년물 국채금리 (yfinance ^TNX)."""
-    try:
-        import yfinance as yf
-        hist = yf.Ticker("^TNX").history(period="5d")
-        if not hist.empty:
-            cur = float(hist["Close"].iloc[-1])
-            prev = float(hist["Close"].iloc[-2]) if len(hist) >= 2 else cur
-            return {"yield": round(cur, 3), "change": round(cur - prev, 3), "fallback": False}
-    except Exception:
-        pass
+    from api.circuit import yf_breaker
+    if not yf_breaker.is_open():
+        try:
+            import yfinance as yf
+            hist = yf.Ticker("^TNX").history(period="5d", timeout=4)
+            if not hist.empty:
+                cur = float(hist["Close"].iloc[-1])
+                prev = float(hist["Close"].iloc[-2]) if len(hist) >= 2 else cur
+                yf_breaker.record_success()
+                return {"yield": round(cur, 3), "change": round(cur - prev, 3), "fallback": False}
+        except Exception:
+            yf_breaker.record_failure()
     return {"yield": 0.0, "change": 0.0, "fallback": True}
 
 
@@ -234,18 +253,21 @@ def us_exchange_rates_historical(dates: str = Query(..., description="콤마로 
         else:
             missing_dates.append(d)
 
-    # 3. 누락된 날짜만 yfinance로 조회
-    if missing_dates:
+    # 3. 누락된 날짜만 yfinance로 조회 (소스 장애 시 브레이커가 건너뜀)
+    from api.circuit import yf_breaker
+    if missing_dates and not yf_breaker.is_open():
         try:
             import yfinance as yf
             start_date = min(missing_dates)
             start_dt = datetime.datetime.strptime(start_date, "%Y-%m-%d") - datetime.timedelta(days=7)
             end_dt = datetime.datetime.strptime(max(missing_dates), "%Y-%m-%d") + datetime.timedelta(days=2)
-            
+
             hist = yf.Ticker("USDKRW=X").history(
-                start=start_dt.strftime("%Y-%m-%d"), 
-                end=end_dt.strftime("%Y-%m-%d")
+                start=start_dt.strftime("%Y-%m-%d"),
+                end=end_dt.strftime("%Y-%m-%d"),
+                timeout=5,
             )
+            yf_breaker.record_success()
             
             rates_by_date = {}
             for dt, row in hist.iterrows():
@@ -280,6 +302,7 @@ def us_exchange_rates_historical(dates: str = Query(..., description="콤마로 
                 raise ValueError("yfinance returned empty data")
                 
         except Exception as e:
+            yf_breaker.record_failure()
             print("yfinance fetch error, fallback to cache/default:", e)
             sorted_avail = sorted(cache_data.keys())
             for d in missing_dates:
@@ -289,6 +312,17 @@ def us_exchange_rates_historical(dates: str = Query(..., description="콤마로 
                 else:
                     closest_future = next((x for x in sorted_avail if x >= d), None)
                     final_result[d] = cache_data[closest_future] if closest_future else 1350.0
+
+    elif missing_dates:
+        # 브레이커 개방 중 — yfinance 건너뛰고 캐시/기본값으로 채움 (응답 누락 방지)
+        sorted_avail = sorted(cache_data.keys())
+        for d in missing_dates:
+            closest_date = next((x for x in reversed(sorted_avail) if x <= d), None)
+            if closest_date:
+                final_result[d] = cache_data[closest_date]
+            else:
+                closest_future = next((x for x in sorted_avail if x >= d), None)
+                final_result[d] = cache_data[closest_future] if closest_future else 1350.0
 
     return final_result
 
