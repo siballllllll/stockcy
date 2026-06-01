@@ -3951,15 +3951,36 @@ def screen_by_my_pattern() -> dict:
         if agent_adj != 0:
             match_score = max(0, min(100, match_score + agent_adj))
 
-        # ── 돌파 직전 보너스 / 이미 급등 페널티 — '오르기 전' 종목을 상위로 끌어올림 ──
+        # ── 모멘텀 단계 판정: 돌파직전 / 강한추세지속(대시세 후보) / 과열추격 ──
+        # '이미 올랐다'고 무조건 감점하지 않음. 추세가 살아있으면(대시세 가능) 가점, 과열일 때만 감점.
+        _d   = ind["daily"]
+        _rsi = _d.get("rsi"); _chg = _d.get("today_change_pct")
+        _ma  = _d.get("ma_aligned"); _vr = _d.get("volume_ratio"); _p52 = _d.get("pos_52w_pct")
         pb = prebreak_map.get(code)
         pb_score = (pb.get("score", 0) if pb else 0) or 0
         pb_label = pb.get("label", "") if pb else ""
-        if pb_score:
-            match_score = min(100, match_score + min(13, pb_score * 2.6))  # signal_score 5 → +13
         surged = code in already_surged
-        if surged:
-            match_score = max(0, match_score - 15)  # 오늘 +8%↑ 이미 급등 → 추격 페널티
+        momentum_stage = ""
+        if pb_score >= 2 and not surged:
+            # 돌파 직전 — 오르기 전 우선 포착
+            momentum_stage = "prebreak"
+            match_score = min(100, match_score + min(13, pb_score * 2.6))  # signal_score 5 → +13
+        elif surged:
+            # 이미 +8%↑ 급등 — 과열 vs 강한 추세 지속 구분
+            exhausted = bool((_rsi is not None and _rsi >= 80) or (_chg is not None and _chg >= 18))
+            strong    = bool(_ma and _vr is not None and _vr >= 2.0 and (_rsi is None or _rsi < 75))
+            if exhausted:
+                momentum_stage = "exhausted"
+                match_score = max(0, match_score - 12)   # 파라볼릭/과매수 → 추격 감점
+            elif strong:
+                momentum_stage = "runner"
+                match_score = min(100, match_score + 5)   # 추세 살아있는 대시세 후보 → 소폭 가점
+            else:
+                momentum_stage = "extended"               # 이미 올랐고 추세 애매 → 중립(보정 없음)
+        elif pb_score:
+            # 약한 돌파직전 시그널(1점) — 소폭만 반영
+            momentum_stage = "prebreak"
+            match_score = min(100, match_score + pb_score * 1.5)
 
         # ── 현재가 기반 추천 매수 구간 + 과열(추격 주의) 판정 ──
         cur   = ind["daily"].get("current_price")
@@ -4008,8 +4029,9 @@ def screen_by_my_pattern() -> dict:
             "overheated":     overheated,
             "prebreakout_score": pb_score,        # 0~5 (분봉 돌파직전 시그널)
             "prebreakout_label": pb_label,        # "거래량가속 2.5x / 박스권돌파" 등
-            "is_prebreakout":    bool(pb_score >= 2),
+            "is_prebreakout":    momentum_stage == "prebreak",
             "already_surged":    surged,          # 오늘 +8%↑ 이미 급등
+            "momentum_stage":    momentum_stage,  # prebreak | runner | exhausted | extended | ""
         })
 
     scored.sort(key=lambda x: x["match_score"], reverse=True)
@@ -4036,10 +4058,15 @@ def screen_by_my_pattern() -> dict:
             f"MA정배열 비율 {profile['win'].get('ma_aligned_rate_pct','?')}%"
         )
     def _stage_tag(s):
-        if s.get("already_surged"):
-            return " [이미 +8%↑ 급등 — 추격주의]"
-        if s.get("is_prebreakout"):
+        st = s.get("momentum_stage")
+        if st == "prebreak":
             return f" [돌파직전 시그널 {s.get('prebreakout_score')}/5: {s.get('prebreakout_label','')}]"
+        if st == "runner":
+            return " [강한 추세 지속 — 추가 상승 여력 있는 대시세 후보]"
+        if st == "exhausted":
+            return " [과열(파라볼릭/과매수) — 추격주의]"
+        if st == "extended":
+            return " [이미 상승 — 추세 애매, 중립]"
         return ""
     candidates_text = "\n".join(
         f"- {s['name']}({s['code']}): 매칭점수={s['match_score']}, RSI={s['rsi']}, "
@@ -4059,9 +4086,11 @@ def screen_by_my_pattern() -> dict:
 
 위 데이터를 바탕으로:
 1. TOP 3 종목을 선정하고 이유를 설명하세요 (매칭점수 + 차트 신호 종합).
-   ⚠️ 핵심 원칙: 이미 +8% 이상 급등한 '추격주의' 종목보다, '돌파직전 시그널'이 있는
-   (아직 크게 안 오른) 종목을 우선 고려하세요. 사용자는 오르기 전에 미리 진입하는 것을 선호합니다.
-2. 각 종목의 예상 단기 진입 가격대와 손절 기준을 제시하세요 (돌파직전 종목은 돌파 확인 후 진입 또는 눌림목 분할).
+   핵심 원칙: ① '돌파직전' 종목(오르기 전 선진입)을 1순위로 고려하되,
+   ② '강한 추세 지속(대시세 후보)' 종목은 오늘 올랐더라도 추가 상승 여력이 크면 유효한 선택입니다.
+   ③ 단, '과열(파라볼릭/과매수) — 추격주의' 종목은 신중히 판단하거나 제외하세요.
+   사용자는 오르기 전 선진입을 선호하지만, 더 크게 갈 대시세라면 진행 중인 종목도 받아들입니다.
+2. 각 종목의 예상 단기 진입 가격대와 손절 기준을 제시하세요 (돌파직전은 돌파 확인 후/눌림목 분할, 추세지속은 눌림목 대기).
 3. 주의해야 할 리스크 1가지씩 언급하세요
 
 단기 모멘텀 트레이딩 관점에서 구체적이고 실전적으로 답해주세요."""

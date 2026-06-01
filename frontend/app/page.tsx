@@ -574,13 +574,18 @@ export default function Dashboard() {
                             <span style={{ fontSize: "0.72rem", padding: "3px 10px", borderRadius: "99px", background: status.bg, color: status.color, border: `1px solid ${status.border}`, fontWeight: 700 }}>
                               {status.label}
                             </span>
-                            {p.is_prebreakout && (
+                            {p.momentum_stage === "prebreak" && (
                               <span title={p.prebreakout_label || "돌파 직전 시그널"} style={{ fontSize: "0.72rem", padding: "3px 10px", borderRadius: "99px", background: "rgba(34,197,94,0.18)", color: "#4ade80", border: "1px solid rgba(34,197,94,0.5)", fontWeight: 800 }}>
                                 🚀 돌파직전 {p.prebreakout_score}/5
                               </span>
                             )}
-                            {p.already_surged && (
-                              <span title="오늘 이미 +8% 이상 급등 — 추격 위험" style={{ fontSize: "0.72rem", padding: "3px 10px", borderRadius: "99px", background: "rgba(239,68,68,0.15)", color: "#f87171", border: "1px solid rgba(239,68,68,0.4)", fontWeight: 800 }}>
+                            {p.momentum_stage === "runner" && (
+                              <span title="오늘 올랐지만 추세가 살아있어 추가 상승 여력이 큰 대시세 후보" style={{ fontSize: "0.72rem", padding: "3px 10px", borderRadius: "99px", background: "rgba(245,158,11,0.18)", color: "#fbbf24", border: "1px solid rgba(245,158,11,0.5)", fontWeight: 800 }}>
+                                🔥 강한추세
+                              </span>
+                            )}
+                            {p.momentum_stage === "exhausted" && (
+                              <span title="파라볼릭/과매수 — 추격 위험" style={{ fontSize: "0.72rem", padding: "3px 10px", borderRadius: "99px", background: "rgba(239,68,68,0.15)", color: "#f87171", border: "1px solid rgba(239,68,68,0.4)", fontWeight: 800 }}>
                                 ⚠️ 추격주의
                               </span>
                             )}
