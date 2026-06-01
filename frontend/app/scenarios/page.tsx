@@ -1050,68 +1050,92 @@ function ScenarioTrackingPanel() {
         </>
       )}
 
-      {/* 추적 중인 종목 목록 펼쳐보기 */}
+      {/* 추적 중인 종목 — 별도 모달 창으로 보기 */}
       <div style={{ borderTop: "1px solid var(--color-border)", paddingTop: "6px", marginTop: "2px" }}>
         <button
           onClick={toggleList}
-          style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between", background: "transparent", border: "none", cursor: "pointer", color: "var(--color-text)", fontSize: "0.72rem", fontWeight: 700, padding: "2px 0" }}
+          className="stockcy-btn stockcy-btn-secondary"
+          style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: "6px", fontSize: "0.72rem", fontWeight: 700, padding: "6px 0" }}
         >
-          <span>🔎 추적 중인 종목{listLoaded ? ` ${list.length}건` : ""}</span>
-          <span style={{ color: "var(--color-muted)" }}>{listOpen ? "▲ 접기" : "▼ 펼치기"}</span>
+          🔎 추적 중인 종목{listLoaded ? ` ${list.length}건` : ""} 전체보기 ↗
         </button>
-
-        {listOpen && (
-          <div style={{ marginTop: "6px", display: "flex", flexDirection: "column", gap: "4px", maxHeight: "320px", overflowY: "auto", paddingRight: "4px" }}>
-            {listLoading ? (
-              <div style={{ fontSize: "0.68rem", color: "var(--color-muted)", padding: "0.3rem 0" }}>불러오는 중...</div>
-            ) : list.length === 0 ? (
-              <div style={{ fontSize: "0.68rem", color: "var(--color-muted)", padding: "0.3rem 0" }}>추적 중인 종목이 없습니다.</div>
-            ) : (
-              list.map((s: any, i: number) => {
-                const isUs = /[A-Za-z]/.test(String(s.ticker));
-                const cr = s.current_return;
-                const crColor = cr == null ? "var(--color-text)" : cr >= 0 ? "#34d399" : "#f87171";
-                const roleColor = s.role === "피해" ? "#f87171" : s.role === "수혜" ? "#34d399" : "#a78bfa";
-                return (
-                  <div key={i} style={{ background: "rgba(255,255,255,0.02)", borderRadius: "5px", padding: "5px 7px", fontSize: "0.68rem" }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "6px" }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: "4px", overflow: "hidden" }}>
-                        <span style={{ fontWeight: 700, color: "var(--color-text)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{s.name}</span>
-                        <span style={{ color: "var(--color-muted)", fontSize: "0.6rem" }}>{s.ticker}</span>
-                        {isUs && <span style={{ fontSize: "0.55rem", padding: "0 3px", borderRadius: "3px", background: "rgba(50,200,100,0.15)", color: "#34d399", border: "1px solid rgba(50,200,100,0.3)" }}>US</span>}
-                        {s.role && <span style={{ fontSize: "0.55rem", padding: "0 3px", borderRadius: "3px", color: roleColor, border: `1px solid ${roleColor}55` }}>{s.role}</span>}
-                        {s.horizon && <span style={{ fontSize: "0.55rem", padding: "0 3px", borderRadius: "3px", color: "var(--color-muted)", border: "1px solid var(--color-border)" }}>{s.horizon}</span>}
-                      </div>
-                      <span style={{ color: crColor, fontWeight: 700, whiteSpace: "nowrap" }}>
-                        {cr != null
-                          ? `${cr >= 0 ? "+" : ""}${cr}%`
-                          : s.current_price != null
-                            ? `${isUs ? "$" : "₩"}${Number(s.current_price).toLocaleString()}`
-                            : "–"}
-                      </span>
-                    </div>
-                    <div style={{ display: "flex", justifyContent: "space-between", marginTop: "2px", color: "var(--color-muted)", fontSize: "0.6rem" }}>
-                      <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "55%" }}>{s.scenario_keyword}</span>
-                      <span>
-                        {String(s.captured_at ?? "").slice(0, 10)}
-                        {" · "}
-                        {s.captured_price ? `등장가 ${Number(s.captured_price).toLocaleString()}` : "등장가 집계대기"}
-                      </span>
-                    </div>
-                    {(s.d1_return != null || s.d3_return != null || s.d7_return != null) && (
-                      <div style={{ display: "flex", gap: "8px", marginTop: "2px", fontSize: "0.6rem", color: "var(--color-muted)" }}>
-                        {s.d1_return != null && <span>1일 {s.d1_return >= 0 ? "+" : ""}{s.d1_return}%</span>}
-                        {s.d3_return != null && <span>3일 {s.d3_return >= 0 ? "+" : ""}{s.d3_return}%</span>}
-                        {s.d7_return != null && <span>7일 {s.d7_return >= 0 ? "+" : ""}{s.d7_return}%</span>}
-                      </div>
-                    )}
-                  </div>
-                );
-              })
-            )}
-          </div>
-        )}
       </div>
+
+      {/* 추적 종목 모달 (화면 위 별도 창) */}
+      {listOpen && (
+        <div
+          onClick={() => setListOpen(false)}
+          style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", padding: "20px" }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{ background: "var(--color-surface)", borderRadius: "12px", width: "92%", maxWidth: "920px", maxHeight: "88vh", display: "flex", flexDirection: "column", border: "1px solid var(--color-border)", boxShadow: "0 10px 40px rgba(0,0,0,0.5)" }}
+          >
+            {/* 헤더 */}
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "16px 20px", borderBottom: "1px solid var(--color-border)" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                <h2 style={{ fontSize: "1.05rem", fontWeight: 800, margin: 0 }}>🔎 추적 중인 시나리오 종목</h2>
+                {listLoaded && <span style={{ fontSize: "0.8rem", color: "var(--color-muted)" }}>{list.length}건</span>}
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                <button className="stockcy-btn stockcy-btn-secondary" style={{ padding: "4px 10px", fontSize: "0.72rem" }} onClick={loadList} disabled={listLoading}>새로고침</button>
+                <button className="stockcy-btn" style={{ padding: "4px 10px" }} onClick={() => setListOpen(false)}>✕</button>
+              </div>
+            </div>
+
+            <div style={{ padding: "10px 20px 4px", fontSize: "0.7rem", color: "var(--color-muted)" }}>
+              ※ 현재 수익률은 등장가 기준. 등장가 미집계 종목은 현재가만 표시(추적 실행 후 % 전환).
+            </div>
+
+            {/* 본문 (2열 그리드, 스크롤) */}
+            <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "8px 20px 20px", display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: "8px", alignContent: "start" }}>
+              {listLoading ? (
+                <div style={{ gridColumn: "1 / -1", padding: "2rem", textAlign: "center", color: "var(--color-muted)" }}>불러오는 중...</div>
+              ) : list.length === 0 ? (
+                <div style={{ gridColumn: "1 / -1", padding: "2rem", textAlign: "center", color: "var(--color-muted)" }}>추적 중인 종목이 없습니다.</div>
+              ) : (
+                list.map((s: any, i: number) => {
+                  const isUs = /[A-Za-z]/.test(String(s.ticker));
+                  const cr = s.current_return;
+                  const crColor = cr == null ? "var(--color-text)" : cr >= 0 ? "#34d399" : "#f87171";
+                  const roleColor = s.role === "피해" ? "#f87171" : s.role === "수혜" ? "#34d399" : "#a78bfa";
+                  return (
+                    <div key={i} style={{ background: "rgba(255,255,255,0.03)", border: "1px solid var(--color-border)", borderRadius: "8px", padding: "8px 10px", fontSize: "0.78rem" }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "6px" }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: "5px", overflow: "hidden", flexWrap: "wrap" }}>
+                          <span style={{ fontWeight: 700, color: "var(--color-text)" }}>{s.name}</span>
+                          <span style={{ color: "var(--color-muted)", fontSize: "0.66rem" }}>{s.ticker}</span>
+                          {isUs && <span style={{ fontSize: "0.6rem", padding: "0 4px", borderRadius: "3px", background: "rgba(50,200,100,0.15)", color: "#34d399", border: "1px solid rgba(50,200,100,0.3)" }}>US</span>}
+                          {s.role && <span style={{ fontSize: "0.6rem", padding: "0 4px", borderRadius: "3px", color: roleColor, border: `1px solid ${roleColor}55` }}>{s.role}</span>}
+                          {s.horizon && <span style={{ fontSize: "0.6rem", padding: "0 4px", borderRadius: "3px", color: "var(--color-muted)", border: "1px solid var(--color-border)" }}>{s.horizon}</span>}
+                        </div>
+                        <span style={{ color: crColor, fontWeight: 800, whiteSpace: "nowrap", fontSize: "0.82rem" }}>
+                          {cr != null
+                            ? `${cr >= 0 ? "+" : ""}${cr}%`
+                            : s.current_price != null
+                              ? `${isUs ? "$" : "₩"}${Number(s.current_price).toLocaleString()}`
+                              : "–"}
+                        </span>
+                      </div>
+                      <div style={{ display: "flex", justifyContent: "space-between", marginTop: "4px", color: "var(--color-muted)", fontSize: "0.66rem" }}>
+                        <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "55%" }}>{s.scenario_keyword}</span>
+                        <span>{String(s.captured_at ?? "").slice(0, 10)} · {s.captured_price ? `등장가 ${Number(s.captured_price).toLocaleString()}` : "등장가 집계대기"}</span>
+                      </div>
+                      {(s.d1_return != null || s.d3_return != null || s.d7_return != null) && (
+                        <div style={{ display: "flex", gap: "10px", marginTop: "4px", fontSize: "0.66rem", color: "var(--color-muted)" }}>
+                          {s.d1_return != null && <span>1일 {s.d1_return >= 0 ? "+" : ""}{s.d1_return}%</span>}
+                          {s.d3_return != null && <span>3일 {s.d3_return >= 0 ? "+" : ""}{s.d3_return}%</span>}
+                          {s.d7_return != null && <span>7일 {s.d7_return >= 0 ? "+" : ""}{s.d7_return}%</span>}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
