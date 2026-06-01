@@ -3304,13 +3304,53 @@ def discover_shadow_stocks(keyword: str) -> dict:
         }
 
 
+def _extract_md_fields(text: str) -> dict:
+    """검색 그라운딩 응답이 JSON 대신 '**key**: value' 마크다운으로 올 때 필드를 추출한다.
+    (use_search=True면 response_mime_type을 못 걸어 모델이 종종 마크다운으로 답함)"""
+    import re
+    out: dict = {}
+    if not text:
+        return out
+    for line in text.splitlines():
+        m = re.match(r'\s*[\*\-#> ]*\*{0,2}([A-Za-z_]+)\*{0,2}\s*[:：]\s*(.+?)\s*$', line)
+        if m:
+            k = m.group(1).strip().lower()
+            v = m.group(2).strip().strip('*').strip().strip('"').strip()
+            if k and v and k not in out:
+                out[k] = v
+    return out
+
+
 def analyze_overnight_gap_risk(ticker: str, name: str, market: str) -> dict:
     """시간외 거래 및 밤사이 돌발 공시/뉴스를 AI RAG로 긴급 수집하여,
     익일 시초가 갭상승/갭하락 방향 및 예상 등락률 범위를 판독하고 실전 대응 수칙을 제안합니다.
     """
     ticker_str = str(ticker).upper()
+    is_kr = str(ticker).strip().isdigit()
+    unit = "원" if is_kr else "달러"
+
+    # 절대 매수가/손절가 산출을 위해 현재가(직전 종가/시간외 단일가) 확보
+    cur_price = 0.0
+    try:
+        if is_kr:
+            from data_kr import get_kr_stock_price
+            _d = get_kr_stock_price(str(ticker).strip().zfill(6))
+            cur_price = float((_d or {}).get("price", 0) or 0)
+        else:
+            from data import get_us_stock_detail
+            _d = get_us_stock_detail(str(ticker).strip().upper())
+            cur_price = float((_d or {}).get("price", 0) or 0)
+    except Exception:
+        pass
+    price_ctx = (
+        f"이 종목의 현재가(직전 종가 또는 시간외 단일가)는 약 {cur_price:,} {unit} 입니다. 이 가격을 기준으로 매수가/손절가를 산출하세요."
+        if cur_price > 0 else
+        "현재가 데이터가 없으니 구글 검색으로 최신 가격을 추정해 매수가/손절가를 산출하세요."
+    )
+
     prompt = f"""당신은 장 마감(정규장 종료) 후 발생하는 공시, 실적 발표, 밤사이 글로벌 메가 뉴스 보도 및 찌라시 촉매제를 정밀 수집하고 분석하는 'AI 시간외 긴급 갭 스캐너'입니다.\n절대로 한자(漢字)를 사용하지 마세요. 모든 출력은 한글과 영문만 사용하세요.
 최근 24시간(특히 정규장 종료 직후부터 현재 시각까지) 구글 실시간 검색을 가동하여 [{name} ({ticker_str})] 종목에 유입된 돌발 공시(3자배정 유상증자, 무상증자, CB 발행, 공급 계약 등), 분기/연간 실적 발표, 대기업 연계 뉴스, 혹은 글로벌 기초자산(비트코인, 유가 등) 시세 급변동 요인을 수집하세요.
+{price_ctx}
 
 [분석 및 검증 지침]
 1. **익일 시초가 영향 진단 (gap_direction)**:
@@ -3329,24 +3369,55 @@ def analyze_overnight_gap_risk(ticker: str, name: str, market: str) -> dict:
    - 투자자가 지금 시간외 단일가 거래(16:00~18:00)나 익일 장 시작 시 뇌동매매를 피하고 손실을 최소화할 수 있는 **구체적인 행동 수칙**을 1~2줄로 지능적으로 제안하세요.
    - 예: "시간외 3자배정 호재이므로 매수를 고려하되, 내일 아침 시초가 +8% 초과 갭상 시 추격 매수를 금지하고 눌림목을 대기하세요."
    - 예: "악재 CB 발행 공시이므로 시간외 단일가에서 즉시 비중 축소(손절매)를 실행하여 리스크를 방어하세요."
+5. **익일 매수 적정가 (buy_target)** 및 **손절가 (stop_loss)** — 위 현재가 기준 절대 가격({unit})으로 산출:
+   - buy_target: 갭 방향과 이슈를 반영한 익일 매수 적정가. 갭상승이면 추격 자제 후 눌림목 매수가, 갭하락이면 진입 보류 또는 더 낮은 지지가, 보합이면 현재가 부근 지지가.
+   - stop_loss: 진입 시 손절 가격. 통상 buy_target 대비 -3% ~ -7% 또는 직전 핵심 지지선 이탈가.
+   - 통화기호 없이 숫자만 제시하고(예: 12500), 판단 불가 시 "N/A"로 표기하세요.
 
 반드시 아래 JSON 형식으로만 응답하세요 (설명 없이 JSON 객체만 반환):
 {{
   "gap_direction": "갭상승 가능성 높음 또는 갭하락 가능성 높음 또는 영향 없음 (보합 중립)",
   "gap_strength": "예상 갭 등락 폭 (예: +4.0% ~ +8.0%, 없으면 '보합권')",
   "overnight_issue_summary": "최근 24시간 핵심 시간외 이슈 요약 (1줄)",
-  "trading_action_guide": "시간외 단일가 및 시초가 대응 행동 수칙 (1~2줄)"
+  "trading_action_guide": "시간외 단일가 및 시초가 대응 행동 수칙 (1~2줄)",
+  "buy_target": "익일 매수 적정가 (숫자만, 예: 12500, 불가 시 N/A)",
+  "stop_loss": "손절가 (숫자만, 예: 11800, 불가 시 N/A)"
 }}"""
     try:
         response = _call_gemini(prompt, use_search=True, temperature=0.3, timeout_sec=60)
-        return _parse_json_response(response)
     except Exception as e:
-        print(f"analyze_overnight_gap_risk error: {e}")
+        print(f"analyze_overnight_gap_risk call error: {e}")
         return {
             "gap_direction": "영향 없음 (보합 중립)",
             "gap_strength": "보합권",
             "overnight_issue_summary": f"RAG 갭 스캔 오류: {str(e)[:50]}",
-            "trading_action_guide": "장 마감 후 돌발 공시나 뉴스가 감지되지 않았습니다. 차분한 상시 모니터링을 유지하세요."
+            "trading_action_guide": "장 마감 후 돌발 공시나 뉴스가 감지되지 않았습니다. 차분한 상시 모니터링을 유지하세요.",
+            "buy_target": "N/A",
+            "stop_loss": "N/A"
+        }
+
+    try:
+        return _parse_json_response(response)
+    except Exception:
+        # 그라운딩이 JSON 대신 마크다운(**key**: value)으로 답한 경우 → 필드 추출 폴백
+        md = _extract_md_fields(getattr(response, "text", "") or "")
+        if md.get("gap_direction") or md.get("overnight_issue_summary"):
+            return {
+                "gap_direction":          md.get("gap_direction", "영향 없음 (보합 중립)"),
+                "gap_strength":           md.get("gap_strength", "보합권"),
+                "overnight_issue_summary": md.get("overnight_issue_summary", "최근 24시간 이내 감지된 돌발 시간외 이슈가 없습니다."),
+                "trading_action_guide":   md.get("trading_action_guide", "차분한 상시 모니터링을 유지하세요."),
+                "buy_target":             md.get("buy_target", "N/A"),
+                "stop_loss":              md.get("stop_loss", "N/A"),
+            }
+        print("analyze_overnight_gap_risk error: no_json_found (마크다운 추출도 실패)")
+        return {
+            "gap_direction": "영향 없음 (보합 중립)",
+            "gap_strength": "보합권",
+            "overnight_issue_summary": "최근 24시간 이내 감지된 돌발 시간외 이슈가 없습니다.",
+            "trading_action_guide": "장 마감 후 돌발 공시나 뉴스가 감지되지 않았습니다. 차분한 상시 모니터링을 유지하세요.",
+            "buy_target": "N/A",
+            "stop_loss": "N/A"
         }
 
 

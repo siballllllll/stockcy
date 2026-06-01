@@ -524,7 +524,7 @@ export default function AgentDashboardPage() {
                                     fontWeight: 800, cursor: "help",
                                     display: "inline-flex", alignItems: "center", gap: "2px"
                                   }}
-                                  title={`🌙 시간외 주요 변수:\n${gapData.overnight_issue_summary}\n\n💡 대응 가이드:\n${gapData.trading_action_guide}`}
+                                  title={`🌙 시간외 주요 변수:\n${gapData.overnight_issue_summary}\n\n💡 대응 가이드:\n${gapData.trading_action_guide}\n\n📈 매수 적정가: ${gapData.buy_target ?? "-"}\n🛑 손절가: ${gapData.stop_loss ?? "-"}`}
                                 >
                                   {gapUp ? "🟢 갭상" : gapDown ? "🔴 갭하" : "⚪ 보합"} {gapText}
                                 </span>

@@ -88,7 +88,7 @@ function FavRow({ fav, price, onRemove, onAnalyze, gapBulkMap }: {
               alignItems: "center",
               gap: "2px"
             }}
-            title={`🌙 시간외 주요 변수:\n${gapData.overnight_issue_summary}\n\n💡 대응 가이드:\n${gapData.trading_action_guide}`}
+            title={`🌙 시간외 주요 변수:\n${gapData.overnight_issue_summary}\n\n💡 대응 가이드:\n${gapData.trading_action_guide}\n\n📈 매수 적정가: ${gapData.buy_target ?? "-"}\n🛑 손절가: ${gapData.stop_loss ?? "-"}`}
           >
             {gapUp ? "🟢 갭상" : gapDown ? "🔴 갭하" : "⚪ 보합"} {gapText}
           </span>
@@ -803,7 +803,7 @@ function PortfolioTab({ gapBulkMap }: { gapBulkMap: Record<string, any> }) {
                             display: "inline-flex",
                             alignItems: "center"
                           }}
-                          title={`🌙 시간외 주요 변수:\n${gapData.overnight_issue_summary}\n\n💡 대응 가이드:\n${gapData.trading_action_guide}`}
+                          title={`🌙 시간외 주요 변수:\n${gapData.overnight_issue_summary}\n\n💡 대응 가이드:\n${gapData.trading_action_guide}\n\n📈 매수 적정가: ${gapData.buy_target ?? "-"}\n🛑 손절가: ${gapData.stop_loss ?? "-"}`}
                         >
                           {gapUp ? "🟢 갭상" : gapDown ? "🔴 갭하" : "⚪ 보합"} {gapText}
                         </span>
