@@ -3829,10 +3829,13 @@ def screen_by_my_pattern() -> dict:
     def _extract_name(item: dict) -> str:
         return str(item.get("종목명") or item.get("name") or "")
 
+    volume_list: list = []
+    change_list: list = []
     try:
         vol_r = req_lib.get(f"{BASE}/api/kr/volume-ranking?market=ALL", timeout=10,
                             headers={"ngrok-skip-browser-warning": "69420"})
-        for item in (vol_r.json() if vol_r.ok else []):
+        volume_list = vol_r.json() if vol_r.ok else []
+        for item in volume_list:
             code = _extract_code(item)
             if code and code != "000000":
                 candidates[code] = {"code": code, "name": _extract_name(item), "signal": "volume"}
@@ -3842,7 +3845,8 @@ def screen_by_my_pattern() -> dict:
     try:
         chg_r = req_lib.get(f"{BASE}/api/kr/change-ranking?market=ALL&direction=up", timeout=10,
                             headers={"ngrok-skip-browser-warning": "69420"})
-        for item in (chg_r.json() if chg_r.ok else []):
+        change_list = chg_r.json() if chg_r.ok else []
+        for item in change_list:
             code = _extract_code(item)
             if code and code != "000000":
                 if code in candidates:
@@ -3851,6 +3855,36 @@ def screen_by_my_pattern() -> dict:
                     candidates[code] = {"code": code, "name": _extract_name(item), "signal": "change"}
     except Exception as e:
         print(f"[screener] change-ranking 오류: {e}")
+
+    # 2-b. 돌파 직전(pre-breakout) 후보 시그널 주입 — '오르기 전' 종목을 우선 포착하기 위함.
+    #      등락률 -2~+8% 구간(아직 안 터졌지만 거래량 유입)을 분봉으로 검증해 signal_score(0~5) 부여.
+    prebreak_map: dict[str, dict] = {}   # code -> {score, label}
+    already_surged: set[str] = set()     # 오늘 +8%↑ 이미 급등 (추격 페널티 대상)
+    try:
+        pb_enriched, pb_done = _compute_prebreakout_signals(volume_list, change_list)
+        for s in pb_enriched:
+            code = str(s.get("종목코드", "")).strip().zfill(6)
+            if not code or code == "000000":
+                continue
+            sig = s.get("_signal", {}) or {}
+            prebreak_map[code] = {"score": sig.get("signal_score", 0) or 0, "label": sig.get("signal_label", "") or ""}
+            # pre-breakout 후보가 후보군에 없으면 추가 (거래량/등락률 랭킹 밖이어도 포착)
+            if code not in candidates:
+                candidates[code] = {"code": code, "name": _extract_name(s), "signal": "prebreakout"}
+        for s in pb_done:
+            code = str(s.get("종목코드", "")).strip().zfill(6)
+            if code and code != "000000":
+                already_surged.add(code)
+    except Exception as e:
+        print(f"[screener] prebreakout 계산 오류: {e}")
+
+    # pre-breakout 후보를 먼저 채점하도록 candidate 순서 정렬 (점수 보정이 [:50] 컷에서 누락되지 않게)
+    if prebreak_map:
+        candidates = dict(
+            sorted(candidates.items(),
+                   key=lambda kv: prebreak_map.get(kv[0], {}).get("score", 0),
+                   reverse=True)
+        )
 
     if not candidates:
         return {"error": "시장 데이터를 가져오지 못했습니다. 백엔드 서버가 실행 중인지 확인해주세요."}
@@ -3917,6 +3951,16 @@ def screen_by_my_pattern() -> dict:
         if agent_adj != 0:
             match_score = max(0, min(100, match_score + agent_adj))
 
+        # ── 돌파 직전 보너스 / 이미 급등 페널티 — '오르기 전' 종목을 상위로 끌어올림 ──
+        pb = prebreak_map.get(code)
+        pb_score = (pb.get("score", 0) if pb else 0) or 0
+        pb_label = pb.get("label", "") if pb else ""
+        if pb_score:
+            match_score = min(100, match_score + min(13, pb_score * 2.6))  # signal_score 5 → +13
+        surged = code in already_surged
+        if surged:
+            match_score = max(0, match_score - 15)  # 오늘 +8%↑ 이미 급등 → 추격 페널티
+
         # ── 현재가 기반 추천 매수 구간 + 과열(추격 주의) 판정 ──
         cur   = ind["daily"].get("current_price")
         chg   = ind["daily"].get("today_change_pct")
@@ -3962,6 +4006,10 @@ def screen_by_my_pattern() -> dict:
             "buy_high":       buy_high,
             "entry_comment":  entry_comment,
             "overheated":     overheated,
+            "prebreakout_score": pb_score,        # 0~5 (분봉 돌파직전 시그널)
+            "prebreakout_label": pb_label,        # "거래량가속 2.5x / 박스권돌파" 등
+            "is_prebreakout":    bool(pb_score >= 2),
+            "already_surged":    surged,          # 오늘 +8%↑ 이미 급등
         })
 
     scored.sort(key=lambda x: x["match_score"], reverse=True)
@@ -3987,10 +4035,16 @@ def screen_by_my_pattern() -> dict:
             f"거래량비율 {profile['win'].get('volume_ratio', {}).get('p25','?')}~{profile['win'].get('volume_ratio', {}).get('p75','?')}배 / "
             f"MA정배열 비율 {profile['win'].get('ma_aligned_rate_pct','?')}%"
         )
+    def _stage_tag(s):
+        if s.get("already_surged"):
+            return " [이미 +8%↑ 급등 — 추격주의]"
+        if s.get("is_prebreakout"):
+            return f" [돌파직전 시그널 {s.get('prebreakout_score')}/5: {s.get('prebreakout_label','')}]"
+        return ""
     candidates_text = "\n".join(
         f"- {s['name']}({s['code']}): 매칭점수={s['match_score']}, RSI={s['rsi']}, "
-        f"거래량비율={s['vol_ratio']}배, 52주위치={s['pos_52w']}%, "
-        f"MA정배열={'O' if s['ma_aligned'] else 'X'}, 갭={s['gap_pct']}%, 신호={s['signal']}"
+        f"거래량비율={s['vol_ratio']}배, 52주위치={s['pos_52w']}%, 당일등락={s.get('today_change_pct')}%, "
+        f"MA정배열={'O' if s['ma_aligned'] else 'X'}, 갭={s['gap_pct']}%, 신호={s['signal']}{_stage_tag(s)}"
         for s in top
     )
 
@@ -4004,8 +4058,10 @@ def screen_by_my_pattern() -> dict:
 {candidates_text}
 
 위 데이터를 바탕으로:
-1. 지금 당장 진입을 고려할 TOP 3 종목을 선정하고 이유를 설명하세요 (매칭점수 + 오늘의 모멘텀 + 차트 신호 종합)
-2. 각 종목의 예상 단기 진입 가격대와 손절 기준을 제시하세요
+1. TOP 3 종목을 선정하고 이유를 설명하세요 (매칭점수 + 차트 신호 종합).
+   ⚠️ 핵심 원칙: 이미 +8% 이상 급등한 '추격주의' 종목보다, '돌파직전 시그널'이 있는
+   (아직 크게 안 오른) 종목을 우선 고려하세요. 사용자는 오르기 전에 미리 진입하는 것을 선호합니다.
+2. 각 종목의 예상 단기 진입 가격대와 손절 기준을 제시하세요 (돌파직전 종목은 돌파 확인 후 진입 또는 눌림목 분할).
 3. 주의해야 할 리스크 1가지씩 언급하세요
 
 단기 모멘텀 트레이딩 관점에서 구체적이고 실전적으로 답해주세요."""

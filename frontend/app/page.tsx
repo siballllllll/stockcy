@@ -569,10 +569,22 @@ export default function Dashboard() {
                             </div>
                           </div>
 
-                          {/* 상태 배지 */}
-                          <span style={{ fontSize: "0.72rem", padding: "3px 10px", borderRadius: "99px", background: status.bg, color: status.color, border: `1px solid ${status.border}`, fontWeight: 700, alignSelf: "flex-start" }}>
-                            {status.label}
-                          </span>
+                          {/* 상태 배지 + 돌파직전/추격주의 */}
+                          <div style={{ display: "flex", gap: "0.4rem", flexWrap: "wrap", alignItems: "center" }}>
+                            <span style={{ fontSize: "0.72rem", padding: "3px 10px", borderRadius: "99px", background: status.bg, color: status.color, border: `1px solid ${status.border}`, fontWeight: 700 }}>
+                              {status.label}
+                            </span>
+                            {p.is_prebreakout && (
+                              <span title={p.prebreakout_label || "돌파 직전 시그널"} style={{ fontSize: "0.72rem", padding: "3px 10px", borderRadius: "99px", background: "rgba(34,197,94,0.18)", color: "#4ade80", border: "1px solid rgba(34,197,94,0.5)", fontWeight: 800 }}>
+                                🚀 돌파직전 {p.prebreakout_score}/5
+                              </span>
+                            )}
+                            {p.already_surged && (
+                              <span title="오늘 이미 +8% 이상 급등 — 추격 위험" style={{ fontSize: "0.72rem", padding: "3px 10px", borderRadius: "99px", background: "rgba(239,68,68,0.15)", color: "#f87171", border: "1px solid rgba(239,68,68,0.4)", fontWeight: 800 }}>
+                                ⚠️ 추격주의
+                              </span>
+                            )}
+                          </div>
 
                           {/* 지표 뱃지 */}
                           <div style={{ display: "flex", gap: "0.4rem", flexWrap: "wrap" }}>
