@@ -1257,6 +1257,38 @@ function TradesTab() {
     return true;
   }), [trades, filterSource, filterType]);
 
+  // ── 정렬 (기본: 매도일시 최신순) ──────────────────────────────────────────────
+  type SortKey = "name" | "profit" | "profit_pct" | "buy" | "sell";
+  const [sortKey, setSortKey] = useState<SortKey>("sell");
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
+
+  const toggleSort = (key: SortKey) => {
+    if (sortKey === key) setSortDir(d => (d === "asc" ? "desc" : "asc"));
+    else { setSortKey(key); setSortDir(key === "name" ? "asc" : "desc"); }  // 이름은 가나다, 나머지는 큰값/최신 먼저
+  };
+  const sortArrow = (key: SortKey) => (sortKey === key ? (sortDir === "asc" ? " ▲" : " ▼") : "");
+
+  const sortedTrades = useMemo(() => {
+    const val = (t: any, key: SortKey): string | number => {
+      switch (key) {
+        case "name":       return String(t["종목명"] ?? t.name ?? "");
+        case "profit":     return Number(t["수익금($)"] ?? t.profit ?? 0);
+        case "profit_pct": return Number(t["수익률(%)"] ?? t.profit_pct ?? 0);
+        case "buy":        return String(t["매수시간"] ?? t.buy_date ?? "").replace("T", " ");
+        case "sell":       return String(t["매도시간"] ?? t.sell_date ?? "").replace("T", " ");
+      }
+    };
+    const arr = [...filteredTrades];
+    arr.sort((a, b) => {
+      const va = val(a, sortKey), vb = val(b, sortKey);
+      let cmp: number;
+      if (typeof va === "number" && typeof vb === "number") cmp = va - vb;
+      else cmp = String(va).localeCompare(String(vb), "ko");
+      return sortDir === "asc" ? cmp : -cmp;
+    });
+    return arr;
+  }, [filteredTrades, sortKey, sortDir]);
+
   const totalProfit = useMemo(() => {
     return filteredTrades.reduce((sum, t) => {
       const ticker = String(t["티커"] ?? t.ticker ?? "").trim().toUpperCase();
@@ -1461,21 +1493,21 @@ function TradesTab() {
         <table className="stockcy-table">
           <thead>
             <tr>
-              <th>종목</th>
+              <th onClick={() => toggleSort("name")} style={{ cursor: "pointer", userSelect: "none" }} title="클릭하여 정렬">종목{sortArrow("name")}</th>
               <th style={{ textAlign: "right" }}>매수가</th>
               <th style={{ textAlign: "right" }}>매도가</th>
               <th style={{ textAlign: "right" }}>수량</th>
-              <th style={{ textAlign: "right" }}>손익</th>
-              <th style={{ textAlign: "right" }}>손익률</th>
+              <th onClick={() => toggleSort("profit")} style={{ textAlign: "right", cursor: "pointer", userSelect: "none" }} title="클릭하여 정렬">손익{sortArrow("profit")}</th>
+              <th onClick={() => toggleSort("profit_pct")} style={{ textAlign: "right", cursor: "pointer", userSelect: "none" }} title="클릭하여 정렬">손익률{sortArrow("profit_pct")}</th>
               <th>결과</th>
-              <th>매수일시</th>
-              <th>매도일시</th>
+              <th onClick={() => toggleSort("buy")} style={{ cursor: "pointer", userSelect: "none" }} title="클릭하여 정렬">매수일시{sortArrow("buy")}</th>
+              <th onClick={() => toggleSort("sell")} style={{ cursor: "pointer", userSelect: "none" }} title="클릭하여 정렬">매도일시{sortArrow("sell")}</th>
               <th>학습/복기</th>
               <th></th>
             </tr>
           </thead>
           <tbody>
-            {filteredTrades.map((t, i) => {
+            {sortedTrades.map((t, i) => {
               const profit    = Number(t["수익금($)"] ?? t.profit ?? 0);
               const profitPct = Number(t["수익률(%)"] ?? t.profit_pct ?? 0);
               const color     = profit >= 0 ? "var(--color-danger)" : "var(--color-primary)";
