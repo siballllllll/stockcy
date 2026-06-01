@@ -131,31 +131,62 @@ import time as _time
 KRX_PRICE_CACHE: dict = {}
 _KRX_CACHE_UPDATED: float = 0.0
 _KRX_REFRESH_SEC = 90   # 90초마다 갱신
+_KRX_FAIL_STREAK = 0    # 연속 실패 횟수 (로그 스팸 방지용)
 
 
 def _refresh_krx_prices():
-    """FDR StockListing으로 전종목 가격을 갱신해 KRX_PRICE_CACHE에 저장."""
-    global _KRX_CACHE_UPDATED
-    try:
-        import FinanceDataReader as fdr
-        df = fdr.StockListing("KRX")
-        if df is None or df.empty:
-            return
-        tmp = {}
-        for _, row in df.iterrows():
-            code = str(row.get("Code", "")).strip().zfill(6)
-            try:
-                price    = int(row.get("Close", 0) or 0)
-                chg_pct  = round(float(row.get("ChagesRatio", 0) or 0), 2)
-                if price > 0:
-                    tmp[code] = {"price": price, "change_pct": chg_pct}
-            except Exception:
-                pass
-        KRX_PRICE_CACHE.update(tmp)
-        _KRX_CACHE_UPDATED = _time.time()
+    """FDR StockListing으로 전종목 가격을 갱신해 KRX_PRICE_CACHE에 저장.
+
+    [방어] FDR krx/listing.py는 내부 requests.get가 네트워크로 실패하면 except에서
+    할당 전 변수 r을 참조해 UnboundLocalError('r')를 던지는 버그가 있다. 즉 'r' 오류는
+    사실상 일시적 네트워크 실패다. 따라서 짧은 백오프로 재시도하고, 끝내 실패하면
+    기존 캐시를 그대로 유지(덮어쓰지 않음)한 채 간결한 로그만 남긴다.
+    (이 함수는 백그라운드 데몬 스레드에서 돌아 재시도 sleep이 요청 처리를 막지 않는다.)"""
+    global _KRX_CACHE_UPDATED, _KRX_FAIL_STREAK
+    import FinanceDataReader as fdr
+
+    df = None
+    last_err = "알 수 없음"
+    for attempt in range(3):
+        try:
+            df = fdr.StockListing("KRX")
+            if df is not None and not df.empty:
+                break
+            last_err = "빈 응답"
+        except Exception as e:
+            # FDR의 UnboundLocalError('r')는 내부 네트워크 실패를 의미 — 재시도 가치 있음
+            last_err = "네트워크 실패(FDR)" if "'r'" in str(e) else str(e)[:100]
+        _time.sleep(1.5 * (attempt + 1))  # 1.5초 → 3초 백오프
+
+    if df is None or df.empty:
+        _KRX_FAIL_STREAK += 1
+        # 캐시는 덮어쓰지 않고 유지. 로그는 처음과 5회마다만 — 스팸 방지
+        if _KRX_FAIL_STREAK == 1 or _KRX_FAIL_STREAK % 5 == 0:
+            print(f"[KRX cache] 갱신 실패({_KRX_FAIL_STREAK}회 연속): {last_err} "
+                  f"— 기존 캐시 {len(KRX_PRICE_CACHE)}종목 유지")
+        return
+
+    tmp = {}
+    for _, row in df.iterrows():
+        code = str(row.get("Code", "")).strip().zfill(6)
+        try:
+            price    = int(row.get("Close", 0) or 0)
+            chg_pct  = round(float(row.get("ChagesRatio", 0) or 0), 2)
+            if price > 0:
+                tmp[code] = {"price": price, "change_pct": chg_pct}
+        except Exception:
+            pass
+
+    if not tmp:
+        return  # 파싱 결과가 비면 캐시 유지
+
+    KRX_PRICE_CACHE.update(tmp)
+    _KRX_CACHE_UPDATED = _time.time()
+    if _KRX_FAIL_STREAK > 0:
+        print(f"[KRX cache] 갱신 복구 — {len(tmp)}종목 (직전 {_KRX_FAIL_STREAK}회 실패 후)")
+        _KRX_FAIL_STREAK = 0
+    else:
         print(f"[KRX cache] {len(tmp)}종목 갱신 완료")
-    except Exception as e:
-        print(f"[KRX cache] 갱신 실패: {e}")
 
 
 def _price_refresh_loop():
