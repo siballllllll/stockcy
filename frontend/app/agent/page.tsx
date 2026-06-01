@@ -76,11 +76,34 @@ export default function AgentDashboardPage() {
   const { data: tradesRes, isLoading: isLoadingTrades } = useSWR("/api/trades/agent", () => api.portfolio.loadAgentTrades() as Promise<{ data: any[]; message: string }>);
   
   // 실시간 에이전트 스캔 로그 로드 (10초 주기 갱신)
-  const { data: scanLogs = [], isLoading: isLoadingScanLogs } = useSWR(
+  const { data: scanLogs = [], isLoading: isLoadingScanLogs, mutate: mutateScanLogs } = useSWR(
     "/api/portfolio/agent/scan-logs",
     () => api.portfolio.loadAgentScanLogs(),
     { refreshInterval: 10000 }
   );
+
+  // 수동 스캔 트리거 (30분 주기를 기다리지 않고 즉시 1회 점검)
+  const [scanningNow, setScanningNow] = useState(false);
+  const [scanNowMsg, setScanNowMsg] = useState("");
+  const runScanNow = async () => {
+    setScanningNow(true);
+    setScanNowMsg("AI 에이전트 스캔 실행 중... (최대 수십 초)");
+    try {
+      const res = await fetch("/backend/api/portfolio/agent/scan-now", { method: "POST" }) ;
+      const j = await res.json();
+      if (j.success) {
+        const s = j.summary || {};
+        setScanNowMsg(s.skipped ? `스캔 건너뜀: ${s.skipped}` : `완료 — 분석 ${s.scanned ?? 0}종목 (매수 ${s.buy ?? 0} / 매도 ${s.sell ?? 0} / 홀드 ${s.hold ?? 0})`);
+      } else {
+        setScanNowMsg(`실패: ${j.message ?? "오류"}`);
+      }
+      mutateScanLogs();
+    } catch (e: any) {
+      setScanNowMsg(`오류: ${e?.message ?? String(e)}`);
+    } finally {
+      setScanningNow(false);
+    }
+  };
 
   const trades = tradesRes?.data ?? [];
 
@@ -523,6 +546,21 @@ export default function AgentDashboardPage() {
 
       {activeTab === "scanLogs" && (
         <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+          {/* 수동 스캔 트리거 */}
+          <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap", paddingBottom: "4px" }}>
+            <button
+              onClick={runScanNow}
+              disabled={scanningNow}
+              className="stockcy-btn stockcy-btn-primary"
+              style={{ display: "flex", alignItems: "center", gap: "6px", padding: "6px 14px", fontSize: "0.85rem", fontWeight: 700 }}
+            >
+              {scanningNow ? <Loader2 className="animate-spin" size={14} /> : <Brain size={14} />}
+              {scanningNow ? "스캔 중..." : "지금 스캔 실행"}
+            </button>
+            <span style={{ fontSize: "0.78rem", color: "var(--color-muted)" }}>
+              {scanNowMsg || "30분 주기를 기다리지 않고 즉시 1회 점검 (휴장에도 즐겨찾기·보유종목 분석)"}
+            </span>
+          </div>
           {isLoadingScanLogs ? (
             <div style={{ display: "flex", alignItems: "center", gap: "8px", color: "var(--color-muted)", padding: "2rem 0" }}>
               <Loader2 className="animate-spin" size={18} />

@@ -175,24 +175,25 @@ def _get_today_buy_count() -> int:
         logger.error(f"Failed to get today's buy count: {e}")
         return 0
 
-async def ai_trading_loop():
-    """AI 자율 매매 에이전트 메인 루프 (주기적 실행)"""
-    logger.info("🤖 AI Trading Agent Loop Started")
-    
-    # 30분 주기로 관찰하여 단기 시장 노이즈 배제 (스윙/데이 트레이딩 템포)
-    INTERVAL_SECONDS = 1800  
-    
-    while True:
+INTERVAL_SECONDS = 1800  # 30분 주기 (스윙/데이 트레이딩 템포)
+
+
+def _run_one_scan(force: bool = False) -> dict:
+    """에이전트 1회 스캔(동기). 백그라운드 루프와 수동 트리거가 공유.
+    force=True면 휴장이어도 진행(수동 점검용). 반환: 스캔 요약 dict.
+    블로킹 호출이 많아 반드시 워커 스레드(to_thread)에서 실행할 것."""
+    summary: dict = {"scanned": 0, "buy": 0, "sell": 0, "hold": 0, "skipped": None}
+    if True:
         try:
             kr_open = _is_market_open("국내")
             us_open = _is_market_open("미국")
 
-            if not kr_open and not us_open:
-                logger.info("AI Agent: 모든 시장 휴장 중. 스캔 건너뜀.")
-                await asyncio.sleep(INTERVAL_SECONDS)
-                continue
+            if not kr_open and not us_open and not force:
+                logger.info("[agent] 모든 시장 휴장 중. 스캔 건너뜀.")
+                summary["skipped"] = "market_closed"
+                return summary
 
-            logger.info(f"🔍 AI Agent: 시장 스캔 시작... (국내: {'개장' if kr_open else '휴장'}, 미국: {'개장' if us_open else '휴장'})")
+            logger.info(f"[agent] 시장 스캔 시작 (국내: {'개장' if kr_open else '휴장'}, 미국: {'개장' if us_open else '휴장'}, force={force})")
 
             # 1. 감시 대상 종목 로드 및 동적 시장 주도주 우주(Universe) 결합
             # (사용자 즐겨찾기 + 실시간 국내/미국 거래대금 상위 + 상승률 상위)
@@ -308,9 +309,9 @@ async def ai_trading_loop():
             scan_universe = holding_universe + scan_universe
 
             if not scan_universe:
-                logger.info("AI Agent: 스캔할 감시 대상 종목이 없습니다. 대기...")
-                await asyncio.sleep(INTERVAL_SECONDS)
-                continue
+                logger.info("[agent] 스캔할 감시 대상 종목이 없습니다 (즐겨찾기·보유종목 비어있음).")
+                summary["skipped"] = "no_universe"
+                return summary
             
             # 3. 각 종목 순회하며 AI 판단 요청
             from data_kr import get_kr_stock_price
@@ -332,7 +333,7 @@ async def ai_trading_loop():
                 }.get(source_type, "주도주")
                 
                 if not ticker: continue
-                if not _is_market_open(market):
+                if not force and not _is_market_open(market):
                     continue
                     
                 # 현재가 조회
@@ -355,28 +356,25 @@ async def ai_trading_loop():
                 # AI에게 매수/매도/홀딩 판단 요청
                 logger.info(f"AI Agent: {name}({ticker}) 분석 중... (Position: {position})")
                 
-                # 비동기 I/O 래핑
-                decision = await asyncio.to_thread(
-                    analyze_autonomous_trading,
+                decision = analyze_autonomous_trading(
                     ticker, name, current_price, market, position, avg_price
                 )
-                
+
                 if not decision: continue
                 
                 action = decision.get("action", "HOLD").upper()
                 reason = decision.get("reason", "이유 없음")
                 confidence = decision.get("confidence", 50)
                 
-                logger.info(f"AI Agent: {name} -> {action} (신뢰도: {confidence}%)")
-                
-                # 구글 시트에 고민 일지 실시간 기록
+                logger.info(f"[agent] {name} -> {action} (신뢰도: {confidence}%)")
+
+                # 고민 일지(scan log) 기록
+                summary["scanned"] += 1
+                summary["buy" if action == "BUY" else "sell" if action == "SELL" else "hold"] += 1
                 try:
-                    await asyncio.to_thread(
-                        log_agent_scan,
-                        ticker, name, current_price, position, action, confidence, f"[{source_korean}] {reason}"
-                    )
+                    log_agent_scan(ticker, name, current_price, position, action, confidence, f"[{source_korean}] {reason}")
                 except Exception as ex:
-                    logger.error(f"Failed to save scan log: {ex}")
+                    logger.error(f"[agent] scan log 저장 실패: {ex}")
                 
                 if action == "BUY" and position == "NONE" and confidence >= 60:
                     # 하루 매수 한도(3회) 검증 (과도한 매매 제한)
@@ -384,11 +382,8 @@ async def ai_trading_loop():
                     if today_buy_count >= 3:
                         logger.info(f"AI Agent: {name} 매수 제한 - 하루 매수 한도(3회) 초과. (오늘 매수: {today_buy_count}회)")
                         try:
-                            await asyncio.to_thread(
-                                log_agent_scan,
-                                ticker, name, current_price, position, "HOLD", confidence, 
-                                f"[{source_korean}] AI는 BUY 결정을 내렸으나 하루 최대 매수 제한(3회) 도달로 신규 매수를 차단합니다. (오늘 매수: {today_buy_count}회)"
-                            )
+                            log_agent_scan(ticker, name, current_price, position, "HOLD", confidence,
+                                f"[{source_korean}] AI는 BUY 결정을 내렸으나 하루 최대 매수 제한(3회) 도달로 신규 매수를 차단합니다. (오늘 매수: {today_buy_count}회)")
                         except Exception:
                             pass
                         continue
@@ -423,10 +418,8 @@ async def ai_trading_loop():
                     if ai_cash < trade_cost:
                         logger.info(f"AI Agent: {name} 매수 자금 부족 (잔고: {ai_cash:,.0f}원, 필요: {trade_cost:,.0f}원). 매매 보류.")
                         try:
-                            await asyncio.to_thread(
-                                log_agent_scan,
-                                ticker, name, current_price, position, "HOLD", confidence, f"[{source_korean}] 자금 부족으로 매수 보류 (필요: {trade_cost:,.0f}원, 잔고: {ai_cash:,.0f}원)"
-                            )
+                            log_agent_scan(ticker, name, current_price, position, "HOLD", confidence,
+                                f"[{source_korean}] 자금 부족으로 매수 보류 (필요: {trade_cost:,.0f}원, 잔고: {ai_cash:,.0f}원)")
                         except Exception:
                             pass
                         continue
@@ -472,11 +465,8 @@ async def ai_trading_loop():
                     if not is_holding_time_valid:
                         logger.info(f"AI Agent: {name} 매도 제한 - 최소 보유 시간(4시간) 미달. (현재 보유 시간: {holding_hours:.1f}시간)")
                         try:
-                            await asyncio.to_thread(
-                                log_agent_scan,
-                                ticker, name, current_price, position, "HOLD", confidence, 
-                                f"[{source_korean}] AI는 SELL 신호를 보냈으나, 최소 보유 시간(4시간) 미달로 매도를 보류하고 HOLD를 강제 유지합니다. (보유 시간: {holding_hours:.1f}시간)"
-                            )
+                            log_agent_scan(ticker, name, current_price, position, "HOLD", confidence,
+                                f"[{source_korean}] AI는 SELL 신호를 보냈으나, 최소 보유 시간(4시간) 미달로 매도를 보류하고 HOLD를 강제 유지합니다. (보유 시간: {holding_hours:.1f}시간)")
                         except Exception:
                             pass
                         continue
@@ -561,12 +551,27 @@ async def ai_trading_loop():
                     msg = f"[AI 매도 청산] 종목:{name}({ticker}) | 매도가:{currency}{sp:,.0f} | 손익:{profit:+,.0f}원({profit_pct:+.2f}%) | 잔고:{new_ai_cash:,.0f}원 | 사유:{reason}"
                     send_price_alert(msg)
                     
-            logger.info(f"AI Agent: 1주기 스캔 완료. {INTERVAL_SECONDS}초 대기...")
-            
+            logger.info(f"[agent] 1주기 스캔 완료. scanned={summary['scanned']} buy={summary['buy']} sell={summary['sell']} hold={summary['hold']}")
+
         except Exception as e:
-            logger.error(f"AI Trading Loop Error: {e}")
-            
+            logger.error(f"[agent] scan error: {e}", exc_info=True)
+            summary["error"] = str(e)
+    return summary
+
+
+async def ai_trading_loop():
+    """백그라운드 에이전트 루프 — 블로킹 스캔을 워커 스레드에서 실행해 이벤트 루프 정지 방지."""
+    logger.info("[agent] AI Trading Agent Loop Started")
+    while True:
+        try:
+            summary = await asyncio.wait_for(asyncio.to_thread(_run_one_scan), timeout=600)
+            logger.info(f"[agent] heartbeat: {summary}")
+        except asyncio.TimeoutError:
+            logger.error("[agent] 스캔 타임아웃(10분) — 다음 주기로 넘어감")
+        except Exception as e:
+            logger.error(f"[agent] loop error: {e}")
         await asyncio.sleep(INTERVAL_SECONDS)
+
 
 if __name__ == "__main__":
     import sys

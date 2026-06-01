@@ -168,6 +168,20 @@ async def load_agent_scan_logs():
     return data or []
 
 
+@router.post("/portfolio/agent/scan-now")
+async def run_agent_scan_now():
+    """AI 에이전트 1회 스캔 즉시 실행 (30분 주기를 기다리지 않고 수동 점검).
+    휴장이어도 force로 진행하여 즐겨찾기·보유종목을 분석하고 고민일지를 남긴다."""
+    from api.agent import _run_one_scan
+    try:
+        summary = await asyncio.wait_for(asyncio.to_thread(_run_one_scan, True), timeout=300)
+        return {"success": True, "summary": summary}
+    except asyncio.TimeoutError:
+        return {"success": False, "message": "스캔 시간 초과(5분). 잠시 후 다시 시도해주세요."}
+    except Exception as e:
+        return {"success": False, "message": str(e)}
+
+
 @router.post("/portfolio")
 async def save_portfolio(req: PortfolioSaveRequest):
     from db import save_portfolio_to_gsheet
