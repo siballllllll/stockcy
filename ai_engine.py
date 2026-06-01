@@ -1156,7 +1156,13 @@ def analyze_autonomous_trading(ticker: str, name: str, current_price: float, mar
         if avg_price > 0:
             gross_pct = (current_price - avg_price) / avg_price * 100
             net_pct = gross_pct - fee_roundtrip_pct  # 왕복 수수료 차감
-        
+
+        # 보유 중일 때만 SELL 복기용 learning_point 필드를 JSON에 추가 (미보유는 불필요)
+        lp_field = (
+            ',\n  "learning_point": "SELL 결정 시에만: 이 거래에서 배운 교훈·복기 포인트 1문장 (HOLD/BUY면 빈 문자열)"'
+            if position == "HOLDING" else ""
+        )
+
         system_instruction = f"""당신은 월스트리트 출신의 냉철한 AI 퀀트 트레이더입니다.\n절대로 한자(漢字)를 사용하지 마세요. 모든 출력은 한글과 영문만 사용하세요.{shadow_warning}
 지금 당신은 [{name} ({ticker})] 종목에 대해 {position} 상태입니다.\n절대로 한자(漢字)를 사용하지 마세요. 모든 출력은 한글과 영문만 사용하세요.
 시장: {market}
