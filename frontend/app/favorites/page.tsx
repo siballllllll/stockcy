@@ -562,6 +562,7 @@ function PortfolioTab({ gapBulkMap }: { gapBulkMap: Record<string, any> }) {
   const [editQty,    setEditQty]    = useState<string>("");
   const [editSource, setEditSource] = useState<"리딩방" | "개인">("개인");
   const [editType,   setEditType]   = useState<"실매매" | "테스트">("실매매");
+  const [editBuyTime, setEditBuyTime] = useState<string>("");
 
   // AI 매도 타이밍 패널
   const [sellTarget, setSellTarget] = useState<any | null>(null);
@@ -646,8 +647,11 @@ function PortfolioTab({ gapBulkMap }: { gapBulkMap: Record<string, any> }) {
   const handleUpdateEntry = async (p: any) => {
     const newBuy = Number(editPrice) || p.buy_price;
     const newQty = Number(editQty)   || p.quantity;
+    const newBuyTime = editBuyTime ? editBuyTime + ":00" : (p.buy_date || "");
     const updated = (portfolio ?? []).map((item: any) =>
-      item.ticker === p.ticker ? { ...item, buy_price: newBuy, quantity: newQty, trade_source: editSource, trade_type: editType } : item
+      item.ticker === p.ticker
+        ? { ...item, buy_price: newBuy, quantity: newQty, trade_source: editSource, trade_type: editType, buy_date: newBuyTime }
+        : { ...item, buy_date: item.buy_date }   // 다른 종목도 기존 매수시각 보존
     );
     await fetch(`${BASE_URL}/api/portfolio`, {
       method: "POST",
@@ -818,7 +822,7 @@ function PortfolioTab({ gapBulkMap }: { gapBulkMap: Record<string, any> }) {
                       </button>
                     )}
                     <button className="stockcy-btn stockcy-btn-secondary" style={{ padding: "2px 6px", fontSize: "0.7rem" }} title="편집"
-                      onClick={() => { setEditTicker(isEditing ? null : p.ticker); setEditPrice(String(p.buy_price)); setEditQty(String(p.quantity)); setEditSource((p.trade_source as "리딩방" | "개인") || "개인"); setEditType((p.trade_type as "실매매" | "테스트") || "실매매"); }}>
+                      onClick={() => { setEditTicker(isEditing ? null : p.ticker); setEditPrice(String(p.buy_price)); setEditQty(String(p.quantity)); setEditSource((p.trade_source as "리딩방" | "개인") || "개인"); setEditType((p.trade_type as "실매매" | "테스트") || "실매매"); setEditBuyTime(String(p.buy_date ?? "").slice(0, 16).replace(" ", "T")); }}>
                       ✏️
                     </button>
                     <button
@@ -851,6 +855,8 @@ function PortfolioTab({ gapBulkMap }: { gapBulkMap: Record<string, any> }) {
                     <input className="stockcy-input" type="number" value={editPrice} onChange={e => setEditPrice(e.target.value)} style={{ width: "100px" }} />
                     <span style={{ fontSize: "0.75rem", color: "var(--color-muted)" }}>수량</span>
                     <input className="stockcy-input" type="number" value={editQty} onChange={e => setEditQty(e.target.value)} style={{ width: "80px" }} />
+                    <span style={{ fontSize: "0.75rem", color: "var(--color-muted)" }}>매수시각</span>
+                    <input className="stockcy-input" type="datetime-local" value={editBuyTime} onChange={e => setEditBuyTime(e.target.value)} style={{ padding: "3px 6px", fontSize: "0.76rem", minWidth: "170px" }} title="매수한 시각 (누락 시 보정)" />
                     <button className="stockcy-btn stockcy-btn-primary" style={{ padding: "4px 10px", fontSize: "0.8rem" }} onClick={() => handleUpdateEntry(p)}>저장</button>
                     <div style={{ marginLeft: "auto" }}>
                       <SellButton p={p} onSell={handleSellRecord} />
@@ -1194,6 +1200,7 @@ function TradesTab() {
   const [editTradeKey,    setEditTradeKey]    = useState<string | null>(null);
   const [editSrc,         setEditSrc]         = useState<"리딩방" | "개인">("개인");
   const [editTyp,         setEditTyp]         = useState<"실매매" | "테스트">("실매매");
+  const [editBuyDate,     setEditBuyDate]     = useState<string>("");
   const [savingTag,       setSavingTag]       = useState(false);
 
   // 리딩방 패턴 분석
@@ -1277,10 +1284,15 @@ function TradesTab() {
     finally { setAdding(false); }
   };
 
-  const handleUpdateTag = async (ticker: string, sellDate: string) => {
+  const handleUpdateTag = async (ticker: string, sellDate: string, origBuyDate: string) => {
     setSavingTag(true);
     try {
       await (api.portfolio as any).updateTradeTag(ticker, sellDate, editSrc, editTyp);
+      // 매수 시각이 변경됐으면 함께 저장 (분 단위 비교)
+      const origNorm = String(origBuyDate || "").slice(0, 16).replace(" ", "T");
+      if (editBuyDate && editBuyDate !== origNorm) {
+        await (api.portfolio as any).updateTradeBuyDate(ticker, sellDate, editBuyDate + ":00");
+      }
       mutate();
       setEditTradeKey(null);
     } finally {
@@ -1507,6 +1519,7 @@ function TradesTab() {
                             if (isEditingTag) { setEditTradeKey(null); return; }
                             setEditSrc((tradeSource as "리딩방" | "개인") || "개인");
                             setEditTyp((tradeType as "실매매" | "테스트") || "실매매");
+                            setEditBuyDate(String(t["매수시간"] ?? t.buy_date ?? "").slice(0, 16).replace(" ", "T"));
                             setEditTradeKey(rowKey);
                           }}
                         >✏️</button>
@@ -1532,7 +1545,16 @@ function TradesTab() {
                             value={editTyp} onChange={setEditTyp}
                             colors={{ "실매매": "#059669", "테스트": "#d97706" }}
                           />
-                          <button className="stockcy-btn stockcy-btn-primary" style={{ padding: "3px 10px", fontSize: "0.78rem" }} disabled={savingTag} onClick={() => handleUpdateTag(ticker, sellDate)}>
+                          <span style={{ fontSize: "0.75rem", color: "var(--color-muted)", marginLeft: "0.25rem" }}>매수시각</span>
+                          <input
+                            className="stockcy-input"
+                            type="datetime-local"
+                            value={editBuyDate}
+                            onChange={e => setEditBuyDate(e.target.value)}
+                            style={{ padding: "3px 6px", fontSize: "0.76rem", minWidth: "170px" }}
+                            title="시세창에서 즉시 매수해 시각이 누락된 경우 여기서 보정하세요"
+                          />
+                          <button className="stockcy-btn stockcy-btn-primary" style={{ padding: "3px 10px", fontSize: "0.78rem" }} disabled={savingTag} onClick={() => handleUpdateTag(ticker, sellDate, String(t["매수시간"] ?? t.buy_date ?? ""))}>
                             {savingTag ? "저장 중..." : "저장"}
                           </button>
                           <button className="stockcy-btn stockcy-btn-secondary" style={{ padding: "3px 8px", fontSize: "0.78rem" }} onClick={() => setEditTradeKey(null)}>취소</button>

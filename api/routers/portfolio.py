@@ -41,6 +41,16 @@ class UpdateTradeTagRequest(BaseModel):
     trade_source: str
     trade_type:   str
 
+class UpdateTradeBuyDateRequest(BaseModel):
+    ticker:    str
+    sell_date: str
+    buy_date:  str   # "YYYY-MM-DD HH:MM" 또는 "YYYY-MM-DD"
+
+class UpdatePortfolioBuyTimeRequest(BaseModel):
+    ticker:   str
+    buy_time: str    # "YYYY-MM-DD HH:MM" 또는 "YYYY-MM-DD"
+    owner:    str = "USER"
+
 
 class AlertRequest(BaseModel):
     market:       str
@@ -219,6 +229,22 @@ async def save_trade(req: TradeRecordRequest):
 async def update_trade_tag(req: UpdateTradeTagRequest):
     from db import update_trade_source_type
     ok, msg = await asyncio.to_thread(update_trade_source_type, req.ticker, req.sell_date, req.trade_source, req.trade_type)
+    return {"success": ok, "message": msg}
+
+
+@router.patch("/trades/buy-date")
+async def update_trade_buy_date_ep(req: UpdateTradeBuyDateRequest):
+    """거래내역의 매수 시각(buy_date) 수정 — 패턴 학습 정확도 보정용."""
+    from db import update_trade_buy_date
+    ok, msg = await asyncio.to_thread(update_trade_buy_date, req.ticker, req.sell_date, req.buy_date)
+    return {"success": ok, "message": msg}
+
+
+@router.patch("/portfolio/buy-time")
+async def update_portfolio_buy_time_ep(req: UpdatePortfolioBuyTimeRequest):
+    """보유종목의 매수 시각(updated_time) 수정."""
+    from db import update_portfolio_buy_time
+    ok, msg = await asyncio.to_thread(update_portfolio_buy_time, req.ticker, req.owner, req.buy_time)
     return {"success": ok, "message": msg}
 
 

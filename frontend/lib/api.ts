@@ -152,6 +152,10 @@ export const api = {
                      req("/api/trades", { method: "DELETE", body: JSON.stringify({ ticker, sell_date: sellDate }) }),
     updateTradeTag: (ticker: string, sellDate: string, tradeSource: string, tradeType: string) =>
                      req("/api/trades", { method: "PATCH", body: JSON.stringify({ ticker, sell_date: sellDate, trade_source: tradeSource, trade_type: tradeType }) }),
+    updateTradeBuyDate: (ticker: string, sellDate: string, buyDate: string) =>
+                     req("/api/trades/buy-date", { method: "PATCH", body: JSON.stringify({ ticker, sell_date: sellDate, buy_date: buyDate }) }),
+    updatePortfolioBuyTime: (ticker: string, buyTime: string, owner: string = "USER") =>
+                     req("/api/portfolio/buy-time", { method: "PATCH", body: JSON.stringify({ ticker, buy_time: buyTime, owner }) }),
     loadAlerts:    ()                        => req("/api/alerts"),
     saveAlert:     (market: string, ticker: string, name: string, alertType: string, targetPrice: number) =>
                      req("/api/alerts", { method: "POST", body: JSON.stringify({ market, ticker, name, alert_type: alertType, target_price: targetPrice }) }),

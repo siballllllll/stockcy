@@ -887,6 +887,77 @@ def update_trade_source_type(ticker: str, sell_date: str, trade_source: str, tra
     except Exception as e:
         return False, f"로컬 업데이트 오류: {e}"
 
+
+def update_trade_buy_date(ticker: str, sell_date: str, buy_date: str):
+    """거래내역의 매수 시각(buy_date)을 수정하고 패턴 프로파일을 재빌드합니다.
+    (시세창에서 즉시 매수해 매수 시각이 누락/부정확한 경우 보정용)."""
+    try:
+        conn = get_db_conn()
+        cursor = conn.cursor()
+        cursor.execute(
+            """UPDATE trade_history
+               SET buy_date = ?
+               WHERE LTRIM(TRIM(ticker), '0') = LTRIM(TRIM(?), '0')
+                 AND REPLACE(TRIM(sell_date), 'T', ' ') = REPLACE(TRIM(?), 'T', ' ')""",
+            (buy_date, ticker, sell_date)
+        )
+        n = cursor.rowcount
+        conn.commit()
+        conn.close()
+        if n:
+            run_background_backup(_gsheet_backup_update_trade_buy_date, ticker, sell_date, buy_date)
+            run_background_backup(_rebuild_pattern_profile_bg)
+            return True, "매수 시각 업데이트 완료!"
+        return False, "해당 거래를 찾을 수 없습니다."
+    except Exception as e:
+        return False, f"로컬 업데이트 오류: {e}"
+
+
+def _gsheet_backup_update_trade_buy_date(ticker, sell_date, buy_date):
+    sh, msg = _get_spreadsheet()
+    if not sh:
+        return False, msg
+    try:
+        ws = sh.worksheet("거래내역")
+        rows = ws.get_all_values()
+        headers = rows[0]
+        col_idx = None
+        for col_name in ("매수시간", "매수일", "buy_date"):
+            if col_name in headers:
+                col_idx = headers.index(col_name) + 1
+                break
+        if col_idx:
+            for i in range(len(rows) - 1, 0, -1):
+                row = rows[i]
+                if len(row) >= 3 and str(row[1]).strip() == str(sell_date).strip() and str(row[2]).strip() == str(ticker).strip():
+                    ws.update_cell(i + 1, col_idx, buy_date)
+                    break
+    except Exception:
+        pass
+    return True, "ok"
+
+
+def update_portfolio_buy_time(ticker: str, owner: str, buy_time: str):
+    """보유종목(portfolio)의 매수 시각(updated_time)을 수정합니다."""
+    try:
+        conn = get_db_conn()
+        cursor = conn.cursor()
+        cursor.execute(
+            """UPDATE portfolio
+               SET updated_time = ?
+               WHERE LTRIM(TRIM(ticker), '0') = LTRIM(TRIM(?), '0')
+                 AND UPPER(owner) = UPPER(?)""",
+            (buy_time, ticker, owner)
+        )
+        n = cursor.rowcount
+        conn.commit()
+        conn.close()
+        if n:
+            return True, "보유종목 매수 시각 업데이트 완료!"
+        return False, "해당 보유종목을 찾을 수 없습니다."
+    except Exception as e:
+        return False, f"로컬 업데이트 오류: {e}"
+
 def _gsheet_backup_update_trade_source_type(ticker, sell_date, trade_source, trade_type):
     sh, msg = _get_spreadsheet()
     if not sh:
