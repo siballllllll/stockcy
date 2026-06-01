@@ -4003,9 +4003,10 @@ def screen_by_my_pattern() -> dict:
             # 모멘텀(이미 오른) 종목 추격 방지 — 현재가 약간 아래 눌림목 구간 권장
             overheated = bool((p52 is not None and p52 >= 85) or (chg is not None and chg >= 8) or (rsi_v is not None and rsi_v >= 75))
             low_mult, high_mult = (0.96, 0.99) if overheated else (0.985, 1.0)
-            raw_low  = max(cur * low_mult, ma20) if ma20 else cur * low_mult
-            raw_low  = min(raw_low, cur * 0.999)  # 항상 현재가보다 약간 아래
             raw_high = cur * high_mult
+            raw_low  = max(cur * low_mult, ma20) if ma20 else cur * low_mult
+            # low ≤ high 보장 (ma20이 현재가보다 높을 때 역전 방지)
+            raw_low  = min(raw_low, raw_high)
             if is_kr:
                 buy_low, buy_high = int(round(raw_low)), int(round(raw_high))
             else:
