@@ -4014,6 +4014,8 @@ def screen_by_my_pattern() -> dict:
             entry_comment = ("이미 과열 구간 — 추격 자제, 눌림목 대기 권장" if overheated
                              else "현재가 부근 분할 매수 가능 (이탈 시 손절)")
 
+        match_score = round(match_score, 1)   # 누적 보정으로 생긴 부동소수점 오차 정리
+
         scored.append({
             "code":           code,
             "name":           meta["name"],
