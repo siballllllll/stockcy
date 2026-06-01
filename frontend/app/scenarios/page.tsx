@@ -974,6 +974,15 @@ function ScenarioTrackingPanel() {
   const winners = data?.top_winners ?? [];
   const losers = data?.top_losers ?? [];
 
+  // 추적 목록: 현재 수익률 높은 순 정렬 (수익률 없는 종목은 맨 아래)
+  const sortedList = [...list].sort((a: any, b: any) => {
+    const ar = a.current_return, br = b.current_return;
+    if (ar == null && br == null) return 0;
+    if (ar == null) return 1;
+    if (br == null) return -1;
+    return br - ar;
+  });
+
   return (
     <div className="stockcy-card" style={{ padding: "12px", display: "flex", flexDirection: "column", gap: "8px" }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
@@ -1083,51 +1092,60 @@ function ScenarioTrackingPanel() {
               </div>
             </div>
 
-            <div style={{ padding: "10px 20px 4px", fontSize: "0.7rem", color: "var(--color-muted)" }}>
-              ※ 현재 수익률은 등장가 기준. 등장가 미집계 종목은 현재가만 표시(추적 실행 후 % 전환).
+            <div style={{ padding: "10px 20px 4px", fontSize: "0.72rem", color: "var(--color-muted)" }}>
+              ※ 현재 수익률(등장가 기준) 높은 순. 등장가 미집계 종목은 현재가만 표시(추적 실행 후 % 전환).
             </div>
 
-            {/* 본문 (2열 그리드, 스크롤) */}
-            <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "8px 20px 20px", display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: "8px", alignContent: "start" }}>
+            {/* 본문 (한 종목당 한 줄, 스크롤) */}
+            <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "8px 20px 20px", display: "flex", flexDirection: "column", gap: "6px" }}>
               {listLoading ? (
-                <div style={{ gridColumn: "1 / -1", padding: "2rem", textAlign: "center", color: "var(--color-muted)" }}>불러오는 중...</div>
-              ) : list.length === 0 ? (
-                <div style={{ gridColumn: "1 / -1", padding: "2rem", textAlign: "center", color: "var(--color-muted)" }}>추적 중인 종목이 없습니다.</div>
+                <div style={{ padding: "2rem", textAlign: "center", color: "var(--color-muted)" }}>불러오는 중...</div>
+              ) : sortedList.length === 0 ? (
+                <div style={{ padding: "2rem", textAlign: "center", color: "var(--color-muted)" }}>추적 중인 종목이 없습니다.</div>
               ) : (
-                list.map((s: any, i: number) => {
+                sortedList.map((s: any, i: number) => {
                   const isUs = /[A-Za-z]/.test(String(s.ticker));
                   const cr = s.current_return;
-                  const crColor = cr == null ? "var(--color-text)" : cr >= 0 ? "#34d399" : "#f87171";
+                  const crColor = cr == null ? "var(--color-muted)" : cr >= 0 ? "#34d399" : "#f87171";
                   const roleColor = s.role === "피해" ? "#f87171" : s.role === "수혜" ? "#34d399" : "#a78bfa";
                   return (
-                    <div key={i} style={{ background: "rgba(255,255,255,0.03)", border: "1px solid var(--color-border)", borderRadius: "8px", padding: "8px 10px", fontSize: "0.78rem" }}>
-                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "6px" }}>
-                        <div style={{ display: "flex", alignItems: "center", gap: "5px", overflow: "hidden", flexWrap: "wrap" }}>
-                          <span style={{ fontWeight: 700, color: "var(--color-text)" }}>{s.name}</span>
-                          <span style={{ color: "var(--color-muted)", fontSize: "0.66rem" }}>{s.ticker}</span>
-                          {isUs && <span style={{ fontSize: "0.6rem", padding: "0 4px", borderRadius: "3px", background: "rgba(50,200,100,0.15)", color: "#34d399", border: "1px solid rgba(50,200,100,0.3)" }}>US</span>}
-                          {s.role && <span style={{ fontSize: "0.6rem", padding: "0 4px", borderRadius: "3px", color: roleColor, border: `1px solid ${roleColor}55` }}>{s.role}</span>}
-                          {s.horizon && <span style={{ fontSize: "0.6rem", padding: "0 4px", borderRadius: "3px", color: "var(--color-muted)", border: "1px solid var(--color-border)" }}>{s.horizon}</span>}
+                    <div key={i} style={{ display: "flex", alignItems: "center", gap: "14px", background: "rgba(255,255,255,0.03)", border: "1px solid var(--color-border)", borderRadius: "8px", padding: "10px 14px" }}>
+                      {/* 좌측: 종목 정보 */}
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap", marginBottom: "3px" }}>
+                          <span style={{ fontWeight: 800, color: "var(--color-text)", fontSize: "0.95rem" }}>{s.name}</span>
+                          <span style={{ color: "var(--color-muted)", fontSize: "0.74rem" }}>{s.ticker}</span>
+                          {isUs && <span style={{ fontSize: "0.62rem", padding: "1px 5px", borderRadius: "3px", background: "rgba(50,200,100,0.15)", color: "#34d399", border: "1px solid rgba(50,200,100,0.3)" }}>US</span>}
+                          {s.role && <span style={{ fontSize: "0.62rem", padding: "1px 5px", borderRadius: "3px", color: roleColor, border: `1px solid ${roleColor}55` }}>{s.role}</span>}
+                          {s.horizon && <span style={{ fontSize: "0.62rem", padding: "1px 5px", borderRadius: "3px", color: "var(--color-muted)", border: "1px solid var(--color-border)" }}>{s.horizon}</span>}
                         </div>
-                        <span style={{ color: crColor, fontWeight: 800, whiteSpace: "nowrap", fontSize: "0.82rem" }}>
-                          {cr != null
-                            ? `${cr >= 0 ? "+" : ""}${cr}%`
-                            : s.current_price != null
-                              ? `${isUs ? "$" : "₩"}${Number(s.current_price).toLocaleString()}`
-                              : "–"}
-                        </span>
-                      </div>
-                      <div style={{ display: "flex", justifyContent: "space-between", marginTop: "4px", color: "var(--color-muted)", fontSize: "0.66rem" }}>
-                        <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "55%" }}>{s.scenario_keyword}</span>
-                        <span>{String(s.captured_at ?? "").slice(0, 10)} · {s.captured_price ? `등장가 ${Number(s.captured_price).toLocaleString()}` : "등장가 집계대기"}</span>
-                      </div>
-                      {(s.d1_return != null || s.d3_return != null || s.d7_return != null) && (
-                        <div style={{ display: "flex", gap: "10px", marginTop: "4px", fontSize: "0.66rem", color: "var(--color-muted)" }}>
-                          {s.d1_return != null && <span>1일 {s.d1_return >= 0 ? "+" : ""}{s.d1_return}%</span>}
-                          {s.d3_return != null && <span>3일 {s.d3_return >= 0 ? "+" : ""}{s.d3_return}%</span>}
-                          {s.d7_return != null && <span>7일 {s.d7_return >= 0 ? "+" : ""}{s.d7_return}%</span>}
+                        <div style={{ fontSize: "0.74rem", color: "var(--color-muted)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                          {s.scenario_keyword} · {String(s.captured_at ?? "").slice(0, 10)} · {s.captured_price ? `등장가 ${Number(s.captured_price).toLocaleString()}` : "등장가 집계대기"}
                         </div>
-                      )}
+                      </div>
+
+                      {/* 우측: d수익률 + 현재 수익률 */}
+                      <div style={{ display: "flex", alignItems: "center", gap: "16px", flexShrink: 0 }}>
+                        {(s.d1_return != null || s.d3_return != null || s.d7_return != null) && (
+                          <div style={{ display: "flex", gap: "10px", fontSize: "0.72rem", color: "var(--color-muted)" }}>
+                            {s.d1_return != null && <span>1일 {s.d1_return >= 0 ? "+" : ""}{s.d1_return}%</span>}
+                            {s.d3_return != null && <span>3일 {s.d3_return >= 0 ? "+" : ""}{s.d3_return}%</span>}
+                            {s.d7_return != null && <span>7일 {s.d7_return >= 0 ? "+" : ""}{s.d7_return}%</span>}
+                          </div>
+                        )}
+                        <div style={{ textAlign: "right", minWidth: "92px" }}>
+                          <div style={{ color: crColor, fontWeight: 800, fontSize: "1.05rem", whiteSpace: "nowrap" }}>
+                            {cr != null
+                              ? `${cr >= 0 ? "+" : ""}${cr}%`
+                              : s.current_price != null
+                                ? `${isUs ? "$" : "₩"}${Number(s.current_price).toLocaleString()}`
+                                : "–"}
+                          </div>
+                          <div style={{ fontSize: "0.62rem", color: "var(--color-muted)" }}>
+                            {cr != null ? "현재 수익률" : s.current_price != null ? "현재가" : ""}
+                          </div>
+                        </div>
+                      </div>
                     </div>
                   );
                 })
