@@ -4811,22 +4811,39 @@ def track_scenario_stocks_performance() -> dict:
         raw_ticker = str(row["ticker"]).strip()
         is_us = (row.get("market") == "us") or any(c.isalpha() for c in raw_ticker)
         ticker = raw_ticker.upper() if is_us else raw_ticker.zfill(6)
-        start_date = captured.strftime("%Y-%m-%d")
-        end_date = (captured + timedelta(days=12)).strftime("%Y-%m-%d")
+        # 등장일 직전~이후 데이터를 함께 받아, '등장 시점에 사용자가 본 가격'
+        # (= 등장일 당일 또는 그 직전 거래일 종가)을 기준가로 잡는다.
+        # 기존엔 '등장일 이후 첫 거래일' 종가를 썼는데, 주말·휴일에 등장하면
+        # 그 첫 거래일이 곧 오늘이 되어 기준가=현재가→수익률 0%로 붕괴되는 문제가 있었음.
+        fetch_start = (captured - timedelta(days=10)).strftime("%Y-%m-%d")
+        end_date = (captured + timedelta(days=14)).strftime("%Y-%m-%d")
 
         try:
             if is_us:
-                df = yf.download(ticker, start=start_date, end=end_date, progress=False, timeout=10)
+                df = yf.download(ticker, start=fetch_start, end=end_date, progress=False, timeout=10)
             else:
-                df = fdr.DataReader(ticker, start_date, end_date)
-            if df.empty or len(df) < 1:
+                df = fdr.DataReader(ticker, fetch_start, end_date)
+            if df is None or df.empty:
                 continue
-            entry = float(df["Close"].iloc[0])
+
+            # 기준가 인덱스 = 등장일(captured) 이하 마지막 거래일
+            base_i = None
+            for j, dt in enumerate(df.index):
+                d = dt.date() if hasattr(dt, "date") else dt
+                if d <= captured:
+                    base_i = j
+                else:
+                    break
+            if base_i is None:
+                base_i = 0  # 등장일 이전 데이터가 없으면 첫 행 사용
+
+            entry = float(df["Close"].iloc[base_i])
             if entry <= 0:
                 continue
 
-            def _p(idx):
-                return float(df["Close"].iloc[idx]) if len(df) > idx else None
+            def _p(offset):
+                k = base_i + offset
+                return float(df["Close"].iloc[k]) if len(df) > k else None
 
             d1, d3, d7 = _p(1), _p(3), _p(7)
             def _r(p): return round((p - entry) / entry * 100, 2) if p else None
