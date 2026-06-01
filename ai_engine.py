@@ -4634,6 +4634,28 @@ def compose_daily_alert_message() -> tuple[str, dict]:
     except Exception:
         pass
 
+    # 2-b. 오늘의 시나리오 핵심 종목 (적중률이 아직 안 쌓였을 때도 종목은 보이게)
+    try:
+        from db import load_agent_scenarios
+        scs = load_agent_scenarios(days=1) or []
+        if scs:
+            msg_parts.append(f"\n🧭 오늘의 시나리오 종목")
+            for sc in scs[:3]:
+                kw = _tg_escape(sc.get("_keyword") or sc.get("title") or "")
+                picks = []
+                for br in (sc.get("scenarios") or [])[:1]:
+                    for fld in ("rising_stocks", "theme_stocks"):
+                        for st in (br.get(fld) or [])[:2]:
+                            nm = _tg_escape(st.get("name", ""))
+                            if nm:
+                                picks.append(nm)
+                line = f"  • {kw}"
+                if picks:
+                    line += f" — {', '.join(picks[:4])}"
+                msg_parts.append(line)
+    except Exception:
+        pass
+
     # 3. 패턴 프로파일 신뢰도
     try:
         profile = load_pattern_profile() or {}
@@ -4657,6 +4679,68 @@ def send_daily_alert() -> dict:
         ok = tg.send_message(text)
         meta["sent"] = bool(ok)
         meta["preview"] = text[:200]
+        return meta
+    except Exception as e:
+        return {"sent": False, "error": str(e)}
+
+
+def _tg_escape(s) -> str:
+    """텔레그램 parse_mode=HTML 안전 이스케이프 (&, <, > 만 처리)."""
+    return str(s).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
+def compose_scenario_alert_message() -> tuple:
+    """오늘 생성된 에이전트 시나리오를 텔레그램용 메시지로 작성. 반환 (text, meta).
+    시나리오가 없으면 ("", meta)를 반환한다."""
+    from db import load_agent_scenarios
+    from datetime import datetime
+
+    scenarios = load_agent_scenarios(days=1) or []
+    today = datetime.now().strftime("%Y-%m-%d")
+    todays = [s for s in scenarios if str(s.get("_scenario_date", "")) == today]
+    scenarios = todays or scenarios
+    meta = {"sent": False, "scenario_count": len(scenarios)}
+    if not scenarios:
+        return "", meta
+
+    lines = [f"🧭 <b>Stockcy 새 시나리오</b> ({today})"]
+    for sc in scenarios[:3]:
+        kw = _tg_escape(sc.get("_keyword") or sc.get("title") or "")
+        lines.append(f"\n📌 <b>{kw}</b>")
+        summary = sc.get("summary")
+        if summary:
+            lines.append(f"  {_tg_escape(str(summary)[:90])}")
+        branches = sc.get("scenarios") or []
+        if branches:
+            br = max(branches, key=lambda b: b.get("probability_pct", 0) or 0)
+            label = _tg_escape(br.get("label", ""))
+            prob = br.get("probability_pct", 0)
+            direction = _tg_escape(br.get("market_direction", ""))
+            br_title = _tg_escape(str(br.get("title", ""))[:40])
+            lines.append(f"  ▶ {label} {prob}% {direction} — {br_title}")
+            picks = []
+            for fld in ("rising_stocks", "theme_stocks"):
+                for st in (br.get(fld) or [])[:3]:
+                    nm = _tg_escape(st.get("name", ""))
+                    tk = _tg_escape(st.get("ticker", ""))
+                    if nm:
+                        picks.append(f"{nm}({tk})")
+            if picks:
+                lines.append("  ▲ " + ", ".join(picks[:5]))
+    return "\n".join(lines), meta
+
+
+def send_scenario_alert() -> dict:
+    """오늘의 에이전트 시나리오를 텔레그램으로 발송 (새 시나리오 생성 직후 호출)."""
+    try:
+        import telegram_bot as tg
+        if not tg.is_configured():
+            return {"sent": False, "reason": "텔레그램 미설정"}
+        text, meta = compose_scenario_alert_message()
+        if not text:
+            return {"sent": False, "reason": "발송할 시나리오 없음"}
+        ok = tg.send_message(text)
+        meta["sent"] = bool(ok)
         return meta
     except Exception as e:
         return {"sent": False, "error": str(e)}

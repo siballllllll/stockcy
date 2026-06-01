@@ -235,6 +235,12 @@ def _daily_issue_loop():
             r = analyze_agent_daily_issues()
             _LAST_ISSUE_DATE = today_str
             print(f"[daily issue] 서버 시작 시 분석 완료: {r.get('count',0)}개 이슈")
+            try:
+                from ai_engine import send_scenario_alert
+                sres = send_scenario_alert()
+                print(f"[scenario alert] 시작 시 발송: {sres}")
+            except Exception as se:
+                print(f"[scenario alert] 시작 시 발송 오류: {se}")
     except Exception as e:
         print(f"[daily issue] 시작 시 분석 오류: {e}")
 
@@ -258,6 +264,12 @@ def _daily_issue_loop():
                     r = analyze_agent_daily_issues()
                     _slot_done[slot] = today
                     print(f"[daily issue] {slot} 슬롯 분석 완료: {r.get('count',0)}개 이슈 ({today})")
+                    try:
+                        from ai_engine import send_scenario_alert
+                        sres = send_scenario_alert()
+                        print(f"[scenario alert] {slot} 슬롯 발송: {sres}")
+                    except Exception as se:
+                        print(f"[scenario alert] {slot} 슬롯 발송 오류: {se}")
                 except Exception as e:
                     print(f"[daily issue] {slot} 슬롯 오류: {e}")
         except Exception:

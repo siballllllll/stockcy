@@ -1124,6 +1124,21 @@ async def preview_daily_alert():
     return {"preview": text, "meta": meta}
 
 
+@router.post("/alert/send-scenario")
+async def send_scenario_alert_now():
+    """오늘의 시나리오 텔레그램 알림 즉시 발송 (수동 트리거)."""
+    from ai_engine import send_scenario_alert
+    return await asyncio.to_thread(send_scenario_alert)
+
+
+@router.get("/alert/preview-scenario")
+async def preview_scenario_alert():
+    """시나리오 알림 메시지 미리보기 (발송 안 함)."""
+    from ai_engine import compose_scenario_alert_message
+    text, meta = await asyncio.to_thread(compose_scenario_alert_message)
+    return {"preview": text, "meta": meta}
+
+
 @router.post("/scenario-tracking/run")
 async def run_scenario_tracking():
     """시나리오 등장 종목의 사후 가격 추적 실행."""
