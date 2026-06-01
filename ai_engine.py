@@ -4664,74 +4664,9 @@ def send_daily_alert() -> dict:
 
 # ── 시나리오 적중률 추적 ──────────────────────────────────────────────────────
 
-def track_scenario_stocks_performance() -> dict:
-    """시나리오에 등장한 종목들의 등장 시점 가격 + 1/3/7일 후 가격 자동 추적."""
-    from db import get_db_conn
-    from datetime import datetime, timedelta
-    import FinanceDataReader as fdr
-    import yfinance as yf
-
-    conn = get_db_conn()
-    cursor = conn.cursor()
-    cursor.execute(
-        """SELECT id, ticker, name, market, captured_at, captured_price,
-                  d1_return, d3_return, d7_return
-           FROM scenario_stocks
-           ORDER BY captured_at ASC"""
-    )
-    rows = [dict(r) for r in cursor.fetchall()]
-    today = datetime.now().date()
-    updated = 0
-
-    for row in rows:
-        try:
-            captured = datetime.fromisoformat(str(row["captured_at"])[:19]).date()
-        except Exception:
-            continue
-        if (today - captured).days < 1:
-            continue
-        # 이미 7일 후까지 다 채워졌으면 스킵
-        if row.get("d7_return") is not None:
-            continue
-
-        raw_ticker = str(row["ticker"]).strip()
-        is_us = (row.get("market") == "us") or any(c.isalpha() for c in raw_ticker)
-        ticker = raw_ticker.upper() if is_us else raw_ticker.zfill(6)
-        start_date = captured.strftime("%Y-%m-%d")
-        end_date = (captured + timedelta(days=12)).strftime("%Y-%m-%d")
-
-        try:
-            if is_us:
-                df = yf.download(ticker, start=start_date, end=end_date, progress=False, timeout=10)
-            else:
-                df = fdr.DataReader(ticker, start_date, end_date)
-            if df.empty or len(df) < 1:
-                continue
-            entry = float(df["Close"].iloc[0])
-            if entry <= 0:
-                continue
-
-            def _p(idx):
-                return float(df["Close"].iloc[idx]) if len(df) > idx else None
-
-            d1, d3, d7 = _p(1), _p(3), _p(7)
-            def _r(p): return round((p - entry) / entry * 100, 2) if p else None
-
-            now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            cursor.execute(
-                """UPDATE scenario_stocks
-                   SET captured_price = ?, d1_price = ?, d3_price = ?, d7_price = ?,
-                       d1_return = ?, d3_return = ?, d7_return = ?, updated_at = ?
-                   WHERE id = ?""",
-                (entry, d1, d3, d7, _r(d1), _r(d3), _r(d7), now, row["id"])
-            )
-            updated += 1
-        except Exception as e:
-            print(f"[scenario tracking] {ticker} 실패: {e}")
-            continue
-
-    conn.commit()
-
+def _aggregate_scenario_stats(cursor) -> dict:
+    """scenario_stocks 테이블에서 시나리오/horizon별 적중률·수익률을 집계한다.
+    DB만 사용하고 네트워크 호출이 전혀 없어 즉시 반환된다 (가격 재추적과 분리)."""
     # 방향성 반영 적중 판정: 피해(하락 예상)는 하락해야 적중, 그 외(수혜/테마)는 상승해야 적중
     _WIN_D3 = "(COALESCE(role,'') != '피해' AND d3_return > 0) OR (role = '피해' AND d3_return < 0)"
     _WIN_D7 = "(COALESCE(role,'') != '피해' AND d7_return > 0) OR (role = '피해' AND d7_return < 0)"
@@ -4802,14 +4737,98 @@ def track_scenario_stocks_performance() -> dict:
             "win_rate_d7":  round((d.get("wins_d7") or 0) / n * 100, 1) if n else 0,
         })
 
-    conn.close()
     return {
-        "updated_now": updated,
         "by_scenario": by_scenario,
         "by_horizon":  by_horizon,
         "top_winners": top_winners,
         "top_losers":  top_losers,
     }
+
+
+def load_scenario_tracking_stats() -> dict:
+    """시나리오 적중률 통계를 빠르게 조회한다 (가격 재추적 없이 DB 집계만).
+    /scenario-tracking/stats(페이지 로드 시 호출) 전용 — 25초씩 걸리던 타임아웃 방지."""
+    from db import get_db_conn
+    conn = get_db_conn()
+    try:
+        stats = _aggregate_scenario_stats(conn.cursor())
+    finally:
+        conn.close()
+    return {"updated_now": 0, **stats}
+
+
+def track_scenario_stocks_performance() -> dict:
+    """시나리오에 등장한 종목들의 등장 시점 가격 + 1/3/7일 후 가격 자동 추적."""
+    from db import get_db_conn
+    from datetime import datetime, timedelta
+    import FinanceDataReader as fdr
+    import yfinance as yf
+
+    conn = get_db_conn()
+    cursor = conn.cursor()
+    cursor.execute(
+        """SELECT id, ticker, name, market, captured_at, captured_price,
+                  d1_return, d3_return, d7_return
+           FROM scenario_stocks
+           ORDER BY captured_at ASC"""
+    )
+    rows = [dict(r) for r in cursor.fetchall()]
+    today = datetime.now().date()
+    updated = 0
+
+    for row in rows:
+        try:
+            captured = datetime.fromisoformat(str(row["captured_at"])[:19]).date()
+        except Exception:
+            continue
+        if (today - captured).days < 1:
+            continue
+        # 이미 7일 후까지 다 채워졌으면 스킵
+        if row.get("d7_return") is not None:
+            continue
+
+        raw_ticker = str(row["ticker"]).strip()
+        is_us = (row.get("market") == "us") or any(c.isalpha() for c in raw_ticker)
+        ticker = raw_ticker.upper() if is_us else raw_ticker.zfill(6)
+        start_date = captured.strftime("%Y-%m-%d")
+        end_date = (captured + timedelta(days=12)).strftime("%Y-%m-%d")
+
+        try:
+            if is_us:
+                df = yf.download(ticker, start=start_date, end=end_date, progress=False, timeout=10)
+            else:
+                df = fdr.DataReader(ticker, start_date, end_date)
+            if df.empty or len(df) < 1:
+                continue
+            entry = float(df["Close"].iloc[0])
+            if entry <= 0:
+                continue
+
+            def _p(idx):
+                return float(df["Close"].iloc[idx]) if len(df) > idx else None
+
+            d1, d3, d7 = _p(1), _p(3), _p(7)
+            def _r(p): return round((p - entry) / entry * 100, 2) if p else None
+
+            now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            cursor.execute(
+                """UPDATE scenario_stocks
+                   SET captured_price = ?, d1_price = ?, d3_price = ?, d7_price = ?,
+                       d1_return = ?, d3_return = ?, d7_return = ?, updated_at = ?
+                   WHERE id = ?""",
+                (entry, d1, d3, d7, _r(d1), _r(d3), _r(d7), now, row["id"])
+            )
+            updated += 1
+        except Exception as e:
+            print(f"[scenario tracking] {ticker} 실패: {e}")
+            continue
+
+    conn.commit()
+
+    # 집계는 공용 헬퍼로 위임 (DB만 사용) — /stats 경량 조회와 동일 로직 공유
+    stats = _aggregate_scenario_stats(cursor)
+    conn.close()
+    return {"updated_now": updated, **stats}
 
 
 # ── 패턴 스크리너 백테스트 ────────────────────────────────────────────────────

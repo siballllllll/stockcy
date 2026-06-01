@@ -1133,9 +1133,10 @@ async def run_scenario_tracking():
 
 @router.get("/scenario-tracking/stats")
 async def get_scenario_tracking_stats():
-    """시나리오 적중률 통계 조회 (최근 추적 결과)."""
-    from ai_engine import track_scenario_stocks_performance
-    return await asyncio.to_thread(track_scenario_stocks_performance)
+    """시나리오 적중률 통계 조회 — 가격 재추적 없이 DB 집계만 빠르게 반환.
+    (가격 추적은 POST /scenario-tracking/run에서만 수행)"""
+    from ai_engine import load_scenario_tracking_stats
+    return await asyncio.to_thread(load_scenario_tracking_stats)
 
 
 @router.get("/entry-timing")

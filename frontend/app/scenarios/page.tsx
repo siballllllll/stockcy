@@ -909,24 +909,41 @@ function ScenarioTrackingPanel() {
   const [data, setData] = useState<any>(null);
   const [msg, setMsg] = useState("");
 
+  // 통계만 빠르게 조회 (가격 재추적 없음). 비-JSON 응답에도 안전.
+  const loadStats = async () => {
+    try {
+      const res = await fetch("/backend/api/ai/scenario-tracking/stats");
+      if (!res.ok) return;
+      const txt = await res.text();
+      try { setData(JSON.parse(txt)); } catch { /* 비-JSON 무시 */ }
+    } catch { /* 네트워크 오류 무시 */ }
+  };
+
   const runTracking = async () => {
     setRunning(true);
-    setMsg("가격 추적 중...");
+    setMsg("가격 추적 중... (수십 초 걸릴 수 있어요)");
     try {
       const res = await fetch("/backend/api/ai/scenario-tracking/run", { method: "POST" });
-      const json = await res.json();
-      setData(json);
-      setMsg(`✅ 신규 ${json.updated_now ?? 0}건 추적 완료`);
-    } catch (e: any) {
-      setMsg(`❌ ${e?.message ?? String(e)}`);
+      const txt = await res.text();
+      let json: any = null;
+      try { json = JSON.parse(txt); } catch { /* 비-JSON */ }
+      if (res.ok && json) {
+        setData(json);
+        setMsg(`✅ 신규 ${json.updated_now ?? 0}건 추적 완료`);
+      } else {
+        // 추적이 길어 프록시 연결이 끊겨도 서버에서는 계속 진행됨 → 잠시 후 통계만 갱신
+        setMsg("⏳ 추적이 길어 백그라운드에서 계속됩니다. 잠시 후 통계를 갱신합니다...");
+        setTimeout(loadStats, 5000);
+      }
+    } catch {
+      setMsg("⏳ 추적이 길어 백그라운드에서 계속됩니다. 잠시 후 통계를 갱신합니다...");
+      setTimeout(loadStats, 5000);
     } finally {
       setRunning(false);
     }
   };
 
-  useEffect(() => {
-    fetch("/backend/api/ai/scenario-tracking/stats").then(r => r.json()).then(setData).catch(() => {});
-  }, []);
+  useEffect(() => { loadStats(); }, []);
 
   const byScenario = data?.by_scenario ?? [];
   const byHorizon = data?.by_horizon ?? [];
