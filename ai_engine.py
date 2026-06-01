@@ -3324,10 +3324,17 @@ def _get_trade_indicators(ticker: str, buy_date_str: str) -> dict:
                 continue
 
     # ── 일봉 지표 ──────────────────────────────────────────────────────────
+    # 국내(숫자 티커)는 yfinance(.KS)가 'no price data' 401 오류로 불안정 → FinanceDataReader 사용.
     try:
-        stock = yf.Ticker(yf_ticker)
-        hist = stock.history(period="1y", interval="1d")
-        if not hist.empty and len(hist) >= 20:
+        if is_kr:
+            import FinanceDataReader as fdr
+            from datetime import timedelta as _td
+            _start = (datetime.now() - _td(days=400)).strftime("%Y-%m-%d")
+            hist = fdr.DataReader(str(ticker).strip().zfill(6), _start)
+        else:
+            stock = yf.Ticker(yf_ticker)
+            hist = stock.history(period="1y", interval="1d")
+        if hist is not None and not hist.empty and len(hist) >= 20:
             closes  = hist["Close"].values
             volumes = hist["Volume"].values
             opens   = hist["Open"].values
