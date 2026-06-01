@@ -285,7 +285,8 @@ def init_local_db():
             vol_ratio REAL,
             reason TEXT,
             outcome_return REAL,
-            outcome_checked_at TEXT
+            outcome_checked_at TEXT,
+            is_realized INTEGER DEFAULT 0
         )
     """)
 
@@ -344,6 +345,7 @@ def init_local_db():
         "ALTER TABLE scenario_stocks ADD COLUMN horizon TEXT",
         "ALTER TABLE portfolio ADD COLUMN buy_reason TEXT DEFAULT ''",
         "ALTER TABLE trade_history ADD COLUMN buy_reason TEXT DEFAULT ''",
+        "ALTER TABLE agent_decisions ADD COLUMN is_realized INTEGER DEFAULT 0",
     ]:
         try:
             cursor.execute(migration)
@@ -2617,6 +2619,29 @@ def save_agent_decision(d: dict):
         print(f"save_agent_decision error: {e}")
 
 
+def update_agent_decision_unrealized(ticker: str, unrealized_pct: float):
+    """보유 중(미매도) 종목의 가장 최근 BUY 판단에 '잠정(미실현)' 수익률을 기록한다.
+    에이전트 스캔이 어차피 현재가를 계산하므로 추가 네트워크 호출 없이 마크투마켓.
+    is_realized=0 인 행만 갱신하므로, 매도로 확정된 행은 건드리지 않는다."""
+    try:
+        conn = get_db_conn()
+        cursor = conn.cursor()
+        cursor.execute(
+            """UPDATE agent_decisions
+               SET outcome_return = ?, outcome_checked_at = ?
+               WHERE id = (
+                   SELECT id FROM agent_decisions
+                   WHERE ticker = ? AND action='BUY' AND COALESCE(is_realized, 0) = 0
+                   ORDER BY decided_at DESC LIMIT 1
+               )""",
+            (float(unrealized_pct), datetime.now().strftime("%Y-%m-%d %H:%M:%S"), ticker)
+        )
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"update_agent_decision_unrealized error: {e}")
+
+
 def load_agent_learning_summary() -> dict:
     """에이전트 자기학습 요약 — 결과가 기록된 BUY 판단들의 조건별 승률.
     다른 AI 기능(스크리너/시나리오)에서도 공용으로 참조 가능.
@@ -2624,17 +2649,21 @@ def load_agent_learning_summary() -> dict:
     try:
         conn = get_db_conn()
         cursor = conn.cursor()
-        # 결과(outcome_return)가 채워진 BUY 판단만
+        # 결과(outcome_return)가 채워진 BUY 판단 — 매도 확정(is_realized=1) + 보유 중 잠정(is_realized=0)
         cursor.execute(
-            """SELECT rsi, ma_aligned, pos_52w, vol_ratio, outcome_return
+            """SELECT rsi, ma_aligned, pos_52w, vol_ratio, outcome_return,
+                      COALESCE(is_realized, 0) AS is_realized
                FROM agent_decisions
                WHERE action='BUY' AND outcome_return IS NOT NULL"""
         )
         rows = [dict(r) for r in cursor.fetchall()]
         conn.close()
 
+        realized_n   = sum(1 for r in rows if r["is_realized"] == 1)
+        provisional_n = len(rows) - realized_n
+
         if not rows:
-            return {"sample": 0, "rules": []}
+            return {"sample": 0, "realized_sample": 0, "provisional_sample": 0, "rules": []}
 
         wins = [r for r in rows if (r["outcome_return"] or 0) > 0]
         rules = []
@@ -2665,13 +2694,15 @@ def load_agent_learning_summary() -> dict:
 
         return {
             "sample": len(rows),
+            "realized_sample": realized_n,
+            "provisional_sample": provisional_n,
             "overall_win_rate": round(len(wins) / len(rows) * 100, 1),
             "overall_avg_return": round(sum(r["outcome_return"] or 0 for r in rows) / len(rows), 2),
             "rules": rules,
         }
     except Exception as e:
         print(f"load_agent_learning_summary error: {e}")
-        return {"sample": 0, "rules": []}
+        return {"sample": 0, "realized_sample": 0, "provisional_sample": 0, "rules": []}
 
 
 def save_scenario_stocks(scenario_keyword: str, scenario_title: str, stocks: list):

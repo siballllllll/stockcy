@@ -352,7 +352,17 @@ def _run_one_scan(force: bool = False) -> dict:
                 holding = ai_holdings.get(ticker)
                 position = "HOLDING" if holding else "NONE"
                 avg_price = holding["buy_price"] if holding else 0
-                
+
+                # ★ 보유 종목 마크투마켓 — 안 팔았어도 현재 평가손익을 '잠정' 학습 표본에 기록
+                #   (스캔이 이미 현재가를 구했으므로 추가 네트워크 호출 없음. 매도 시 확정값으로 교체)
+                if position == "HOLDING" and avg_price and avg_price > 0:
+                    try:
+                        from db import update_agent_decision_unrealized
+                        unreal_pct = (current_price - avg_price) / avg_price * 100.0
+                        update_agent_decision_unrealized(ticker, unreal_pct)
+                    except Exception as _ue:
+                        logger.error(f"[agent] 잠정 수익률 갱신 실패 {ticker}: {_ue}")
+
                 # AI에게 매수/매도/홀딩 판단 요청
                 logger.info(f"AI Agent: {name}({ticker}) 분석 중... (Position: {position})")
                 
@@ -521,17 +531,18 @@ def _run_one_scan(force: bool = False) -> dict:
                     }
                     save_trade_record(trade_record, owner=AI_OWNER_NAME)
 
-                    # 2-b. 자기학습 루프 — 이 종목의 가장 최근 BUY 판단에 실제 결과(수익률) 기록
+                    # 2-b. 자기학습 루프 — 이 종목의 가장 최근 '미확정' BUY 판단에 실제 결과(수익률) 확정 기록
+                    #   (보유 중 잠정값이 채워져 있을 수 있으므로 is_realized=0 행을 찾아 확정값으로 교체 + is_realized=1)
                     try:
                         from db import get_db_conn
                         _conn = get_db_conn()
                         _cur = _conn.cursor()
                         _cur.execute(
                             """UPDATE agent_decisions
-                               SET outcome_return = ?, outcome_checked_at = ?
+                               SET outcome_return = ?, outcome_checked_at = ?, is_realized = 1
                                WHERE id = (
                                    SELECT id FROM agent_decisions
-                                   WHERE ticker = ? AND action='BUY' AND outcome_return IS NULL
+                                   WHERE ticker = ? AND action='BUY' AND COALESCE(is_realized, 0) = 0
                                    ORDER BY decided_at DESC LIMIT 1
                                )""",
                             (float(profit_pct), datetime.now().strftime("%Y-%m-%d %H:%M:%S"), ticker)

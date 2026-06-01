@@ -16,6 +16,8 @@ function AgentLearningDashboard() {
   );
 
   const sample = data?.sample ?? 0;
+  const realizedSample = data?.realized_sample ?? 0;
+  const provisionalSample = data?.provisional_sample ?? 0;
   const rules = data?.rules ?? [];
 
   return (
@@ -24,7 +26,9 @@ function AgentLearningDashboard() {
         <Brain size={18} color="#a5b4fc" />
         <span style={{ fontSize: "1rem", fontWeight: 800, color: "var(--color-text)" }}>AI 자기학습 현황</span>
         <span style={{ fontSize: "0.75rem", color: "var(--color-muted)", marginLeft: "auto" }}>
-          학습 표본 {sample}건 {sample > 0 && `· 전체 승률 ${data?.overall_win_rate ?? 0}% · 평균 ${data?.overall_avg_return >= 0 ? "+" : ""}${data?.overall_avg_return ?? 0}%`}
+          학습 표본 {sample}건
+          {sample > 0 && <span style={{ color: "var(--color-subtle)" }}> (확정 {realizedSample} · 보유중 {provisionalSample})</span>}
+          {sample > 0 && ` · 전체 승률 ${data?.overall_win_rate ?? 0}% · 평균 ${data?.overall_avg_return >= 0 ? "+" : ""}${data?.overall_avg_return ?? 0}%`}
         </span>
       </div>
 
@@ -57,6 +61,9 @@ function AgentLearningDashboard() {
           </div>
           <div style={{ fontSize: "0.7rem", color: "var(--color-muted)", marginTop: "0.75rem", lineHeight: 1.5 }}>
             💡 이 학습 결과는 에이전트의 다음 매매 판단에 자동 반영되며, 패턴 스크리너 점수 보정에도 활용됩니다.
+            {provisionalSample > 0 && (
+              <> <br />⏳ <strong>보유중 {provisionalSample}건</strong>은 아직 매도 전이라 현재 평가손익을 반영한 <strong>잠정(미실현)</strong> 표본입니다. 매도 시 실현 수익률로 확정됩니다.</>
+            )}
           </div>
         </div>
       )}
@@ -85,6 +92,10 @@ export default function AgentDashboardPage() {
   // 수동 스캔 트리거 (30분 주기를 기다리지 않고 즉시 1회 점검)
   const [scanningNow, setScanningNow] = useState(false);
   const [scanNowMsg, setScanNowMsg] = useState("");
+
+  // 고민 일지 필터: 날짜 선택 + 종목 검색
+  const [scanLogDate, setScanLogDate] = useState<string>("");   // "" = 전체 날짜
+  const [scanLogQuery, setScanLogQuery] = useState<string>(""); // 종목명/티커 검색어
   const runScanNow = async () => {
     setScanningNow(true);
     setScanNowMsg("AI 에이전트 스캔 실행 중... (최대 수십 초)");
@@ -110,6 +121,29 @@ export default function AgentDashboardPage() {
       setScanningNow(false);
     }
   };
+
+  // 고민 일지에 존재하는 날짜 목록 (최신순)
+  const scanLogDates = useMemo(() => {
+    const set = new Set<string>();
+    for (const log of scanLogs as any[]) {
+      const d = String(log.scan_time ?? "").slice(0, 10);
+      if (d.length === 10) set.add(d);
+    }
+    return Array.from(set).sort((a, b) => b.localeCompare(a));
+  }, [scanLogs]);
+
+  // 날짜 + 검색어로 필터링된 고민 일지
+  const filteredScanLogs = useMemo(() => {
+    const q = scanLogQuery.trim().toLowerCase();
+    return (scanLogs as any[]).filter((log) => {
+      if (scanLogDate && String(log.scan_time ?? "").slice(0, 10) !== scanLogDate) return false;
+      if (q) {
+        const hay = `${log.name ?? ""} ${log.ticker ?? ""}`.toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+      return true;
+    });
+  }, [scanLogs, scanLogDate, scanLogQuery]);
 
   const trades = tradesRes?.data ?? [];
 
@@ -567,6 +601,53 @@ export default function AgentDashboardPage() {
               {scanNowMsg || "30분 주기를 기다리지 않고 즉시 1회 점검 (휴장에도 즐겨찾기·보유종목 분석)"}
             </span>
           </div>
+
+          {/* 날짜 선택 + 종목 검색 필터 */}
+          {scanLogs.length > 0 && (
+            <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+              <select
+                value={scanLogDate}
+                onChange={(e) => setScanLogDate(e.target.value)}
+                style={{
+                  padding: "6px 10px", borderRadius: "8px", fontSize: "0.82rem",
+                  background: "var(--color-surface)", color: "var(--color-text)",
+                  border: "1px solid var(--color-border)", cursor: "pointer",
+                }}
+              >
+                <option value="">전체 날짜 ({scanLogs.length})</option>
+                {scanLogDates.map((d) => (
+                  <option key={d} value={d}>{d}</option>
+                ))}
+              </select>
+              <input
+                type="text"
+                value={scanLogQuery}
+                onChange={(e) => setScanLogQuery(e.target.value)}
+                placeholder="🔍 종목명 또는 티커 검색"
+                style={{
+                  flex: 1, minWidth: "180px", padding: "6px 12px", borderRadius: "8px",
+                  fontSize: "0.82rem", background: "var(--color-surface)",
+                  color: "var(--color-text)", border: "1px solid var(--color-border)",
+                }}
+              />
+              {(scanLogDate || scanLogQuery) && (
+                <button
+                  onClick={() => { setScanLogDate(""); setScanLogQuery(""); }}
+                  style={{
+                    padding: "6px 12px", borderRadius: "8px", fontSize: "0.78rem",
+                    background: "transparent", color: "var(--color-muted)",
+                    border: "1px solid var(--color-border)", cursor: "pointer", fontWeight: 600,
+                  }}
+                >
+                  필터 초기화
+                </button>
+              )}
+              <span style={{ fontSize: "0.75rem", color: "var(--color-muted)" }}>
+                {filteredScanLogs.length}건 표시
+              </span>
+            </div>
+          )}
+
           {isLoadingScanLogs ? (
             <div style={{ display: "flex", alignItems: "center", gap: "8px", color: "var(--color-muted)", padding: "2rem 0" }}>
               <Loader2 className="animate-spin" size={18} />
@@ -577,9 +658,16 @@ export default function AgentDashboardPage() {
               아직 에이전트가 기록한 스캔 이력이 없습니다.<br />
               감시를 시작하려면 <strong>'즐겨찾기' 탭에 종목을 추가</strong>해 주세요! 즐겨찾기 종목 목록을 에이전트가 실시간 우주(Universe)로 활용해 판단을 내립니다.
             </p>
+          ) : filteredScanLogs.length === 0 ? (
+            <p style={{ color: "var(--color-muted)", padding: "1rem 0" }}>
+              조건에 맞는 고민 일지가 없습니다. 날짜나 검색어를 바꿔보세요.
+            </p>
           ) : (
-            <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
-              {scanLogs.map((log: any, idx: number) => {
+            <div style={{
+              display: "flex", flexDirection: "column", gap: "10px",
+              maxHeight: "560px", overflowY: "auto", paddingRight: "6px",
+            }}>
+              {filteredScanLogs.map((log: any, idx: number) => {
                 const isBuy = log.action === "BUY";
                 const isSell = log.action === "SELL";
                 const badgeBg = isBuy ? "rgba(16, 185, 129, 0.15)" : isSell ? "rgba(239, 68, 68, 0.15)" : "rgba(255,255,255,0.06)";
