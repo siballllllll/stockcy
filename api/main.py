@@ -308,6 +308,42 @@ def start_daily_alert_scheduler():
     t.start()
     print("[daily alert] 일일 알림 스케줄러 시작 (평일 08:30)")
 
+
+# ── 10-b. 시나리오 적중률 자동 추적 스케줄러 ──────────────────────────────────
+_LAST_SCENARIO_TRACK_DATE = ""
+
+def _scenario_tracking_loop():
+    """매일 오전 07:00 KST에 시나리오 등장 종목의 가격 추적을 자동 실행.
+    미국장 마감(~05:00 KST) 이후라 직전 미국·한국 세션을 모두 반영하며,
+    수동 '추적 실행' 없이도 매일 적중률이 갱신된다. (주말 포함 — 금요일 미국장
+    데이터가 토요일 새벽에 들어오므로 매일 점검)
+    track_scenario_stocks_performance는 블로킹(~20초)이지만 이 데몬 스레드에서만
+    돌아 요청 처리/이벤트 루프를 막지 않는다."""
+    global _LAST_SCENARIO_TRACK_DATE
+    import datetime as _dt
+    while True:
+        try:
+            now = _dt.datetime.now()
+            today = now.strftime("%Y-%m-%d")
+            if now.hour == 7 and _LAST_SCENARIO_TRACK_DATE != today:
+                try:
+                    from ai_engine import track_scenario_stocks_performance
+                    r = track_scenario_stocks_performance()
+                    _LAST_SCENARIO_TRACK_DATE = today
+                    print(f"[scenario track] 자동 추적 완료: {r.get('updated_now', 0)}건 갱신 ({today})")
+                except Exception as e:
+                    print(f"[scenario track] 자동 추적 오류: {e}")
+        except Exception:
+            pass
+        _time.sleep(300)   # 5분마다 체크
+
+
+@app.on_event("startup")
+def start_scenario_tracking_scheduler():
+    t = _threading.Thread(target=_scenario_tracking_loop, daemon=True)
+    t.start()
+    print("[scenario track] 시나리오 적중률 추적 스케줄러 시작 (매일 07:00)")
+
 # ── 8. 백그라운드 태스크 ───────────────────────────────────────────────────────
 import asyncio
 from api.background import price_alert_loop
