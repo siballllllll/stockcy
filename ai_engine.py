@@ -264,11 +264,13 @@ def get_market_news(category="general"):
         return f"뉴스 데이터 로드 실패: {e}"
 
 
-# 모델 폴백 순서
+# 모델 폴백 순서 — 2026-06 기준 이 API 키로 generate_content 실측 통과 + thinking_budget=0 수용 모델만.
+#   (구 gemini-2.0-flash=신규사용자 404, gemini-1.5-flash=v1alpha 미존재로 제거.
+#    gemini-2.5-pro는 budget=0을 거부(400)하므로 제외, gemini-flash-latest는 항상 현행 flash 별칭)
 _MODEL_FALLBACK = [
     "gemini-2.5-flash",
-    "gemini-2.0-flash",
-    "gemini-1.5-flash",
+    "gemini-2.5-flash-lite",
+    "gemini-flash-latest",
 ]
 
 # thinking ON일 때 사용할 thinking 예산(토큰). 무제한(-1) 대신 적당히 묶어 비용 폭주 방지.
@@ -425,7 +427,7 @@ def _call_gemini(prompt, use_search=False, temperature=0.7, response_mime_type=N
     def _do_call(mdl, cfg):
         # gemini-2.5 계열은 thinking이 기본 활성화되어 max_output_tokens 예산을 소모하고 thinking 토큰이
         # 출력 토큰으로 과금됨. 기본은 thinking_budget=0으로 차단(비용/예산 보호), 분석형 호출만 thinking=True.
-        if str(mdl).startswith("gemini-2.5"):
+        if str(mdl).startswith("gemini-2.5") or str(mdl).startswith("gemini-flash"):
             try:
                 cfg = copy.copy(cfg)
                 cfg.thinking_config = types.ThinkingConfig(thinking_budget=(_THINKING_BUDGET_ON if thinking else 0))
