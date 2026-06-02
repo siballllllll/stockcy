@@ -31,6 +31,7 @@ function Sparkline({ values }: { values: number[] }) {
 
 export function SectorTrend() {
   const [data, setData] = useState<any>(null);
+  const [analysis, setAnalysis] = useState<any>(null);
   const [days, setDays] = useState(14);
   const [loading, setLoading] = useState(true);
 
@@ -43,6 +44,9 @@ export function SectorTrend() {
   }, []);
 
   useEffect(() => { load(days); }, [load, days]);
+  useEffect(() => {
+    fetch(`${BASE}/api/kr/sector-analysis`).then(r => r.json()).then(setAnalysis).catch(() => {});
+  }, []);
 
   const sectors = data?.sectors || [];
   const nDays = (data?.dates || []).length;
@@ -92,6 +96,28 @@ export function SectorTrend() {
           })}
         </div>
       )}
+      {/* 히스토리 분석 — 지속 매집 섹터 */}
+      {analysis?.available && (
+        <div style={{ marginTop: "0.9rem", borderTop: "1px solid var(--color-border)", paddingTop: "0.6rem" }}>
+          <div style={{ fontSize: "0.74rem", fontWeight: 800, color: "var(--color-text)", marginBottom: "5px" }}>
+            🧠 지속 매집 섹터 <span style={{ fontSize: "0.66rem", color: "var(--color-muted)", fontWeight: 600 }}>{analysis.period} ({analysis.days}일 분석)</span>
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: "3px" }}>
+            {(analysis.accumulation || []).slice(0, 6).map((x: any, i: number) => (
+              <div key={i} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "8px", fontSize: "0.72rem", padding: "2px 4px" }}>
+                <span style={{ fontWeight: 700, color: "var(--color-text)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{x.sector}</span>
+                <span style={{ color: "var(--color-muted)", whiteSpace: "nowrap", flexShrink: 0 }}>
+                  유입비율 <b style={{ color: "#f87171" }}>{x.pos_ratio}%</b> · 최장 {x.best_streak}일{x.now_streak >= 2 ? ` · 🔥현재 ${x.now_streak}일` : ""}
+                </span>
+              </div>
+            ))}
+          </div>
+          <div style={{ marginTop: "4px", fontSize: "0.64rem", color: "var(--color-muted)" }}>
+            ↘ 지속 이탈: {(analysis.distribution || []).slice(0, 4).map((x: any) => x.sector).join(", ") || "-"}
+          </div>
+        </div>
+      )}
+
       <div style={{ marginTop: "0.6rem", fontSize: "0.65rem", color: "var(--color-muted)", lineHeight: 1.5 }}>
         💡 막대선은 일별 세력 순매수(🔴양/🔵음). <b>연속유입</b>·<b>누적</b>이 클수록 세력이 지속 매집 중인 섹터.
       </div>

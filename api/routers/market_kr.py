@@ -246,12 +246,43 @@ def kr_sector_flow(days: int = 14, sector: str | None = None):
 
 @router.post("/sector-flow/backfill")
 def kr_sector_flow_backfill(days: int = 20):
-    """pykrx로 과거 N거래일 섹터 수급을 백필 (과거 흐름 데이터화)."""
+    """pykrx로 과거 N거래일 섹터 수급을 동기 백필 (소량용; 대량은 backfill-bg)."""
     import data_kr
     try:
         return data_kr.backfill_sector_flow_pykrx(days)
     except Exception as e:
         return {"filled": 0, "error": str(e)}
+
+
+@router.post("/sector-flow/backfill-bg")
+def kr_sector_flow_backfill_bg(days: int = 500, throttle: float = 0.25):
+    """대량 섹터 백필을 백그라운드에서 시작 (throttle로 KRX 차단 방지, 즉시 반환).
+    이미 적재된 날짜는 건너뛰어 증분/재개됨. 진행률은 backfill-status로 확인."""
+    import data_kr
+    try:
+        return data_kr.start_sector_backfill_bg(days, throttle)
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+
+@router.get("/sector-flow/backfill-status")
+def kr_sector_flow_backfill_status():
+    """백그라운드 섹터 백필 진행 상황."""
+    import data_kr
+    try:
+        return data_kr.sector_backfill_status()
+    except Exception as e:
+        return {"running": False, "error": str(e)}
+
+
+@router.get("/sector-analysis")
+def kr_sector_analysis():
+    """섹터 흐름 히스토리 분석 — 지속 매집/이탈 섹터, 유입 일관성, 최장 연속유입."""
+    import data_kr
+    try:
+        return data_kr.analyze_sector_flow_history()
+    except Exception as e:
+        return {"available": False, "error": str(e)}
 
 
 @router.get("/stocks/{code}/investor-trend")

@@ -683,11 +683,15 @@ def snapshot_sector_flow_today() -> dict:
     return {"date": today, "sectors": n}
 
 
-def backfill_sector_flow_pykrx(days: int = 20) -> dict:
+def backfill_sector_flow_pykrx(days: int = 20, throttle: float = 0.0, job: dict | None = None,
+                               skip_existing: bool = True) -> dict:
     """과거 N거래일의 외국인+기관 순매수를 pykrx로 받아 섹터별 집계·저장 (과거 흐름 백필).
-    KRX_ID/KRX_PW 환경변수(.env, data.krx.co.kr 무료계정) 필요."""
+    KRX_ID/KRX_PW 환경변수(.env, data.krx.co.kr 무료계정) 필요.
+    throttle: 거래일마다 sleep(초) — KRX 차단 방지. skip_existing: 이미 저장된 날짜는 건너뜀(재개/증분).
+    job: 진행률을 기록할 dict(running/total/done/filled/current)."""
     import os as _os
-    from db import save_sector_flow_snapshot
+    import time as _t
+    from db import save_sector_flow_snapshot, load_sector_flow_dates
     from datetime import datetime, timedelta
     krx_id_set = bool(_os.getenv("KRX_ID")) and bool(_os.getenv("KRX_PW"))
     if not krx_id_set:
@@ -697,20 +701,27 @@ def backfill_sector_flow_pykrx(days: int = 20) -> dict:
     except Exception as e:
         return {"error": f"pykrx 사용 불가: {e}", "filled": 0}
 
+    existing = set(load_sector_flow_dates(3650)) if skip_existing else set()
     first_err = None
-    filled, checked = 0, 0
+    filled, checked, done = 0, 0, 0
     d = datetime.now()
-    while filled < days and checked < days * 2 + 12:
+    while filled < days and checked < days * 3 + 20:
         checked += 1
         d = d - timedelta(days=1)
         if d.weekday() >= 5:   # 주말 스킵
             continue
         ds, ds_iso = d.strftime("%Y%m%d"), d.strftime("%Y-%m-%d")
+        if ds_iso in existing:   # 이미 적재된 거래일은 건너뜀
+            continue
+        if job is not None:
+            job["current"] = ds_iso
         try:
             per_code: dict = {}
             for mkt in ("KOSPI", "KOSDAQ"):
                 for inv, fld in (("외국인", "frgn"), ("기관합계", "orgn")):
                     df = stock.get_market_net_purchases_of_equities(ds, ds, mkt, inv)
+                    if throttle:
+                        _t.sleep(throttle)
                     if df is None or getattr(df, "empty", True):
                         continue
                     col = "순매수거래량" if "순매수거래량" in df.columns else ("순매수" if "순매수" in df.columns else None)
@@ -723,17 +734,100 @@ def backfill_sector_flow_pykrx(days: int = 20) -> dict:
                         except Exception:
                             net = 0
                         per_code.setdefault(code, {"frgn": 0, "orgn": 0})[fld] = net
+            done += 1
+            if job is not None:
+                job["done"] = done
             if not per_code:
                 continue
             rows = [{"종목코드": c, "외국인순매수": v["frgn"], "기관순매수": v["orgn"]} for c, v in per_code.items()]
             save_sector_flow_snapshot(ds_iso, _aggregate_by_sector(rows))
             filled += 1
+            if job is not None:
+                job["filled"] = filled
         except Exception as e:
             if first_err is None:
                 first_err = repr(e)[:160]
             print(f"[sector backfill] {ds} 실패: {repr(e)[:120]}")
             continue
     return {"filled": filled, "krx_id_set": krx_id_set, "checked": checked, "first_err": first_err}
+
+
+# ── 백그라운드 대량 백필 작업 (throttle + 진행률 + 재개) ───────────────────────
+import threading as _bf_threading
+_SECTOR_BF_JOB = {"running": False, "total": 0, "done": 0, "filled": 0, "current": "", "started_at": None}
+_bf_lock = _bf_threading.Lock()
+
+
+def _sector_backfill_worker(days: int, throttle: float):
+    global _SECTOR_BF_JOB
+    try:
+        backfill_sector_flow_pykrx(days=days, throttle=throttle, job=_SECTOR_BF_JOB, skip_existing=True)
+    except Exception as e:
+        print(f"[sector backfill] worker 오류: {e}")
+    finally:
+        _SECTOR_BF_JOB["running"] = False
+        _SECTOR_BF_JOB["current"] = ""
+
+
+def start_sector_backfill_bg(days: int = 500, throttle: float = 0.25) -> dict:
+    """대량 섹터 백필을 백그라운드에서 시작 (throttle로 KRX 차단 방지). 즉시 반환."""
+    from datetime import datetime
+    global _SECTOR_BF_JOB
+    with _bf_lock:
+        if _SECTOR_BF_JOB["running"]:
+            return {"status": "already_running", "job": dict(_SECTOR_BF_JOB)}
+        _SECTOR_BF_JOB.update({"running": True, "total": days, "done": 0, "filled": 0,
+                               "current": "", "started_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S")})
+        _bf_threading.Thread(target=_sector_backfill_worker, args=(days, throttle), daemon=True).start()
+    return {"status": "started", "job": dict(_SECTOR_BF_JOB)}
+
+
+def sector_backfill_status() -> dict:
+    return dict(_SECTOR_BF_JOB)
+
+
+def analyze_sector_flow_history(min_days: int = 5) -> dict:
+    """전체 섹터 흐름 히스토리 분석 — 지속 매집/이탈 섹터, 일관성(유입비율), 최장 연속유입.
+    백필이 쌓일수록 '어느 섹터에 세력이 꾸준히 들어왔다 빠졌다'는 패턴이 드러난다."""
+    from db import load_sector_flow_series, load_sector_flow_dates
+    dates_all = load_sector_flow_dates(3650)
+    if len(dates_all) < min_days:
+        return {"available": False, "reason": f"분석에 최소 {min_days}거래일 필요 (현재 {len(dates_all)}일)",
+                "have_days": len(dates_all)}
+    series = load_sector_flow_series(None, 3650)
+    dates = sorted({r["snapshot_date"] for r in series})
+    by_sec: dict = {}
+    for r in series:
+        by_sec.setdefault(r["sector"], {})[r["snapshot_date"]] = r.get("combined_sum", 0) or 0
+    out = []
+    for sec, dmap in by_sec.items():
+        vals = [dmap.get(d, 0) for d in dates]
+        n = len(vals)
+        total = sum(vals)
+        pos = sum(1 for v in vals if v > 0)
+        best_streak = cur = 0
+        for v in vals:
+            if v > 0:
+                cur += 1
+                best_streak = max(best_streak, cur)
+            else:
+                cur = 0
+        now_streak = 0
+        for v in reversed(vals):
+            if v > 0:
+                now_streak += 1
+            else:
+                break
+        out.append({"sector": sec, "days": n, "total": total,
+                    "avg": round(total / n) if n else 0,
+                    "pos_ratio": round(pos / n * 100, 1) if n else 0,
+                    "best_streak": best_streak, "now_streak": now_streak})
+    accumulation = sorted([x for x in out if x["total"] > 0],
+                          key=lambda x: (x["pos_ratio"], x["total"]), reverse=True)
+    distribution = sorted([x for x in out if x["total"] < 0],
+                          key=lambda x: (x["pos_ratio"], x["total"]))
+    return {"available": True, "period": f"{dates[0]} ~ {dates[-1]}", "days": len(dates),
+            "accumulation": accumulation[:10], "distribution": distribution[:8]}
 
 
 def detect_sector_rotation() -> dict:
