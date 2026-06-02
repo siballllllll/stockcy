@@ -703,15 +703,19 @@ def backfill_sector_flow_pykrx(days: int = 20, throttle: float = 0.0, job: dict 
 
     existing = set(load_sector_flow_dates(3650)) if skip_existing else set()
     first_err = None
-    filled, checked, done = 0, 0, 0
+    filled, trading_seen, guard = 0, 0, 0
     d = datetime.now()
-    while filled < days and checked < days * 3 + 20:
-        checked += 1
+    # days = '오늘부터 N 거래일 뒤로'의 윈도우. 이미 있는 날은 건너뛰어 재개가 idempotent.
+    while trading_seen < days and guard < days * 2 + 40:
+        guard += 1
         d = d - timedelta(days=1)
         if d.weekday() >= 5:   # 주말 스킵
             continue
+        trading_seen += 1
         ds, ds_iso = d.strftime("%Y%m%d"), d.strftime("%Y-%m-%d")
-        if ds_iso in existing:   # 이미 적재된 거래일은 건너뜀
+        if job is not None:
+            job["done"] = trading_seen
+        if ds_iso in existing:   # 이미 적재된 거래일은 건너뜀(커버됨)
             continue
         if job is not None:
             job["current"] = ds_iso
@@ -734,9 +738,6 @@ def backfill_sector_flow_pykrx(days: int = 20, throttle: float = 0.0, job: dict 
                         except Exception:
                             net = 0
                         per_code.setdefault(code, {"frgn": 0, "orgn": 0})[fld] = net
-            done += 1
-            if job is not None:
-                job["done"] = done
             if not per_code:
                 continue
             rows = [{"종목코드": c, "외국인순매수": v["frgn"], "기관순매수": v["orgn"]} for c, v in per_code.items()]
@@ -749,33 +750,49 @@ def backfill_sector_flow_pykrx(days: int = 20, throttle: float = 0.0, job: dict 
                 first_err = repr(e)[:160]
             print(f"[sector backfill] {ds} 실패: {repr(e)[:120]}")
             continue
-    return {"filled": filled, "krx_id_set": krx_id_set, "checked": checked, "first_err": first_err}
+    return {"filled": filled, "krx_id_set": krx_id_set, "trading_days": trading_seen, "first_err": first_err}
 
 
-# ── 백그라운드 대량 백필 작업 (throttle + 진행률 + 재개) ───────────────────────
+# ── 백그라운드 대량 백필 작업 (throttle + 진행률 + 서버 재시작 자동 이어하기) ────
 import threading as _bf_threading
 _SECTOR_BF_JOB = {"running": False, "total": 0, "done": 0, "filled": 0, "current": "", "started_at": None}
 _bf_lock = _bf_threading.Lock()
+_SECTOR_BF_TARGET_KEY = "sector_backfill_target"   # 재시작 이어하기용 영속 타겟(ai_cache)
 
 
 def _sector_backfill_worker(days: int, throttle: float):
     global _SECTOR_BF_JOB
+    completed = False
     try:
         backfill_sector_flow_pykrx(days=days, throttle=throttle, job=_SECTOR_BF_JOB, skip_existing=True)
+        completed = True   # 윈도우 한 바퀴 완주 → 타겟 정리(더 이상 재개 안 함)
     except Exception as e:
         print(f"[sector backfill] worker 오류: {e}")
     finally:
         _SECTOR_BF_JOB["running"] = False
         _SECTOR_BF_JOB["current"] = ""
+        if completed:
+            try:
+                from db import delete_ai_cache
+                delete_ai_cache(_SECTOR_BF_TARGET_KEY)
+                print(f"[sector backfill] 완료 — 타겟 정리 (총 {days}거래일 윈도우)")
+            except Exception:
+                pass
 
 
 def start_sector_backfill_bg(days: int = 500, throttle: float = 0.25) -> dict:
-    """대량 섹터 백필을 백그라운드에서 시작 (throttle로 KRX 차단 방지). 즉시 반환."""
+    """대량 섹터 백필을 백그라운드에서 시작 (throttle로 KRX 차단 방지). 즉시 반환.
+    타겟을 ai_cache에 영속화 → 서버 재시작/리로드로 끊겨도 시작 시 자동 이어하기."""
     from datetime import datetime
     global _SECTOR_BF_JOB
     with _bf_lock:
         if _SECTOR_BF_JOB["running"]:
             return {"status": "already_running", "job": dict(_SECTOR_BF_JOB)}
+        try:
+            from db import save_ai_cache
+            save_ai_cache(_SECTOR_BF_TARGET_KEY, {"days": days, "throttle": throttle}, 720)  # 30일 보존
+        except Exception:
+            pass
         _SECTOR_BF_JOB.update({"running": True, "total": days, "done": 0, "filled": 0,
                                "current": "", "started_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S")})
         _bf_threading.Thread(target=_sector_backfill_worker, args=(days, throttle), daemon=True).start()
@@ -784,6 +801,30 @@ def start_sector_backfill_bg(days: int = 500, throttle: float = 0.25) -> dict:
 
 def sector_backfill_status() -> dict:
     return dict(_SECTOR_BF_JOB)
+
+
+def resume_sector_backfill_if_any() -> dict:
+    """서버 시작 시 호출 — 영속 타겟이 남아있으면(미완료 백필) 백그라운드로 자동 이어하기.
+    이미 적재된 날짜는 worker가 건너뛰므로 남은 부분만 채운다."""
+    global _SECTOR_BF_JOB
+    try:
+        from db import load_ai_cache
+        rec = load_ai_cache(_SECTOR_BF_TARGET_KEY)
+    except Exception:
+        return {"resumed": False}
+    if not rec:
+        return {"resumed": False}
+    days = int(rec.get("days", 400) or 400)
+    throttle = float(rec.get("throttle", 0.25) or 0.25)
+    from datetime import datetime
+    with _bf_lock:
+        if _SECTOR_BF_JOB["running"]:
+            return {"resumed": False, "reason": "already_running"}
+        _SECTOR_BF_JOB.update({"running": True, "total": days, "done": 0, "filled": 0,
+                               "current": "", "started_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S")})
+        _bf_threading.Thread(target=_sector_backfill_worker, args=(days, throttle), daemon=True).start()
+    print(f"[sector backfill] 서버 재시작 후 자동 이어하기 ({days}거래일 윈도우)")
+    return {"resumed": True, "days": days}
 
 
 def analyze_sector_flow_history(min_days: int = 5) -> dict:

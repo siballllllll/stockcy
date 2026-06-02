@@ -407,6 +407,16 @@ def resume_gap_bulk_job():
     except Exception as e:
         print(f"[gap bulk] 재개 시도 오류: {e}")
 
+
+@app.on_event("startup")
+def resume_sector_backfill():
+    """서버 재시작으로 중단된 섹터 흐름 백필이 있으면 자동 이어하기."""
+    try:
+        from data_kr import resume_sector_backfill_if_any
+        resume_sector_backfill_if_any()
+    except Exception as e:
+        print(f"[sector backfill] 재개 시도 오류: {e}")
+
 # ── 8. 백그라운드 태스크 ───────────────────────────────────────────────────────
 import asyncio
 from api.background import price_alert_loop
