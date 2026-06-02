@@ -56,6 +56,7 @@ function FavRow({ fav, price, onRemove, onAnalyze, onSaveMemo, gapBulkMap }: {
   const memoDirty = memo !== (fav["메모"] ?? "");
   const hasMemo = (fav["메모"] ?? "").trim().length > 0;
   const memoRef = useRef<HTMLDivElement>(null);
+  const [memoAlign, setMemoAlign] = useState<"left" | "right">("left");
 
   // 메모 팝오버: 바깥 클릭 시 닫기 (한컴 메모처럼 떠 있는 창)
   useEffect(() => {
@@ -65,6 +66,15 @@ function FavRow({ fav, price, onRemove, onAnalyze, onSaveMemo, gapBulkMap }: {
     };
     document.addEventListener("mousedown", onDown);
     return () => document.removeEventListener("mousedown", onDown);
+  }, [memoOpen]);
+
+  // 열릴 때 화면 폭을 보고 팝오버가 오른쪽으로 넘치면 오른쪽 정렬로 자동 전환
+  useEffect(() => {
+    if (!memoOpen || !memoRef.current) return;
+    const rect = memoRef.current.getBoundingClientRect();
+    const popW = Math.min(500, window.innerWidth * 0.9);
+    const pad = 12;
+    setMemoAlign(rect.left + popW > window.innerWidth - pad ? "right" : "left");
   }, [memoOpen]);
 
   const handleSaveMemo = async () => {
@@ -205,7 +215,8 @@ function FavRow({ fav, price, onRemove, onAnalyze, onSaveMemo, gapBulkMap }: {
           {/* 메모 팝오버 — 버튼 바로 아래에 떠서 나옴(카드 크기에 영향 없음) */}
           {memoOpen && (
             <div style={{
-              position: "absolute", top: "calc(100% + 6px)", left: 0, zIndex: 50,
+              position: "absolute", top: "calc(100% + 6px)", zIndex: 50,
+              ...(memoAlign === "right" ? { right: 0 } : { left: 0 }),
               width: "500px", maxWidth: "90vw",
               display: "flex", flexDirection: "column", gap: "6px",
               background: "var(--color-card, var(--color-surface))",
