@@ -199,6 +199,7 @@ export default function SectorsPage() {
   const [mapMarket, setMapMarket] = useState<"KR" | "US">("KR");   // 전체 섹터 지도 시장 토글
   const [selectedSector, setSelectedSector] = useState<string>("전체");
   const [expandedSubs, setExpandedSubs] = useState<Record<string, boolean>>({});
+  const [expandedAll, setExpandedAll] = useState<Record<string, boolean>>({});   // 서브섹터별 '더보기'(전체 종목) 펼침
 
   // 쉐도우 탭 상태
   const [selectedAnchor, setSelectedAnchor] = useState<string>("dunamu");
@@ -358,10 +359,13 @@ export default function SectorsPage() {
     if (mapMarket !== "US") return [];
     const codes = new Set<string>();
     const targets = selectedSector !== "전체" ? filteredData : filteredData.slice(0, 3);
-    targets.forEach(({ subSectors }) => subSectors.forEach(({ stocks }) =>
-      stocks.slice(0, SECTOR_STOCK_CAP).forEach((s: any) => { if (s.code) codes.add(s.code); })));
-    return Array.from(codes).slice(0, 120);
-  }, [mapMarket, filteredData, selectedSector]);
+    targets.forEach(({ sector, subSectors }) => subSectors.forEach(({ name, stocks }) => {
+      const subKey = `${sector}-${name}`;
+      const list = expandedAll[subKey] ? stocks : stocks.slice(0, SECTOR_STOCK_CAP);  // '더보기' 펼치면 전체 가격 조회
+      list.forEach((s: any) => { if (s.code) codes.add(s.code); });
+    }));
+    return Array.from(codes).slice(0, 500);   // KIS 과부하 안전 상한
+  }, [mapMarket, filteredData, selectedSector, expandedAll]);
 
   const { data: usMapPrices } = useSWR(
     usMapCodes.length > 0 ? ["us-map-prices-kis", usMapCodes] : null,
@@ -649,7 +653,9 @@ export default function SectorsPage() {
                     {item.subSectors.map((sub, sIdx) => {
                       const subKey = `${item.sector}-${sub.name}`;
                       const isExpanded = expandedSubs[subKey] !== false;
-                      
+                      const showAll = expandedAll[subKey] === true;
+                      const shownStocks = showAll ? sub.stocks : sub.stocks.slice(0, SECTOR_STOCK_CAP);
+
                       return (
                         <div key={sIdx} className="stockcy-card border border-white/5 overflow-hidden flex flex-col bg-zinc-900/50">
                           <div 
@@ -676,7 +682,7 @@ export default function SectorsPage() {
 
                           {isExpanded && (
                             <div className="p-3 grid grid-cols-1 sm:grid-cols-2 gap-2">
-                              {sub.stocks.slice(0, SECTOR_STOCK_CAP).map((s: any, i: number) => {
+                              {shownStocks.map((s: any, i: number) => {
                                 const priceData = mapMarket === "US"
                                   ? (usMapPrices ? (usMapPrices as any)[s.code] : null)
                                   : (bulkPrices ? (bulkPrices as any)[s.code] : null);
@@ -717,9 +723,14 @@ export default function SectorsPage() {
                                 );
                               })}
                               {sub.stocks.length > SECTOR_STOCK_CAP && (
-                                <div className="col-span-full text-center text-[0.68rem] text-zinc-500 py-1">
-                                  외 {sub.stocks.length - SECTOR_STOCK_CAP}종목 — 검색으로 좁혀보세요
-                                </div>
+                                <button
+                                  onClick={(e) => { e.stopPropagation(); setExpandedAll(p => ({ ...p, [subKey]: !showAll })); }}
+                                  className="col-span-full text-center text-[0.72rem] font-bold text-indigo-300 hover:text-indigo-200 bg-indigo-500/10 hover:bg-indigo-500/20 border border-indigo-500/25 rounded py-1.5 transition-colors"
+                                >
+                                  {showAll
+                                    ? "접기 ▲"
+                                    : `더보기 — 외 ${sub.stocks.length - SECTOR_STOCK_CAP}종목 전체 보기 ▼`}
+                                </button>
                               )}
                             </div>
                           )}
