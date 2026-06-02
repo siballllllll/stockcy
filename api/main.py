@@ -363,6 +363,27 @@ def start_scenario_tracking_scheduler():
     print("[scenario track] 시나리오 적중률 추적 스케줄러 시작 (매일 07:00)")
 
 
+# ── 10-b2. 복합 스크리너 OHLC 캐시 워밍 (첫 '전체' 호출 120초 타임아웃 방지) ────────
+def _screener_warm_loop():
+    """복합 스크리너의 무거운 '전체' 섹터 OHLC를 캐시 TTL(2h) 만료 전에 미리 채운다.
+    서버 시작 직후 1회 + 이후 110분마다. 사용자의 첫 스크리닝이 즉시 응답하게 한다."""
+    while True:
+        try:
+            from api.routers.screener import warm_screener_cache
+            r = warm_screener_cache(sectors=("전체",), markets=("KR", "US"))
+            print(f"[screener warm] 캐시 워밍 완료: {r}")
+        except Exception as e:
+            print(f"[screener warm] 워밍 오류: {e}")
+        _time.sleep(6600)   # 110분 (TTL 7200초보다 짧게 → 만료 전 재충전)
+
+
+@app.on_event("startup")
+def start_screener_warm_scheduler():
+    t = _threading.Thread(target=_screener_warm_loop, daemon=True)
+    t.start()
+    print("[screener warm] 복합 스크리너 캐시 워밍 스케줄러 시작 (시작 시 + 110분마다)")
+
+
 # ── 10-c. 외국인·기관 수급 일일 스냅샷 스케줄러 (세력 자금 이동 추적용) ──────────
 _LAST_SUPPLY_SNAPSHOT_DATE = ""
 

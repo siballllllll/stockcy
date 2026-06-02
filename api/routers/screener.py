@@ -3,6 +3,7 @@ from pydantic import BaseModel
 from typing import List, Optional
 import pandas as pd
 import numpy as np
+import st_compat as st
 
 router = APIRouter()
 
@@ -124,69 +125,88 @@ def _get_us_sector_stocks(sector_name: str) -> dict:
                     result[item['ticker']] = item['name']
     return result
 
-@router.post("/run")
-def run_screener(req: ScreenerRequest):
-    """
-    초고속 yfinance 일괄 다운로드 엔진 기반 복합 스크리너
-    """
-    results = []
+@st.cache_data(ttl=7200)
+def _load_sector_ohlc(market: str, sector: str) -> dict:
+    """섹터 종목들의 1년치 OHLC(소문자 컬럼)를 {code/ticker: DataFrame}로 반환.
+    가장 무거운 단계(yfinance 일괄 다운로드)를 2시간 TTL 캐시로 묶어 재호출을 즉시화한다.
+    (일봉 기반 스크리너라 2시간 staleness 허용. 백그라운드 워밍이 만료 전 재충전)
+    조건 매칭은 이 캐시 위에서 매번 가볍게 수행하므로 사용자가 조건을 바꿔도 빠르다."""
     import yfinance as yf
-    
-    if req.market == "KR":
-        tickers_map = _get_kr_sector_stocks(req.sector)
+    out: dict = {}
+
+    if market == "KR":
+        tickers_map = _get_kr_sector_stocks(sector)
         if not tickers_map:
-            return {"results": []}
-            
+            return {}
         suffix_map = _get_krx_suffix_map()
         yf_tickers = [suffix_map.get(code, code + ".KS") for code in tickers_map.keys()]
         yf_to_code = {suffix_map.get(code, code + ".KS"): code for code in tickers_map.keys()}
-        
-        try:
-            raw = yf.download(yf_tickers, period="1y", auto_adjust=True, progress=False, threads=True)
-            if raw is not None and not raw.empty:
-                is_multi = isinstance(raw.columns, pd.MultiIndex)
-                for yf_tk in yf_tickers:
-                    code = yf_to_code[yf_tk]
-                    if is_multi:
-                        if yf_tk not in raw.columns.levels[1]:
-                            continue
-                        df_t = raw.xs(yf_tk, axis=1, level=1).dropna()
-                    else:
-                        df_t = raw.dropna()
-                        
-                    if not df_t.empty:
-                        df_t = df_t.rename(columns=str.lower)
-                        res = _check_conditions(code, tickers_map[code], df_t, req.conditions)
-                        if res:
-                            results.append(res)
-        except Exception as e:
-            print("KR Screener Error:", e)
-                    
-    elif req.market == "US":
-        tickers_map = _get_us_sector_stocks(req.sector)
+        keys = yf_tickers
+        keymap = yf_to_code
+    elif market == "US":
+        tickers_map = _get_us_sector_stocks(sector)
         if not tickers_map:
-            return {"results": []}
-            
-        tickers_list = list(tickers_map.keys())
-        try:
-            raw = yf.download(tickers_list, period="1y", auto_adjust=True, progress=False, threads=True)
-            if raw is not None and not raw.empty:
-                is_multi = isinstance(raw.columns, pd.MultiIndex)
-                for ticker in tickers_list:
-                    if is_multi:
-                        if ticker not in raw.columns.levels[1]:
-                            continue
-                        df_t = raw.xs(ticker, axis=1, level=1).dropna()
-                    else:
-                        df_t = raw.dropna()
-                    
-                    if not df_t.empty:
-                        df_t = df_t.rename(columns=str.lower)
-                        res = _check_conditions(ticker, tickers_map[ticker], df_t, req.conditions)
-                        if res:
-                            results.append(res)
-        except Exception as e:
-            print("US Screener Error:", e)
+            return {}
+        keys = list(tickers_map.keys())
+        keymap = {k: k for k in keys}
+    else:
+        return {}
+
+    try:
+        raw = yf.download(keys, period="1y", auto_adjust=True, progress=False, threads=True)
+        if raw is None or raw.empty:
+            return {}
+        is_multi = isinstance(raw.columns, pd.MultiIndex)
+        for yf_tk in keys:
+            code = keymap[yf_tk]
+            if is_multi:
+                if yf_tk not in raw.columns.levels[1]:
+                    continue
+                df_t = raw.xs(yf_tk, axis=1, level=1).dropna()
+            else:
+                df_t = raw.dropna()
+            if not df_t.empty:
+                out[code] = df_t.rename(columns=str.lower)
+    except Exception as e:
+        print(f"[screener] {market}/{sector} OHLC 다운로드 실패:", e)
+    return out
+
+
+def warm_screener_cache(sectors=("전체",), markets=("KR", "US")) -> dict:
+    """백그라운드에서 섹터 OHLC 캐시를 미리 채운다(첫 호출 120초 타임아웃 방지).
+    서버 시작 직후 + 매일 1회 호출 권장."""
+    warmed = {}
+    for mkt in markets:
+        for sec in sectors:
+            try:
+                n = len(_load_sector_ohlc(mkt, sec))
+                warmed[f"{mkt}/{sec}"] = n
+            except Exception as e:
+                warmed[f"{mkt}/{sec}"] = f"err: {e}"
+    return warmed
+
+
+@router.post("/run")
+def run_screener(req: ScreenerRequest):
+    """
+    초고속 yfinance 일괄 다운로드 엔진 기반 복합 스크리너 (OHLC 30분 TTL 캐시)
+    """
+    results = []
+
+    ohlc = _load_sector_ohlc(req.market, req.sector)
+    if not ohlc:
+        return {"results": []}
+
+    # 종목명 매핑 (가벼움 — 캐시 대상 아님)
+    if req.market == "KR":
+        names = _get_kr_sector_stocks(req.sector)
+    else:
+        names = _get_us_sector_stocks(req.sector)
+
+    for code, df_t in ohlc.items():
+        res = _check_conditions(code, names.get(code, code), df_t, req.conditions)
+        if res:
+            results.append(res)
 
     # 1순위: 매칭된 개수 내림차순, 2순위: 등락률 내림차순 정렬
     results.sort(key=lambda x: (-x['match_count'], -x['change_pct']))
