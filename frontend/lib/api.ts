@@ -29,6 +29,11 @@ export const api = {
     indices:     ()                         => req("/api/us/indices"),
     session:     ()                         => req("/api/us/session"),
     stocks:      (tickers: string[])        => req(`/api/us/stocks?tickers=${tickers.join(",")}`),
+    pricesBulk:  (tickers: string[]) =>
+      req<Record<string, { price: number; change_pct: number }>>("/api/us/prices-bulk", {
+        method: "POST",
+        body: JSON.stringify({ tickers }),
+      }),
     stockDetail: (ticker: string, exch = "NASDAQ") =>
                                                req(`/api/us/stocks/${ticker}?exchange=${exch}`),
     allStocks:   ()                         => req("/api/us/stocks/all"),

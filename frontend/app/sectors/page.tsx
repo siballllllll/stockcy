@@ -364,13 +364,8 @@ export default function SectorsPage() {
   }, [mapMarket, filteredData, selectedSector]);
 
   const { data: usMapPrices } = useSWR(
-    usMapCodes.length > 0 ? ["us-map-prices", usMapCodes] : null,
-    async ([_, codes]) => {
-      const arr = await api.us.stocks(codes as string[]) as any[];
-      const map: Record<string, { price: number; change_pct: number }> = {};
-      (arr ?? []).forEach((s: any) => { map[s["심볼"]] = { price: s["현재가($)"], change_pct: s["등락률(%)"] }; });
-      return map;
-    },
+    usMapCodes.length > 0 ? ["us-map-prices-kis", usMapCodes] : null,
+    ([_, codes]) => api.us.pricesBulk(codes as string[]),   // KIS 우선 + 서버 60초 캐시
     { refreshInterval: 60000, revalidateOnFocus: false }
   );
 

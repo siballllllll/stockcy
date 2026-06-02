@@ -1,8 +1,28 @@
 """미국 시장 데이터 라우터 — yfinance 기반."""
 from fastapi import APIRouter, Query
+from pydantic import BaseModel
 from typing import List
 
 router = APIRouter()
+
+
+class UsBulkBody(BaseModel):
+    tickers: List[str]
+
+
+@router.post("/prices-bulk")
+def us_prices_bulk(body: UsBulkBody):
+    """US 종목 일괄 시세 — KIS 해외시세 우선(+yfinance 보완), 60초 인메모리 캐시.
+    거래소(EXCD)는 서버가 US 섹터맵에서 해석. 반환: {ticker: {price, change_pct}}."""
+    from db import us_ticker_exchange_map
+    from data_kr import get_us_prices_bulk_kis
+    exmap = us_ticker_exchange_map()
+    # 캐시 적중률을 위해 정렬된 튜플로 전달
+    pairs = tuple(sorted(
+        (t.strip().upper(), exmap.get(t.strip().upper(), "NASDAQ"))
+        for t in body.tickers if t and t.strip()
+    ))
+    return get_us_prices_bulk_kis(pairs)
 
 # 지연 import (data.py 의 무거운 의존성을 요청 시점에만 로드)
 def _data():

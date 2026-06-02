@@ -1732,6 +1732,22 @@ def load_us_sector_map() -> dict:
     return raw
 
 
+@st.cache_data(ttl=43200)
+def us_ticker_exchange_map() -> dict:
+    """US 티커 → 거래소(NASDAQ/NYSE/AMEX) 매핑. KIS 해외시세 EXCD 결정에 사용."""
+    m: dict = {}
+    try:
+        for subs in (load_us_sector_map() or {}).values():
+            for items in (subs or {}).values():
+                for it in (items or []):
+                    tk = str(it.get("ticker", "")).upper()
+                    if tk:
+                        m[tk] = it.get("exchange", "NASDAQ")
+    except Exception:
+        pass
+    return m
+
+
 def init_us_sector_sheet():
     """sectors_us.py 기본 데이터를 Google Sheets 섹터DB_US 탭에 업로드 (덮어쓰기)."""
     sh, msg = _get_spreadsheet()
