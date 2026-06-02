@@ -1218,6 +1218,14 @@ async def get_ai_performance_summary():
     return await asyncio.to_thread(load_ai_performance_summary)
 
 
+@router.get("/confluence")
+async def get_confluence_picks(days: int = 5, min_engines: int = 2):
+    """교차검증 픽 — 여러 AI 엔진이 최근 동시에 잡은 종목(고승률 후보)."""
+    from db import load_confluence_picks
+    picks = await asyncio.to_thread(load_confluence_picks, days, min_engines)
+    return {"picks": picks, "days": days, "min_engines": min_engines}
+
+
 @router.get("/notifications/feed")
 async def get_notification_feed():
     """프론트 벨 알림이 폴링하는 서버측 완료 이벤트(자동 시나리오·트리거된 가격알림 등)."""

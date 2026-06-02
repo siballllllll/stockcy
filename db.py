@@ -3107,6 +3107,80 @@ def load_ai_performance_summary() -> dict:
     }
 
 
+def load_confluence_picks(days: int = 5, min_engines: int = 2) -> list:
+    """교차검증(컨플루언스) 픽 — 여러 AI 엔진이 최근 동시에 잡은 종목을 점수화.
+    독립 신호가 겹칠수록(여러 엔진이 동시 추천) 통계적으로 승률이 높다는 가정.
+    엔진: 시나리오(scenario_stocks)·패턴스크리너(screener_picks)·에이전트(agent_decisions BUY)·AI추천(ai_recommendations).
+    """
+    from collections import defaultdict
+    cutoff = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
+
+    def _norm(t):
+        t = str(t or "").strip()
+        return t.zfill(6) if t.isdigit() and len(t) <= 6 else t.upper()
+
+    def _mkt(t, given=None):
+        if given:
+            return "kr" if str(given).lower() in ("kr", "국내") else "us"
+        return "kr" if str(t).isdigit() else "us"
+
+    agg = defaultdict(lambda: {"name": None, "market": None, "engines": set(), "detail": {}})
+
+    try:
+        conn = get_db_conn()
+        cur = conn.cursor()
+
+        # 1. 시나리오
+        cur.execute("SELECT ticker, name, market, scenario_keyword FROM scenario_stocks WHERE captured_at >= ?", (cutoff,))
+        for r in cur.fetchall():
+            r = dict(r); k = _norm(r["ticker"]); a = agg[k]
+            a["name"] = a["name"] or r["name"]; a["market"] = a["market"] or _mkt(k, r.get("market"))
+            a["engines"].add("시나리오"); a["detail"].setdefault("시나리오", r.get("scenario_keyword") or "")
+
+        # 2. 패턴 스크리너
+        cur.execute("SELECT ticker, name, match_score, signal FROM screener_picks WHERE picked_date >= ?", (cutoff,))
+        for r in cur.fetchall():
+            r = dict(r); k = _norm(r["ticker"]); a = agg[k]
+            a["name"] = a["name"] or r["name"]; a["market"] = a["market"] or _mkt(k)
+            a["engines"].add("패턴스크리너"); a["detail"].setdefault("패턴스크리너", f"매칭 {r.get('match_score','')}점 {r.get('signal','') or ''}".strip())
+
+        # 3. AI 에이전트 (BUY 판단)
+        cur.execute("SELECT ticker, name, market, confidence FROM agent_decisions WHERE action='BUY' AND decided_at >= ?", (cutoff,))
+        for r in cur.fetchall():
+            r = dict(r); k = _norm(r["ticker"]); a = agg[k]
+            a["name"] = a["name"] or r["name"]; a["market"] = a["market"] or _mkt(k, r.get("market"))
+            a["engines"].add("에이전트"); a["detail"].setdefault("에이전트", f"신뢰도 {r.get('confidence','')}%")
+
+        # 4. AI 추천 (단타발굴/종목분석) — 비추천 등급 제외
+        cur.execute("SELECT ticker, name, rec_type, rating FROM ai_recommendations WHERE logged_time >= ?", (cutoff,))
+        for r in cur.fetchall():
+            r = dict(r); rating = str(r.get("rating") or "")
+            if "비추천" in rating:
+                continue
+            k = _norm(r["ticker"]); a = agg[k]
+            a["name"] = a["name"] or r["name"]; a["market"] = a["market"] or _mkt(k)
+            a["engines"].add("AI추천"); a["detail"].setdefault("AI추천", f"{r.get('rec_type','') or ''} {rating}".strip())
+
+        conn.close()
+    except Exception as e:
+        print(f"load_confluence_picks error: {e}")
+        return []
+
+    out = []
+    for k, a in agg.items():
+        if len(a["engines"]) >= min_engines:
+            out.append({
+                "ticker": k,
+                "name": a["name"] or k,
+                "market": a["market"] or _mkt(k),
+                "score": len(a["engines"]),
+                "engines": sorted(a["engines"]),
+                "detail": a["detail"],
+            })
+    out.sort(key=lambda x: (-x["score"], x["name"] or ""))
+    return out
+
+
 def load_notification_feed() -> list:
     """프론트 벨 알림이 폴링하는 서버측 '완료 이벤트' 목록.
     백엔드 스케줄러가 끝낸 작업(브라우저가 꺼져 있어도 진행되는 것들)을 알림으로 노출한다.

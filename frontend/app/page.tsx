@@ -387,15 +387,84 @@ function getPickStatus(rsi?: number, signal?: string) {
   return                        { label: "⚪ 관망",         color: "#888",    bg: "rgba(150,150,150,0.10)", border: "rgba(150,150,150,0.3)" };
 }
 
-type Tab = "picks" | "rotation" | "mypattern" | "supply" | "screener";
+type Tab = "picks" | "confluence" | "rotation" | "mypattern" | "supply" | "screener";
 
 const TABS: { id: Tab; label: string }[] = [
-  { id: "picks",     label: "🎯 AI 타점 포착" },
-  { id: "rotation",  label: "📊 섹터 순환매" },
-  { id: "mypattern", label: "🧠 내 패턴 스크리너" },
-  { id: "supply",    label: "🔄 수급 이동 감지" },
-  { id: "screener",  label: "🔍 복합 스크리너" },
+  { id: "picks",      label: "🎯 AI 타점 포착" },
+  { id: "confluence", label: "🎯 교차검증" },
+  { id: "rotation",   label: "📊 섹터 순환매" },
+  { id: "mypattern",  label: "🧠 내 패턴 스크리너" },
+  { id: "supply",     label: "🔄 수급 이동 감지" },
+  { id: "screener",   label: "🔍 복합 스크리너" },
 ];
+
+// ── 교차검증(컨플루언스) 탭 ────────────────────────────────────────────────────
+function ConfluenceTab({ onSelect }: { onSelect: (s: StockInfo) => void }) {
+  const { data } = useSWR<{ picks: any[] }>(
+    "confluence",
+    async () => {
+      const res = await fetch("/backend/api/ai/confluence?days=7&min_engines=2");
+      return res.json();
+    },
+    { refreshInterval: 120000 }
+  );
+  const picks = data?.picks ?? [];
+  const ENGINE_COLOR: Record<string, string> = {
+    "시나리오": "#a78bfa", "패턴스크리너": "#34d399", "에이전트": "#60a5fa", "AI추천": "#fbbf24",
+  };
+
+  return (
+    <div className="flex flex-col gap-4">
+      <div style={{ fontSize: "0.8rem", color: "var(--color-muted)", lineHeight: 1.6 }}>
+        🎯 여러 AI 엔진(시나리오·패턴스크리너·에이전트·AI추천)이 <b style={{ color: "var(--color-text)" }}>최근 7일 내 동시에</b> 잡은 종목입니다.
+        독립 신호가 겹칠수록 승률이 높은 경향이 있어, 겹친 엔진 수(점수)가 높을수록 상단에 노출됩니다.
+      </div>
+      {picks.length === 0 ? (
+        <div className="stockcy-card p-8 text-center text-zinc-500 text-sm">
+          아직 2개 이상 엔진이 동시에 잡은 종목이 없습니다. 각 엔진을 실행해 픽이 쌓이면 표시됩니다.
+        </div>
+      ) : (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: "12px" }}>
+          {picks.map((p: any) => {
+            const isKr = p.market === "kr";
+            return (
+              <div key={p.ticker}
+                onClick={() => onSelect({ code: p.ticker, name: p.name, market: isKr ? "국내" : "미국" })}
+                className="stockcy-card cursor-pointer hover:border-indigo-500/40 transition-colors"
+                style={{ padding: "12px 14px", display: "flex", flexDirection: "column", gap: "8px", border: "1px solid var(--color-border)" }}
+              >
+                <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                  <span style={{ fontSize: "1.1rem", fontWeight: 900, color: "var(--color-accent)", minWidth: "26px" }}>×{p.score}</span>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontWeight: 800, fontSize: "0.92rem", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name}</div>
+                    <div style={{ fontSize: "0.68rem", color: "var(--color-muted)" }}>{p.ticker} · {isKr ? "🇰🇷 국내" : "🇺🇸 미국"}</div>
+                  </div>
+                </div>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: "4px" }}>
+                  {p.engines.map((e: string) => (
+                    <span key={e} style={{
+                      fontSize: "0.62rem", fontWeight: 700, padding: "2px 7px", borderRadius: "99px",
+                      color: ENGINE_COLOR[e] || "#9ca3af",
+                      background: `${ENGINE_COLOR[e] || "#9ca3af"}22`,
+                      border: `1px solid ${ENGINE_COLOR[e] || "#9ca3af"}55`,
+                    }}>{e}</span>
+                  ))}
+                </div>
+                {p.detail && Object.keys(p.detail).length > 0 && (
+                  <div style={{ fontSize: "0.64rem", color: "var(--color-muted)", lineHeight: 1.5, borderTop: "1px solid var(--color-border)", paddingTop: "6px" }}>
+                    {Object.entries(p.detail).map(([k, v]: [string, any]) => v ? (
+                      <div key={k}><b style={{ color: ENGINE_COLOR[k] || "#9ca3af" }}>{k}</b> {String(v)}</div>
+                    ) : null)}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
 
 export default function Dashboard() {
   const router = useRouter();
@@ -446,6 +515,8 @@ export default function Dashboard() {
       <div style={{ display: activeTab === "picks" ? "block" : "none" }}>
         <PicksBoard />
       </div>
+
+      {activeTab === "confluence" && <ConfluenceTab onSelect={setSelectedStock} />}
 
       {/* 섹터 순환매 */}
       {activeTab === "rotation" && (
