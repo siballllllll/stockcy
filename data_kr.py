@@ -773,9 +773,18 @@ def _sector_backfill_worker(days: int, throttle: float):
         _SECTOR_BF_JOB["current"] = ""
         if completed:
             try:
-                from db import delete_ai_cache
+                from db import delete_ai_cache, load_sector_flow_dates
                 delete_ai_cache(_SECTOR_BF_TARGET_KEY)
-                print(f"[sector backfill] 완료 — 타겟 정리 (총 {days}거래일 윈도우)")
+                ds = load_sector_flow_dates(3650)
+                print(f"[sector backfill] 완료 — 타겟 정리 (총 {days}거래일 윈도우, 적재 {len(ds)}일)")
+                # 완료 텔레그램 알림
+                try:
+                    import telegram_bot as tg
+                    if tg.is_configured():
+                        rng = f"{ds[-1]} ~ {ds[0]}" if ds else "-"
+                        tg.send_message(f"✅ 섹터 자금 흐름 백필 완료\n적재 거래일 {len(ds)}일 ({rng})\n시나리오 → 시장 인사이트 탭에서 섹터 추세·지속매집 분석 확인 가능")
+                except Exception:
+                    pass
             except Exception:
                 pass
 

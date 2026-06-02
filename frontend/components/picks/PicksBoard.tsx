@@ -1,6 +1,7 @@
 "use client";
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
+import { AiCostBadge } from "@/components/ui/AiCostBadge";
 import {
   Target, TrendingUp, AlertCircle, Clock, Activity, Loader2, RefreshCw,
   LayoutGrid, List, Star, Pin, ChevronRight, CheckCircle,
@@ -241,6 +242,7 @@ export function PicksBoard() {
           <h1 style={{ fontSize: "1.6rem", fontWeight: 800, margin: "0 0 0.5rem 0", display: "flex", alignItems: "center", gap: "8px" }}>
             <Target color="var(--color-danger)" />
             {isKR ? "🇰🇷 국내 실시간 타점 포착" : "🇺🇸 미국 실시간 타점 포착"}
+            <AiCostBadge />
           </h1>
           <div style={{ fontSize: "0.85rem", color: "var(--color-muted)", display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap" }}>
             <Activity size={14} />

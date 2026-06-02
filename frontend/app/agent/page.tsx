@@ -594,6 +594,7 @@ export default function AgentDashboardPage() {
               {scanningNow ? <Loader2 className="animate-spin" size={14} /> : <Brain size={14} />}
               {scanningNow ? "스캔 중..." : "지금 스캔 실행"}
             </button>
+            <AiCostBadge />
             <span style={{ fontSize: "0.78rem", color: "var(--color-muted)" }}>
               {scanNowMsg || "30분 주기를 기다리지 않고 즉시 1회 점검 (휴장에도 즐겨찾기·보유종목 분석)"}
             </span>
