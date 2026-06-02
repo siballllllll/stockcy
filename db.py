@@ -3290,6 +3290,46 @@ def load_confluence_picks(days: int = 5, min_engines: int = 2) -> list:
     return out
 
 
+def load_exit_guidance() -> dict:
+    """청산 가이드 — 백테스트(screener_backtest_results)의 d1/d3/d7 사후 분포로
+    최적 보유기간·목표가·손절을 제안. 승률은 진입만큼 청산이 좌우하므로."""
+    out = {"samples": 0, "horizons": [], "best": None, "suggest_target": None, "suggest_stop": None}
+    try:
+        conn = get_db_conn()
+        cur = conn.cursor()
+        cur.execute("SELECT d1_return, d3_return, d7_return FROM screener_backtest_results WHERE d1_return IS NOT NULL")
+        rows = [dict(r) for r in cur.fetchall()]
+        conn.close()
+        if not rows:
+            return out
+        out["samples"] = len(rows)
+        kmap = {"1일": "d1_return", "3일": "d3_return", "7일": "d7_return"}
+        for label, key in kmap.items():
+            vals = [r[key] for r in rows if r.get(key) is not None]
+            if not vals:
+                continue
+            wins = [v for v in vals if v > 0]
+            out["horizons"].append({
+                "horizon": label, "n": len(vals),
+                "avg": round(sum(vals) / len(vals), 2),
+                "win_rate": round(len(wins) / len(vals) * 100, 1),
+            })
+        if out["horizons"]:
+            best = max(out["horizons"], key=lambda h: (h["win_rate"], h["avg"]))
+            out["best"] = best["horizon"]
+            k = kmap[best["horizon"]]
+            wv = [r[k] for r in rows if r.get(k) is not None and r[k] > 0]
+            lv = [r[k] for r in rows if r.get(k) is not None and r[k] < 0]
+            if wv:
+                out["suggest_target"] = round(sum(wv) / len(wv), 1)
+            if lv:
+                out["suggest_stop"] = round(sum(lv) / len(lv), 1)
+        return out
+    except Exception as e:
+        print(f"load_exit_guidance error: {e}")
+        return out
+
+
 def load_notification_feed() -> list:
     """프론트 벨 알림이 폴링하는 서버측 '완료 이벤트' 목록.
     백엔드 스케줄러가 끝낸 작업(브라우저가 꺼져 있어도 진행되는 것들)을 알림으로 노출한다.

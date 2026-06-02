@@ -434,6 +434,26 @@ function RegimeBanner() {
   );
 }
 
+// ── 청산 가이드 (백테스트 기반 최적 보유기간/목표/손절) ──────────────────────────
+function ExitGuidance() {
+  const { data } = useSWR<any>("exit-guidance", async () => {
+    const res = await fetch("/backend/api/ai/exit-guidance");
+    return res.json();
+  }, { refreshInterval: 600000 });
+  if (!data || !data.samples) return null;
+  return (
+    <div style={{ background: "rgba(168,85,247,0.07)", border: "1px solid rgba(168,85,247,0.25)", borderRadius: "8px", padding: "8px 12px", fontSize: "0.72rem" }}>
+      <span style={{ fontWeight: 800, color: "#c084fc" }}>🏁 청산 가이드</span>
+      <span style={{ color: "var(--color-muted)", marginLeft: "6px" }}>(백테스트 {data.samples}건)</span>
+      <span style={{ marginLeft: "8px", color: "var(--color-text)" }}>
+        최적 보유 <b style={{ color: "#c084fc" }}>{data.best}</b>
+        {data.suggest_target != null && <> · 목표 <b style={{ color: "#34d399" }}>+{data.suggest_target}%</b></>}
+        {data.suggest_stop != null && <> · 손절 <b style={{ color: "#f87171" }}>{data.suggest_stop}%</b></>}
+      </span>
+    </div>
+  );
+}
+
 // ── 교차검증(컨플루언스) 탭 ────────────────────────────────────────────────────
 function ConfluenceTab({ onSelect }: { onSelect: (s: StockInfo) => void }) {
   const { data } = useSWR<{ picks: any[] }>(
@@ -452,6 +472,7 @@ function ConfluenceTab({ onSelect }: { onSelect: (s: StockInfo) => void }) {
   return (
     <div className="flex flex-col gap-4">
       <RegimeBanner />
+      <ExitGuidance />
       <div style={{ fontSize: "0.8rem", color: "var(--color-muted)", lineHeight: 1.6 }}>
         🎯 여러 AI 엔진(시나리오·패턴스크리너·에이전트·AI추천)이 <b style={{ color: "var(--color-text)" }}>최근 7일 내 동시에</b> 잡은 종목입니다.
         독립 신호가 겹칠수록 승률이 높은 경향이 있어, 겹친 엔진 수(점수)가 높을수록 상단에 노출됩니다.

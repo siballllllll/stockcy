@@ -1218,6 +1218,13 @@ async def get_ai_performance_summary():
     return await asyncio.to_thread(load_ai_performance_summary)
 
 
+@router.get("/exit-guidance")
+async def get_exit_guidance_ep():
+    """청산 가이드 — 백테스트 분포 기반 최적 보유기간·목표가·손절."""
+    from db import load_exit_guidance
+    return await asyncio.to_thread(load_exit_guidance)
+
+
 @router.get("/market-regime")
 async def get_market_regime_ep():
     """현재 시장 레짐(추세/변동성/리스크 자세) — KOSPI·S&P500 기반."""

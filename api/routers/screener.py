@@ -66,6 +66,18 @@ def _check_conditions(ticker: str, name: str, df: pd.DataFrame, conditions: List
     if not matched_conditions:
         return None
 
+    # ── 후보풀 정화: 극저유동(상폐/페니) 종목 제외 — 평균 거래대금 하한 ──────────
+    try:
+        _vcol = 'volume' if 'volume' in df.columns else '거래량'
+        _avg_vol5 = float(df.tail(6).iloc[:-1][_vcol].mean() or 0)
+        _turnover = _avg_vol5 * close
+        _is_kr = str(ticker).isdigit()
+        _floor = 5e7 if _is_kr else 5e5   # KR 5천만원 / US $50만 미만은 제외
+        if not (_turnover and _turnover >= _floor):
+            return None
+    except Exception:
+        pass
+
     # ── 학습된 정량 신뢰도 평가 (과거 승률 대조) ──────────────────────────────
     rel = None
     try:
