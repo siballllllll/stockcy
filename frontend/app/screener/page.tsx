@@ -1,5 +1,5 @@
 "use client";
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import useSWR from "swr";
 import { api } from "@/lib/api";
 import { Filter, Search, BarChart2, Activity, Play, RefreshCw, X, Loader2, TrendingUp, Layers } from "lucide-react";
@@ -229,6 +229,15 @@ export function ScreenerPanel() {
 
   // 밸류체인 팝업 모달 상태
   const [valChainTarget, setValChainTarget] = useState<{ sector: string; subSector: string } | null>(null);
+
+  // URL 쿼리(?market=&sector=)로 진입 시 해당 시장/섹터 자동 선택 (섹터 칩 클릭 연동)
+  useEffect(() => {
+    const sp = new URLSearchParams(window.location.search);
+    const m = sp.get("market");
+    const s = sp.get("sector");
+    if (m === "KR" || m === "US") setMarket(m);
+    if (s) setSelectedSector(s);
+  }, []);
 
   // KR / US 섹터 목록 가져오기
   const { data: sectorMapData } = useSWR(

@@ -147,13 +147,18 @@ function FavRow({ fav, price, onRemove, onAnalyze, onSaveMemo, gapBulkMap }: {
       {/* 섹터 줄 — 좌측 섹터, 우측 현황 배지(약세흐름·매수매력·관망 등) */}
       <div style={{ minHeight: "20px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: "6px" }}>
         {fav["섹터"] ? (
-          <span style={{
-            fontSize: "0.66rem", padding: "2px 7px", borderRadius: "99px",
-            background: "rgba(129,140,248,0.12)", color: "#a5b4fc",
-            border: "1px solid rgba(129,140,248,0.3)", fontWeight: 700,
-            overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0,
-          }}>
-            🏷️ {fav["섹터"]}
+          <span
+            onClick={() => router.push(`/screener?market=${isKr ? "KR" : "US"}&sector=${encodeURIComponent(fav["섹터"]!)}`)}
+            title={`'${fav["섹터"]}' 섹터 스크리너로 이동`}
+            style={{
+              fontSize: "0.66rem", padding: "2px 7px", borderRadius: "99px",
+              background: "rgba(129,140,248,0.12)", color: "#a5b4fc",
+              border: "1px solid rgba(129,140,248,0.3)", fontWeight: 700,
+              overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0,
+              cursor: "pointer",
+            }}
+          >
+            🏷️ {fav["섹터"]} ↗
           </span>
         ) : (
           <span style={{ fontSize: "0.66rem", color: "var(--color-muted)", minWidth: 0 }}>🏷️ 섹터 미분류</span>

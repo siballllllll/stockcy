@@ -1,6 +1,6 @@
 "use client";
 import { useState, useEffect, useRef, useMemo, Suspense } from "react";
-import { useSearchParams } from "next/navigation";
+import { useSearchParams, useRouter } from "next/navigation";
 import useSWR from "swr";
 import { api, connectSSE } from "@/lib/api";
 import { useMarket } from "@/lib/market-context";
@@ -212,6 +212,7 @@ function SearchPageInner() {
   const currSymbol = isKR ? "₩" : "$";
 
   const searchParams = useSearchParams();
+  const router = useRouter();
   const { notifyDone } = useAiTask();
   const [searchQuery, setSearchQuery] = useState("");
   const [activeTab, setActiveTab] = useState("시세");
@@ -917,12 +918,16 @@ function SearchPageInner() {
             {/* 섹터 정보 */}
             {sectorInfo && (
               <div style={{ display: "flex", alignItems: "center", gap: "6px", marginTop: "4px", marginBottom: "4px" }}>
-                <span style={{
-                  fontSize: "0.75rem", fontWeight: 700, padding: "2px 8px",
-                  background: "rgba(99,102,241,0.15)", border: "1px solid rgba(99,102,241,0.4)",
-                  borderRadius: "4px", color: "#818cf8",
-                }}>
-                  {sectorInfo.sector}
+                <span
+                  onClick={() => router.push(`/screener?market=${isKR ? "KR" : "US"}&sector=${encodeURIComponent(sectorInfo.sector)}`)}
+                  title={`'${sectorInfo.sector}' 섹터 스크리너로 이동`}
+                  style={{
+                    fontSize: "0.75rem", fontWeight: 700, padding: "2px 8px",
+                    background: "rgba(99,102,241,0.15)", border: "1px solid rgba(99,102,241,0.4)",
+                    borderRadius: "4px", color: "#818cf8", cursor: "pointer",
+                  }}
+                >
+                  {sectorInfo.sector} ↗
                 </span>
                 <span style={{ fontSize: "0.72rem", color: "var(--color-muted)" }}>›</span>
                 <span style={{
