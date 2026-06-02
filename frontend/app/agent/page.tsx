@@ -4,6 +4,7 @@ import useSWR from "swr";
 import { api } from "@/lib/api";
 import { Brain, TrendingUp, History, Clock, Loader2, Sparkles } from "lucide-react";
 import { StatusBox } from "@/components/ui/StatusBox";
+import { AiCostBadge } from "@/components/ui/AiCostBadge";
 
 const BASE_URL = "/backend";
 
@@ -265,6 +266,7 @@ export default function AgentDashboardPage() {
             ? <><Loader2 size={14} className="animate-spin" /> 갭 분석 중...</>
             : <><Sparkles size={14} /> 🌙 시간외 갭 일괄 분석</>}
         </button>
+        <AiCostBadge />
       </div>
 
       <div style={{ marginBottom: "2rem" }}>

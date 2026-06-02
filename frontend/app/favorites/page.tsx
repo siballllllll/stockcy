@@ -11,6 +11,7 @@ import { Card } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
 import { StatusBox } from "@/components/ui/StatusBox";
 import { MarkdownLite } from "@/components/ui/MarkdownLite";
+import { AiCostBadge } from "@/components/ui/AiCostBadge";
 import { Skeleton } from "@/components/ui/LoadingSpinner";
 import { SSEPanel } from "@/components/ui/SSEPanel";
 import { StockModal } from "@/components/ui/StockModal";
@@ -895,7 +896,7 @@ function PortfolioTab({ gapBulkMap }: { gapBulkMap: Record<string, any> }) {
         <div style={{ background: "var(--color-surface)", border: "1px solid var(--color-accent)", borderRadius: "8px", padding: "1rem" }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.75rem" }}>
             <div style={{ fontWeight: 700, fontSize: "0.95rem" }}>
-              🤖 {sellTarget.name} AI 매도 타이밍 분석
+              🤖 {sellTarget.name} AI 매도 타이밍 분석 <AiCostBadge small />
               <span style={{ fontSize: "0.75rem", color: "var(--color-muted)", marginLeft: "8px" }}>평단 {sellTarget.isUs ? `$${sellTarget.buy_price}` : `₩${Number(sellTarget.buy_price).toLocaleString()}`}</span>
             </div>
             <button className="stockcy-btn stockcy-btn-secondary" style={{ padding: "2px 8px", fontSize: "0.75rem" }} onClick={() => setSellTarget(null)}>✕</button>
@@ -1717,7 +1718,7 @@ function TradesTab() {
 
               {/* AI 내러티브 */}
               <div style={{ background: "rgba(0,0,0,0.2)", borderRadius: "8px", padding: "1rem 1.2rem" }}>
-                <div style={{ fontSize: "0.78rem", fontWeight: 600, color: "#a78bfa", marginBottom: "0.6rem" }}>AI 패턴 분석 리포트</div>
+                <div style={{ fontSize: "0.78rem", fontWeight: 600, color: "#a78bfa", marginBottom: "0.6rem" }}>AI 패턴 분석 리포트 <AiCostBadge small /></div>
                 <MarkdownLite text={patternResult.ai_narrative} style={{ fontSize: "0.84rem", color: "var(--color-text)", lineHeight: 1.7 }} />
               </div>
             </div>
@@ -1998,6 +1999,7 @@ export default function FavoritesPage() {
               </>
             )}
           </button>
+          <AiCostBadge />
 
           <button className="stockcy-btn stockcy-btn-secondary" onClick={() => refetchFavs()}>
             <RefreshCw size={13} /> 새로고침

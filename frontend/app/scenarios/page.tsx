@@ -9,6 +9,7 @@ import { useAnalysisReady } from "@/lib/analysis-ready-context";
 import { MarkdownLite } from "@/components/ui/MarkdownLite";
 import { SupplyPowerFlow } from "@/components/SupplyPowerFlow";
 import { SectorTrend } from "@/components/SectorTrend";
+import { AiCostBadge } from "@/components/ui/AiCostBadge";
 
 // Next.js 프록시 우회 — 프록시가 큰 done JSON을 버퍼링해서 결과가 안 뜨는 문제 방지
 const BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8000";
@@ -1224,6 +1225,7 @@ function MarketCommentaryCard() {
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "0.5rem" }}>
         <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", fontWeight: 800, fontSize: "0.98rem", color: "var(--color-text)" }}>
           📰 시장 해설 <span style={{ fontSize: "0.76rem", color: "var(--color-muted)", fontWeight: 600 }}>왜 지금 장이 이렇게 움직이나</span>
+          <AiCostBadge small />
           {status === "done" && data && !data.error && !seen && (
             <span title="새 시장 해설 업데이트 — 펴기" style={{ width: 9, height: 9, borderRadius: "50%", background: "#34d399", boxShadow: "0 0 6px 1px rgba(52,211,153,0.7)", display: "inline-block", animation: "mcBlink 1.1s infinite" }} />
           )}
