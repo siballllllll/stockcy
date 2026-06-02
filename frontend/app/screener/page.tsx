@@ -219,7 +219,7 @@ const KR_CONDITIONS = [
   { id: "macd_golden_cross", label: "📈 MACD 골든크로스 (0선 부근 돌파)" },
 ];
 
-export default function ScreenerPage() {
+export function ScreenerPanel() {
   const router = useRouter();
   const [market, setMarket] = useState("KR");
   const [selectedSector, setSelectedSector] = useState("전체");
@@ -511,4 +511,9 @@ export default function ScreenerPage() {
       />
     </div>
   );
+}
+
+// /screener 라우트는 패널을 그대로 렌더 (대시보드 허브 탭에서도 동일 컴포넌트 재사용)
+export default function ScreenerPage() {
+  return <ScreenerPanel />;
 }
