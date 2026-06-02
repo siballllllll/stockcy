@@ -1705,7 +1705,7 @@ function ScenariosPageInner() {
                   border: "1px solid " + (insightTab === k ? "var(--color-accent)" : "var(--color-border)"),
                   background: insightTab === k ? "rgba(99,102,241,0.15)" : "transparent",
                   color: insightTab === k ? "var(--color-text)" : "var(--color-muted)" }}>
-                {label}
+                {label}{k === "scenario" && <span style={{ marginLeft: 5 }}><AiCostBadge small /></span>}
               </button>
             ))}
           </div>

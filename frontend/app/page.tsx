@@ -10,6 +10,7 @@ import { StockModal } from "@/components/ui/StockModal";
 import type { StockInfo } from "@/components/ui/StockModal";
 import { MarkdownLite } from "@/components/ui/MarkdownLite";
 import { SupplyPowerFlow } from "@/components/SupplyPowerFlow";
+import { AiCostBadge } from "@/components/ui/AiCostBadge";
 import useSWR from "swr";
 
 function EntryTimingStats() {
@@ -696,7 +697,7 @@ export default function Dashboard() {
               {data.ai_narrative && (
                 <div style={{ background: "rgba(124,58,237,0.06)", border: "1px solid rgba(124,58,237,0.2)", borderRadius: "10px", padding: "1.1rem 1.3rem" }}>
                   <div style={{ fontSize: "0.78rem", fontWeight: 700, color: "#a78bfa", marginBottom: "0.75rem", display: "flex", alignItems: "center", gap: "0.4rem" }}>
-                    🧠 AI 진입 전략
+                    🧠 AI 진입 전략 <AiCostBadge small />
                   </div>
                   <MarkdownLite text={data.ai_narrative} style={{ fontSize: "0.87rem", color: "var(--color-text)", lineHeight: 1.85 }} />
                 </div>
@@ -777,7 +778,7 @@ export default function Dashboard() {
               {/* AI 수급 이동 분석 */}
               {data.narrative && (
                 <div style={{ background: "rgba(245,158,11,0.05)", border: "1px solid rgba(245,158,11,0.15)", borderRadius: "10px", padding: "1.1rem 1.3rem" }}>
-                  <div style={{ fontSize: "0.78rem", fontWeight: 700, color: "#fbbf24", marginBottom: "0.75rem" }}>🔄 AI 수급 이동 분석</div>
+                  <div style={{ fontSize: "0.78rem", fontWeight: 700, color: "#fbbf24", marginBottom: "0.75rem" }}>🔄 AI 수급 이동 분석 <AiCostBadge small /></div>
                   <MarkdownLite text={data.narrative} style={{ fontSize: "0.87rem", color: "var(--color-text)", lineHeight: 1.85 }} />
                 </div>
               )}
@@ -832,7 +833,7 @@ export default function Dashboard() {
               {/* AI 분석 */}
               {data.narrative && (
                 <div style={{ background: "rgba(245,158,11,0.05)", border: "1px solid rgba(245,158,11,0.15)", borderRadius: "10px", padding: "1.1rem 1.3rem" }}>
-                  <div style={{ fontSize: "0.78rem", fontWeight: 700, color: "#fbbf24", marginBottom: "0.75rem" }}>🇺🇸 AI 수급 이동 분석</div>
+                  <div style={{ fontSize: "0.78rem", fontWeight: 700, color: "#fbbf24", marginBottom: "0.75rem" }}>🇺🇸 AI 수급 이동 분석 <AiCostBadge small /></div>
                   <MarkdownLite text={data.narrative} style={{ fontSize: "0.87rem", color: "var(--color-text)", lineHeight: 1.85 }} />
                 </div>
               )}

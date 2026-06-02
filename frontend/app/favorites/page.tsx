@@ -395,7 +395,7 @@ function CapitalRotationCard({ singleTicker, singleName, onClose }: { singleTick
     <div style={{ background: "rgba(99,102,241,0.05)", border: "1px solid rgba(99,102,241,0.2)", borderRadius: "10px", padding: "1rem 1.2rem", display: "flex", flexDirection: "column", gap: "0.75rem" }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
         <div style={{ fontSize: "0.85rem", fontWeight: 800, color: "#a5b4fc", display: "flex", alignItems: "center", gap: "0.4rem" }}>
-          🔄 자금 회전 분석 {isSingle && <span style={{ color: "var(--color-text)" }}>— {singleName ?? singleTicker}</span>}
+          🔄 자금 회전 분석 <AiCostBadge small /> {isSingle && <span style={{ color: "var(--color-text)" }}>— {singleName ?? singleTicker}</span>}
         </div>
         {isSingle ? (
           <div style={{ display: "flex", gap: "6px" }}>
@@ -1081,7 +1081,7 @@ function PostmortemModal({ trade, onClose, onRefresh }: { trade: any; onClose: (
         maxHeight: "90vh", overflowY: "auto"
       }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem" }}>
-          <h2 style={{ fontSize: "1.2rem", fontWeight: 700, margin: 0 }}>🧠 {trade["종목명"]} AI 복기 리포트</h2>
+          <h2 style={{ fontSize: "1.2rem", fontWeight: 700, margin: 0 }}>🧠 {trade["종목명"]} AI 복기 리포트 <AiCostBadge small /></h2>
           <button className="stockcy-btn" style={{ padding: "4px 8px" }} onClick={() => { onClose(); if (pmStatus === "done") onRefresh(); }}>✕</button>
         </div>
         

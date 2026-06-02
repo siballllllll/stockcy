@@ -25,7 +25,7 @@ export function AiCostBadge({ label = "AI 비용", small = false }: { label?: st
         flexShrink: 0,
       }}
     >
-      ⚡ {label}
+      🪙 {label}
     </span>
   );
 }

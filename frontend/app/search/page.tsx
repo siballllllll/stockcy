@@ -8,6 +8,7 @@ import { useAiTask } from "@/contexts/AiTaskContext";
 import { Search, Star, Briefcase, Bell, BarChart2, DollarSign, Activity, Loader2, PlusCircle, X } from "lucide-react";
 import Chart from "@/components/Chart";
 import { MarkdownLite } from "@/components/ui/MarkdownLite";
+import { AiCostBadge } from "@/components/ui/AiCostBadge";
 import ReactMarkdown from "react-markdown";
 
 // ── 종목 AI 분석 결과 localStorage 캐시 (페이지 이동 후 복원용, 6시간 유효) ──
@@ -1559,7 +1560,7 @@ function SearchPageInner() {
           {activeTab === "AI 분석" && (
             <div className="stockcy-card" style={{ flex: 1, display: "flex", flexDirection: "column", padding: "1.5rem", gap: "1rem" }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <h3 style={{ fontSize: "1.1rem", fontWeight: 700, margin: 0 }}>🧠 AI 심층 리포트 및 타점 분석</h3>
+                <h3 style={{ fontSize: "1.1rem", fontWeight: 700, margin: 0 }}>🧠 AI 심층 리포트 및 타점 분석 <AiCostBadge small /></h3>
                 <button
                   onClick={isKR ? runAiAnalysis : runUsAiAnalysis}
                   disabled={aiStatus === "loading"}
@@ -1713,7 +1714,7 @@ function SearchPageInner() {
                   </div>
 
                   <div style={{ display: "flex", flexDirection: "column", gap: "8px", fontSize: "0.85rem", background: "rgba(0,0,0,0.15)", padding: "14px", borderRadius: "8px", border: "1px solid var(--color-border)" }}>
-                    <div style={{ fontWeight: 700, borderBottom: "1px solid rgba(255,255,255,0.1)", paddingBottom: "6px", marginBottom: "4px" }}>📌 AI 차트 & 수급 진단 소견</div>
+                    <div style={{ fontWeight: 700, borderBottom: "1px solid rgba(255,255,255,0.1)", paddingBottom: "6px", marginBottom: "4px" }}>📌 AI 차트 & 수급 진단 소견 <AiCostBadge small /></div>
                     <MarkdownLite text={boxResult.pattern_view} style={{ lineHeight: 1.6 }} />
                   </div>
 

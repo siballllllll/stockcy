@@ -6,6 +6,7 @@ import { SSEPanel } from "@/components/ui/SSEPanel";
 import { Accordion } from "@/components/ui/Accordion";
 import { StatusBox } from "@/components/ui/StatusBox";
 import { MarkdownLite } from "@/components/ui/MarkdownLite";
+import { AiCostBadge } from "@/components/ui/AiCostBadge";
 import { Badge } from "@/components/ui/Badge";
 import { StockModal } from "@/components/ui/StockModal";
 import type { StockInfo } from "@/components/ui/StockModal";
@@ -188,7 +189,7 @@ export default function MacroPage() {
 
       {/* ── 투 컬럼: 주도 섹터 브리핑 + 마인드맵 ─────────────────────── */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem", alignItems: "start" }}>
-        <Card title={<span style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}><TrendingUp size={15} style={{ color: "var(--color-accent)" }} />오늘의 주도 섹터</span>}>
+        <Card title={<span style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}><TrendingUp size={15} style={{ color: "var(--color-accent)" }} />오늘의 주도 섹터 <AiCostBadge small /></span>}>
           <SSEPanel<DailyBriefing>
             status={briefing.status} message={briefing.message}
             result={briefing.result} fromCache={briefing.fromCache}
@@ -205,7 +206,7 @@ export default function MacroPage() {
           </SSEPanel>
         </Card>
 
-        <Card title={<span style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}><Map size={15} style={{ color: "var(--color-info)" }} />급등/급락 마인드맵</span>}>
+        <Card title={<span style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}><Map size={15} style={{ color: "var(--color-info)" }} />급등/급락 마인드맵 <AiCostBadge small /></span>}>
           <MindmapPanel />
         </Card>
       </div>
