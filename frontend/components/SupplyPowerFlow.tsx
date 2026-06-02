@@ -37,17 +37,23 @@ function FlowRow({ x, inflow }: { x: FlowItem; inflow: boolean }) {
 export function SupplyPowerFlow() {
   const [flow, setFlow] = useState<any>(null);
   const [rotation, setRotation] = useState<any>(null);
+  const [sectorToday, setSectorToday] = useState<any[]>([]);
+  const [sectorRot, setSectorRot] = useState<any>(null);
   const [mkt, setMkt] = useState<"J" | "Q">("J");
   const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [f, r] = await Promise.all([
+      const [f, r, sf, sr] = await Promise.all([
         fetch(`${BASE}/api/kr/supply-power-flow`).then(res => res.json()).catch(() => null),
         fetch(`${BASE}/api/kr/supply-rotation`).then(res => res.json()).catch(() => null),
+        fetch(`${BASE}/api/kr/sector-flow?days=1`).then(res => res.json()).catch(() => null),
+        fetch(`${BASE}/api/kr/sector-rotation`).then(res => res.json()).catch(() => null),
       ]);
       setFlow(f); setRotation(r);
+      setSectorToday(sf?.series || []);
+      setSectorRot(sr);
     } catch { /* 무시 */ }
     finally { setLoading(false); }
   }, []);
@@ -122,6 +128,36 @@ export function SupplyPowerFlow() {
               </div>
             )}
           </div>
+
+          {/* 섹터 자금 흐름 / 로테이션 */}
+          {sectorToday.length > 0 && (
+            <div style={{ marginTop: "0.9rem", borderTop: "1px solid var(--color-border)", paddingTop: "0.6rem" }}>
+              <div style={{ fontSize: "0.74rem", fontWeight: 800, color: "var(--color-text)", marginBottom: "5px" }}>
+                🔀 섹터 자금 흐름 <span style={{ fontSize: "0.66rem", color: "var(--color-muted)", fontWeight: 600 }}>오늘 세력 집중 섹터</span>
+              </div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: "5px", marginBottom: "6px" }}>
+                {[...sectorToday].sort((a, b) => (b.combined_sum || 0) - (a.combined_sum || 0)).slice(0, 8).map((s: any, i: number) => {
+                  const pos = (s.combined_sum || 0) >= 0;
+                  return (
+                    <span key={i} style={{ fontSize: "0.7rem", padding: "2px 7px", borderRadius: "5px", background: pos ? "rgba(239,68,68,0.1)" : "rgba(96,165,250,0.1)", border: `1px solid ${pos ? "rgba(239,68,68,0.3)" : "rgba(96,165,250,0.3)"}`, color: pos ? "#f87171" : "#60a5fa", fontWeight: 700 }}>
+                      {s.sector} {pos ? "+" : ""}{fmt(s.combined_sum)}주
+                    </span>
+                  );
+                })}
+              </div>
+              {sectorRot?.available ? (
+                <div style={{ fontSize: "0.7rem", color: "var(--color-subtle)", lineHeight: 1.6 }}>
+                  <span style={{ color: "#f87171", fontWeight: 700 }}>↗ 자금 유입 전환:</span> {(sectorRot.into || []).slice(0, 3).map((x: any) => x.sector).join(", ") || "-"}<br />
+                  <span style={{ color: "#60a5fa", fontWeight: 700 }}>↘ 자금 이탈 전환:</span> {(sectorRot.outof || []).slice(0, 3).map((x: any) => x.sector).join(", ") || "-"}
+                  <span style={{ color: "var(--color-muted)", fontSize: "0.64rem" }}> ({sectorRot.prev}→{sectorRot.today})</span>
+                </div>
+              ) : (
+                <div style={{ fontSize: "0.68rem", color: "var(--color-muted)" }}>
+                  {sectorRot?.reason || "섹터 로테이션은 2거래일 쌓이면 표시됩니다"}{sectorRot?.have_dates?.length ? ` (현재 ${sectorRot.have_dates.length}일치)` : ""}
+                </div>
+              )}
+            </div>
+          )}
 
           <div style={{ marginTop: "0.6rem", fontSize: "0.66rem", color: "var(--color-muted)", lineHeight: 1.5 }}>
             💡 외국인·기관이 <b>함께 순매수</b>(동반매수)하는 종목 = 강한 세력 유입 신호. {flow?.generated_at} 기준.

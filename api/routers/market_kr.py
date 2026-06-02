@@ -204,12 +204,44 @@ def kr_supply_rotation():
 
 @router.post("/supply-snapshot")
 def kr_supply_snapshot():
-    """오늘의 외국인·기관 수급 스냅샷 즉시 저장 (수동 트리거; 스케줄러도 매일 호출)."""
+    """오늘의 외국인·기관 수급 스냅샷 즉시 저장 (종목 + 섹터). 스케줄러도 매일 호출."""
     import data_kr
     try:
-        return data_kr.snapshot_frgn_inst_today()
+        stock_res = data_kr.snapshot_frgn_inst_today()
+        sector_res = data_kr.snapshot_sector_flow_today()
+        return {**stock_res, "sector": sector_res}
     except Exception as e:
         return {"saved": 0, "error": str(e)}
+
+
+@router.get("/sector-rotation")
+def kr_sector_rotation():
+    """섹터 자금 로테이션 — 어느 섹터로 세력 자금이 들어오고/빠지는지 (히스토리 기반)."""
+    import data_kr
+    try:
+        return data_kr.detect_sector_rotation()
+    except Exception as e:
+        return {"available": False, "error": str(e)}
+
+
+@router.get("/sector-flow")
+def kr_sector_flow(days: int = 14, sector: str | None = None):
+    """섹터별 수급 흐름 시계열 (최근 N거래일)."""
+    from db import load_sector_flow_series, load_sector_flow_dates
+    try:
+        return {"dates": load_sector_flow_dates(days), "series": load_sector_flow_series(sector, days)}
+    except Exception as e:
+        return {"dates": [], "series": [], "error": str(e)}
+
+
+@router.post("/sector-flow/backfill")
+def kr_sector_flow_backfill(days: int = 20):
+    """pykrx로 과거 N거래일 섹터 수급을 백필 (과거 흐름 데이터화)."""
+    import data_kr
+    try:
+        return data_kr.backfill_sector_flow_pykrx(days)
+    except Exception as e:
+        return {"filled": 0, "error": str(e)}
 
 
 @router.get("/stocks/{code}/investor-trend")

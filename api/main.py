@@ -379,10 +379,11 @@ def _supply_snapshot_loop():
             if (now.weekday() < 5 and now.hour == 15 and now.minute >= 45
                     and _LAST_SUPPLY_SNAPSHOT_DATE != today):
                 try:
-                    from data_kr import snapshot_frgn_inst_today
+                    from data_kr import snapshot_frgn_inst_today, snapshot_sector_flow_today
                     r = snapshot_frgn_inst_today()
+                    sr = snapshot_sector_flow_today()
                     _LAST_SUPPLY_SNAPSHOT_DATE = today
-                    print(f"[supply snapshot] 수급 스냅샷 저장: {r.get('saved', 0)}건 ({today})")
+                    print(f"[supply snapshot] 종목 {r.get('saved', 0)}건 / 섹터 {sr.get('sectors', 0)}개 ({today})")
                 except Exception as e:
                     print(f"[supply snapshot] 오류: {e}")
         except Exception:

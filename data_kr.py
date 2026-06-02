@@ -623,6 +623,131 @@ def detect_supply_rotation() -> dict:
             "moved_in": moved_in[:10], "moved_out": moved_out[:10]}
 
 
+_TICKER_SECTOR_MAP = None
+
+def _ticker_to_sector_map() -> dict:
+    """종목코드 → 업종(소분류) 매핑. get_kr_fdr_sector_map 기반(1회 캐시)."""
+    global _TICKER_SECTOR_MAP
+    if _TICKER_SECTOR_MAP:   # 비어있으면 다음에 재시도 (빈 맵은 캐시하지 않음)
+        return _TICKER_SECTOR_MAP
+    m = {}
+    try:
+        from db import load_sector_map   # 엔드포인트와 동일한 DB 캐시 섹터맵 사용
+        smap = load_sector_map() or {}
+        for big, subs in smap.items():
+            for sub, stocks in (subs or {}).items():
+                label = sub or big or "기타"
+                for s in (stocks or []):
+                    code = str(s.get("code", "")).strip().zfill(6)
+                    if code:
+                        m[code] = label
+    except Exception as e:
+        print(f"_ticker_to_sector_map error: {e}")
+    if m:
+        _TICKER_SECTOR_MAP = m
+    return m
+
+
+def _aggregate_by_sector(rows: list) -> list:
+    """[{종목코드,외국인순매수,기관순매수}] → 섹터별 합산. combined_sum 내림차순."""
+    smap = _ticker_to_sector_map()
+    agg: dict = {}
+    for r in rows:
+        code = str(r.get("종목코드", "")).strip().zfill(6)
+        sector = smap.get(code, "기타")
+        a = agg.setdefault(sector, {"sector": sector, "frgn_sum": 0, "orgn_sum": 0, "combined_sum": 0, "stock_count": 0})
+        f = int(r.get("외국인순매수", 0) or 0)
+        o = int(r.get("기관순매수", 0) or 0)
+        a["frgn_sum"] += f
+        a["orgn_sum"] += o
+        a["combined_sum"] += f + o
+        a["stock_count"] += 1
+    return sorted(agg.values(), key=lambda x: x["combined_sum"], reverse=True)
+
+
+def snapshot_sector_flow_today() -> dict:
+    """오늘의 외국인·기관 수급을 섹터별로 집계해 저장 (going-forward 히스토리)."""
+    from db import save_sector_flow_snapshot
+    from datetime import datetime
+    rows = []
+    for mkt in ("J", "Q"):
+        rows += (get_kr_frgn_inst_rank(mkt, 100, "buy") or []) + (get_kr_frgn_inst_rank(mkt, 100, "sell") or [])
+    seen = {}
+    for r in rows:
+        c = str(r.get("종목코드", "")).strip()
+        if c and c not in seen:
+            seen[c] = r
+    agg = _aggregate_by_sector(list(seen.values()))
+    today = datetime.now().strftime("%Y-%m-%d")
+    n = save_sector_flow_snapshot(today, agg)
+    return {"date": today, "sectors": n}
+
+
+def backfill_sector_flow_pykrx(days: int = 20) -> dict:
+    """과거 N거래일의 외국인+기관 순매수를 pykrx로 받아 섹터별 집계·저장 (과거 흐름 백필)."""
+    from db import save_sector_flow_snapshot
+    from datetime import datetime, timedelta
+    try:
+        from pykrx import stock
+    except Exception as e:
+        return {"error": f"pykrx 사용 불가: {e}", "filled": 0}
+
+    filled, checked = 0, 0
+    d = datetime.now()
+    while filled < days and checked < days * 2 + 12:
+        checked += 1
+        d = d - timedelta(days=1)
+        if d.weekday() >= 5:   # 주말 스킵
+            continue
+        ds, ds_iso = d.strftime("%Y%m%d"), d.strftime("%Y-%m-%d")
+        try:
+            per_code: dict = {}
+            for mkt in ("KOSPI", "KOSDAQ"):
+                for inv, fld in (("외국인", "frgn"), ("기관합계", "orgn")):
+                    df = stock.get_market_net_purchases_of_equities(ds, ds, mkt, inv)
+                    if df is None or getattr(df, "empty", True):
+                        continue
+                    col = "순매수거래량" if "순매수거래량" in df.columns else ("순매수" if "순매수" in df.columns else None)
+                    if not col:
+                        continue
+                    for tk, row in df.iterrows():
+                        code = str(tk).strip().zfill(6)
+                        try:
+                            net = int(row[col])
+                        except Exception:
+                            net = 0
+                        per_code.setdefault(code, {"frgn": 0, "orgn": 0})[fld] = net
+            if not per_code:
+                continue
+            rows = [{"종목코드": c, "외국인순매수": v["frgn"], "기관순매수": v["orgn"]} for c, v in per_code.items()]
+            save_sector_flow_snapshot(ds_iso, _aggregate_by_sector(rows))
+            filled += 1
+        except Exception as e:
+            print(f"[sector backfill] {ds} 실패: {repr(e)[:120]}")
+            continue
+    return {"filled": filled}
+
+
+def detect_sector_rotation() -> dict:
+    """최근 2거래일 섹터 흐름을 비교해 세력 자금이 들어온/빠진 섹터(섹터 로테이션) 감지."""
+    from db import load_sector_flow_dates, load_sector_flow_snapshot
+    dates = load_sector_flow_dates(30)
+    if len(dates) < 2:
+        return {"available": False, "reason": "섹터 흐름 2거래일 이상 필요 (백필/자동적재 중)", "have_dates": dates}
+    today_d, prev_d = dates[0], dates[1]
+    cur = {r["sector"]: r for r in load_sector_flow_snapshot(today_d)}
+    prev = {r["sector"]: r for r in load_sector_flow_snapshot(prev_d)}
+    recs = []
+    for s, c in cur.items():
+        pc = (prev.get(s) or {}).get("combined_sum", 0) or 0
+        recs.append({"sector": s, "today": c["combined_sum"], "prev": pc, "delta": (c["combined_sum"] or 0) - pc})
+    into = sorted([r for r in recs if r["delta"] > 0], key=lambda x: x["delta"], reverse=True)
+    outof = sorted([r for r in recs if r["delta"] < 0], key=lambda x: x["delta"])
+    top_today = sorted(cur.values(), key=lambda x: x["combined_sum"] or 0, reverse=True)[:8]
+    return {"available": True, "today": today_d, "prev": prev_d,
+            "into": into[:6], "outof": outof[:6], "top_today": top_today}
+
+
 @st.cache_data(ttl=60)
 def get_kr_market_index():
     """KOSPI / KOSDAQ 지수 실시간 조회 (KIS → yfinance 폴백)"""

@@ -315,6 +315,21 @@ def init_local_db():
         )
     """)
 
+    # 섹터별 외국인·기관 수급 일일 집계 (섹터 자금 로테이션 추적용)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS sector_flow_snapshots (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            snapshot_date TEXT,
+            sector TEXT,
+            frgn_sum INTEGER,     -- 섹터 내 외국인 순매수 합
+            orgn_sum INTEGER,     -- 섹터 내 기관 순매수 합
+            combined_sum INTEGER, -- 외국인+기관 합산 (섹터 세력 강도)
+            stock_count INTEGER,
+            created_at TEXT,
+            UNIQUE(snapshot_date, sector)
+        )
+    """)
+
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS screener_backtest_results (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -2734,6 +2749,82 @@ def load_frgn_inst_snapshot(snapshot_date: str, market: str | None = None) -> li
         return rows
     except Exception as e:
         print(f"load_frgn_inst_snapshot error: {e}")
+        return []
+
+
+def save_sector_flow_snapshot(snapshot_date: str, rows: list) -> int:
+    """특정 날짜의 섹터별 수급 집계를 저장(교체). rows: [{sector, frgn_sum, orgn_sum, combined_sum, stock_count}]."""
+    try:
+        conn = get_db_conn()
+        cursor = conn.cursor()
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        cursor.execute("DELETE FROM sector_flow_snapshots WHERE snapshot_date=?", (snapshot_date,))
+        n = 0
+        for r in rows:
+            cursor.execute(
+                """INSERT INTO sector_flow_snapshots
+                   (snapshot_date, sector, frgn_sum, orgn_sum, combined_sum, stock_count, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                (snapshot_date, str(r.get("sector", "")), int(r.get("frgn_sum", 0) or 0),
+                 int(r.get("orgn_sum", 0) or 0), int(r.get("combined_sum", 0) or 0),
+                 int(r.get("stock_count", 0) or 0), now)
+            )
+            n += 1
+        conn.commit()
+        conn.close()
+        return n
+    except Exception as e:
+        print(f"save_sector_flow_snapshot error: {e}")
+        return 0
+
+
+def load_sector_flow_dates(limit: int = 30) -> list:
+    """섹터 흐름 스냅샷 날짜 목록 (최신순)."""
+    try:
+        conn = get_db_conn()
+        cursor = conn.cursor()
+        cursor.execute("SELECT DISTINCT snapshot_date FROM sector_flow_snapshots ORDER BY snapshot_date DESC LIMIT ?", (limit,))
+        dates = [r["snapshot_date"] for r in cursor.fetchall()]
+        conn.close()
+        return dates
+    except Exception:
+        return []
+
+
+def load_sector_flow_snapshot(snapshot_date: str) -> list:
+    """특정 날짜 섹터 흐름 (combined_sum 내림차순)."""
+    try:
+        conn = get_db_conn()
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM sector_flow_snapshots WHERE snapshot_date=? ORDER BY combined_sum DESC", (snapshot_date,))
+        rows = [dict(r) for r in cursor.fetchall()]
+        conn.close()
+        return rows
+    except Exception as e:
+        print(f"load_sector_flow_snapshot error: {e}")
+        return []
+
+
+def load_sector_flow_series(sector: str | None = None, limit_days: int = 14) -> list:
+    """최근 N일 섹터 흐름 시계열 (날짜 오름차순). sector 지정 시 해당 섹터만."""
+    try:
+        conn = get_db_conn()
+        cursor = conn.cursor()
+        dates = [r["snapshot_date"] for r in cursor.execute(
+            "SELECT DISTINCT snapshot_date FROM sector_flow_snapshots ORDER BY snapshot_date DESC LIMIT ?", (limit_days,)).fetchall()]
+        if not dates:
+            conn.close()
+            return []
+        oldest = min(dates)
+        if sector:
+            cursor.execute("SELECT * FROM sector_flow_snapshots WHERE snapshot_date>=? AND sector=? ORDER BY snapshot_date ASC", (oldest, sector))
+        else:
+            cursor.execute("SELECT * FROM sector_flow_snapshots WHERE snapshot_date>=? ORDER BY snapshot_date ASC, combined_sum DESC", (oldest,))
+        rows = [dict(r) for r in cursor.fetchall()]
+        conn.close()
+        return rows
+    except Exception as e:
+        print(f"load_sector_flow_series error: {e}")
         return []
 
 
