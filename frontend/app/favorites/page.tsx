@@ -205,8 +205,8 @@ function FavRow({ fav, price, onRemove, onAnalyze, onSaveMemo, gapBulkMap }: {
           {/* 메모 팝오버 — 버튼 바로 아래에 떠서 나옴(카드 크기에 영향 없음) */}
           {memoOpen && (
             <div style={{
-              position: "absolute", top: "calc(100% + 6px)", right: 0, zIndex: 50,
-              width: "250px", maxWidth: "78vw",
+              position: "absolute", top: "calc(100% + 6px)", left: 0, zIndex: 50,
+              width: "500px", maxWidth: "90vw",
               display: "flex", flexDirection: "column", gap: "6px",
               background: "var(--color-card, var(--color-surface))",
               border: "1px solid var(--color-accent)",
