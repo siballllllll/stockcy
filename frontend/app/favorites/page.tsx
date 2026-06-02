@@ -83,12 +83,13 @@ function FavRow({ fav, price, onRemove, onAnalyze, onSaveMemo, gapBulkMap }: {
       borderRadius: "10px",
       padding: "12px 14px",
       display: "flex", flexDirection: "column", gap: "8px",
+      height: "100%",
     }}>
-      {/* 제목 행 */}
-      <div style={{ display: "flex", alignItems: "center", gap: "5px", flexWrap: "wrap" }}>
+      {/* 제목 행 — 한 줄 고정(말줄임)으로 카드 간 정렬 유지 */}
+      <div style={{ display: "flex", alignItems: "center", gap: "5px", flexWrap: "nowrap", minWidth: 0 }}>
         <Star size={12} style={{ color: "var(--color-warning)", fill: "var(--color-warning)", flexShrink: 0 }} />
-        <span style={{ fontWeight: 700, fontSize: "0.9rem" }}>{fav["종목명"]}</span>
-        <span style={{ fontSize: "0.7rem", color: "var(--color-muted)", marginRight: "4px" }}>({fav["티커"]})</span>
+        <span style={{ fontWeight: 700, fontSize: "0.9rem", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>{fav["종목명"]}</span>
+        <span style={{ fontSize: "0.7rem", color: "var(--color-muted)", marginRight: "4px", flexShrink: 0 }}>({fav["티커"]})</span>
 
         {/* 실시간 갭 배지 표출 */}
         {gapData && gapText && (
@@ -104,7 +105,8 @@ function FavRow({ fav, price, onRemove, onAnalyze, onSaveMemo, gapBulkMap }: {
               cursor: "help",
               display: "inline-flex",
               alignItems: "center",
-              gap: "2px"
+              gap: "2px",
+              flexShrink: 0,
             }}
             title={`🌙 시간외 주요 변수:\n${gapData.overnight_issue_summary}\n\n💡 대응 가이드:\n${gapData.trading_action_guide}\n\n📈 매수 적정가: ${gapData.buy_target ?? "-"}\n🛑 손절가: ${gapData.stop_loss ?? "-"}`}
           >
@@ -113,18 +115,25 @@ function FavRow({ fav, price, onRemove, onAnalyze, onSaveMemo, gapBulkMap }: {
         )}
       </div>
 
-      {/* 시세 + 현황 배지 */}
-      <div style={{ display: "flex", alignItems: "center", gap: "7px", flexWrap: "wrap" }}>
-        <Badge variant={isKr ? "info" : "success"}>{fav["시장"]}</Badge>
-        {fav["섹터"] && (
+      {/* 섹터 줄 — 전용 라인으로 분리(공간 예약)해 가격/버튼 위치를 카드 간 일치시킴 */}
+      <div style={{ minHeight: "20px", display: "flex", alignItems: "center" }}>
+        {fav["섹터"] ? (
           <span style={{
             fontSize: "0.66rem", padding: "2px 7px", borderRadius: "99px",
             background: "rgba(129,140,248,0.12)", color: "#a5b4fc",
             border: "1px solid rgba(129,140,248,0.3)", fontWeight: 700,
+            overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "100%",
           }}>
             🏷️ {fav["섹터"]}
           </span>
+        ) : (
+          <span style={{ fontSize: "0.66rem", color: "var(--color-muted)" }}>🏷️ 섹터 미분류</span>
         )}
+      </div>
+
+      {/* 시세 + 현황 배지 */}
+      <div style={{ display: "flex", alignItems: "center", gap: "7px", flexWrap: "wrap" }}>
+        <Badge variant={isKr ? "info" : "success"}>{fav["시장"]}</Badge>
         <span style={{ fontWeight: 700, fontSize: "0.88rem" }}>
           {price
             ? isKr ? `₩${price.price.toLocaleString()}` : `$${price.price.toFixed(2)}`
@@ -147,8 +156,8 @@ function FavRow({ fav, price, onRemove, onAnalyze, onSaveMemo, gapBulkMap }: {
         )}
       </div>
 
-      {/* 버튼 행 */}
-      <div style={{ display: "flex", gap: "5px" }}>
+      {/* 버튼 행 — marginTop:auto로 카드 바닥에 고정(메모와 함께 정렬) */}
+      <div style={{ display: "flex", gap: "5px", marginTop: "auto" }}>
         <button
           className="stockcy-btn stockcy-btn-secondary"
           style={{ flex: 1, padding: "5px 4px", fontSize: "0.71rem", display: "flex", alignItems: "center", justifyContent: "center", gap: "3px" }}
