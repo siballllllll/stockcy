@@ -656,6 +656,64 @@ def generate_daily_briefing():
         return {"error": _friendly_error(e), "sectors": []}
 
 
+def generate_market_commentary() -> dict:
+    """리딩방 칼럼 스타일의 '시장 해설' — 지금 장이 왜 이렇게(한쪽으로 쏠려) 움직이는지를
+    구조적·심리적 요인(패시브 자금 집중, 알고리즘 동조매매, 군집행동, 센티먼트 쏠림 등)으로
+    풀어준다. 구글 검색 그라운딩 + 실제 외국인·기관 수급 데이터를 근거로 엮는다.
+    반환: {title, commentary(마크다운), generated_at} 또는 {error, ...}."""
+    from datetime import datetime
+
+    # 실데이터 컨텍스트: 외국인·기관 순매수/순매도 상위 (코스피)
+    ctx_lines = []
+    try:
+        from data_kr import get_kr_frgn_inst_rank
+        fb = get_kr_frgn_inst_rank("J", 6, "buy") or []
+        fs = get_kr_frgn_inst_rank("J", 6, "sell") or []
+        if fb:
+            ctx_lines.append("외국인·기관 순매수 상위(코스피): " + ", ".join(x.get("종목명", "") for x in fb if x.get("종목명")))
+        if fs:
+            ctx_lines.append("외국인·기관 순매도 상위(코스피): " + ", ".join(x.get("종목명", "") for x in fs if x.get("종목명")))
+    except Exception:
+        pass
+    ctx = "\n".join(ctx_lines) or "(보조 수급 데이터 없음 — 검색 기반으로 작성)"
+
+    prompt = f"""당신은 한국 주식시장을 날카롭게 읽어주는 시장 칼럼니스트입니다. 절대로 한자(漢字)를 사용하지 마세요. 모든 출력은 한글과 영문만 사용하세요.
+지금 즉시 구글 실시간 검색으로 최근 1~2주 한국·미국 증시의 흐름, 패시브 ETF 자금 유출입, 알고리즘 매매, 수급 쏠림, 변동성 확대, 주도 테마와 소외 업종을 파악하세요.
+
+[참고 실데이터]
+{ctx}
+
+'지금 장이 왜 이렇게 극단적으로(또는 한쪽으로 쏠려) 움직이는가'를 개인투자자가 이해할 수 있게 풀어주는 칼럼을 작성하세요.
+- 구조적 요인(패시브·인덱스 자금 집중, 알고리즘 동조매매, 군집행동), 심리적 요인(센티먼트 쏠림, 공포·탐욕), 그리고 펀더멘털 vs 심리를 사실·데이터에 근거해 짚으세요.
+- 가능하면 위 실데이터(외국인·기관 수급)나 검색으로 확인한 수치를 근거로 엮으세요.
+- 마지막에 '이런 장에서 개인투자자가 가져야 할 냉정한 태도와 관점' 2~3줄로 마무리하세요.
+- 리딩방 칼럼 톤(적당한 이모지, 짧은 단락, 가독성 높게). 무리한 단정보다 통찰 위주로.
+
+형식: 첫 줄은 제목(마크다운 기호 없이 한 줄), 그 다음 줄부터 본문(마크다운 문단)."""
+    try:
+        response = _call_gemini(prompt, use_search=True, temperature=0.6,
+                                max_output_tokens=2200, timeout_sec=70)
+        text = _strip_hanja((getattr(response, "text", "") or "").strip())
+        if not text:
+            raise ValueError("empty_response")
+        phys = text.splitlines()
+        title, body_start = "", 0
+        for i, line in enumerate(phys):
+            if line.strip():
+                title = line.strip().lstrip("#*>- ").strip()
+                body_start = i + 1
+                break
+        body = "\n".join(phys[body_start:]).strip() or text
+        return {
+            "title": title or "오늘의 시장 해설",
+            "commentary": body,
+            "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
+        }
+    except Exception as e:
+        return {"error": _friendly_error(e), "title": "시장 해설 생성 실패",
+                "commentary": "잠시 후 다시 시도해주세요."}
+
+
 def generate_market_scenarios() -> dict:
     """오늘의 주요 이슈별 시나리오 — 비트코인 포함 전 영역, 단타/장타 전략 분리."""
     prompt = (

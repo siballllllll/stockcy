@@ -143,6 +143,32 @@ async def daily_briefing():
 
 # ── 매크로 분석: 마인드맵 ─────────────────────────────────────────────────────
 
+@router.get("/market-commentary")
+async def market_commentary(refresh: bool = False):
+    """리딩방 스타일 '시장 해설' (왜 지금 장이 이렇게 움직이나) — SSE, 3시간 캐시.
+    refresh=true면 캐시 무시하고 새로 생성."""
+    from ai_engine import generate_market_commentary
+    from db import load_ai_cache, save_ai_cache
+    CACHE_KEY = "market_commentary_latest"
+
+    async def _gen():
+        if not refresh:
+            cached = await asyncio.to_thread(load_ai_cache, CACHE_KEY)
+            if cached:
+                yield _sse({"status": "done", "result": cached, "from_cache": True})
+                return
+        yield _sse({"status": "running", "message": "📰 시장 구조·수급·심리 분석 중..."})
+        try:
+            res = await asyncio.to_thread(generate_market_commentary)
+            if res and "error" not in res:
+                await asyncio.to_thread(save_ai_cache, CACHE_KEY, res, 3)
+            yield _sse({"status": "done", "result": res})
+        except Exception as e:
+            yield _sse({"status": "error", "message": str(e)})
+
+    return _sse_response(_gen())
+
+
 @router.get("/mindmap")
 async def mindmap():
     """급등/급락 인과관계 Mermaid 마인드맵 생성 (SSE)."""

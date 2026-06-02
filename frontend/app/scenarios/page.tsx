@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect, useRef, useMemo } from "react";
+import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import useSWR from "swr";
 import { Globe, TrendingUp, AlertTriangle, DollarSign, Loader2, ChevronDown, ChevronUp, RefreshCw, X } from "lucide-react";
@@ -1180,6 +1180,94 @@ function classifyIssueRegion(issue: Issue): "글로벌" | "국내" | "이머징�
 const SC_DATA_KEY = "stockcy_scenarios_data";
 const SC_TS_KEY   = "stockcy_scenarios_ts";
 
+// ── 시장 해설 카드 (왜 지금 장이 이렇게 움직이나) ───────────────────────────────
+function _renderCommentaryLine(line: string, key: number) {
+  const parts = line.split("**");
+  return (
+    <span key={key}>
+      {parts.map((seg, i) => (i % 2 === 1 ? <strong key={i}>{seg}</strong> : <span key={i}>{seg}</span>))}
+      {"\n"}
+    </span>
+  );
+}
+
+function MarketCommentaryCard() {
+  const [data, setData] = useState<any>(null);
+  const [status, setStatus] = useState<"loading" | "done" | "error">("loading");
+  const [open, setOpen] = useState(true);
+
+  const load = useCallback(async (refresh = false) => {
+    setStatus("loading");
+    try {
+      const res = await fetch(`/backend/api/ai/market-commentary${refresh ? "?refresh=true" : ""}`);
+      if (!res.ok || !res.body) { setStatus("error"); return; }
+      const reader = res.body.getReader();
+      const dec = new TextDecoder();
+      let buf = "";
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += dec.decode(value, { stream: true });
+        const parts = buf.split("\n\n");
+        buf = parts.pop() ?? "";
+        for (const part of parts) {
+          const t = part.trim();
+          if (!t.startsWith("data:")) continue;
+          try {
+            const d = JSON.parse(t.slice(5).trim());
+            if (d.status === "done" && d.result) { setData(d.result); setStatus("done"); }
+            else if (d.status === "error") setStatus("error");
+          } catch { /* 비-JSON 무시 */ }
+        }
+      }
+    } catch { setStatus("error"); }
+  }, []);
+
+  useEffect(() => { load(false); }, [load]);
+
+  return (
+    <div style={{ border: "1px solid rgba(96,165,250,0.35)", background: "rgba(96,165,250,0.06)", borderRadius: "12px", padding: "1rem 1.25rem", marginBottom: "1.25rem" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "0.5rem" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", fontWeight: 800, fontSize: "0.98rem", color: "var(--color-text)" }}>
+          📰 시장 해설 <span style={{ fontSize: "0.76rem", color: "var(--color-muted)", fontWeight: 600 }}>왜 지금 장이 이렇게 움직이나</span>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+          <button onClick={() => load(true)} disabled={status === "loading"} className="stockcy-btn stockcy-btn-secondary" style={{ padding: "3px 9px", fontSize: "0.72rem" }} title="새로 생성">
+            <RefreshCw size={12} />
+          </button>
+          <button onClick={() => setOpen(o => !o)} className="stockcy-btn stockcy-btn-secondary" style={{ padding: "3px 9px", fontSize: "0.72rem" }}>
+            {open ? "접기" : "펴기"}
+          </button>
+        </div>
+      </div>
+
+      {open && (
+        <div style={{ marginTop: "0.75rem" }}>
+          {status === "loading" ? (
+            <div style={{ display: "flex", alignItems: "center", gap: "8px", color: "var(--color-muted)", fontSize: "0.85rem" }}>
+              <Loader2 className="animate-spin" size={16} /> 시장 구조·수급·심리 분석 중... (수십 초)
+            </div>
+          ) : status === "error" || !data || data.error ? (
+            <div style={{ color: "var(--color-muted)", fontSize: "0.85rem" }}>
+              해설을 불러오지 못했습니다. <button onClick={() => load(true)} style={{ color: "var(--color-accent)", background: "none", border: "none", cursor: "pointer", textDecoration: "underline" }}>다시 시도</button>
+            </div>
+          ) : (
+            <>
+              <div style={{ fontWeight: 800, fontSize: "1.05rem", color: "var(--color-text)", marginBottom: "0.5rem" }}>{data.title}</div>
+              <div style={{ whiteSpace: "pre-wrap", lineHeight: 1.75, fontSize: "0.88rem", color: "var(--color-subtle)" }}>
+                {String(data.commentary || "").split("\n").map((line: string, i: number) => _renderCommentaryLine(line, i))}
+              </div>
+              {data.generated_at && (
+                <div style={{ marginTop: "0.6rem", fontSize: "0.7rem", color: "var(--color-muted)" }}>🕒 {data.generated_at} 기준 · AI 검색 분석 (참고용, 투자 판단은 본인 책임)</div>
+              )}
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ScenariosPageInner() {
   const { setReady } = useAnalysisReady();
 
@@ -1610,6 +1698,9 @@ function ScenariosPageInner() {
 
         {/* ── 우측: 메인 콘텐츠 ── */}
         <div className="stockcy-card" style={{ padding: "1.5rem", minHeight: "500px" }}>
+
+          {/* 시장 해설 (왜 지금 장이 이렇게 움직이나) */}
+          <MarketCommentaryCard />
 
           {loading ? (
             <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", minHeight: "400px", gap: "1rem" }}>
