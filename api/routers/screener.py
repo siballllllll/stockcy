@@ -11,6 +11,7 @@ class ScreenerRequest(BaseModel):
     market: str
     sector: str
     conditions: List[str]
+    reliable_only: bool = False   # 과거 저승률 조건 종목 제외(학습된 정량필터)
 
 def _calculate_macd(df, fast=12, slow=26, signal=9):
     """MACD 선 및 시그널 선 계산 (종가 기준)"""
@@ -64,7 +65,39 @@ def _check_conditions(ticker: str, name: str, df: pd.DataFrame, conditions: List
                 
     if not matched_conditions:
         return None
-        
+
+    # ── 학습된 정량 신뢰도 평가 (과거 승률 대조) ──────────────────────────────
+    rel = None
+    try:
+        close_s = df['close'] if 'close' in df.columns else df.get('종가')
+        # RSI(14)
+        delta = close_s.diff()
+        gain = delta.clip(lower=0).rolling(14).mean()
+        loss = (-delta.clip(upper=0)).rolling(14).mean()
+        rs = gain / loss.replace(0, np.nan)
+        rsi = float((100 - 100 / (1 + rs)).iloc[-1])
+        if rsi != rsi:  # NaN
+            rsi = None
+        # MA 정배열 (MA5 > MA20)
+        ma5 = close_s.rolling(5).mean().iloc[-1]
+        ma20 = close_s.rolling(20).mean().iloc[-1]
+        ma_aligned = 1 if (ma5 == ma5 and ma20 == ma20 and ma5 > ma20) else 0
+        # 거래량비 (오늘 / 5일평균)
+        vcol = 'volume' if 'volume' in df.columns else '거래량'
+        v5 = df.tail(6).iloc[:-1][vcol].mean()
+        vol_ratio = round(volume / v5, 2) if v5 and v5 > 0 else None
+        # 52주 위치 (%)
+        hcol = 'high' if 'high' in df.columns else '고가'
+        lcol = 'low' if 'low' in df.columns else '저가'
+        r250 = df.tail(250)
+        hi, lo = float(r250[hcol].max()), float(r250[lcol].min())
+        pos_52w = round((close - lo) / (hi - lo) * 100, 1) if hi > lo else None
+
+        from db import evaluate_feature_reliability
+        rel = evaluate_feature_reliability(rsi=rsi, ma_aligned=ma_aligned, vol_ratio=vol_ratio, pos_52w=pos_52w)
+    except Exception:
+        rel = None
+
     # 다차원 매칭 랭킹 시스템 적용 (선택한 조건 중 많이 맞은 종목이 상단에 배치되도록 가중치 랭킹화)
     return {
         "ticker": ticker,
@@ -73,7 +106,8 @@ def _check_conditions(ticker: str, name: str, df: pd.DataFrame, conditions: List
         "change_pct": change_pct,
         "volume": volume,
         "matched": matched_conditions,
-        "match_count": len(matched_conditions)
+        "match_count": len(matched_conditions),
+        "reliability": rel,
     }
 
 def _get_krx_suffix_map() -> dict:
@@ -218,6 +252,13 @@ def run_screener(req: ScreenerRequest):
         if res:
             results.append(res)
 
-    # 1순위: 매칭된 개수 내림차순, 2순위: 등락률 내림차순 정렬
-    results.sort(key=lambda x: (-x['match_count'], -x['change_pct']))
+    # 학습된 정량필터: 과거 저승률('avoid') 조건 종목 제외
+    if req.reliable_only:
+        results = [r for r in results if not (r.get("reliability") and r["reliability"].get("verdict") == "avoid")]
+
+    # 1순위: 매칭 개수, 2순위: 신뢰도 점수, 3순위: 등락률
+    def _relscore(r):
+        rel = r.get("reliability") or {}
+        return rel.get("score") or 0
+    results.sort(key=lambda x: (-x['match_count'], -_relscore(x), -x['change_pct']))
     return {"results": results}

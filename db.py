@@ -3107,6 +3107,64 @@ def load_ai_performance_summary() -> dict:
     }
 
 
+@st.cache_data(ttl=300)
+def _agent_buy_rows() -> list:
+    """결과(outcome_return)가 채워진 에이전트 BUY 판단 행 — 학습 규칙 평가용(5분 캐시)."""
+    try:
+        conn = get_db_conn()
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT rsi, ma_aligned, pos_52w, vol_ratio, outcome_return "
+            "FROM agent_decisions WHERE action='BUY' AND outcome_return IS NOT NULL"
+        )
+        rows = [dict(r) for r in cur.fetchall()]
+        conn.close()
+        return rows
+    except Exception:
+        return []
+
+
+def evaluate_feature_reliability(rsi=None, ma_aligned=None, vol_ratio=None, pos_52w=None,
+                                 min_sample: int = 8, avoid_below: float = 42.0, good_above: float = 58.0) -> dict:
+    """종목의 기술적 특성(RSI/MA정배열/거래량비/52주위치)을 과거 에이전트 매매 승률과 대조해
+    결정론적 신뢰도 판정을 반환한다. (soft 프롬프트 힌트 → hard 게이트용)
+    데이터가 부족하면 neutral(과도한 필터링 방지)."""
+    rows = _agent_buy_rows()
+    if len(rows) < min_sample:
+        return {"verdict": "neutral", "score": 50.0, "win_rate": None, "sample": len(rows), "matched": []}
+
+    preds = []
+    if rsi is not None:
+        if rsi < 40:
+            preds.append(("RSI 40 미만", lambda r: (r["rsi"] or 0) < 40))
+        elif rsi < 60:
+            preds.append(("RSI 40~60", lambda r: 40 <= (r["rsi"] or 0) < 60))
+        else:
+            preds.append(("RSI 60 이상", lambda r: (r["rsi"] or 0) >= 60))
+    if ma_aligned:
+        preds.append(("MA 정배열", lambda r: r["ma_aligned"] == 1))
+    if vol_ratio is not None and vol_ratio >= 2:
+        preds.append(("거래량 2배+", lambda r: (r["vol_ratio"] or 0) >= 2))
+    if pos_52w is not None and pos_52w >= 80:
+        preds.append(("52주 고점권", lambda r: (r["pos_52w"] or 0) >= 80))
+
+    matched, rates = [], []
+    for label, pred in preds:
+        sub = [r for r in rows if pred(r)]
+        if len(sub) >= 3:
+            w = sum(1 for r in sub if (r["outcome_return"] or 0) > 0)
+            wr = round(w / len(sub) * 100, 1)
+            matched.append({"label": label, "win_rate": wr, "count": len(sub)})
+            rates.append(wr)
+
+    if not rates:
+        return {"verdict": "neutral", "score": 50.0, "win_rate": None, "sample": len(rows), "matched": []}
+
+    avg = round(sum(rates) / len(rates), 1)
+    verdict = "avoid" if avg < avoid_below else ("good" if avg >= good_above else "neutral")
+    return {"verdict": verdict, "score": avg, "win_rate": avg, "sample": len(rows), "matched": matched}
+
+
 def load_confluence_picks(days: int = 5, min_engines: int = 2) -> list:
     """교차검증(컨플루언스) 픽 — 여러 AI 엔진이 최근 동시에 잡은 종목을 점수화.
     독립 신호가 겹칠수록(여러 엔진이 동시 추천) 통계적으로 승률이 높다는 가정.

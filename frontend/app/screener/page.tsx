@@ -226,6 +226,7 @@ export function ScreenerPanel() {
   const [conditions, setConditions] = useState<string[]>([]);
   const [results, setResults] = useState<any[] | null>(null);
   const [isScreening, setIsScreening] = useState(false);
+  const [reliableOnly, setReliableOnly] = useState(false);   // 학습된 정량필터(저승률 제외)
 
   // 밸류체인 팝업 모달 상태
   const [valChainTarget, setValChainTarget] = useState<{ sector: string; subSector: string } | null>(null);
@@ -295,7 +296,8 @@ export function ScreenerPanel() {
         body: JSON.stringify({
           market,
           sector: selectedSector,
-          conditions
+          conditions,
+          reliable_only: reliableOnly,
         })
       });
       const data = await res.json();
@@ -381,8 +383,13 @@ export function ScreenerPanel() {
             </div>
           </div>
 
-          <button 
-            className="stockcy-btn stockcy-btn-primary" 
+          <label style={{ display: "flex", alignItems: "center", gap: "8px", marginTop: "12px", cursor: "pointer", fontSize: "0.8rem", color: "var(--color-text)" }}>
+            <input type="checkbox" checked={reliableOnly} onChange={(e) => setReliableOnly(e.target.checked)} style={{ width: "16px", height: "16px", cursor: "pointer" }} />
+            <span>✅ 검증된 조건만 보기 <span style={{ color: "var(--color-muted)", fontSize: "0.72rem" }}>(과거 저승률 조건 종목 제외)</span></span>
+          </label>
+
+          <button
+            className="stockcy-btn stockcy-btn-primary"
             onClick={handleRunScreener}
             disabled={isScreening || conditions.length === 0}
             style={{ width: "100%", padding: "14px", fontSize: "1.05rem", fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center", gap: "8px", marginTop: "10px" }}
@@ -491,12 +498,25 @@ export function ScreenerPanel() {
                           {res.volume.toLocaleString()}주
                         </td>
                         <td style={{ padding: "16px 12px" }}>
-                          <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+                          <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", alignItems: "center" }}>
                             {res.matched.map((m: string) => (
                               <span key={m} style={{ background: "rgba(128,90,250,0.1)", color: "var(--color-primary)", padding: "4px 8px", borderRadius: "4px", fontSize: "0.8rem", fontWeight: 600 }}>
                                 {m}
                               </span>
                             ))}
+                            {res.reliability && res.reliability.win_rate != null && (
+                              <span
+                                title={(res.reliability.matched || []).map((x: any) => `${x.label} ${x.win_rate}%(${x.count})`).join(" · ") || "학습 승률"}
+                                style={{
+                                  padding: "4px 8px", borderRadius: "4px", fontSize: "0.78rem", fontWeight: 700,
+                                  color: res.reliability.verdict === "good" ? "#34d399" : res.reliability.verdict === "avoid" ? "#f87171" : "#9ca3af",
+                                  background: res.reliability.verdict === "good" ? "rgba(52,211,153,0.12)" : res.reliability.verdict === "avoid" ? "rgba(248,113,113,0.12)" : "rgba(156,163,175,0.12)",
+                                  border: `1px solid ${res.reliability.verdict === "good" ? "rgba(52,211,153,0.4)" : res.reliability.verdict === "avoid" ? "rgba(248,113,113,0.4)" : "rgba(156,163,175,0.3)"}`,
+                                }}
+                              >
+                                {res.reliability.verdict === "good" ? "✅" : res.reliability.verdict === "avoid" ? "⚠️" : "•"} 학습승률 {res.reliability.win_rate}%
+                              </span>
+                            )}
                           </div>
                         </td>
                       </tr>
