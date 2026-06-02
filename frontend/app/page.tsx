@@ -407,7 +407,7 @@ export default function Dashboard() {
     "/api/ai/pattern-screener",
     { method: "POST", globalId: "pattern-screener", globalTitle: "내 패턴 스크리너" }
   );
-  const supplyRotation = useSSE<{ narrative: string; vol_ranking: any[]; chg_up: any[]; chg_dn: any[]; known_patterns: any[]; frgn_inst?: any }>(
+  const supplyRotation = useSSE<{ narrative: string; vol_ranking: any[]; chg_up: any[]; chg_dn: any[]; frgn_inst?: any }>(
     "/api/ai/supply-rotation-detect",
     { method: "POST", globalId: "supply-rotation", globalTitle: "수급 이동 감지 (KR)" }
   );

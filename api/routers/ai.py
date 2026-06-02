@@ -1403,29 +1403,19 @@ async def get_entry_timing(source: str = "leading", market: str = "kr"):
 
 @router.post("/pattern-profile/build")
 async def build_pattern_profile_endpoint():
-    """패턴 프로파일(전체/개인/리딩방) + 수급 흐름 패턴을 즉시 재빌드합니다."""
-    from ai_engine import build_pattern_profile, build_supply_flow_patterns
+    """패턴 프로파일(전체/개인/리딩방)을 즉시 재빌드합니다."""
+    from ai_engine import build_pattern_profile
     try:
         profile_all      = await asyncio.to_thread(build_pattern_profile, 'all')
         profile_personal = await asyncio.to_thread(build_pattern_profile, 'personal')
         profile_leading  = await asyncio.to_thread(build_pattern_profile, 'leading')
-        flow             = await asyncio.to_thread(build_supply_flow_patterns)
         if "error" in profile_all:
             return {"success": False, "message": profile_all["error"]}
         return {"success": True, "profile": profile_all,
                 "personal_trades": profile_personal.get("total_trades"),
-                "leading_trades":  profile_leading.get("total_trades"),
-                "supply_flow_patterns": flow.get("total", 0)}
+                "leading_trades":  profile_leading.get("total_trades")}
     except Exception as e:
         return {"success": False, "message": str(e)}
-
-
-@router.get("/supply-flow-patterns")
-async def get_supply_flow_patterns():
-    """리딩방 수급 이동 시퀀스 패턴 조회."""
-    from db import load_supply_flow_patterns
-    patterns = await asyncio.to_thread(load_supply_flow_patterns)
-    return {"patterns": patterns, "total": len(patterns)}
 
 
 @router.post("/supply-rotation-detect")

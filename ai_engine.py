@@ -5270,62 +5270,6 @@ def backtest_screener_picks() -> dict:
     return stats
 
 
-# ── ② 수급 이동 시퀀스 패턴 빌드 ─────────────────────────────────────────────
-
-def build_supply_flow_patterns() -> dict:
-    """리딩방 거래 시퀀스에서 A→B 수급 이동 패턴을 추출하고 DB에 저장합니다."""
-    from db import get_db_conn, save_supply_flow_patterns
-    from datetime import datetime, timedelta
-
-    conn = get_db_conn()
-    cursor = conn.cursor()
-    cursor.execute(
-        """SELECT ticker, name, buy_date, sell_date
-           FROM trade_history
-           WHERE LOWER(COALESCE(trade_source,'')) LIKE '%리딩방%'
-             AND buy_date != '' AND sell_date != ''
-           ORDER BY sell_date ASC"""
-    )
-    trades = [dict(r) for r in cursor.fetchall()]
-    conn.close()
-
-    if len(trades) < 3:
-        return {"error": "리딩방 거래 데이터 부족 (최소 3건 필요)"}
-
-    patterns: dict = {}
-    for i, t1 in enumerate(trades):
-        for t2 in trades[i + 1:]:
-            if t1["ticker"] == t2["ticker"]:
-                continue
-            try:
-                sell_d = datetime.strptime(str(t1["sell_date"])[:10], "%Y-%m-%d")
-                buy_d  = datetime.strptime(str(t2["buy_date"])[:10], "%Y-%m-%d")
-                gap = (buy_d - sell_d).days
-                if not (0 <= gap <= 7):
-                    continue
-                key = f"{t1['ticker']}→{t2['ticker']}"
-                if key not in patterns:
-                    patterns[key] = {
-                        "from_ticker": t1["ticker"], "from_name": t1["name"],
-                        "to_ticker":   t2["ticker"], "to_name":   t2["name"],
-                        "count": 0, "days_list": [], "last_observed": ""
-                    }
-                patterns[key]["count"] += 1
-                patterns[key]["days_list"].append(gap)
-                patterns[key]["last_observed"] = str(t1["sell_date"])[:10]
-            except Exception:
-                continue
-
-    result = [
-        {**{k: v for k, v in p.items() if k != "days_list"},
-         "avg_days": round(sum(p["days_list"]) / len(p["days_list"]), 1)}
-        for p in patterns.values() if p["count"] >= 1
-    ]
-    result.sort(key=lambda x: x["count"], reverse=True)
-    save_supply_flow_patterns(result)
-    return {"patterns": result, "total": len(result)}
-
-
 # ── ③ 실시간 수급 이동 감지 ──────────────────────────────────────────────────
 
 def detect_us_supply_rotation() -> dict:
@@ -5437,9 +5381,8 @@ def detect_us_supply_rotation() -> dict:
 
 
 def detect_realtime_supply_rotation() -> dict:
-    """오늘의 거래량·등락률 데이터 + 뉴스 + 과거 수급 패턴으로 실시간 수급 이동을 분석합니다."""
+    """오늘의 거래량·등락률 + 외국인·기관 수급 데이터로 실시간 수급 이동을 분석합니다."""
     import requests as req_lib
-    from db import load_supply_flow_patterns
 
     BASE = "http://127.0.0.1:8000"
     headers = {"ngrok-skip-browser-warning": "69420"}
@@ -5466,8 +5409,6 @@ def detect_realtime_supply_rotation() -> dict:
     except Exception as e:
         print(f"[supply rotation] 외국인/기관 데이터 실패: {e}")
         kospi_buy = kospi_sell = kosdaq_buy = kosdaq_sell = []
-
-    known_patterns = load_supply_flow_patterns()
 
     def _fmt(items, key_name, key_val, n=12):
         lines = []
@@ -5505,13 +5446,6 @@ def detect_realtime_supply_rotation() -> dict:
         for s in sorted(sector_list, key=lambda x: x.get("hot_score",0), reverse=True)[:8]
     ) if sector_list else "(없음)"
 
-    flow_text = ""
-    if known_patterns:
-        flow_text = "\n=== 과거 리딩방 수급 이동 패턴 ===\n" + "\n".join(
-            f"- {p['from_name']}({p['from_ticker']}) → {p['to_name']}({p['to_ticker']}): {p['observed_count']}회 관찰, 평균 {p['avg_days']}일 후"
-            for p in known_patterns[:10]
-        )
-
     prompt = f"""당신은 주식 수급 분석 전문가입니다. 절대로 한자를 사용하지 마세요.
 오늘의 실시간 시장 데이터와 뉴스를 분석해 수급 이동 흐름을 파악해주세요.
 **특히 외국인·기관 순매수/순매도 데이터를 핵심 신호로 활용하세요. 단순 거래량만으로는 단타 개인 자금일 수 있지만, 외인·기관 매수가 동반되면 진짜 주포 진입 신호입니다.**
@@ -5539,7 +5473,6 @@ def detect_realtime_supply_rotation() -> dict:
 
 === 섹터 핫스코어 ===
 {hot_text}
-{flow_text}
 
 위 데이터와 오늘의 뉴스·이슈를 종합하여 다음 5가지를 분석해주세요:
 
@@ -5547,7 +5480,7 @@ def detect_realtime_supply_rotation() -> dict:
 2. **주포 이탈 종목/섹터** — 외인·기관 순매도 TOP 중 자금 빠지는 곳 (개인 매수만 남은 위험 신호)
 3. **수급 이동 시나리오** — 어느 종목/섹터에서 어디로 외인·기관 자금이 옮겨가고 있는지
 4. **가짜 수급 vs 진짜 수급** — 거래량은 폭증했지만 외인·기관은 빠지는 종목 (단타 개미 집중) 경고
-5. **과거 패턴 매칭** — 과거 수급 이동 패턴 중 오늘 상황과 유사한 사례 언급
+5. **개인투자자 대응 전략** — 위 수급 흐름에서 개인이 취해야 할 구체적 행동(추종/관망/회피)
 
 실전 투자자가 즉시 활용할 수 있는 구체적인 분석을 해주세요."""
 
@@ -5563,7 +5496,6 @@ def detect_realtime_supply_rotation() -> dict:
         "vol_ranking":     vol_up[:12],
         "chg_up":          chg_up[:10],
         "chg_dn":          chg_dn[:10],
-        "known_patterns":  known_patterns[:10],
         "frgn_inst": {
             "kospi_buy":   kospi_buy[:8],
             "kospi_sell":  kospi_sell[:8],

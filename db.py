@@ -233,19 +233,6 @@ def init_local_db():
     """)
 
     cursor.execute("""
-        CREATE TABLE IF NOT EXISTS supply_flow_patterns (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            from_ticker TEXT,
-            from_name TEXT,
-            to_ticker TEXT,
-            to_name TEXT,
-            observed_count INTEGER DEFAULT 1,
-            avg_days REAL,
-            last_observed TEXT
-        )
-    """)
-
-    cursor.execute("""
         CREATE TABLE IF NOT EXISTS agent_daily_issues (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             issue_date TEXT,
@@ -534,13 +521,12 @@ def run_background_backup(target_func, *args, **kwargs):
 
 
 def _rebuild_pattern_profile_bg():
-    """거래 기록 변경 후 패턴 프로파일(전체/개인/리딩방) + 수급 흐름 패턴을 백그라운드에서 자동 재빌드합니다."""
+    """거래 기록 변경 후 패턴 프로파일(전체/개인/리딩방)을 백그라운드에서 자동 재빌드합니다."""
     try:
-        from ai_engine import build_pattern_profile, build_supply_flow_patterns
+        from ai_engine import build_pattern_profile
         build_pattern_profile('all')
         build_pattern_profile('personal')
         build_pattern_profile('leading')
-        build_supply_flow_patterns()
         print("[pattern] 패턴 프로파일 자동 갱신 완료")
     except Exception as e:
         print(f"[pattern] 패턴 프로파일 자동 갱신 실패: {e}")
@@ -2452,43 +2438,6 @@ def load_pattern_profile_v2(source: str) -> dict | None:
     except Exception as e:
         print(f"Error loading pattern_profile_v2({source}): {e}")
         return None
-
-
-def save_supply_flow_patterns(patterns: list):
-    """수급 이동 패턴 목록을 DB에 저장합니다. 전체 교체 방식."""
-    try:
-        conn = get_db_conn()
-        cursor = conn.cursor()
-        cursor.execute("DELETE FROM supply_flow_patterns")
-        for p in patterns:
-            cursor.execute(
-                """INSERT INTO supply_flow_patterns
-                   (from_ticker, from_name, to_ticker, to_name, observed_count, avg_days, last_observed)
-                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
-                (p.get("from_ticker",""), p.get("from_name",""),
-                 p.get("to_ticker",""), p.get("to_name",""),
-                 p.get("count", 1), p.get("avg_days", 0), p.get("last_observed",""))
-            )
-        conn.commit()
-        conn.close()
-    except Exception as e:
-        print(f"save_supply_flow_patterns error: {e}")
-
-
-def load_supply_flow_patterns() -> list:
-    """저장된 수급 이동 패턴 목록 반환."""
-    try:
-        conn = get_db_conn()
-        cursor = conn.cursor()
-        cursor.execute(
-            "SELECT * FROM supply_flow_patterns ORDER BY observed_count DESC LIMIT 50"
-        )
-        rows = [dict(r) for r in cursor.fetchall()]
-        conn.close()
-        return rows
-    except Exception as e:
-        print(f"load_supply_flow_patterns error: {e}")
-        return []
 
 
 def save_agent_daily_issues(issues: list):
