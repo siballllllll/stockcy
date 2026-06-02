@@ -188,6 +188,9 @@ const SHADOW_ANCHORS: ShadowAnchor[] = [
   }
 ];
 
+// 섹터당 표시/가격조회 종목 상한 (US 섹터는 수백~수천 개라 렌더·yfinance 과부하 방지. KR은 작아 영향 없음)
+const SECTOR_STOCK_CAP = 40;
+
 export default function SectorsPage() {
   const router = useRouter();
   const [selectedStock, setSelectedStock] = useState<StockInfo | null>(null);
@@ -350,13 +353,14 @@ export default function SectorsPage() {
   );
 
   // 전체 섹터 지도 US 토글 시: 화면에 보이는 US 종목 현재가 조회
+  // (US 섹터는 종목이 수백~수천 개라 sub당 SECTOR_STOCK_CAP개로 제한 + 전체 상한으로 yfinance 과부하 방지)
   const usMapCodes = useMemo(() => {
     if (mapMarket !== "US") return [];
     const codes = new Set<string>();
     const targets = selectedSector !== "전체" ? filteredData : filteredData.slice(0, 3);
     targets.forEach(({ subSectors }) => subSectors.forEach(({ stocks }) =>
-      stocks.forEach((s: any) => { if (s.code) codes.add(s.code); })));
-    return Array.from(codes);
+      stocks.slice(0, SECTOR_STOCK_CAP).forEach((s: any) => { if (s.code) codes.add(s.code); })));
+    return Array.from(codes).slice(0, 120);
   }, [mapMarket, filteredData, selectedSector]);
 
   const { data: usMapPrices } = useSWR(
@@ -677,7 +681,7 @@ export default function SectorsPage() {
 
                           {isExpanded && (
                             <div className="p-3 grid grid-cols-1 sm:grid-cols-2 gap-2">
-                              {sub.stocks.map((s: any, i: number) => {
+                              {sub.stocks.slice(0, SECTOR_STOCK_CAP).map((s: any, i: number) => {
                                 const priceData = mapMarket === "US"
                                   ? (usMapPrices ? (usMapPrices as any)[s.code] : null)
                                   : (bulkPrices ? (bulkPrices as any)[s.code] : null);
@@ -717,6 +721,11 @@ export default function SectorsPage() {
                                   </div>
                                 );
                               })}
+                              {sub.stocks.length > SECTOR_STOCK_CAP && (
+                                <div className="col-span-full text-center text-[0.68rem] text-zinc-500 py-1">
+                                  외 {sub.stocks.length - SECTOR_STOCK_CAP}종목 — 검색으로 좁혀보세요
+                                </div>
+                              )}
                             </div>
                           )}
                         </div>
