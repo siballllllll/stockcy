@@ -9,6 +9,7 @@ import { SSEPanel } from "@/components/ui/SSEPanel";
 import { StockModal } from "@/components/ui/StockModal";
 import type { StockInfo } from "@/components/ui/StockModal";
 import { MarkdownLite } from "@/components/ui/MarkdownLite";
+import { SupplyPowerFlow } from "@/components/SupplyPowerFlow";
 import useSWR from "swr";
 
 function EntryTimingStats() {
@@ -770,22 +771,8 @@ export default function Dashboard() {
                 </div>
               )}
 
-              {/* 과거 수급 이동 패턴 */}
-              {data.known_patterns?.length > 0 && (
-                <div style={{ background: "rgba(245,158,11,0.06)", border: "1px solid rgba(245,158,11,0.2)", borderRadius: "10px", padding: "1rem 1.2rem" }}>
-                  <div style={{ fontSize: "0.78rem", fontWeight: 700, color: "#fbbf24", marginBottom: "0.6rem" }}>📋 과거 리딩방 수급 이동 패턴</div>
-                  <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
-                    {data.known_patterns.map((p: any, i: number) => (
-                      <div key={i} style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "0.8rem" }}>
-                        <span style={{ color: "var(--color-text)", fontWeight: 600 }}>{p.from_name}</span>
-                        <span style={{ color: "#fbbf24" }}>→</span>
-                        <span style={{ color: "var(--color-text)", fontWeight: 600 }}>{p.to_name}</span>
-                        <span style={{ color: "var(--color-muted)", fontSize: "0.7rem" }}>{p.observed_count}회 · 평균 {p.avg_days}일</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
+              {/* 세력 자금 흐름 (외국인·기관 실데이터 — 옛 리딩방 거래이력 패턴 대체) */}
+              <SupplyPowerFlow />
 
               {/* AI 수급 이동 분석 */}
               {data.narrative && (
