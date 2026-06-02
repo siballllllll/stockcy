@@ -1211,6 +1211,13 @@ async def get_screener_backtest_stats():
     return stats
 
 
+@router.get("/performance-summary")
+async def get_ai_performance_summary():
+    """AI 기능별(시나리오/패턴스크리너/에이전트) 사후 실적 통합 리포트."""
+    from db import load_ai_performance_summary
+    return await asyncio.to_thread(load_ai_performance_summary)
+
+
 @router.get("/agent-daily-issues")
 async def get_agent_daily_issues(days: int = 2):
     """에이전트가 자동 분석한 오늘의 핫이슈/심리 조회."""

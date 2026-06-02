@@ -2983,6 +2983,62 @@ def load_backtest_stats() -> dict:
         return {"total_picks_backtested": 0, "overall": {}, "score_buckets": [], "recent": []}
 
 
+def load_ai_performance_summary() -> dict:
+    """AI 기능별 실적 통합 리포트 — 시나리오/패턴스크리너/에이전트의 사후 성과를 한 곳에 모은다.
+    각 기능은 사후 검증 기준(horizon)이 달라 metric 라벨로 명시한다. 네트워크 호출 없이 DB 집계만."""
+    def _row(cur, sql):
+        cur.execute(sql)
+        d = dict(cur.fetchone() or {})
+        n = d.get("n") or 0
+        return {
+            "n": n,
+            "win_rate":   round((d.get("wins") or 0) / n * 100, 1) if n else 0.0,
+            "avg_return": round(d.get("avg") or 0, 2),
+        }
+
+    feats = []
+    try:
+        conn = get_db_conn()
+        cur = conn.cursor()
+
+        # 1. AI 시나리오 — d7 방향성 반영 적중 (피해=하락 적중, 그 외=상승 적중)
+        sc = _row(cur, """
+            SELECT COUNT(*) AS n, AVG(d7_return) AS avg,
+                   SUM(CASE WHEN (COALESCE(role,'') != '피해' AND d7_return > 0)
+                              OR (role = '피해' AND d7_return < 0) THEN 1 ELSE 0 END) AS wins
+            FROM scenario_stocks WHERE d7_return IS NOT NULL""")
+        feats.append({"key": "scenario", "label": "AI 시나리오",
+                      "metric": "7일 방향 적중", **sc})
+
+        # 2. 패턴 스크리너 — d3 상승 적중
+        ps = _row(cur, """
+            SELECT COUNT(*) AS n, AVG(d3_return) AS avg,
+                   SUM(CASE WHEN d3_return > 0 THEN 1 ELSE 0 END) AS wins
+            FROM screener_backtest_results WHERE d3_return IS NOT NULL""")
+        feats.append({"key": "pattern_screener", "label": "패턴 스크리너",
+                      "metric": "3일 상승 적중", **ps})
+
+        # 3. AI 에이전트 — BUY 판단의 실현/잠정 수익 적중
+        ag = _row(cur, """
+            SELECT COUNT(*) AS n, AVG(outcome_return) AS avg,
+                   SUM(CASE WHEN outcome_return > 0 THEN 1 ELSE 0 END) AS wins
+            FROM agent_decisions WHERE action='BUY' AND outcome_return IS NOT NULL""")
+        feats.append({"key": "agent", "label": "AI 에이전트",
+                      "metric": "BUY 수익 적중", **ag})
+
+        conn.close()
+    except Exception as e:
+        print(f"load_ai_performance_summary error: {e}")
+
+    feats_with_data = [f for f in feats if f["n"] > 0]
+    best = max(feats_with_data, key=lambda f: f["win_rate"], default=None)
+    return {
+        "features": feats,
+        "best_key": best["key"] if best else None,
+        "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+    }
+
+
 def save_screener_picks(picks: list):
     """패턴 스크리너 추천 결과를 DB에 저장합니다. 당일 기존 기록은 덮어씁니다."""
     try:

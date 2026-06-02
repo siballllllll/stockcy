@@ -906,6 +906,70 @@ function AgentDailyIssuesPanel() {
   );
 }
 
+// ── AI 기능별 실적 통합 비교 ──────────────────────────────────────────────────
+function AiPerformanceCompare() {
+  const [feats, setFeats] = useState<any[] | null>(null);
+  const [bestKey, setBestKey] = useState<string | null>(null);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch("/backend/api/ai/performance-summary");
+        if (!res.ok) return;
+        const txt = await res.text();
+        try {
+          const j = JSON.parse(txt);
+          setFeats(j.features ?? []);
+          setBestKey(j.best_key ?? null);
+        } catch { /* 비-JSON 무시 */ }
+      } catch { /* 네트워크 오류 무시 */ }
+    })();
+  }, []);
+
+  if (!feats) return null;
+  const hasData = feats.some((f: any) => f.n > 0);
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: "6px", paddingBottom: "8px", borderBottom: "1px solid rgba(255,255,255,0.08)", marginBottom: "2px" }}>
+      <div style={{ fontSize: "0.72rem", fontWeight: 800, color: "var(--color-text)" }}>🏆 AI 기능별 실적 비교</div>
+      <div style={{ display: "flex", gap: "6px" }}>
+        {feats.map((f: any) => {
+          const isBest = f.key === bestKey && f.n > 0;
+          const rc = f.avg_return > 0 ? "#34d399" : f.avg_return < 0 ? "#f87171" : "var(--color-muted)";
+          return (
+            <div key={f.key} style={{
+              flex: 1,
+              background: isBest ? "rgba(52,211,153,0.12)" : "rgba(255,255,255,0.03)",
+              border: `1px solid ${isBest ? "#34d399" : "rgba(255,255,255,0.1)"}`,
+              borderRadius: "6px", padding: "6px 7px",
+            }}>
+              <div style={{ fontSize: "0.66rem", fontWeight: 800, color: "var(--color-text)", display: "flex", alignItems: "center", gap: "3px" }}>
+                {isBest && <span>👑</span>}{f.label}
+              </div>
+              {f.n > 0 ? (
+                <>
+                  <div style={{ fontSize: "0.78rem", fontWeight: 800, color: rc }}>승률 {f.win_rate}%</div>
+                  <div style={{ fontSize: "0.6rem", color: "var(--color-muted)" }}>
+                    평균 <span style={{ color: rc }}>{f.avg_return >= 0 ? "+" : ""}{f.avg_return}%</span> · {f.n}건
+                  </div>
+                  <div style={{ fontSize: "0.56rem", color: "var(--color-muted)" }}>{f.metric}</div>
+                </>
+              ) : (
+                <div style={{ fontSize: "0.6rem", color: "var(--color-muted)", paddingTop: "4px" }}>데이터 누적 중</div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+      {!hasData && (
+        <div style={{ fontSize: "0.58rem", color: "var(--color-muted)" }}>
+          ※ 각 기능의 사후 성과가 쌓이면(시나리오 d7·스크리너 d3·에이전트 매도확정) 자동 표시됩니다.
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── 시나리오 적중률 패널 ──────────────────────────────────────────────────────
 function ScenarioTrackingPanel() {
   const [running, setRunning] = useState(false);
@@ -998,6 +1062,9 @@ function ScenarioTrackingPanel() {
           {running ? "..." : "추적 실행"}
         </button>
       </div>
+
+      <AiPerformanceCompare />
+
       {msg && <div style={{ fontSize: "0.68rem", color: "var(--color-muted)" }}>{msg}</div>}
 
       <div style={{ fontSize: "0.6rem", color: "var(--color-muted)", lineHeight: 1.4 }}>
