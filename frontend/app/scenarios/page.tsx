@@ -1185,9 +1185,11 @@ const SC_TS_KEY   = "stockcy_scenarios_ts";
 function MarketCommentaryCard() {
   const [data, setData] = useState<any>(null);
   const [status, setStatus] = useState<"loading" | "done" | "error">("loading");
-  const [open, setOpen] = useState(true);
+  const [open, setOpen] = useState(false);   // 기본 접힘 — 클릭해야 펼쳐짐
+  const [seen, setSeen] = useState(false);    // 펼쳐서 읽으면 true (초록불 끔)
 
   const load = useCallback(async (refresh = false) => {
+    if (refresh) setSeen(false);   // 새로 생성하면 다시 '업데이트 있음'
     setStatus("loading");
     try {
       const res = await fetch(`/backend/api/ai/market-commentary${refresh ? "?refresh=true" : ""}`);
@@ -1218,15 +1220,19 @@ function MarketCommentaryCard() {
 
   return (
     <div style={{ border: "1px solid rgba(96,165,250,0.35)", background: "rgba(96,165,250,0.06)", borderRadius: "12px", padding: "1rem 1.25rem", marginBottom: "1.25rem" }}>
+      <style>{`@keyframes mcBlink{0%,100%{opacity:1}50%{opacity:0.25}}`}</style>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "0.5rem" }}>
         <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", fontWeight: 800, fontSize: "0.98rem", color: "var(--color-text)" }}>
           📰 시장 해설 <span style={{ fontSize: "0.76rem", color: "var(--color-muted)", fontWeight: 600 }}>왜 지금 장이 이렇게 움직이나</span>
+          {status === "done" && data && !data.error && !seen && (
+            <span title="새 시장 해설 업데이트 — 펴기" style={{ width: 9, height: 9, borderRadius: "50%", background: "#34d399", boxShadow: "0 0 6px 1px rgba(52,211,153,0.7)", display: "inline-block", animation: "mcBlink 1.1s infinite" }} />
+          )}
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
           <button onClick={() => load(true)} disabled={status === "loading"} className="stockcy-btn stockcy-btn-secondary" style={{ padding: "3px 9px", fontSize: "0.72rem" }} title="새로 생성">
             <RefreshCw size={12} />
           </button>
-          <button onClick={() => setOpen(o => !o)} className="stockcy-btn stockcy-btn-secondary" style={{ padding: "3px 9px", fontSize: "0.72rem" }}>
+          <button onClick={() => { setOpen(o => !o); setSeen(true); }} className="stockcy-btn stockcy-btn-secondary" style={{ padding: "3px 9px", fontSize: "0.72rem" }}>
             {open ? "접기" : "펴기"}
           </button>
         </div>
