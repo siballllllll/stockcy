@@ -364,6 +364,8 @@ def init_local_db():
         "ALTER TABLE portfolio ADD COLUMN buy_reason TEXT DEFAULT ''",
         "ALTER TABLE trade_history ADD COLUMN buy_reason TEXT DEFAULT ''",
         "ALTER TABLE agent_decisions ADD COLUMN is_realized INTEGER DEFAULT 0",
+        "ALTER TABLE favorites ADD COLUMN memo TEXT DEFAULT ''",
+        "ALTER TABLE favorites ADD COLUMN sector TEXT DEFAULT ''",
     ]:
         try:
             cursor.execute(migration)
@@ -1180,30 +1182,77 @@ def _gsheet_backup_save_favorite(market_type: str, ticker: str, name: str):
         print(f"Failed to backup favorite: {e}")
         return False, str(e)
 
-def save_favorite(market_type: str, ticker: str, name: str):
+@st.cache_data(ttl=3600)
+def _favorite_sector_lookup() -> dict:
+    """ticker → 섹터명 역매핑 (KR 6자리 코드 + US 대문자 티커). 섹터맵 기반, 1시간 캐시."""
+    lookup = {}
+    try:
+        for sec, subs in (load_sector_map() or {}).items():
+            for _sub, items in (subs or {}).items():
+                for it in (items or []):
+                    code = str(it.get("code", "")).zfill(6)
+                    if code:
+                        lookup[code] = sec
+    except Exception:
+        pass
+    try:
+        for sec, subs in (load_us_sector_map() or {}).items():
+            for _sub, items in (subs or {}).items():
+                for it in (items or []):
+                    tk = str(it.get("ticker", "")).upper()
+                    if tk:
+                        lookup[tk] = sec
+    except Exception:
+        pass
+    return lookup
+
+
+def _resolve_sector(ticker: str) -> str:
+    """티커의 섹터를 역매핑으로 찾는다. 없으면 빈 문자열."""
+    t = str(ticker).strip()
+    lk = _favorite_sector_lookup()
+    return lk.get(t.zfill(6) if t.isdigit() else t.upper(), "")
+
+
+def save_favorite(market_type: str, ticker: str, name: str, memo: str = "", sector: str = ""):
     """종목을 로컬 SQLite 즐겨찾기에 추가하고, 백그라운드로 구글 시트에 업데이트합니다."""
     try:
         conn = get_db_conn()
         cursor = conn.cursor()
-        
+
         # 중복 체크
         cursor.execute("SELECT COUNT(*) FROM favorites WHERE ticker = ?", (ticker,))
         if cursor.fetchone()[0] > 0:
             conn.close()
             return True, "이미 즐겨찾기에 등록된 종목입니다."
-            
+
+        if not sector:
+            sector = _resolve_sector(ticker)
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         cursor.execute(
-            "INSERT INTO favorites (ticker, name, market_type, added_time) VALUES (?, ?, ?, ?)",
-            (ticker, name, market_type, now)
+            "INSERT INTO favorites (ticker, name, market_type, added_time, memo, sector) VALUES (?, ?, ?, ?, ?, ?)",
+            (ticker, name, market_type, now, memo or "", sector or "")
         )
         conn.commit()
         conn.close()
-        
+
         run_background_backup(_gsheet_backup_save_favorite, market_type, ticker, name)
         return True, f"[{name}] 즐겨찾기에 추가되었습니다."
     except Exception as e:
         return False, f"로컬 저장 오류: {e}"
+
+
+def update_favorite_memo(ticker: str, memo: str):
+    """즐겨찾기 종목의 메모를 갱신한다."""
+    try:
+        conn = get_db_conn()
+        cursor = conn.cursor()
+        cursor.execute("UPDATE favorites SET memo = ? WHERE ticker = ?", (memo or "", ticker))
+        conn.commit()
+        conn.close()
+        return True, "메모가 저장되었습니다."
+    except Exception as e:
+        return False, f"메모 저장 오류: {e}"
 
 def _gsheet_backup_remove_favorite(ticker: str):
     """[구글 시트 백업 전용] 종목을 '즐겨찾기' 탭에서 삭제합니다."""
@@ -1239,19 +1288,22 @@ def load_favorites():
     try:
         conn = get_db_conn()
         cursor = conn.cursor()
-        cursor.execute("SELECT added_time as 추가시간, market_type as 시장, ticker as 티커, name as 종목명 FROM favorites")
+        cursor.execute("SELECT added_time as 추가시간, market_type as 시장, ticker as 티커, name as 종목명, COALESCE(memo,'') as 메모, COALESCE(sector,'') as 섹터 FROM favorites")
         rows = cursor.fetchall()
         conn.close()
-        
+
         records = []
         for r in rows:
             t = str(r["티커"])
             t_padded = t.zfill(6) if t.isdigit() and len(t) <= 6 else t
+            sector = str(r["섹터"] or "") or _resolve_sector(t_padded)
             records.append({
                 "추가시간": str(r["추가시간"]),
                 "시장": str(r["시장"]),
                 "티커": t_padded,
-                "종목명": str(r["종목명"])
+                "종목명": str(r["종목명"]),
+                "메모": str(r["메모"] or ""),
+                "섹터": sector,
             })
         return records, "성공"
     except Exception as e:

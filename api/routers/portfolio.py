@@ -16,6 +16,13 @@ class FavoriteRequest(BaseModel):
     market_type: str   # "국내" | "미국"
     ticker:      str
     name:        str
+    memo:        str = ""
+    sector:      str = ""
+
+
+class FavoriteMemoRequest(BaseModel):
+    ticker: str
+    memo:   str = ""
 
 
 class PortfolioSaveRequest(BaseModel):
@@ -106,7 +113,14 @@ async def list_favorites():
 @router.post("/favorites")
 async def add_favorite(req: FavoriteRequest):
     from db import save_favorite
-    ok, msg = await asyncio.to_thread(save_favorite, req.market_type, req.ticker, req.name)
+    ok, msg = await asyncio.to_thread(save_favorite, req.market_type, req.ticker, req.name, req.memo, req.sector)
+    return {"success": ok, "message": msg}
+
+
+@router.post("/favorites/memo")
+async def update_favorite_memo(req: FavoriteMemoRequest):
+    from db import update_favorite_memo
+    ok, msg = await asyncio.to_thread(update_favorite_memo, req.ticker, req.memo)
     return {"success": ok, "message": msg}
 
 

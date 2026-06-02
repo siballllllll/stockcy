@@ -39,15 +39,31 @@ function getStatusInfo(pct: number | null, price?: number, w52High?: number, w52
 }
 
 // ── 즐겨찾기 카드 ─────────────────────────────────────────────────────────────
-function FavRow({ fav, price, onRemove, onAnalyze, gapBulkMap }: {
+function FavRow({ fav, price, onRemove, onAnalyze, onSaveMemo, gapBulkMap }: {
   fav: Favorite;
   price?: { price: number; change_pct: number; w52_high?: number; w52_low?: number } | null;
   onRemove: (ticker: string) => void;
   onAnalyze: (s: StockInfo) => void;
+  onSaveMemo: (ticker: string, memo: string) => Promise<void> | void;
   gapBulkMap: Record<string, any>;
 }) {
   const router = useRouter();
   const isKr   = fav["시장"] === "국내";
+  const [memo, setMemo] = useState(fav["메모"] ?? "");
+  const [memoSaving, setMemoSaving] = useState(false);
+  const [memoSaved, setMemoSaved] = useState(false);
+  const memoDirty = memo !== (fav["메모"] ?? "");
+
+  const handleSaveMemo = async () => {
+    setMemoSaving(true);
+    try {
+      await onSaveMemo(fav["티커"], memo);
+      setMemoSaved(true);
+      setTimeout(() => setMemoSaved(false), 1500);
+    } finally {
+      setMemoSaving(false);
+    }
+  };
   const pct    = price?.change_pct ?? null;
   const up     = (pct ?? 0) > 0;
   const down   = (pct ?? 0) < 0;
@@ -100,6 +116,15 @@ function FavRow({ fav, price, onRemove, onAnalyze, gapBulkMap }: {
       {/* 시세 + 현황 배지 */}
       <div style={{ display: "flex", alignItems: "center", gap: "7px", flexWrap: "wrap" }}>
         <Badge variant={isKr ? "info" : "success"}>{fav["시장"]}</Badge>
+        {fav["섹터"] && (
+          <span style={{
+            fontSize: "0.66rem", padding: "2px 7px", borderRadius: "99px",
+            background: "rgba(129,140,248,0.12)", color: "#a5b4fc",
+            border: "1px solid rgba(129,140,248,0.3)", fontWeight: 700,
+          }}>
+            🏷️ {fav["섹터"]}
+          </span>
+        )}
         <span style={{ fontWeight: 700, fontSize: "0.88rem" }}>
           {price
             ? isKr ? `₩${price.price.toLocaleString()}` : `$${price.price.toFixed(2)}`
@@ -144,6 +169,30 @@ function FavRow({ fav, price, onRemove, onAnalyze, gapBulkMap }: {
           onClick={() => { if (window.confirm(`${fav["종목명"]} 즐겨찾기에서 삭제할까요?`)) onRemove(fav["티커"]); }}
         >
           <Trash2 size={11} /> 삭제
+        </button>
+      </div>
+
+      {/* 메모 */}
+      <div style={{ display: "flex", alignItems: "flex-end", gap: "5px" }}>
+        <textarea
+          value={memo}
+          onChange={(e) => setMemo(e.target.value)}
+          placeholder="📝 메모 (매수 근거, 목표가, 체크포인트…)"
+          rows={2}
+          style={{
+            flex: 1, resize: "vertical", minHeight: "34px",
+            background: "var(--color-bg)", border: "1px solid var(--color-border)",
+            borderRadius: "6px", padding: "5px 7px", fontSize: "0.72rem",
+            color: "var(--color-text)", fontFamily: "inherit",
+          }}
+        />
+        <button
+          className="stockcy-btn stockcy-btn-secondary"
+          disabled={!memoDirty || memoSaving}
+          onClick={handleSaveMemo}
+          style={{ padding: "5px 8px", fontSize: "0.7rem", flexShrink: 0, opacity: (!memoDirty || memoSaving) ? 0.5 : 1 }}
+        >
+          {memoSaving ? "..." : memoSaved ? "✓" : "저장"}
         </button>
       </div>
     </div>
@@ -1880,6 +1929,11 @@ export default function FavoritesPage() {
     refetchFavs();
   };
 
+  const handleSaveMemo = async (ticker: string, memo: string) => {
+    await (api.portfolio as any).updateFavoriteMemo(ticker, memo);
+    refetchFavs();
+  };
+
   // 관심 및 보유 종목의 시간외 갭을 서버 백그라운드로 일괄 분석 (화면 나가도 계속 진행)
   const gapPollingRef = useRef(false);
 
@@ -2054,10 +2108,27 @@ export default function FavoritesPage() {
             {isLoading ? <Skeleton height="150px" /> : !favs || favs.length === 0 ? (
               <StatusBox type="info">즐겨찾기에 등록된 종목이 없습니다.</StatusBox>
             ) : (
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))", gap: "10px" }}>
-                {favs.map((f) => (
-                  <FavRow key={f["티커"]} fav={f} price={priceMap[f["티커"]] ?? null} onRemove={handleRemove} onAnalyze={setSelectedStock} gapBulkMap={gapBulkMap} />
-                ))}
+              <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
+                {([
+                  { key: "국내", label: "🇰🇷 국내 주식", color: "#5aa0ff" },
+                  { key: "미국", label: "🇺🇸 미국 주식", color: "#34d399" },
+                ] as const).map(group => {
+                  const groupFavs = favs.filter(f => f["시장"] === group.key);
+                  if (groupFavs.length === 0) return null;
+                  return (
+                    <div key={group.key}>
+                      <div style={{ display: "flex", alignItems: "center", gap: "6px", marginBottom: "8px", fontSize: "0.82rem", fontWeight: 800, color: group.color }}>
+                        {group.label}
+                        <span style={{ fontSize: "0.7rem", color: "var(--color-muted)", fontWeight: 600 }}>({groupFavs.length})</span>
+                      </div>
+                      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))", gap: "10px" }}>
+                        {groupFavs.map((f) => (
+                          <FavRow key={f["티커"]} fav={f} price={priceMap[f["티커"]] ?? null} onRemove={handleRemove} onAnalyze={setSelectedStock} onSaveMemo={handleSaveMemo} gapBulkMap={gapBulkMap} />
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             )}
           </Card>

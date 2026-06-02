@@ -136,10 +136,15 @@ export const api = {
       const r = await req<{ data: Favorite[]; message: string }>("/api/favorites");
       return r.data ?? [];
     },
-    addFavorite: (marketType: string, ticker: string, name: string) =>
+    addFavorite: (marketType: string, ticker: string, name: string, memo = "", sector = "") =>
       req("/api/favorites", {
         method: "POST",
-        body: JSON.stringify({ market_type: marketType, ticker, name }),
+        body: JSON.stringify({ market_type: marketType, ticker, name, memo, sector }),
+      }),
+    updateFavoriteMemo: (ticker: string, memo: string) =>
+      req("/api/favorites/memo", {
+        method: "POST",
+        body: JSON.stringify({ ticker, memo }),
       }),
     removeFavorite: (ticker: string)         => req(`/api/favorites/${ticker}`, { method: "DELETE" }),
     checkFavorite:  (ticker: string)         => req(`/api/favorites/${ticker}/check`),

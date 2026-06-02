@@ -64,6 +64,8 @@ export interface Favorite {
   "시장":     string;
   "티커":     string;
   "종목명":   string;
+  "메모"?:    string;
+  "섹터"?:    string;
 }
 
 // ── AI 분석 결과 ──────────────────────────────────────────────────────────────
