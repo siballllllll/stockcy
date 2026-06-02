@@ -224,6 +224,16 @@ def kr_sector_rotation():
         return {"available": False, "error": str(e)}
 
 
+@router.get("/sector-trend")
+def kr_sector_trend(days: int = 10, top_n: int = 10):
+    """최근 N거래일 섹터 자금 추세 — 누적·연속 유입일·일별 시계열 (추세 차트용)."""
+    import data_kr
+    try:
+        return data_kr.compute_sector_trend(days, top_n)
+    except Exception as e:
+        return {"dates": [], "sectors": [], "error": str(e)}
+
+
 @router.get("/sector-flow")
 def kr_sector_flow(days: int = 14, sector: str | None = None):
     """섹터별 수급 흐름 시계열 (최근 N거래일)."""

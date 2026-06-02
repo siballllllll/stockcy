@@ -756,6 +756,34 @@ def detect_sector_rotation() -> dict:
             "into": into[:6], "outof": outof[:6], "top_today": top_today}
 
 
+def compute_sector_trend(days: int = 10, top_n: int = 10) -> dict:
+    """최근 N거래일 섹터별 세력 자금 추세. N일 누적·연속 유입일·일별 시계열 반환."""
+    from db import load_sector_flow_series
+    series = load_sector_flow_series(None, days)
+    if not series:
+        return {"dates": [], "sectors": [], "bottom": []}
+    dates = sorted({r["snapshot_date"] for r in series})
+    by_sec: dict = {}
+    for r in series:
+        by_sec.setdefault(r["sector"], {})[r["snapshot_date"]] = r.get("combined_sum", 0) or 0
+    result = []
+    for sec, dmap in by_sec.items():
+        vals = [dmap.get(d, 0) for d in dates]
+        total = sum(vals)
+        days_pos = sum(1 for v in vals if v > 0)
+        streak = 0   # 최근부터 연속 유입(양수)일 수
+        for v in reversed(vals):
+            if v > 0:
+                streak += 1
+            else:
+                break
+        result.append({"sector": sec, "total": total, "days_positive": days_pos,
+                       "inflow_streak": streak, "series": vals})
+    result.sort(key=lambda x: x["total"], reverse=True)
+    return {"dates": dates, "sectors": result[:top_n],
+            "bottom": sorted(result, key=lambda x: x["total"])[:5]}
+
+
 @st.cache_data(ttl=60)
 def get_kr_market_index():
     """KOSPI / KOSDAQ 지수 실시간 조회 (KIS → yfinance 폴백)"""

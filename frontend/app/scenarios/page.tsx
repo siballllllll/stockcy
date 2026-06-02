@@ -8,6 +8,7 @@ import { api } from "@/lib/api";
 import { useAnalysisReady } from "@/lib/analysis-ready-context";
 import { MarkdownLite } from "@/components/ui/MarkdownLite";
 import { SupplyPowerFlow } from "@/components/SupplyPowerFlow";
+import { SectorTrend } from "@/components/SectorTrend";
 
 // Next.js 프록시 우회 — 프록시가 큰 done JSON을 버퍼링해서 결과가 안 뜨는 문제 방지
 const BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8000";
@@ -1693,6 +1694,11 @@ function ScenariosPageInner() {
           {/* 세력 자금 흐름 (외국인·기관 실시간 수급 + 이동 추적) */}
           <div style={{ marginBottom: "1.25rem" }}>
             <SupplyPowerFlow />
+          </div>
+
+          {/* 섹터 자금 추세 (여러 날 누적 흐름) */}
+          <div style={{ marginBottom: "1.25rem" }}>
+            <SectorTrend />
           </div>
 
           {loading ? (
