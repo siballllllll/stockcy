@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { api, connectSSE } from "@/lib/api";
 import useSWR from "swr";
 import { 
@@ -202,6 +202,15 @@ export default function SectorsPage() {
   const [shadowDiscoverStatus, setShadowDiscoverStatus] = useState<"idle" | "loading" | "done" | "error">("idle");
   const [shadowDiscoverMsg, setShadowDiscoverMsg] = useState("");
   const [shadowDiscoverResult, setShadowDiscoverResult] = useState<any>(null);
+
+  // URL 쿼리(?tab=all&sector=)로 진입 시 해당 탭/섹터 자동 선택 (섹터 칩 클릭 연동)
+  useEffect(() => {
+    const sp = new URLSearchParams(window.location.search);
+    const t = sp.get("tab");
+    const s = sp.get("sector");
+    if (t === "all" || t === "hot" || t === "shadow") setActiveTab(t);
+    if (s) { setActiveTab("all"); setSelectedSector(s); }
+  }, []);
 
   // 전체 섹터 맵 로드
   const { data: sectorMap, isLoading: mapLoading } = useSWR(
