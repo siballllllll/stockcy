@@ -1276,6 +1276,7 @@ function ScenariosPageInner() {
   const [customKeyword, setCustomKeyword] = useState("");
   const [customLoading, setCustomLoading] = useState(false);
   const [customError, setCustomError]     = useState("");
+  const [insightTab, setInsightTab]       = useState<"scenario" | "insight">("scenario");
   const [showRecent, setShowRecent]       = useState(false);
 
   const [customIssues, setCustomIssues] = useState<Array<Issue & { isCustom: true; keyword: string }>>([]);
@@ -1688,20 +1689,33 @@ function ScenariosPageInner() {
         {/* ── 우측: 메인 콘텐츠 ── */}
         <div className="stockcy-card" style={{ padding: "1.5rem", minHeight: "500px" }}>
 
-          {/* 시장 해설 (왜 지금 장이 이렇게 움직이나) */}
-          <MarketCommentaryCard />
-
-          {/* 세력 자금 흐름 (외국인·기관 실시간 수급 + 이동 추적) */}
-          <div style={{ marginBottom: "1.25rem" }}>
-            <SupplyPowerFlow />
+          {/* 탭: 시나리오 / 시장 인사이트 */}
+          <div style={{ display: "flex", gap: "6px", marginBottom: "1.1rem" }}>
+            {([["scenario", "🎯 시나리오"], ["insight", "📊 시장 인사이트"]] as const).map(([k, label]) => (
+              <button key={k} onClick={() => setInsightTab(k)}
+                style={{ padding: "7px 16px", fontSize: "0.85rem", fontWeight: 700, borderRadius: "8px", cursor: "pointer",
+                  border: "1px solid " + (insightTab === k ? "var(--color-accent)" : "var(--color-border)"),
+                  background: insightTab === k ? "rgba(99,102,241,0.15)" : "transparent",
+                  color: insightTab === k ? "var(--color-text)" : "var(--color-muted)" }}>
+                {label}
+              </button>
+            ))}
           </div>
 
-          {/* 섹터 자금 추세 (여러 날 누적 흐름) */}
-          <div style={{ marginBottom: "1.25rem" }}>
-            <SectorTrend />
-          </div>
+          {/* 시장 인사이트 탭 — 이 탭을 열 때만 로드됨 (자동 호출 방지) */}
+          {insightTab === "insight" && (
+            <>
+              <MarketCommentaryCard />
+              <div style={{ marginBottom: "1.25rem" }}>
+                <SupplyPowerFlow />
+              </div>
+              <div style={{ marginBottom: "1.25rem" }}>
+                <SectorTrend />
+              </div>
+            </>
+          )}
 
-          {loading ? (
+          {insightTab === "scenario" && (loading ? (
             <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", minHeight: "400px", gap: "1rem" }}>
               <Loader2 className="animate-spin" size={36} color="var(--color-accent)" />
               <div style={{ color: "var(--color-muted)", fontSize: "0.9rem", fontWeight: 600 }}>{statusMsg}</div>
@@ -1837,7 +1851,7 @@ function ScenariosPageInner() {
                 </>
               )}
             </>
-          )}
+          ))}
         </div>
       </div>
     </div>
