@@ -55,6 +55,17 @@ function FavRow({ fav, price, onRemove, onAnalyze, onSaveMemo, gapBulkMap }: {
   const [memoSaved, setMemoSaved] = useState(false);
   const memoDirty = memo !== (fav["메모"] ?? "");
   const hasMemo = (fav["메모"] ?? "").trim().length > 0;
+  const memoRef = useRef<HTMLDivElement>(null);
+
+  // 메모 팝오버: 바깥 클릭 시 닫기 (한컴 메모처럼 떠 있는 창)
+  useEffect(() => {
+    if (!memoOpen) return;
+    const onDown = (e: MouseEvent) => {
+      if (memoRef.current && !memoRef.current.contains(e.target as Node)) setMemoOpen(false);
+    };
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
+  }, [memoOpen]);
 
   const handleSaveMemo = async () => {
     setMemoSaving(true);
@@ -86,6 +97,8 @@ function FavRow({ fav, price, onRemove, onAnalyze, onSaveMemo, gapBulkMap }: {
       padding: "12px 14px",
       display: "flex", flexDirection: "column", gap: "8px",
       height: "100%",
+      position: "relative",
+      zIndex: memoOpen ? 30 : undefined,
     }}>
       {/* 제목 행 — 한 줄 고정(말줄임)으로 카드 간 정렬 유지 */}
       <div style={{ display: "flex", alignItems: "center", gap: "5px", flexWrap: "nowrap", minWidth: 0 }}>
@@ -174,19 +187,68 @@ function FavRow({ fav, price, onRemove, onAnalyze, onSaveMemo, gapBulkMap }: {
         >
           <Zap size={11} /> AI분석
         </button>
-        <button
-          className="stockcy-btn stockcy-btn-secondary"
-          style={{
-            flex: 1, padding: "5px 4px", fontSize: "0.71rem", display: "flex", alignItems: "center", justifyContent: "center", gap: "3px",
-            border: memoOpen ? "1px solid var(--color-accent)" : (hasMemo ? "1px solid rgba(129,140,248,0.45)" : undefined),
-            color: (memoOpen || hasMemo) ? "#a5b4fc" : undefined,
-            background: memoOpen ? "rgba(129,140,248,0.12)" : undefined,
-          }}
-          onClick={() => setMemoOpen(o => !o)}
-          title={hasMemo ? "메모 보기/수정" : "메모 추가"}
-        >
-          <FileText size={11} /> 메모{hasMemo ? " •" : ""}
-        </button>
+        <div ref={memoRef} style={{ flex: 1, display: "flex", position: "relative" }}>
+          <button
+            className="stockcy-btn stockcy-btn-secondary"
+            style={{
+              flex: 1, padding: "5px 4px", fontSize: "0.71rem", display: "flex", alignItems: "center", justifyContent: "center", gap: "3px",
+              border: memoOpen ? "1px solid var(--color-accent)" : (hasMemo ? "1px solid rgba(129,140,248,0.45)" : undefined),
+              color: (memoOpen || hasMemo) ? "#a5b4fc" : undefined,
+              background: memoOpen ? "rgba(129,140,248,0.12)" : undefined,
+            }}
+            onClick={() => setMemoOpen(o => !o)}
+            title={hasMemo ? "메모 보기/수정" : "메모 추가"}
+          >
+            <FileText size={11} /> 메모{hasMemo ? " •" : ""}
+          </button>
+
+          {/* 메모 팝오버 — 버튼 바로 아래에 떠서 나옴(카드 크기에 영향 없음) */}
+          {memoOpen && (
+            <div style={{
+              position: "absolute", top: "calc(100% + 6px)", right: 0, zIndex: 50,
+              width: "250px", maxWidth: "78vw",
+              display: "flex", flexDirection: "column", gap: "6px",
+              background: "var(--color-card, var(--color-surface))",
+              border: "1px solid var(--color-accent)",
+              borderRadius: "8px", padding: "9px",
+              boxShadow: "0 10px 30px rgba(0,0,0,0.45)",
+            }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "4px", fontSize: "0.68rem", fontWeight: 800, color: "#a5b4fc" }}>
+                <FileText size={11} /> {fav["종목명"]} 메모
+              </div>
+              <textarea
+                value={memo}
+                onChange={(e) => setMemo(e.target.value)}
+                placeholder="📝 매수 근거, 목표가, 체크포인트…"
+                rows={5}
+                autoFocus
+                style={{
+                  width: "100%", resize: "vertical", minHeight: "90px", boxSizing: "border-box",
+                  background: "var(--color-bg)", border: "1px solid var(--color-border)",
+                  borderRadius: "6px", padding: "6px 8px", fontSize: "0.74rem",
+                  color: "var(--color-text)", fontFamily: "inherit", lineHeight: 1.5,
+                }}
+              />
+              <div style={{ display: "flex", justifyContent: "flex-end", gap: "5px" }}>
+                <button
+                  className="stockcy-btn stockcy-btn-secondary"
+                  onClick={() => { setMemo(fav["메모"] ?? ""); setMemoOpen(false); }}
+                  style={{ padding: "4px 10px", fontSize: "0.7rem" }}
+                >
+                  닫기
+                </button>
+                <button
+                  className="stockcy-btn stockcy-btn-primary"
+                  disabled={!memoDirty || memoSaving}
+                  onClick={handleSaveMemo}
+                  style={{ padding: "4px 12px", fontSize: "0.7rem", opacity: (!memoDirty || memoSaving) ? 0.5 : 1 }}
+                >
+                  {memoSaving ? "저장 중..." : memoSaved ? "✓ 저장됨" : "저장"}
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
         <button
           className="stockcy-btn"
           style={{ flex: 1, padding: "5px 4px", fontSize: "0.71rem", display: "flex", alignItems: "center", justifyContent: "center", gap: "3px", border: "1px solid rgba(255,60,60,0.35)", color: "var(--color-danger)", background: "rgba(255,60,60,0.06)" }}
@@ -195,46 +257,6 @@ function FavRow({ fav, price, onRemove, onAnalyze, onSaveMemo, gapBulkMap }: {
           <Trash2 size={11} /> 삭제
         </button>
       </div>
-
-      {/* 메모 패널 — '메모' 버튼 토글 시 바로 아래에 펼쳐짐 */}
-      {memoOpen && (
-        <div style={{
-          display: "flex", flexDirection: "column", gap: "5px",
-          background: "var(--color-bg)", border: "1px solid var(--color-border)",
-          borderRadius: "8px", padding: "8px",
-        }}>
-          <textarea
-            value={memo}
-            onChange={(e) => setMemo(e.target.value)}
-            placeholder="📝 매수 근거, 목표가, 체크포인트…"
-            rows={4}
-            autoFocus
-            style={{
-              width: "100%", resize: "vertical", minHeight: "70px", boxSizing: "border-box",
-              background: "var(--color-surface)", border: "1px solid var(--color-border)",
-              borderRadius: "6px", padding: "6px 8px", fontSize: "0.74rem",
-              color: "var(--color-text)", fontFamily: "inherit", lineHeight: 1.5,
-            }}
-          />
-          <div style={{ display: "flex", justifyContent: "flex-end", gap: "5px" }}>
-            <button
-              className="stockcy-btn stockcy-btn-secondary"
-              onClick={() => { setMemo(fav["메모"] ?? ""); setMemoOpen(false); }}
-              style={{ padding: "4px 10px", fontSize: "0.7rem" }}
-            >
-              닫기
-            </button>
-            <button
-              className="stockcy-btn stockcy-btn-primary"
-              disabled={!memoDirty || memoSaving}
-              onClick={handleSaveMemo}
-              style={{ padding: "4px 12px", fontSize: "0.7rem", opacity: (!memoDirty || memoSaving) ? 0.5 : 1 }}
-            >
-              {memoSaving ? "저장 중..." : memoSaved ? "✓ 저장됨" : "저장"}
-            </button>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
