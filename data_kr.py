@@ -38,8 +38,9 @@ def _headers(tr_id: str) -> dict:
     }
 
 
-def _get(path: str, tr_id: str, params: dict):
-    """KIS API GET 요청 공통 함수. 실패 시 None 반환."""
+def _get(path: str, tr_id: str, params: dict, debug_label: str | None = None):
+    """KIS API GET 요청 공통 함수. 실패 시 None 반환.
+    debug_label 지정 시 실패(rt_cd!=0)나 예외 사유를 콘솔/로그에 남겨 진단을 돕는다."""
     try:
         resp = requests.get(
             f"{KIS_BASE}{path}",
@@ -47,9 +48,21 @@ def _get(path: str, tr_id: str, params: dict):
             params=params,
             timeout=10,
         )
-        data = resp.json()
-        return data if data.get("rt_cd") == "0" else None
-    except Exception:
+        try:
+            data = resp.json()
+        except Exception:
+            if debug_label:
+                body = (resp.text or "")[:200].replace("\n", " ")
+                print(f"[KIS {debug_label}] 비-JSON 응답 HTTP={resp.status_code} len={len(resp.text or '')} body={body!r}")
+            return None
+        if data.get("rt_cd") == "0":
+            return data
+        if debug_label:
+            print(f"[KIS {debug_label}] 실패 rt_cd={data.get('rt_cd')} msg_cd={data.get('msg_cd')} msg={data.get('msg1')}")
+        return None
+    except Exception as e:
+        if debug_label:
+            print(f"[KIS {debug_label}] 요청 예외: {repr(e)[:140]}")
         return None
 
 
@@ -499,21 +512,18 @@ def get_kr_frgn_inst_rank(market: str = "J", top_n: int = 30, sort: str = "buy")
     반환: [{'종목코드', '종목명', '외국인순매수', '기관순매수'}, ...]
     """
     sort_code = "0" if sort == "buy" else "1"   # KIS: 0=순매수, 1=순매도
+    iscd = "1001" if market == "Q" else "0001"   # 0001=코스피, 1001=코스닥
     data = _get(
-        "/uapi/domestic-stock/v1/ranking/foreign-institution-total",
-        "FHPST01710000",
-        {
-            "fid_cond_mrkt_div_code": market,
-            "fid_cond_scr_div_code": "20171",
-            "fid_input_iscd": "0000",
-            "fid_div_cls_code": "0",          # 0=외국인+기관 합산
-            "fid_rank_sort_cls_code": sort_code,
+        "/uapi/domestic-stock/v1/quotations/foreign-institution-total",
+        "FHPTJ04400000",   # 국내기관·외국인 매매종목가집계 (외국인/기관 순매수 상위)
+        debug_label=f"frgn_inst {market}/{sort}",
+        params={
+            "fid_cond_mrkt_div_code": "V",        # 시장구분
+            "fid_cond_scr_div_code": "16449",     # 화면번호
+            "fid_input_iscd": iscd,
+            "fid_div_cls_code": "0",              # 0=수량 정렬
+            "fid_rank_sort_cls_code": sort_code,  # 0=순매수 상위, 1=순매도 상위
             "fid_etc_cls_code": "0",
-            "fid_trgt_cls_code": "111111111",
-            "fid_trgt_exls_cls_code": "000000",
-            "fid_input_price_1": "",
-            "fid_input_price_2": "",
-            "fid_vol_cnt": "",
         },
     )
     if not data:
