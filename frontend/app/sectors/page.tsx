@@ -193,6 +193,7 @@ export default function SectorsPage() {
   const [selectedStock, setSelectedStock] = useState<StockInfo | null>(null);
   const [activeTab, setActiveTab] = useState<"hot" | "all" | "shadow">("hot");
   const [searchQuery, setSearchQuery] = useState("");
+  const [mapMarket, setMapMarket] = useState<"KR" | "US">("KR");   // 전체 섹터 지도 시장 토글
   const [selectedSector, setSelectedSector] = useState<string>("전체");
   const [expandedSubs, setExpandedSubs] = useState<Record<string, boolean>>({});
 
@@ -203,21 +204,44 @@ export default function SectorsPage() {
   const [shadowDiscoverMsg, setShadowDiscoverMsg] = useState("");
   const [shadowDiscoverResult, setShadowDiscoverResult] = useState<any>(null);
 
-  // URL 쿼리(?tab=all&sector=)로 진입 시 해당 탭/섹터 자동 선택 (섹터 칩 클릭 연동)
+  // URL 쿼리(?tab=all&market=&sector=)로 진입 시 해당 탭/시장/섹터 자동 선택 (섹터 칩 클릭 연동)
   useEffect(() => {
     const sp = new URLSearchParams(window.location.search);
     const t = sp.get("tab");
+    const m = sp.get("market");
     const s = sp.get("sector");
     if (t === "all" || t === "hot" || t === "shadow") setActiveTab(t);
+    if (m === "KR" || m === "US") setMapMarket(m);
     if (s) { setActiveTab("all"); setSelectedSector(s); }
   }, []);
 
-  // 전체 섹터 맵 로드
+  // 전체 섹터 맵 로드 (KR — hot/shadow 탭과 codeToNameMap 공용, 그대로 유지)
   const { data: sectorMap, isLoading: mapLoading } = useSWR(
     "/api/kr/sector-map",
     () => api.kr.sectorMap(),
     { revalidateOnFocus: false }
   );
+
+  // 미국 섹터 맵 (전체 섹터 지도 US 토글 시) — ticker → code 로 정규화해 동일 렌더링 재사용
+  const { data: usSectorMap, isLoading: usMapLoading } = useSWR(
+    mapMarket === "US" ? "/api/us/sector-map" : null,
+    async () => {
+      const raw = await api.us.sectorMap();
+      const out: Record<string, Record<string, any[]>> = {};
+      Object.entries((raw ?? {}) as Record<string, any>).forEach(([sec, subs]) => {
+        out[sec] = {};
+        Object.entries((subs ?? {}) as Record<string, any[]>).forEach(([sub, items]) => {
+          out[sec][sub] = (items ?? []).map((it: any) => ({ ...it, code: it.code ?? it.ticker }));
+        });
+      });
+      return out;
+    },
+    { revalidateOnFocus: false }
+  );
+
+  // 전체 섹터 지도 탭에서 실제 사용할 맵 (시장 토글 반영)
+  const activeMap = mapMarket === "US" ? usSectorMap : sectorMap;
+  const activeMapLoading = mapMarket === "US" ? usMapLoading : mapLoading;
 
   // 오늘의 핫섹터 로드
   const { data: hotSectors, isLoading: hotLoading } = useSWR(
@@ -230,11 +254,11 @@ export default function SectorsPage() {
     setExpandedSubs(prev => ({ ...prev, [subKey]: !prev[subKey] }));
   };
 
-  // 대분류 섹터 리스트
+  // 대분류 섹터 리스트 (전체 섹터 지도 — 시장 토글 반영)
   const sectorNames = useMemo(() => {
-    if (!sectorMap) return [];
-    return Object.keys(sectorMap as Record<string, any>).sort();
-  }, [sectorMap]);
+    if (!activeMap) return [];
+    return Object.keys(activeMap as Record<string, any>).sort();
+  }, [activeMap]);
 
   // 티커 코드를 종목명으로 변환하기 위한 맵 생성
   const codeToNameMap = useMemo(() => {
@@ -253,13 +277,13 @@ export default function SectorsPage() {
     return map;
   }, [sectorMap]);
 
-  // 필터링된 섹터 데이터 계층 구조 생성
+  // 필터링된 섹터 데이터 계층 구조 생성 (전체 섹터 지도 — 시장 토글 반영)
   const filteredData = useMemo(() => {
-    if (!sectorMap) return [];
+    if (!activeMap) return [];
     const query = searchQuery.trim().toLowerCase();
     const result: Array<{ sector: string; subSectors: Array<{ name: string; stocks: any[] }> }> = [];
 
-    Object.entries(sectorMap as Record<string, any>).forEach(([sectorName, subMap]) => {
+    Object.entries(activeMap as Record<string, any>).forEach(([sectorName, subMap]) => {
       if (selectedSector !== "전체" && sectorName !== selectedSector && !query) return;
 
       const matchedSubs: Array<{ name: string; stocks: any[] }> = [];
@@ -283,14 +307,14 @@ export default function SectorsPage() {
     });
 
     return result;
-  }, [sectorMap, searchQuery, selectedSector]);
+  }, [activeMap, searchQuery, selectedSector]);
 
   // 현재 화면에 보이는 섹터 종목 + 쉐도우 앵커만 가격 조회 (전체 2940개 일괄 조회 방지)
   const allCodes = useMemo(() => {
     const codes = new Set<string>();
 
-    // (1) 현재 선택된 섹터의 종목만 수집 (전체 선택 시 첫 3개 섹터만)
-    if (sectorMap && filteredData.length > 0) {
+    // (1) 현재 선택된 섹터의 종목만 수집 (전체 선택 시 첫 3개 섹터만) — KR 맵일 때만
+    if (mapMarket === "KR" && sectorMap && filteredData.length > 0) {
       const targetSectors = selectedSector !== "전체"
         ? filteredData
         : filteredData.slice(0, 3); // 전체 탭은 상위 3개 섹터만 미리 로드
@@ -316,12 +340,33 @@ export default function SectorsPage() {
     }
 
     return Array.from(codes);
-  }, [sectorMap, filteredData, selectedSector, shadowDiscoverResult]);
+  }, [sectorMap, filteredData, selectedSector, shadowDiscoverResult, mapMarket]);
 
-  // 일괄 현재가 조회
+  // 일괄 현재가 조회 (KR)
   const { data: bulkPrices } = useSWR(
     allCodes.length > 0 ? ["stocks-bulk", allCodes] : null,
     ([_, codes]) => api.kr.stocksBulk(codes),
+    { refreshInterval: 60000, revalidateOnFocus: false }
+  );
+
+  // 전체 섹터 지도 US 토글 시: 화면에 보이는 US 종목 현재가 조회
+  const usMapCodes = useMemo(() => {
+    if (mapMarket !== "US") return [];
+    const codes = new Set<string>();
+    const targets = selectedSector !== "전체" ? filteredData : filteredData.slice(0, 3);
+    targets.forEach(({ subSectors }) => subSectors.forEach(({ stocks }) =>
+      stocks.forEach((s: any) => { if (s.code) codes.add(s.code); })));
+    return Array.from(codes);
+  }, [mapMarket, filteredData, selectedSector]);
+
+  const { data: usMapPrices } = useSWR(
+    usMapCodes.length > 0 ? ["us-map-prices", usMapCodes] : null,
+    async ([_, codes]) => {
+      const arr = await api.us.stocks(codes as string[]) as any[];
+      const map: Record<string, { price: number; change_pct: number }> = {};
+      (arr ?? []).forEach((s: any) => { map[s["심볼"]] = { price: s["현재가($)"], change_pct: s["등락률(%)"] }; });
+      return map;
+    },
     { refreshInterval: 60000, revalidateOnFocus: false }
   );
 
@@ -538,6 +583,20 @@ export default function SectorsPage() {
       {/* ── 전체 섹터 탭 ──────────────────────────────────────────────────────── */}
       {activeTab === "all" && (
         <div className="flex flex-col gap-6">
+          {/* 시장 토글 (KR / US) */}
+          <div className="flex gap-2">
+            {(["KR", "US"] as const).map((mk) => (
+              <button
+                key={mk}
+                onClick={() => { if (mapMarket !== mk) { setMapMarket(mk); setSelectedSector("전체"); setSearchQuery(""); } }}
+                className={`px-4 py-1.5 rounded-lg text-sm font-bold transition-all ${
+                  mapMarket === mk ? "bg-indigo-500 text-white shadow-md shadow-indigo-500/20" : "bg-white/5 text-zinc-400 hover:bg-white/10"
+                }`}
+              >
+                {mk === "KR" ? "🇰🇷 국내" : "🇺🇸 미국"}
+              </button>
+            ))}
+          </div>
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400" size={18} />
             <input
@@ -573,7 +632,7 @@ export default function SectorsPage() {
             </div>
           )}
 
-          {mapLoading ? (
+          {activeMapLoading ? (
             <div className="stockcy-card p-10 text-center text-zinc-400">섹터 지도를 불러오는 중...</div>
           ) : filteredData.length === 0 ? (
             <div className="stockcy-card p-10 text-center text-zinc-500">
@@ -619,12 +678,14 @@ export default function SectorsPage() {
                           {isExpanded && (
                             <div className="p-3 grid grid-cols-1 sm:grid-cols-2 gap-2">
                               {sub.stocks.map((s: any, i: number) => {
-                                const priceData = bulkPrices ? (bulkPrices as any)[s.code] : null;
+                                const priceData = mapMarket === "US"
+                                  ? (usMapPrices ? (usMapPrices as any)[s.code] : null)
+                                  : (bulkPrices ? (bulkPrices as any)[s.code] : null);
                                 const signal = priceData ? getSignalBadge(priceData.change_pct) : getSignalBadge(null);
                                 return (
                                   <div 
                                     key={i}
-                                    onClick={() => setSelectedStock({ code: s.code, name: s.name, market: "국내" })}
+                                    onClick={() => setSelectedStock({ code: s.code, name: s.name, market: mapMarket === "US" ? "미국" : "국내" })}
                                     className="group flex justify-between items-center p-2.5 rounded bg-black/20 hover:bg-indigo-500/10 border border-transparent hover:border-indigo-500/30 cursor-pointer transition-all hover:scale-[1.02] active:scale-98"
                                     title={`${s.name} (${s.code}) - 클릭 시 AI 타점 상세 분석 모달 오픈`}
                                   >
@@ -644,7 +705,7 @@ export default function SectorsPage() {
                                     {priceData ? (
                                       <div className="flex flex-col items-end flex-shrink-0">
                                         <span className="text-[0.8rem] font-bold text-white">
-                                          ₩{priceData.price.toLocaleString()}
+                                          {mapMarket === "US" ? `$${priceData.price.toFixed(2)}` : `₩${priceData.price.toLocaleString()}`}
                                         </span>
                                         <span className={`text-[0.65rem] font-bold mt-0.5 ${priceData.change_pct > 0 ? 'text-red-400' : priceData.change_pct < 0 ? 'text-blue-400' : 'text-zinc-500'}`}>
                                           {priceData.change_pct > 0 ? '+' : ''}{priceData.change_pct.toFixed(2)}%

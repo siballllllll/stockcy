@@ -148,10 +148,8 @@ function FavRow({ fav, price, onRemove, onAnalyze, onSaveMemo, gapBulkMap }: {
       <div style={{ minHeight: "20px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: "6px" }}>
         {fav["섹터"] ? (
           <span
-            onClick={() => router.push(isKr
-              ? `/sectors?tab=all&sector=${encodeURIComponent(fav["섹터"]!)}`
-              : `/screener?market=US&sector=${encodeURIComponent(fav["섹터"]!)}`)}
-            title={isKr ? `'${fav["섹터"]}' 섹터 지도 보기` : `'${fav["섹터"]}' 섹터 스크리너로 이동`}
+            onClick={() => router.push(`/sectors?tab=all&market=${isKr ? "KR" : "US"}&sector=${encodeURIComponent(fav["섹터"]!)}`)}
+            title={`'${fav["섹터"]}' 섹터 지도 보기`}
             style={{
               fontSize: "0.66rem", padding: "2px 7px", borderRadius: "99px",
               background: "rgba(129,140,248,0.12)", color: "#a5b4fc",

@@ -919,10 +919,8 @@ function SearchPageInner() {
             {sectorInfo && (
               <div style={{ display: "flex", alignItems: "center", gap: "6px", marginTop: "4px", marginBottom: "4px" }}>
                 <span
-                  onClick={() => router.push(isKR
-                    ? `/sectors?tab=all&sector=${encodeURIComponent(sectorInfo.sector)}`
-                    : `/screener?market=US&sector=${encodeURIComponent(sectorInfo.sector)}`)}
-                  title={isKR ? `'${sectorInfo.sector}' 섹터 지도 보기` : `'${sectorInfo.sector}' 섹터 스크리너로 이동`}
+                  onClick={() => router.push(`/sectors?tab=all&market=${isKR ? "KR" : "US"}&sector=${encodeURIComponent(sectorInfo.sector)}`)}
+                  title={`'${sectorInfo.sector}' 섹터 지도 보기`}
                   style={{
                     fontSize: "0.75rem", fontWeight: 700, padding: "2px 8px",
                     background: "rgba(99,102,241,0.15)", border: "1px solid rgba(99,102,241,0.4)",
