@@ -10,6 +10,7 @@ const BASE_URL = "/backend";
 import { Card } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
 import { StatusBox } from "@/components/ui/StatusBox";
+import { MarkdownLite } from "@/components/ui/MarkdownLite";
 import { Skeleton } from "@/components/ui/LoadingSpinner";
 import { SSEPanel } from "@/components/ui/SSEPanel";
 import { StockModal } from "@/components/ui/StockModal";
@@ -908,14 +909,14 @@ function PortfolioTab({ gapBulkMap }: { gapBulkMap: Record<string, any> }) {
             let parsed: any = null;
             try { parsed = JSON.parse(sellResult); } catch {}
             if (!parsed) return (
-              <pre style={{ fontSize: "0.8rem", color: "var(--color-subtle)", whiteSpace: "pre-wrap", wordBreak: "break-word", background: "rgba(0,0,0,0.2)", padding: "12px", borderRadius: "6px" }}>{sellResult}</pre>
+              <MarkdownLite text={sellResult} style={{ fontSize: "0.8rem", color: "var(--color-subtle)", wordBreak: "break-word", background: "rgba(0,0,0,0.2)", padding: "12px", borderRadius: "6px" }} />
             );
             if (parsed.error) return (
               <StatusBox type="danger">{parsed.error}</StatusBox>
             );
             const hasAnyField = parsed.verdict || parsed.timing || parsed.target_exit || parsed.reason || parsed.risk;
             if (!hasAnyField) return (
-              <pre style={{ fontSize: "0.8rem", color: "var(--color-subtle)", whiteSpace: "pre-wrap", wordBreak: "break-word", background: "rgba(0,0,0,0.2)", padding: "12px", borderRadius: "6px" }}>{sellResult}</pre>
+              <MarkdownLite text={sellResult} style={{ fontSize: "0.8rem", color: "var(--color-subtle)", wordBreak: "break-word", background: "rgba(0,0,0,0.2)", padding: "12px", borderRadius: "6px" }} />
             );
             return (
               <div style={{ display: "flex", flexDirection: "column", gap: "10px", fontSize: "0.84rem" }}>
@@ -1099,15 +1100,15 @@ function PostmortemModal({ trade, onClose, onRefresh }: { trade: any; onClose: (
           <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
             <div style={{ background: "rgba(255,255,255,0.03)", padding: "1rem", borderRadius: "8px" }}>
               <div style={{ fontSize: "0.85rem", color: "var(--color-muted)", marginBottom: "0.5rem" }}>📝 종합 평가</div>
-              <div style={{ lineHeight: 1.6, whiteSpace: "pre-line" }}>{pmResult?.evaluation}</div>
+              <MarkdownLite text={pmResult?.evaluation} style={{ lineHeight: 1.6 }} />
             </div>
             <div style={{ background: "rgba(255,255,255,0.03)", padding: "1rem", borderRadius: "8px" }}>
               <div style={{ fontSize: "0.85rem", color: "var(--color-muted)", marginBottom: "0.5rem" }}>🔍 핵심 원인</div>
-              <div style={{ lineHeight: 1.6, whiteSpace: "pre-line" }}>{pmResult?.cause}</div>
+              <MarkdownLite text={pmResult?.cause} style={{ lineHeight: 1.6 }} />
             </div>
             <div style={{ background: "rgba(99,102,241,0.15)", border: "1px solid rgba(99,102,241,0.3)", padding: "1rem", borderRadius: "8px" }}>
               <div style={{ fontSize: "0.85rem", color: "var(--color-primary)", fontWeight: 700, marginBottom: "0.5rem" }}>💡 학습 포인트 (교훈)</div>
-              <div style={{ lineHeight: 1.6, fontWeight: 500, whiteSpace: "pre-line" }}>{pmResult?.learning_point}</div>
+              <MarkdownLite text={pmResult?.learning_point} style={{ lineHeight: 1.6, fontWeight: 500 }} />
             </div>
           </div>
         )}
@@ -1717,9 +1718,7 @@ function TradesTab() {
               {/* AI 내러티브 */}
               <div style={{ background: "rgba(0,0,0,0.2)", borderRadius: "8px", padding: "1rem 1.2rem" }}>
                 <div style={{ fontSize: "0.78rem", fontWeight: 600, color: "#a78bfa", marginBottom: "0.6rem" }}>AI 패턴 분석 리포트</div>
-                <div style={{ fontSize: "0.84rem", color: "var(--color-text)", lineHeight: 1.7, whiteSpace: "pre-wrap" }}>
-                  {patternResult.ai_narrative}
-                </div>
+                <MarkdownLite text={patternResult.ai_narrative} style={{ fontSize: "0.84rem", color: "var(--color-text)", lineHeight: 1.7 }} />
               </div>
             </div>
           )}

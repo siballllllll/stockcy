@@ -6,6 +6,7 @@ import { Globe, TrendingUp, AlertTriangle, DollarSign, Loader2, ChevronDown, Che
 import dynamic from "next/dynamic";
 import { api } from "@/lib/api";
 import { useAnalysisReady } from "@/lib/analysis-ready-context";
+import { MarkdownLite } from "@/components/ui/MarkdownLite";
 
 // Next.js 프록시 우회 — 프록시가 큰 done JSON을 버퍼링해서 결과가 안 뜨는 문제 방지
 const BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8000";
@@ -386,9 +387,7 @@ function DetailPanel({ detail }: { detail: DetailResult }) {
       {/* deep_analysis */}
       <div>
         <SectionHeader title="심층 분석" />
-        <div style={{ fontSize: "0.85rem", color: "var(--color-text)", lineHeight: 1.7, whiteSpace: "pre-wrap" }}>
-          {detail.deep_analysis}
-        </div>
+        <MarkdownLite text={detail.deep_analysis} style={{ fontSize: "0.85rem", color: "var(--color-text)", lineHeight: 1.7 }} />
       </div>
 
       {/* historical_precedent */}
@@ -1181,16 +1180,6 @@ const SC_DATA_KEY = "stockcy_scenarios_data";
 const SC_TS_KEY   = "stockcy_scenarios_ts";
 
 // ── 시장 해설 카드 (왜 지금 장이 이렇게 움직이나) ───────────────────────────────
-function _renderCommentaryLine(line: string, key: number) {
-  const parts = line.split("**");
-  return (
-    <span key={key}>
-      {parts.map((seg, i) => (i % 2 === 1 ? <strong key={i}>{seg}</strong> : <span key={i}>{seg}</span>))}
-      {"\n"}
-    </span>
-  );
-}
-
 function MarketCommentaryCard() {
   const [data, setData] = useState<any>(null);
   const [status, setStatus] = useState<"loading" | "done" | "error">("loading");
@@ -1254,9 +1243,7 @@ function MarketCommentaryCard() {
           ) : (
             <>
               <div style={{ fontWeight: 800, fontSize: "1.05rem", color: "var(--color-text)", marginBottom: "0.5rem" }}>{data.title}</div>
-              <div style={{ whiteSpace: "pre-wrap", lineHeight: 1.75, fontSize: "0.88rem", color: "var(--color-subtle)" }}>
-                {String(data.commentary || "").split("\n").map((line: string, i: number) => _renderCommentaryLine(line, i))}
-              </div>
+              <MarkdownLite text={data.commentary} style={{ lineHeight: 1.75, fontSize: "0.88rem", color: "var(--color-subtle)" }} />
               {data.generated_at && (
                 <div style={{ marginTop: "0.6rem", fontSize: "0.7rem", color: "var(--color-muted)" }}>🕒 {data.generated_at} 기준 · AI 검색 분석 (참고용, 투자 판단은 본인 책임)</div>
               )}

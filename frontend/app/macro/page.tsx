@@ -5,6 +5,7 @@ import { Card } from "@/components/ui/Card";
 import { SSEPanel } from "@/components/ui/SSEPanel";
 import { Accordion } from "@/components/ui/Accordion";
 import { StatusBox } from "@/components/ui/StatusBox";
+import { MarkdownLite } from "@/components/ui/MarkdownLite";
 import { Badge } from "@/components/ui/Badge";
 import { StockModal } from "@/components/ui/StockModal";
 import type { StockInfo } from "@/components/ui/StockModal";
@@ -122,7 +123,7 @@ function HotStockCard({ data, onAnalyze }: { data: HotStockUs; onAnalyze: () => 
           </div>
 
           <Accordion title="선정 이유">
-            <p style={{ fontSize: "0.83rem", lineHeight: 1.75, whiteSpace: "pre-wrap" }}>{data.reasoning}</p>
+            <MarkdownLite text={data.reasoning} style={{ fontSize: "0.83rem", lineHeight: 1.75 }} />
           </Accordion>
         </>
       )}

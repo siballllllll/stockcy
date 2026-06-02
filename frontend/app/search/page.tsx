@@ -7,6 +7,7 @@ import { useMarket } from "@/lib/market-context";
 import { useAiTask } from "@/contexts/AiTaskContext";
 import { Search, Star, Briefcase, Bell, BarChart2, DollarSign, Activity, Loader2, PlusCircle, X } from "lucide-react";
 import Chart from "@/components/Chart";
+import { MarkdownLite } from "@/components/ui/MarkdownLite";
 import ReactMarkdown from "react-markdown";
 
 // ── 종목 AI 분석 결과 localStorage 캐시 (페이지 이동 후 복원용, 6시간 유효) ──
@@ -1713,16 +1714,12 @@ function SearchPageInner() {
 
                   <div style={{ display: "flex", flexDirection: "column", gap: "8px", fontSize: "0.85rem", background: "rgba(0,0,0,0.15)", padding: "14px", borderRadius: "8px", border: "1px solid var(--color-border)" }}>
                     <div style={{ fontWeight: 700, borderBottom: "1px solid rgba(255,255,255,0.1)", paddingBottom: "6px", marginBottom: "4px" }}>📌 AI 차트 & 수급 진단 소견</div>
-                    <div style={{ lineHeight: 1.6, whiteSpace: "pre-wrap" }}>
-                      {boxResult.pattern_view}
-                    </div>
+                    <MarkdownLite text={boxResult.pattern_view} style={{ lineHeight: 1.6 }} />
                   </div>
 
                   <div style={{ display: "flex", flexDirection: "column", gap: "8px", fontSize: "0.85rem", background: "rgba(245, 158, 11, 0.05)", padding: "14px", borderRadius: "8px", border: "1px dashed rgba(245, 158, 11, 0.3)" }}>
                     <div style={{ fontWeight: 700, color: "#fbbf24", display: "flex", alignItems: "center", gap: "6px" }}>🎯 실시간 돌파 매매 가이드라인</div>
-                    <div style={{ lineHeight: 1.6, whiteSpace: "pre-wrap", color: "#fef08a" }}>
-                      {boxResult.trading_strategy}
-                    </div>
+                    <MarkdownLite text={boxResult.trading_strategy} style={{ lineHeight: 1.6, color: "#fef08a" }} />
                   </div>
                 </div>
               )}
