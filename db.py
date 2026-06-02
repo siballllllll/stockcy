@@ -3039,6 +3039,53 @@ def load_ai_performance_summary() -> dict:
     }
 
 
+def load_notification_feed() -> list:
+    """프론트 벨 알림이 폴링하는 서버측 '완료 이벤트' 목록.
+    백엔드 스케줄러가 끝낸 작업(브라우저가 꺼져 있어도 진행되는 것들)을 알림으로 노출한다.
+    각 이벤트는 안정적 id를 가져 프론트가 중복 등록을 피한다(notifyDone 멱등)."""
+    events = []
+    try:
+        conn = get_db_conn()
+        cursor = conn.cursor()
+
+        # 1. 오늘의 AI 시나리오 자동 생성 (07:50 스케줄러) — ai_cache 저장 시각 기준
+        cursor.execute(
+            "SELECT saved_time FROM ai_cache WHERE cache_key = 'market_scenarios_latest'"
+        )
+        row = cursor.fetchone()
+        if row and row["saved_time"]:
+            d = str(row["saved_time"])[:10]
+            events.append({
+                "id":    f"scenario-auto-{d}",
+                "title": "오늘의 AI 시나리오 준비됨",
+                "route": "/scenarios",
+                "ts":    str(row["saved_time"]),
+            })
+
+        # 2. 트리거된(완료) 가격 알림 — 최근 2일
+        cutoff = (datetime.now() - timedelta(days=2)).strftime("%Y-%m-%d %H:%M:%S")
+        cursor.execute(
+            """SELECT market, ticker, name, alert_type, updated_time
+               FROM price_alerts
+               WHERE status = '완료' AND COALESCE(updated_time, '') >= ?
+               ORDER BY updated_time DESC LIMIT 20""",
+            (cutoff,)
+        )
+        for r in cursor.fetchall():
+            r = dict(r)
+            events.append({
+                "id":    f"alert-{r['ticker']}-{r['alert_type']}",
+                "title": f"🔔 {r.get('name') or r['ticker']} · {r['alert_type']}",
+                "route": "/favorites",
+                "ts":    r.get("updated_time"),
+            })
+
+        conn.close()
+    except Exception as e:
+        print(f"load_notification_feed error: {e}")
+    return events
+
+
 def save_screener_picks(picks: list):
     """패턴 스크리너 추천 결과를 DB에 저장합니다. 당일 기존 기록은 덮어씁니다."""
     try:

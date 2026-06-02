@@ -1218,6 +1218,14 @@ async def get_ai_performance_summary():
     return await asyncio.to_thread(load_ai_performance_summary)
 
 
+@router.get("/notifications/feed")
+async def get_notification_feed():
+    """프론트 벨 알림이 폴링하는 서버측 완료 이벤트(자동 시나리오·트리거된 가격알림 등)."""
+    from db import load_notification_feed
+    events = await asyncio.to_thread(load_notification_feed)
+    return {"events": events}
+
+
 @router.get("/agent-daily-issues")
 async def get_agent_daily_issues(days: int = 2):
     """에이전트가 자동 분석한 오늘의 핫이슈/심리 조회."""

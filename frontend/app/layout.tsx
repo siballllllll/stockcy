@@ -4,6 +4,7 @@ import { TopNav } from "@/components/layout/TopNav";
 import { MarketTickerBar } from "@/components/layout/MarketTickerBar";
 import { Providers } from "@/components/Providers";
 import { AiTaskProvider } from "@/contexts/AiTaskContext";
+import { NotificationPoller } from "@/components/NotificationPoller";
 
 export const metadata: Metadata = {
   title: "Stockcy — AI 트레이딩 대시보드",
@@ -16,6 +17,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body style={{ minHeight: "100%", display: "flex", flexDirection: "column" }}>
         <Providers>
           <AiTaskProvider>
+            <NotificationPoller />
             <TopNav />
             <MarketTickerBar />
             <main

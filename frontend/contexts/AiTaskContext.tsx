@@ -147,11 +147,16 @@ export function AiTaskProvider({ children }: { children: ReactNode }) {
   const getTask = useCallback((id: string) => tasks[id], [tasks]);
 
   // 외부(페이지)에서 분석 완료 시 알림만 직접 등록 (분석은 페이지가 자체 실행)
+  // 멱등: 같은 id가 이미 있으면 덮어쓰지 않는다 → 서버 이벤트 폴링 시 읽음 상태가
+  // 매 폴링마다 다시 '안읽음'으로 초기화되는 것을 막는다. (수동 재생성은 고유 id 사용)
   const notifyDone = useCallback((id: string, title: string, route: string) => {
-    setTasks(prev => ({
-      ...prev,
-      [id]: { id, title, status: "done", message: "", result: null, fromCache: false, timestamp: Date.now(), completedAt: Date.now(), route, read: false },
-    }));
+    setTasks(prev => {
+      if (prev[id]) return prev;
+      return {
+        ...prev,
+        [id]: { id, title, status: "done", message: "", result: null, fromCache: false, timestamp: Date.now(), completedAt: Date.now(), route, read: false },
+      };
+    });
   }, []);
 
   // 알림 클릭 시 읽음 처리 (배지에서 제외, UI에서 어둡게 표시)

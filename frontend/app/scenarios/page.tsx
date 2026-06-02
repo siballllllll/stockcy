@@ -1497,7 +1497,8 @@ function ScenariosPageInner() {
           setLoading(false);
           setReady("scenarios", true);
           // 새 시나리오 생성 완료 → 벨 알림 등록 (클릭 시 /scenarios 이동, 확인 시 꺼짐)
-          notifyDone("scenario-generate", `시나리오 분석 완료 (${newIssues.length}건)`, "/scenarios");
+          // 수동 재생성마다 새 알림이 뜨도록 고유 id 사용 (notifyDone은 멱등이므로)
+          notifyDone(`scenario-generate-${Date.now()}`, `시나리오 분석 완료 (${newIssues.length}건)`, "/scenarios");
         }
       } catch (e: any) {
         if (!cancelled) {
