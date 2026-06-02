@@ -217,6 +217,17 @@ KR_SECTOR_MAP = {
             {"name": "한컴로보틱스",     "code": "122900", "suffix": ".KQ"},
             {"name": "클로봇",           "code": "352320", "suffix": ".KQ"},
         ],
+        "피지컬 AI·휴머노이드": [
+            {"name": "레인보우로보틱스", "code": "277810", "suffix": ".KQ"},
+            {"name": "두산로보틱스",     "code": "454910", "suffix": ".KS"},
+            {"name": "에스비비테크",     "code": "389650", "suffix": ".KQ"},
+            {"name": "로보티즈",         "code": "108490", "suffix": ".KQ"},
+            {"name": "뉴로메카",         "code": "348340", "suffix": ".KQ"},
+            {"name": "엔젤로보틱스",     "code": "443320", "suffix": ".KQ"},
+            {"name": "에스피지",         "code": "058610", "suffix": ".KQ"},
+            {"name": "삼익THK",          "code": "023440", "suffix": ".KS"},
+            {"name": "티로보틱스",       "code": "117730", "suffix": ".KQ"},
+        ],
         "자율주행·전장": [
             {"name": "현대모비스",       "code": "012330", "suffix": ".KS"},
             {"name": "HL만도",           "code": "204320", "suffix": ".KS"},
