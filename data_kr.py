@@ -546,6 +546,83 @@ def get_kr_frgn_inst_rank(market: str = "J", top_n: int = 30, sort: str = "buy")
     return results
 
 
+def _classify_flow(item: dict) -> dict:
+    """수급 항목을 세력 흐름 관점으로 분류: 합산 강도, 주도 주체, 동반매수/매도 구분."""
+    frgn = int(item.get("외국인순매수", 0) or 0)
+    orgn = int(item.get("기관순매수", 0) or 0)
+    combined = frgn + orgn
+    if frgn > 0 and orgn > 0:
+        tag = "동반매수"
+    elif frgn < 0 and orgn < 0:
+        tag = "동반매도"
+    else:
+        tag = "엇갈림"
+    return {
+        "종목코드": item.get("종목코드"), "종목명": item.get("종목명"),
+        "외국인순매수": frgn, "기관순매수": orgn, "합산": combined,
+        "주도": "외국인" if abs(frgn) >= abs(orgn) else "기관", "구분": tag,
+    }
+
+
+def get_supply_power_flow(top_n: int = 12) -> dict:
+    """실시간 외국인·기관(세력) 자금 흐름.
+    시장별로 자금 유입(순매수 상위)·이탈(순매도 상위)을 외국인+기관 합산 강도로 정렬하고,
+    외국인·기관이 함께 사들이는 '동반매수'(강한 세력 유입)를 별도로 추린다."""
+    from datetime import datetime
+    out = {"generated_at": datetime.now().strftime("%Y-%m-%d %H:%M"), "markets": {}}
+    for mkt, label in (("J", "코스피"), ("Q", "코스닥")):
+        buy = get_kr_frgn_inst_rank(mkt, top_n * 2, "buy") or []
+        sell = get_kr_frgn_inst_rank(mkt, top_n * 2, "sell") or []
+        inflow = sorted((_classify_flow(x) for x in buy), key=lambda x: x["합산"], reverse=True)
+        outflow = sorted((_classify_flow(x) for x in sell), key=lambda x: x["합산"])
+        out["markets"][mkt] = {
+            "label": label,
+            "inflow": inflow[:top_n],
+            "outflow": outflow[:top_n],
+            "strong_inflow": [x for x in inflow if x["구분"] == "동반매수"][:6],
+            "strong_outflow": [x for x in outflow if x["구분"] == "동반매도"][:6],
+        }
+    return out
+
+
+def snapshot_frgn_inst_today() -> dict:
+    """오늘의 외국인·기관 수급(순매수+순매도 상위)을 DB에 스냅샷 저장 (히스토리 적재)."""
+    from db import save_frgn_inst_snapshot
+    total = 0
+    for mkt in ("J", "Q"):
+        rows = (get_kr_frgn_inst_rank(mkt, 40, "buy") or []) + (get_kr_frgn_inst_rank(mkt, 40, "sell") or [])
+        seen = {}
+        for r in rows:
+            c = r.get("종목코드")
+            if c and c not in seen:
+                seen[c] = r
+        total += save_frgn_inst_snapshot(mkt, list(seen.values()))
+    return {"saved": total}
+
+
+def detect_supply_rotation() -> dict:
+    """최근 스냅샷 2일치를 비교해 세력 자금이 더 들어온/빠진 종목(combined 증감)을 감지.
+    2일치 이상 쌓여야 동작 (매일 자동 스냅샷)."""
+    from db import load_frgn_inst_snapshot_dates, load_frgn_inst_snapshot
+    dates = load_frgn_inst_snapshot_dates(10)
+    if len(dates) < 2:
+        return {"available": False, "reason": "스냅샷 2거래일 이상 필요 — 매일 자동 적재 중입니다.",
+                "have_dates": dates}
+    today_d, prev_d = dates[0], dates[1]
+    cur = {r["ticker"]: r for r in load_frgn_inst_snapshot(today_d)}
+    prev = {r["ticker"]: r for r in load_frgn_inst_snapshot(prev_d)}
+    recs = []
+    for tk, c in cur.items():
+        prev_comb = (prev.get(tk) or {}).get("combined", 0) or 0
+        recs.append({"ticker": tk, "name": c["name"], "market": c["market"],
+                     "today": c["combined"], "prev": prev_comb,
+                     "delta": (c["combined"] or 0) - prev_comb})
+    moved_in = sorted([r for r in recs if r["delta"] > 0], key=lambda x: x["delta"], reverse=True)
+    moved_out = sorted([r for r in recs if r["delta"] < 0], key=lambda x: x["delta"])
+    return {"available": True, "today": today_d, "prev": prev_d,
+            "moved_in": moved_in[:10], "moved_out": moved_out[:10]}
+
+
 @st.cache_data(ttl=60)
 def get_kr_market_index():
     """KOSPI / KOSDAQ 지수 실시간 조회 (KIS → yfinance 폴백)"""

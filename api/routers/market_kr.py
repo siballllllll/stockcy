@@ -182,6 +182,36 @@ def kr_investor_trend(market: str = Query("KOSPI")):
         return {"error": str(e)}
 
 
+@router.get("/supply-power-flow")
+def kr_supply_power_flow():
+    """실시간 외국인·기관(세력) 자금 흐름 — 시장별 유입/이탈 + 동반매수 강도."""
+    import data_kr
+    try:
+        return data_kr.get_supply_power_flow()
+    except Exception as e:
+        return {"error": str(e), "markets": {}}
+
+
+@router.get("/supply-rotation")
+def kr_supply_rotation():
+    """세력 자금 이동 추적 — 직전 스냅샷 대비 자금이 더 들어온/빠진 종목 (히스토리 기반)."""
+    import data_kr
+    try:
+        return data_kr.detect_supply_rotation()
+    except Exception as e:
+        return {"available": False, "error": str(e)}
+
+
+@router.post("/supply-snapshot")
+def kr_supply_snapshot():
+    """오늘의 외국인·기관 수급 스냅샷 즉시 저장 (수동 트리거; 스케줄러도 매일 호출)."""
+    import data_kr
+    try:
+        return data_kr.snapshot_frgn_inst_today()
+    except Exception as e:
+        return {"saved": 0, "error": str(e)}
+
+
 @router.get("/stocks/{code}/investor-trend")
 def kr_investor_trend_by_code(code: str):
     """개별 종목의 외국인/기관 수급 데이터 조회."""

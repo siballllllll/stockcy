@@ -312,6 +312,22 @@ def init_local_db():
         )
     """)
 
+    # 외국인·기관 수급 일일 스냅샷 (세력 자금 흐름 추적용)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS frgn_inst_snapshots (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            snapshot_date TEXT,
+            market TEXT,          -- J=KOSPI, Q=KOSDAQ
+            ticker TEXT,
+            name TEXT,
+            frgn_ntby INTEGER,    -- 외국인 순매수 수량
+            orgn_ntby INTEGER,    -- 기관 순매수 수량
+            combined INTEGER,     -- 외국인+기관 합산 (세력 강도)
+            created_at TEXT,
+            UNIQUE(snapshot_date, market, ticker)
+        )
+    """)
+
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS screener_backtest_results (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -2703,6 +2719,73 @@ def load_agent_learning_summary() -> dict:
     except Exception as e:
         print(f"load_agent_learning_summary error: {e}")
         return {"sample": 0, "realized_sample": 0, "provisional_sample": 0, "rules": []}
+
+
+def save_frgn_inst_snapshot(market: str, rows: list) -> int:
+    """외국인·기관 순매수 스냅샷을 오늘 날짜로 저장 (세력 자금 흐름 히스토리).
+    rows: [{'종목코드','종목명','외국인순매수','기관순매수'}, ...]. 반환: 저장 건수."""
+    try:
+        conn = get_db_conn()
+        cursor = conn.cursor()
+        today = datetime.now().strftime("%Y-%m-%d")
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        n = 0
+        for r in rows:
+            code = str(r.get("종목코드", "")).strip()
+            if not code:
+                continue
+            frgn = int(r.get("외국인순매수", 0) or 0)
+            orgn = int(r.get("기관순매수", 0) or 0)
+            cursor.execute(
+                """INSERT OR REPLACE INTO frgn_inst_snapshots
+                   (snapshot_date, market, ticker, name, frgn_ntby, orgn_ntby, combined, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                (today, market, code, str(r.get("종목명", code)), frgn, orgn, frgn + orgn, now)
+            )
+            n += 1
+        conn.commit()
+        conn.close()
+        return n
+    except Exception as e:
+        print(f"save_frgn_inst_snapshot error: {e}")
+        return 0
+
+
+def load_frgn_inst_snapshot_dates(limit: int = 10) -> list:
+    """저장된 수급 스냅샷 날짜 목록 (최신순)."""
+    try:
+        conn = get_db_conn()
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT DISTINCT snapshot_date FROM frgn_inst_snapshots ORDER BY snapshot_date DESC LIMIT ?",
+            (limit,)
+        )
+        dates = [r["snapshot_date"] for r in cursor.fetchall()]
+        conn.close()
+        return dates
+    except Exception:
+        return []
+
+
+def load_frgn_inst_snapshot(snapshot_date: str, market: str | None = None) -> list:
+    """특정 날짜의 수급 스냅샷 로드 (combined 내림차순)."""
+    try:
+        conn = get_db_conn()
+        cursor = conn.cursor()
+        if market:
+            cursor.execute(
+                """SELECT * FROM frgn_inst_snapshots WHERE snapshot_date=? AND market=?
+                   ORDER BY combined DESC""", (snapshot_date, market))
+        else:
+            cursor.execute(
+                """SELECT * FROM frgn_inst_snapshots WHERE snapshot_date=?
+                   ORDER BY combined DESC""", (snapshot_date,))
+        rows = [dict(r) for r in cursor.fetchall()]
+        conn.close()
+        return rows
+    except Exception as e:
+        print(f"load_frgn_inst_snapshot error: {e}")
+        return []
 
 
 def save_scenario_stocks(scenario_keyword: str, scenario_title: str, stocks: list):

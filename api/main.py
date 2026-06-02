@@ -364,6 +364,39 @@ def start_scenario_tracking_scheduler():
     print("[scenario track] 시나리오 적중률 추적 스케줄러 시작 (매일 07:00)")
 
 
+# ── 10-c. 외국인·기관 수급 일일 스냅샷 스케줄러 (세력 자금 이동 추적용) ──────────
+_LAST_SUPPLY_SNAPSHOT_DATE = ""
+
+def _supply_snapshot_loop():
+    """평일 15:45 KST(한국장 마감 직후)에 외국인·기관 수급 스냅샷을 DB에 적재.
+    매일 쌓여야 day-over-day 세력 자금 이동(detect_supply_rotation)이 동작한다."""
+    global _LAST_SUPPLY_SNAPSHOT_DATE
+    import datetime as _dt
+    while True:
+        try:
+            now = _dt.datetime.now()
+            today = now.strftime("%Y-%m-%d")
+            if (now.weekday() < 5 and now.hour == 15 and now.minute >= 45
+                    and _LAST_SUPPLY_SNAPSHOT_DATE != today):
+                try:
+                    from data_kr import snapshot_frgn_inst_today
+                    r = snapshot_frgn_inst_today()
+                    _LAST_SUPPLY_SNAPSHOT_DATE = today
+                    print(f"[supply snapshot] 수급 스냅샷 저장: {r.get('saved', 0)}건 ({today})")
+                except Exception as e:
+                    print(f"[supply snapshot] 오류: {e}")
+        except Exception:
+            pass
+        _time.sleep(120)
+
+
+@app.on_event("startup")
+def start_supply_snapshot_scheduler():
+    t = _threading.Thread(target=_supply_snapshot_loop, daemon=True)
+    t.start()
+    print("[supply snapshot] 수급 스냅샷 스케줄러 시작 (평일 15:45)")
+
+
 @app.on_event("startup")
 def resume_gap_bulk_job():
     """서버 재시작으로 중단된 시간외 갭 일괄 분석 작업이 있으면 이어서 진행."""
