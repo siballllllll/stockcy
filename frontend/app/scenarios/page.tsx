@@ -6,6 +6,7 @@ import { Globe, TrendingUp, AlertTriangle, DollarSign, Loader2, ChevronDown, Che
 import dynamic from "next/dynamic";
 import { api } from "@/lib/api";
 import { useAnalysisReady } from "@/lib/analysis-ready-context";
+import { useAiTask } from "@/contexts/AiTaskContext";
 import { MarkdownLite } from "@/components/ui/MarkdownLite";
 import { SupplyPowerFlow } from "@/components/SupplyPowerFlow";
 import { SectorTrend } from "@/components/SectorTrend";
@@ -1267,6 +1268,7 @@ function MarketCommentaryCard() {
 
 function ScenariosPageInner() {
   const { setReady } = useAnalysisReady();
+  const { notifyDone } = useAiTask();
 
   const [mounted, setMounted] = useState(false);
   const [loading, setLoading]     = useState(false);
@@ -1427,6 +1429,8 @@ function ScenariosPageInner() {
           } catch {}
           setLoading(false);
           setReady("scenarios", true);
+          // 새 시나리오 생성 완료 → 벨 알림 등록 (클릭 시 /scenarios 이동, 확인 시 꺼짐)
+          notifyDone("scenario-generate", `시나리오 분석 완료 (${newIssues.length}건)`, "/scenarios");
         }
       } catch (e: any) {
         if (!cancelled) {

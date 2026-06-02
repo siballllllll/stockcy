@@ -5081,8 +5081,22 @@ def load_scenario_tracking_list(limit: int = 300) -> list:
     return rows
 
 
+_SCENARIO_TRACK_LOCK = threading.Lock()
+
+
 def track_scenario_stocks_performance() -> dict:
     """시나리오에 등장한 종목들의 등장 시점 가격 + 1/3/7일 후 가격 자동 추적."""
+    # 중복 실행 방지: 이미 추적이 돌고 있으면 즉시 반환.
+    # (동시 실행 시 느린 네트워크 구간에서 DB write 락이 겹쳐 'database is locked' 발생)
+    if not _SCENARIO_TRACK_LOCK.acquire(blocking=False):
+        return {"updated_now": 0, "skipped": "already_running"}
+    try:
+        return _track_scenario_stocks_performance_impl()
+    finally:
+        _SCENARIO_TRACK_LOCK.release()
+
+
+def _track_scenario_stocks_performance_impl() -> dict:
     from db import get_db_conn
     from datetime import datetime, timedelta
     import FinanceDataReader as fdr
@@ -5098,7 +5112,9 @@ def track_scenario_stocks_performance() -> dict:
     )
     rows = [dict(r) for r in cursor.fetchall()]
     today = datetime.now().date()
-    updated = 0
+    # 네트워크 단계(느림)와 DB write 단계(빠름)를 분리한다.
+    # 종목마다 commit하면 write 락을 짧게만 잡아 다른 쓰기 작업과 경합하지 않는다.
+    pending_updates = []
 
     for row in rows:
         try:
@@ -5152,19 +5168,28 @@ def track_scenario_stocks_performance() -> dict:
             def _r(p): return round((p - entry) / entry * 100, 2) if p else None
 
             now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            cursor.execute(
-                """UPDATE scenario_stocks
-                   SET captured_price = ?, d1_price = ?, d3_price = ?, d7_price = ?,
-                       d1_return = ?, d3_return = ?, d7_return = ?, updated_at = ?
-                   WHERE id = ?""",
+            pending_updates.append(
                 (entry, d1, d3, d7, _r(d1), _r(d3), _r(d7), now, row["id"])
             )
-            updated += 1
         except Exception as e:
             print(f"[scenario tracking] {ticker} 실패: {e}")
             continue
 
-    conn.commit()
+    # 네트워크 단계가 끝난 뒤에만 write 트랜잭션을 짧게 열어 일괄 커밋한다.
+    updated = 0
+    if pending_updates:
+        try:
+            cursor.executemany(
+                """UPDATE scenario_stocks
+                   SET captured_price = ?, d1_price = ?, d3_price = ?, d7_price = ?,
+                       d1_return = ?, d3_return = ?, d7_return = ?, updated_at = ?
+                   WHERE id = ?""",
+                pending_updates,
+            )
+            conn.commit()
+            updated = len(pending_updates)
+        except Exception as e:
+            print(f"[scenario tracking] 일괄 저장 실패: {e}")
 
     # 집계는 공용 헬퍼로 위임 (DB만 사용) — /stats 경량 조회와 동일 로직 공유
     stats = _aggregate_scenario_stats(cursor)
