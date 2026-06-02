@@ -3107,6 +3107,57 @@ def load_ai_performance_summary() -> dict:
     }
 
 
+@st.cache_data(ttl=1800)
+def get_market_regime() -> dict:
+    """현재 시장 레짐 — KOSPI(KS11)·S&P500(US500) 일봉 기반 추세/변동성/리스크 자세. 30분 캐시.
+    승률은 장세에 좌우되므로(추세장 vs 횡보·하락장) 픽 선정/기대치 보정에 활용."""
+    import FinanceDataReader as fdr
+    out: dict = {}
+    start = (datetime.now() - timedelta(days=400)).strftime("%Y-%m-%d")
+    for key, sym in [("kr", "KS11"), ("us", "US500")]:
+        try:
+            df = fdr.DataReader(sym, start)
+            if df is None or df.empty or "Close" not in df.columns:
+                out[key] = None
+                continue
+            c = df["Close"].dropna()
+            if len(c) < 60:
+                out[key] = None
+                continue
+            price = float(c.iloc[-1])
+            ma20  = float(c.rolling(20).mean().iloc[-1])
+            ma60  = float(c.rolling(60).mean().iloc[-1])
+            ma120 = float(c.rolling(120).mean().iloc[-1]) if len(c) >= 120 else ma60
+            ret20 = float((c.iloc[-1] / c.iloc[-21] - 1) * 100) if len(c) > 21 else 0.0
+            vol20 = float(c.pct_change().tail(20).std() * 100)  # 일간 변동성(%)
+
+            if price > ma60 and ma20 > ma60:
+                trend = "강세추세"
+            elif price < ma60 and ma20 < ma60:
+                trend = "약세추세"
+            else:
+                trend = "횡보"
+            volb = "고" if vol20 >= 2.0 else ("저" if vol20 < 1.0 else "중")
+
+            if trend == "강세추세" and volb != "고":
+                posture = "공격적"
+            elif trend == "약세추세" or volb == "고":
+                posture = "방어적"
+            else:
+                posture = "중립"
+
+            out[key] = {
+                "trend": trend, "vol": volb, "vol_pct": round(vol20, 2),
+                "posture": posture, "price": round(price, 2), "ma60": round(ma60, 2),
+                "ret20": round(ret20, 2), "above_ma120": bool(price > ma120),
+            }
+        except Exception as e:
+            print(f"get_market_regime({sym}) error: {e}")
+            out[key] = None
+    out["generated_at"] = datetime.now().strftime("%Y-%m-%d %H:%M")
+    return out
+
+
 @st.cache_data(ttl=300)
 def _agent_buy_rows() -> list:
     """결과(outcome_return)가 채워진 에이전트 BUY 판단 행 — 학습 규칙 평가용(5분 캐시)."""

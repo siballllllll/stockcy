@@ -1218,6 +1218,13 @@ async def get_ai_performance_summary():
     return await asyncio.to_thread(load_ai_performance_summary)
 
 
+@router.get("/market-regime")
+async def get_market_regime_ep():
+    """현재 시장 레짐(추세/변동성/리스크 자세) — KOSPI·S&P500 기반."""
+    from db import get_market_regime
+    return await asyncio.to_thread(get_market_regime)
+
+
 @router.get("/confluence")
 async def get_confluence_picks(days: int = 5, min_engines: int = 2):
     """교차검증 픽 — 여러 AI 엔진이 최근 동시에 잡은 종목(고승률 후보)."""

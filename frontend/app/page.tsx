@@ -398,6 +398,42 @@ const TABS: { id: Tab; label: string }[] = [
   { id: "screener",   label: "🔍 복합 스크리너" },
 ];
 
+// ── 시장 레짐(장세 신호등) 배너 ────────────────────────────────────────────────
+function RegimeBanner() {
+  const { data } = useSWR<any>("market-regime", async () => {
+    const res = await fetch("/backend/api/ai/market-regime");
+    return res.json();
+  }, { refreshInterval: 600000 });
+  if (!data) return null;
+  const POSTURE: Record<string, { c: string; bg: string; tip: string }> = {
+    "공격적": { c: "#34d399", bg: "rgba(52,211,153,0.12)", tip: "추세 우호적 — 모멘텀 전략 유리" },
+    "중립":   { c: "#fbbf24", bg: "rgba(251,191,36,0.12)", tip: "방향성 약함 — 선별적 접근" },
+    "방어적": { c: "#f87171", bg: "rgba(248,113,113,0.12)", tip: "하락/고변동 — 비중축소·손절 엄격" },
+  };
+  const cell = (label: string, r: any) => {
+    if (!r) return null;
+    const p = POSTURE[r.posture] || POSTURE["중립"];
+    return (
+      <div style={{ flex: 1, minWidth: "180px", background: p.bg, border: `1px solid ${p.c}55`, borderRadius: "8px", padding: "8px 12px" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "8px" }}>
+          <span style={{ fontSize: "0.8rem", fontWeight: 800 }}>{label}</span>
+          <span style={{ fontSize: "0.72rem", fontWeight: 800, color: p.c }}>{r.posture}</span>
+        </div>
+        <div style={{ fontSize: "0.66rem", color: "var(--color-muted)", marginTop: "2px" }}>
+          {r.trend} · 변동성 {r.vol} · 20일 {r.ret20 >= 0 ? "+" : ""}{r.ret20}%
+        </div>
+        <div style={{ fontSize: "0.62rem", color: p.c, marginTop: "2px" }}>{p.tip}</div>
+      </div>
+    );
+  };
+  return (
+    <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+      {cell("🇰🇷 국내 장세", data.kr)}
+      {cell("🇺🇸 미국 장세", data.us)}
+    </div>
+  );
+}
+
 // ── 교차검증(컨플루언스) 탭 ────────────────────────────────────────────────────
 function ConfluenceTab({ onSelect }: { onSelect: (s: StockInfo) => void }) {
   const { data } = useSWR<{ picks: any[] }>(
@@ -415,6 +451,7 @@ function ConfluenceTab({ onSelect }: { onSelect: (s: StockInfo) => void }) {
 
   return (
     <div className="flex flex-col gap-4">
+      <RegimeBanner />
       <div style={{ fontSize: "0.8rem", color: "var(--color-muted)", lineHeight: 1.6 }}>
         🎯 여러 AI 엔진(시나리오·패턴스크리너·에이전트·AI추천)이 <b style={{ color: "var(--color-text)" }}>최근 7일 내 동시에</b> 잡은 종목입니다.
         독립 신호가 겹칠수록 승률이 높은 경향이 있어, 겹친 엔진 수(점수)가 높을수록 상단에 노출됩니다.
