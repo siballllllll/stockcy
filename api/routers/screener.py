@@ -152,9 +152,17 @@ def _load_sector_ohlc(market: str, sector: str) -> dict:
     else:
         return {}
 
+    # yfinance 네트워크 장애 가드: 서킷 열려있으면 즉시 빈 결과(스레드풀 점유 방지)
+    from api.circuit import yf_breaker
+    if yf_breaker.is_open():
+        print(f"[screener] {market}/{sector} 스킵 (yfinance 서킷 열림)")
+        return {}
+
     try:
-        raw = yf.download(keys, period="1y", auto_adjust=True, progress=False, threads=True)
+        # timeout 필수 — 없으면 DNS resolving이 수십 분 매달려 동기 스레드풀을 점유한다
+        raw = yf.download(keys, period="1y", auto_adjust=True, progress=False, threads=True, timeout=12)
         if raw is None or raw.empty:
+            yf_breaker.record_failure()
             return {}
         is_multi = isinstance(raw.columns, pd.MultiIndex)
         for yf_tk in keys:
@@ -167,7 +175,9 @@ def _load_sector_ohlc(market: str, sector: str) -> dict:
                 df_t = raw.dropna()
             if not df_t.empty:
                 out[code] = df_t.rename(columns=str.lower)
+        yf_breaker.record_success()
     except Exception as e:
+        yf_breaker.record_failure()
         print(f"[screener] {market}/{sector} OHLC 다운로드 실패:", e)
     return out
 

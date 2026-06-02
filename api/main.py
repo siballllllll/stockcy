@@ -370,7 +370,9 @@ def _screener_warm_loop():
     while True:
         try:
             from api.routers.screener import warm_screener_cache
-            r = warm_screener_cache(sectors=("전체",), markets=("KR", "US"))
+            # US '전체'는 종목군이 방대하고 상폐/정크 티커가 많아 yfinance가 장시간 매달림 → KR만 워밍.
+            # (US는 사용자가 특정 섹터 선택 시 on-demand로 캐싱; timeout+서킷으로 보호)
+            r = warm_screener_cache(sectors=("전체",), markets=("KR",))
             print(f"[screener warm] 캐시 워밍 완료: {r}")
         except Exception as e:
             print(f"[screener warm] 워밍 오류: {e}")
