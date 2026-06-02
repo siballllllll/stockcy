@@ -684,14 +684,20 @@ def snapshot_sector_flow_today() -> dict:
 
 
 def backfill_sector_flow_pykrx(days: int = 20) -> dict:
-    """과거 N거래일의 외국인+기관 순매수를 pykrx로 받아 섹터별 집계·저장 (과거 흐름 백필)."""
+    """과거 N거래일의 외국인+기관 순매수를 pykrx로 받아 섹터별 집계·저장 (과거 흐름 백필).
+    KRX_ID/KRX_PW 환경변수(.env, data.krx.co.kr 무료계정) 필요."""
+    import os as _os
     from db import save_sector_flow_snapshot
     from datetime import datetime, timedelta
+    krx_id_set = bool(_os.getenv("KRX_ID")) and bool(_os.getenv("KRX_PW"))
+    if not krx_id_set:
+        return {"filled": 0, "error": "KRX_ID/KRX_PW 환경변수 미설정 — .env 추가 후 백엔드 재시작 필요"}
     try:
         from pykrx import stock
     except Exception as e:
         return {"error": f"pykrx 사용 불가: {e}", "filled": 0}
 
+    first_err = None
     filled, checked = 0, 0
     d = datetime.now()
     while filled < days and checked < days * 2 + 12:
@@ -723,9 +729,11 @@ def backfill_sector_flow_pykrx(days: int = 20) -> dict:
             save_sector_flow_snapshot(ds_iso, _aggregate_by_sector(rows))
             filled += 1
         except Exception as e:
+            if first_err is None:
+                first_err = repr(e)[:160]
             print(f"[sector backfill] {ds} 실패: {repr(e)[:120]}")
             continue
-    return {"filled": filled}
+    return {"filled": filled, "krx_id_set": krx_id_set, "checked": checked, "first_err": first_err}
 
 
 def detect_sector_rotation() -> dict:
