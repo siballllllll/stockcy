@@ -117,43 +117,43 @@ function FavRow({ fav, price, onRemove, onAnalyze, onSaveMemo, gapBulkMap }: {
         )}
       </div>
 
-      {/* 섹터 줄 — 전용 라인으로 분리(공간 예약)해 가격/버튼 위치를 카드 간 일치시킴 */}
-      <div style={{ minHeight: "20px", display: "flex", alignItems: "center" }}>
+      {/* 섹터 줄 — 좌측 섹터, 우측 현황 배지(약세흐름·매수매력·관망 등) */}
+      <div style={{ minHeight: "20px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: "6px" }}>
         {fav["섹터"] ? (
           <span style={{
             fontSize: "0.66rem", padding: "2px 7px", borderRadius: "99px",
             background: "rgba(129,140,248,0.12)", color: "#a5b4fc",
             border: "1px solid rgba(129,140,248,0.3)", fontWeight: 700,
-            overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "100%",
+            overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0,
           }}>
             🏷️ {fav["섹터"]}
           </span>
         ) : (
-          <span style={{ fontSize: "0.66rem", color: "var(--color-muted)" }}>🏷️ 섹터 미분류</span>
+          <span style={{ fontSize: "0.66rem", color: "var(--color-muted)", minWidth: 0 }}>🏷️ 섹터 미분류</span>
+        )}
+        {status && (
+          <span style={{
+            fontSize: "0.7rem", padding: "2px 8px", borderRadius: "99px",
+            background: status.bg, color: status.color, fontWeight: 700,
+            border: `1px solid ${status.border}`, flexShrink: 0,
+          }}>
+            {status.label}
+          </span>
         )}
       </div>
 
-      {/* 시세 + 현황 배지 */}
-      <div style={{ display: "flex", alignItems: "center", gap: "7px", flexWrap: "wrap" }}>
+      {/* 시세 */}
+      <div style={{ display: "flex", alignItems: "baseline", gap: "7px", flexWrap: "wrap" }}>
         <Badge variant={isKr ? "info" : "success"}>{fav["시장"]}</Badge>
-        <span style={{ fontWeight: 700, fontSize: "0.88rem" }}>
+        <span style={{ fontWeight: 800, fontSize: "1.05rem" }}>
           {price
             ? isKr ? `₩${price.price.toLocaleString()}` : `$${price.price.toFixed(2)}`
             : <span style={{ color: "var(--color-muted)", fontWeight: 400, fontSize: "0.8rem" }}>로딩중...</span>
           }
         </span>
         {price && (
-          <span style={{ color, fontSize: "0.8rem", fontWeight: 600 }}>
+          <span style={{ color, fontSize: "0.82rem", fontWeight: 600 }}>
             {up ? "+" : ""}{pct!.toFixed(2)}%
-          </span>
-        )}
-        {status && (
-          <span style={{
-            fontSize: "0.7rem", padding: "2px 8px", borderRadius: "99px",
-            background: status.bg, color: status.color, fontWeight: 700,
-            border: `1px solid ${status.border}`,
-          }}>
-            {status.label}
           </span>
         )}
       </div>
