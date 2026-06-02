@@ -4,7 +4,7 @@ from typing import List
 
 router = APIRouter()
 
-# 지연 import (streamlit_mock 패치 이후 로드 보장)
+# 지연 import (data.py 의 무거운 의존성을 요청 시점에만 로드)
 def _data():
     from data import (
         get_us_stock_data, get_us_market_indices,

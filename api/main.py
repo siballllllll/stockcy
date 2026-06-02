@@ -38,11 +38,10 @@ except Exception:
 from dotenv import load_dotenv
 load_dotenv()
 
-# ── 2. Streamlit 모의 모듈 설치 (반드시 다른 임포트보다 먼저) ──────────────
-#     이 라인이 sys.modules["streamlit"] 을 패치하여
-#     이후 import 되는 data.py / db.py / ai_engine.py 등이
-#     st.secrets / @st.cache_data 를 환경변수·TTL캐시로 자동 대체합니다.
-import api.core.streamlit_mock  # noqa: F401
+# ── 2. 네이티브 런타임 호환 모듈 (구 Streamlit 대체) ──────────────────────────
+#     data.py / db.py / ai_engine.py 등이 `import st_compat as st` 로 직접 사용한다.
+#     (.env 로드 후 import 되어야 secrets 가 환경변수로 채워진다.)
+import st_compat  # noqa: F401
 
 # ── 3. FastAPI 및 라우터 임포트 ──────────────────────────────────────────────
 from fastapi import FastAPI

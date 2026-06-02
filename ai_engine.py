@@ -1,6 +1,6 @@
 from google import genai
 from google.genai import types
-import streamlit as st
+import st_compat as st
 import requests
 import os
 import urllib3

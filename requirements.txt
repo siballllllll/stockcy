@@ -1,10 +1,5 @@
-# ── 기존 Streamlit 앱 (레거시 — 마이그레이션 완료 후 제거 가능) ──
-streamlit>=1.37.0
-streamlit-autorefresh
-streamlit-lightweight-charts
-streamlit-echarts
-
-# ── 공통 의존성 (Streamlit + FastAPI 공유) ──────────────────────
+# ── 공통 의존성 (FastAPI 백엔드) ──────────────────────────────────
+# (v3.0.0: Streamlit 레거시 완전 제거 — st_compat.py 네이티브 호환 모듈로 대체)
 pandas>=2.0.0
 yfinance>=0.2.50
 gspread>=6.0.0

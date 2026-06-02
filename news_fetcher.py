@@ -2,7 +2,7 @@ import requests
 from bs4 import BeautifulSoup
 import re
 import time
-import streamlit as st
+import st_compat as st
 
 _TELEGRAM_URLS = {
     "KR": "https://t.me/s/FastStockNews",

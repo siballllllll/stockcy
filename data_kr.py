@@ -1,7 +1,7 @@
 # data_kr v4
 import os
 import requests
-import streamlit as st
+import st_compat as st
 import pandas as pd
 
 KIS_BASE = "https://openapi.koreainvestment.com:9443"

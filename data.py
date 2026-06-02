@@ -1,5 +1,5 @@
 import pandas as pd
-import streamlit as st
+import st_compat as st
 import yfinance as yf
 import urllib3
 

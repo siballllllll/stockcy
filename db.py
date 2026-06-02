@@ -1,7 +1,7 @@
 import os
 import json as _json
 import gspread
-import streamlit as st
+import st_compat as st
 import pandas as pd
 import sqlite3
 import threading

@@ -1,20 +1,23 @@
 """
-Streamlit 모의 모듈
-FastAPI 환경에서 st.secrets / st.cache_data / st.cache_resource 를
-환경변수 + TTL 인메모리 캐시로 투명하게 대체합니다.
+네이티브 런타임 호환 모듈 (구 Streamlit 대체)
 
-api/main.py 에서 가장 먼저 import 해야 합니다.
-(sys.modules['streamlit'] 을 이 모듈로 교체하는 사이드 이펙트)
+과거 Streamlit 앱에서 쓰던 `st.secrets` / `@st.cache_data` / `@st.cache_resource` /
+UI 호출(`st.write` 등)을 FastAPI 환경에서 그대로 쓸 수 있도록 대체한다.
+환경변수 기반 secrets + TTL 인메모리 캐시 + UI NoOp 으로 구성.
+
+사용법:  import st_compat as st   →   st.secrets["gemini"]["api_key"], @st.cache_data(ttl=60) ...
+
+(v3.0.0: sys.modules["streamlit"] 을 가로채던 streamlit_mock 을 폐기하고,
+ 각 모듈이 이 네이티브 모듈을 직접 import 하도록 전환했다.)
 """
 import os
-import sys
 import json
 import time
 import threading
 import functools
 
 
-# ── st.secrets 대체 ─────────────────────────────────────────────────────────
+# ── secrets 대체 ─────────────────────────────────────────────────────────────
 
 class _AttrDict(dict):
     """딕셔너리 + .속성 접근 지원 (st.secrets 동작 모방)."""
@@ -31,12 +34,9 @@ class _AttrDict(dict):
             return _AttrDict(val)
         return val
 
-    def __contains__(self, key):
-        return super().__contains__(key)
-
 
 def _build_secrets() -> _AttrDict:
-    """환경변수로부터 st.secrets 구조를 재구성합니다."""
+    """환경변수로부터 secrets 구조를 재구성한다."""
     raw_creds = os.environ.get("GSPREAD_CREDENTIALS", "{}")
     try:
         gspread_creds = json.loads(raw_creds)
@@ -62,7 +62,16 @@ def _build_secrets() -> _AttrDict:
     })
 
 
-# ── @st.cache_data 대체 ──────────────────────────────────────────────────────
+secrets = _build_secrets()
+
+
+def reload_secrets():
+    """환경변수 변경 후 secrets 재구성."""
+    global secrets
+    secrets = _build_secrets()
+
+
+# ── @cache_data 대체 ─────────────────────────────────────────────────────────
 
 def _make_cache_key(args, kwargs):
     """인자를 hashable 캐시 키로 변환 (리스트/딕트 등 처리)."""
@@ -82,7 +91,7 @@ def _make_cache_key(args, kwargs):
 def cache_data(func=None, *, ttl=None, show_spinner=True, hash_funcs=None, **_kw):
     """
     @st.cache_data(ttl=N) 대체.
-    - ttl=None → lru_cache (프로세스 수명 내 영구)
+    - ttl=None → 프로세스 수명 내 영구 캐시
     - ttl=N    → TTL 기반 인메모리 캐시 (N초)
     decorated 함수에는 .clear() 메서드 추가.
     """
@@ -121,19 +130,19 @@ def cache_data(func=None, *, ttl=None, show_spinner=True, hash_funcs=None, **_kw
         _wrapper.clear = clear
         return _wrapper
 
-    # @st.cache_data        → func 는 callable
-    # @st.cache_data(ttl=N) → func 는 None
+    # @cache_data        → func 는 callable
+    # @cache_data(ttl=N) → func 는 None
     if callable(func):
         return _decorator(func)
     return _decorator
 
 
-# ── @st.cache_resource 대체 ──────────────────────────────────────────────────
+# ── @cache_resource 대체 ─────────────────────────────────────────────────────
 
 def cache_resource(func=None, **_kw):
     """
     @st.cache_resource 대체.
-    프로세스 수명 동안 단일 인스턴스를 유지합니다.
+    프로세스 수명 동안 단일 인스턴스를 유지한다.
     """
     def _decorator(fn):
         _instance: dict = {}
@@ -162,10 +171,10 @@ def cache_resource(func=None, **_kw):
     return _decorator
 
 
-# ── UI 호출 무시 (NoOp) ──────────────────────────────────────────────────────
+# ── UI 호출 무시 (NoOp) ───────────────────────────────────────────────────────
 
 class _NoOp:
-    """st.write, st.spinner 등 모든 UI 호출을 조용히 무시합니다."""
+    """st.write, st.spinner 등 모든 UI 호출을 조용히 무시한다."""
 
     def __call__(self, *a, **kw):
         return self
@@ -186,36 +195,24 @@ class _NoOp:
         return False
 
 
-# ── 모의 streamlit 모듈 ──────────────────────────────────────────────────────
+_noop = _NoOp()
 
-class _StreamlitMock:
-    cache_data     = staticmethod(cache_data)
-    cache_resource = staticmethod(cache_resource)
+# 과거 UI 호출 이름들을 모듈 전역에 NoOp 으로 노출
+write = error = warning = info = success = _noop
+spinner = progress = empty = expander = _noop
+sidebar = columns = tabs = container = _noop
+button = selectbox = text_input = number_input = _noop
+checkbox = radio = slider = multiselect = _noop
+dataframe = table = metric = json_ = _noop
+plotly_chart = image = markdown = caption = _noop
+title = header = subheader = code = _noop
+rerun = stop = set_page_config = _noop
+toast = balloons = snow = form = _noop
 
-    def __init__(self):
-        self.secrets = _build_secrets()
-        self.session_state: dict = {}
-        self.query_params:  dict = {}
-
-        _noop = _NoOp()
-        for _attr in (
-            "write", "error", "warning", "info", "success",
-            "spinner", "progress", "empty", "expander",
-            "sidebar", "columns", "tabs", "container",
-            "button", "selectbox", "text_input", "number_input",
-            "checkbox", "radio", "slider", "multiselect",
-            "dataframe", "table", "metric", "json",
-            "plotly_chart", "image", "markdown", "caption",
-            "title", "header", "subheader", "code",
-            "rerun", "stop", "set_page_config",
-            "toast", "balloons", "snow", "form",
-        ):
-            setattr(self, _attr, _noop)
-
-    def reload_secrets(self):
-        """환경변수 변경 후 secrets 재구성."""
-        self.secrets = _build_secrets()
+session_state: dict = {}
+query_params: dict = {}
 
 
-# sys.modules 교체 (이 모듈이 import 되는 순간 적용)
-sys.modules["streamlit"] = _StreamlitMock()  # type: ignore
+def __getattr__(name):
+    """정의되지 않은 st.<무엇이든> 접근 시 조용히 NoOp 반환 (PEP 562)."""
+    return _noop
