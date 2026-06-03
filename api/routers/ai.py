@@ -13,7 +13,7 @@ import asyncio
 import json
 import time
 from fastapi import APIRouter, Body, Query, Depends
-from api.auth import get_current_user
+from api.auth import get_current_user, require_admin
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from typing import Any
@@ -1191,8 +1191,8 @@ async def pattern_screener():
 
 
 @router.get("/screener-feedback-stats")
-async def get_screener_feedback_stats():
-    """스크리너 피드백 통계 조회 — 추천 이력 + 리딩방 매칭/비매칭 성과."""
+async def get_screener_feedback_stats(_admin: dict = Depends(require_admin)):
+    """[관리자] 스크리너 피드백 통계 조회 — 추천 이력 + 리딩방 매칭/비매칭 성과."""
     from db import load_screener_feedback_stats
     stats = await asyncio.to_thread(load_screener_feedback_stats)
     return {"stats": stats}
@@ -1463,16 +1463,16 @@ async def get_scenario_tracking_list():
 
 
 @router.get("/entry-timing")
-async def get_entry_timing(source: str = "leading", market: str = "kr"):
-    """시간대별 진입 타이밍 통계 (source: leading/personal/all, market: kr/us)."""
+async def get_entry_timing(source: str = "leading", market: str = "kr", _admin: dict = Depends(require_admin)):
+    """[관리자] 시간대별 진입 타이밍 통계 (source: leading/personal/all, market: kr/us)."""
     from ai_engine import analyze_entry_timing
     result = await asyncio.to_thread(analyze_entry_timing, source, market)
     return result
 
 
 @router.post("/pattern-profile/build")
-async def build_pattern_profile_endpoint():
-    """패턴 프로파일(전체/개인/리딩방)을 즉시 재빌드합니다."""
+async def build_pattern_profile_endpoint(_admin: dict = Depends(require_admin)):
+    """[관리자] 패턴 프로파일(전체/개인/리딩방)을 즉시 재빌드합니다."""
     from ai_engine import build_pattern_profile
     try:
         profile_all      = await asyncio.to_thread(build_pattern_profile, 'all')
@@ -1528,8 +1528,8 @@ async def get_pattern_profile():
 
 
 @router.post("/leading-room-patterns")
-async def leading_room_patterns():
-    """리딩방 거래 내역 기술적 패턴 AI 분석 (SSE)."""
+async def leading_room_patterns(_admin: dict = Depends(require_admin)):
+    """[관리자] 리딩방 거래 내역 기술적 패턴 AI 분석 (SSE)."""
     from ai_engine import analyze_leading_room_patterns
 
     async def _gen():

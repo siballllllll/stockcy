@@ -17,6 +17,7 @@ import { SSEPanel } from "@/components/ui/SSEPanel";
 import { StockModal } from "@/components/ui/StockModal";
 import type { StockInfo } from "@/components/ui/StockModal";
 import { useSSE } from "@/hooks/useSSE";
+import { useAuth } from "@/lib/auth-context";
 
 // ── 투자 가이드 배지 (Streamlit 원본 로직 동일) ─────────────────────────────
 function getStatusInfo(pct: number | null, price?: number, w52High?: number, w52Low?: number) {
@@ -358,6 +359,8 @@ function ToggleGroup<T extends string>({ options, value, onChange, colors }: {
 
 // ── 보유 종목 추가 폼 ─────────────────────────────────────────────────────────
 function AddPortfolioForm({ onAdded }: { onAdded: () => void }) {
+  const { user } = useAuth();
+  const isAdmin = user?.role === "admin";
   const [market,      setMarket]      = useState<"국내" | "미국">("미국");
   const [ticker,      setTicker]      = useState("");
   const [name,        setName]        = useState("");
@@ -404,7 +407,8 @@ function AddPortfolioForm({ onAdded }: { onAdded: () => void }) {
     <div style={{ background: "var(--color-surface)", border: "1px solid var(--color-border)", borderRadius: "8px", padding: "1rem", marginBottom: "1rem", display: "flex", flexDirection: "column", gap: "0.6rem" }}>
       <div style={{ fontWeight: 700, fontSize: "0.9rem" }}>+ 보유 종목 추가</div>
 
-      {/* 출처 · 유형 토글 */}
+      {/* 출처·유형 토글 — 리딩방/테스트는 관리자 전용. 일반 유저는 개인·실매매 고정 */}
+      {isAdmin && (
       <div style={{ display: "flex", gap: "0.75rem", alignItems: "center", flexWrap: "wrap" }}>
         <div style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}>
           <span style={{ fontSize: "0.75rem", color: "var(--color-muted)" }}>출처</span>
@@ -425,6 +429,7 @@ function AddPortfolioForm({ onAdded }: { onAdded: () => void }) {
           />
         </div>
       </div>
+      )}
 
       {/* 종목 검색 */}
       <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
@@ -605,6 +610,8 @@ function CapitalRotationCard({ singleTicker, singleName, onClose }: { singleTick
 
 // ── 보유 종목 탭 ──────────────────────────────────────────────────────────────
 function PortfolioTab({ gapBulkMap }: { gapBulkMap: Record<string, any> }) {
+  const { user } = useAuth();
+  const isAdmin = user?.role === "admin";
   const { data: portfolio, isLoading, mutate } = useSWR<any[]>("/api/portfolio", () => api.portfolio.loadPortfolio() as Promise<any[]>);
 
   // 단일 종목 자금 회전 분석 대상
@@ -990,6 +997,7 @@ function PortfolioTab({ gapBulkMap }: { gapBulkMap: Record<string, any> }) {
                 {/* 인라인 편집 폼 */}
                 {isEditing && (
                   <div style={{ background: "rgba(0,0,0,0.3)", padding: "10px 12px", display: "flex", gap: "0.6rem", alignItems: "center", flexWrap: "wrap" }}>
+                    {isAdmin && (<>
                     <span style={{ fontSize: "0.75rem", color: "var(--color-muted)" }}>출처</span>
                     <ToggleGroup
                       options={[{ label: "리딩방", value: "리딩방" as const }, { label: "개인", value: "개인" as const }]}
@@ -1002,6 +1010,7 @@ function PortfolioTab({ gapBulkMap }: { gapBulkMap: Record<string, any> }) {
                       value={editType} onChange={setEditType}
                       colors={{ "실매매": "#059669", "테스트": "#d97706" }}
                     />
+                    </>)}
                     <span style={{ fontSize: "0.75rem", color: "var(--color-muted)" }}>평단가</span>
                     <input className="stockcy-input" type="number" value={editPrice} onChange={e => setEditPrice(e.target.value)} style={{ width: "100px" }} />
                     <span style={{ fontSize: "0.75rem", color: "var(--color-muted)" }}>수량</span>
@@ -1335,6 +1344,8 @@ function StockSearchInput({ market, onSelect }: {
 
 // ── 거래 내역 탭 ──────────────────────────────────────────────────────────────
 function TradesTab() {
+  const { user } = useAuth();
+  const isAdmin = user?.role === "admin";
   const { data: tradeRes, isLoading, mutate } = useSWR("/api/trades", () => api.portfolio.loadTrades() as Promise<{ data: any[]; message: string }>);
   const trades: any[] = tradeRes?.data ?? [];
 
@@ -1527,7 +1538,8 @@ function TradesTab() {
       )}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: "0.5rem" }}>
         <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
-          {/* 필터 */}
+          {/* 필터 — 리딩방/테스트 구분은 관리자 전용 */}
+          {isAdmin && (
           <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", flexWrap: "wrap" }}>
             <span style={{ fontSize: "0.75rem", color: "var(--color-muted)" }}>출처</span>
             {(["전체", "리딩방", "개인"] as const).map(v => (
@@ -1538,6 +1550,7 @@ function TradesTab() {
               <button key={v} onClick={() => setFilterType(v)} style={{ padding: "3px 9px", fontSize: "0.75rem", fontWeight: 600, borderRadius: "4px", border: "1px solid var(--color-border)", cursor: "pointer", background: filterType === v ? (v === "실매매" ? "#059669" : v === "테스트" ? "#d97706" : "var(--color-elevated)") : "var(--color-surface)", color: filterType === v ? "#fff" : "var(--color-muted)" }}>{v}</button>
             ))}
           </div>
+          )}
           {/* 통계 */}
           <div style={{ display: "flex", gap: "1rem", alignItems: "center" }}>
             <span style={{ fontSize: "0.85rem", color: "var(--color-muted)" }}>{filteredTrades.length}건{filterSource !== "전체" || filterType !== "전체" ? ` / 전체 ${trades.length}건` : ""}</span>
@@ -1552,6 +1565,7 @@ function TradesTab() {
           </div>
         </div>
         <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
+          {isAdmin && (
           <button
             className="stockcy-btn stockcy-btn-secondary"
             onClick={handlePatternAnalysis}
@@ -1561,6 +1575,7 @@ function TradesTab() {
             {patternStatus === "loading" ? <Loader2 size={13} style={{ animation: "spin 1s linear infinite" }} /> : <Brain size={13} />}
             {patternStatus === "loading" ? " 분석 중..." : " 리딩방 패턴 분석"}
           </button>
+          )}
           <button className="stockcy-btn stockcy-btn-secondary" onClick={() => setShowForm(v => !v)}>
             <Plus size={14} /> 거래 기록
           </button>
@@ -1569,12 +1584,14 @@ function TradesTab() {
 
       {showForm && (
         <div style={{ background: "var(--color-surface)", border: "1px solid var(--color-border)", borderRadius: "8px", padding: "1rem", display: "flex", flexDirection: "column", gap: "0.5rem" }}>
+          {isAdmin && (
           <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", flexWrap: "wrap" }}>
             <span style={{ fontSize: "0.75rem", color: "var(--color-muted)" }}>출처</span>
             <ToggleGroup options={[{ label: "리딩방", value: "리딩방" as const }, { label: "개인", value: "개인" as const }]} value={form.trade_source as "리딩방" | "개인"} onChange={v => setForm(f => ({...f, trade_source: v}))} colors={{ "리딩방": "#7c3aed", "개인": "#2563eb" }} />
             <span style={{ fontSize: "0.75rem", color: "var(--color-muted)" }}>유형</span>
             <ToggleGroup options={[{ label: "실매매", value: "실매매" as const }, { label: "테스트", value: "테스트" as const }]} value={form.trade_type as "실매매" | "테스트"} onChange={v => setForm(f => ({...f, trade_type: v}))} colors={{ "실매매": "#059669", "테스트": "#d97706" }} />
           </div>
+          )}
           {/* 종목 검색 */}
           <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
             <div style={{ display: "flex", background: "var(--color-bg)", borderRadius: "6px", padding: "2px", border: "1px solid var(--color-border)", flexShrink: 0 }}>
@@ -1743,6 +1760,7 @@ function TradesTab() {
                     <tr key={`${i}_edit`} style={{ background: "rgba(0,0,0,0.25)" }}>
                       <td colSpan={10} style={{ padding: "8px 12px" }}>
                         <div style={{ display: "flex", alignItems: "center", gap: "0.6rem", flexWrap: "wrap" }}>
+                          {isAdmin && (<>
                           <span style={{ fontSize: "0.75rem", color: "var(--color-muted)" }}>출처</span>
                           <ToggleGroup
                             options={[{ label: "리딩방", value: "리딩방" as const }, { label: "개인", value: "개인" as const }]}
@@ -1755,6 +1773,7 @@ function TradesTab() {
                             value={editTyp} onChange={setEditTyp}
                             colors={{ "실매매": "#059669", "테스트": "#d97706" }}
                           />
+                          </>)}
                           <span style={{ fontSize: "0.75rem", color: "var(--color-muted)", marginLeft: "0.25rem" }}>매수시각</span>
                           <input
                             className="stockcy-input"
@@ -1789,8 +1808,8 @@ function TradesTab() {
         </table>
       )}
 
-      {/* 리딩방 패턴 분석 결과 패널 */}
-      {(patternStatus === "loading" || patternStatus === "done" || patternStatus === "error") && (
+      {/* 리딩방 패턴 분석 결과 패널 (관리자 전용) */}
+      {isAdmin && (patternStatus === "loading" || patternStatus === "done" || patternStatus === "error") && (
         <div style={{ border: "1px solid rgba(124,58,237,0.35)", borderRadius: "10px", background: "rgba(124,58,237,0.06)", padding: "1.2rem", display: "flex", flexDirection: "column", gap: "1rem" }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
             <span style={{ fontWeight: 700, fontSize: "0.95rem", color: "#a78bfa" }}>

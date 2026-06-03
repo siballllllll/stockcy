@@ -12,6 +12,7 @@ import type { StockInfo } from "@/components/ui/StockModal";
 import { MarkdownLite } from "@/components/ui/MarkdownLite";
 import { SupplyPowerFlow } from "@/components/SupplyPowerFlow";
 import { AiCostBadge } from "@/components/ui/AiCostBadge";
+import { useAuth } from "@/lib/auth-context";
 import useSWR from "swr";
 
 function EntryTimingStats() {
@@ -100,12 +101,16 @@ function EntryTimingStats() {
 }
 
 function PerformanceVerification() {
+  const { user } = useAuth();
+  const isAdmin = user?.role === "admin";
   const [tab, setTab] = useState<"backtest" | "feedback" | "timing">("backtest");
-  const tabs: { id: typeof tab; label: string; color: string }[] = [
+  const allTabs: { id: typeof tab; label: string; color: string }[] = [
     { id: "backtest", label: "📊 자동 백테스트", color: "#a5b4fc" },
     { id: "feedback", label: "🎯 리딩방 검증",  color: "#34d399" },
     { id: "timing",   label: "⏰ 시간대 분석",  color: "#fb923c" },
   ];
+  // 리딩방 집계 분석(검증·시간대)은 관리자 전용 — 일반 유저는 백테스트만
+  const tabs = isAdmin ? allTabs : allTabs.filter((t) => t.id === "backtest");
   return (
     <div style={{ background: "rgba(255,255,255,0.02)", border: "1px solid var(--color-border)", borderRadius: "10px", padding: "1rem 1.2rem", display: "flex", flexDirection: "column", gap: "0.75rem" }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "8px", flexWrap: "wrap" }}>
@@ -526,6 +531,8 @@ function ConfluenceTab({ onSelect }: { onSelect: (s: StockInfo) => void }) {
 
 export default function Dashboard() {
   const router = useRouter();
+  const { user } = useAuth();
+  const isAdmin = user?.role === "admin";
   const [activeTab,     setActiveTab]     = useState<Tab>("picks");
   const [selectedStock, setSelectedStock] = useState<StockInfo | null>(null);
 
@@ -694,7 +701,7 @@ export default function Dashboard() {
                             </div>
                             <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: "2px", flexShrink: 0 }}>
                               <div style={{ background: scoreBg, color: scoreColor, fontWeight: 800, fontSize: "0.85rem", padding: "2px 8px", borderRadius: "6px" }}>{score}점</div>
-                              {p.personal_score != null && p.leading_score != null && (
+                              {isAdmin && p.personal_score != null && p.leading_score != null && (
                                 <div style={{ display: "flex", gap: "3px" }}>
                                   <span style={{ fontSize: "0.62rem", padding: "1px 5px", borderRadius: "4px", background: "rgba(99,102,241,0.12)", border: "1px solid rgba(99,102,241,0.25)", color: "#a5b4fc" }}>개인 {p.personal_score}</span>
                                   <span style={{ fontSize: "0.62rem", padding: "1px 5px", borderRadius: "4px", background: "rgba(16,185,129,0.12)", border: "1px solid rgba(16,185,129,0.25)", color: "#34d399" }}>리딩 {p.leading_score}</span>
