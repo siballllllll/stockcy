@@ -2,7 +2,7 @@
 import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { BarChart2, TrendingUp, GitBranch, Star, Layers, FlaskConical, Brain, Filter, Bell } from "lucide-react";
+import { BarChart2, TrendingUp, GitBranch, Star, Layers, FlaskConical, Brain, Bell } from "lucide-react";
 import { BriefingModal } from "@/components/ui/BriefingModal";
 import { useMarket } from "@/lib/market-context";
 import { useAnalysisReady } from "@/lib/analysis-ready-context";
@@ -134,7 +134,6 @@ function AiTaskIndicator() {
 const TABS = [
   { href: "/",          label: "🔥 대시보드",        exact: true,  icon: <TrendingUp size={15} />, readyKey: "picks"     as const },
   { href: "/search",    label: "📊 종합 검색",       exact: false, icon: <BarChart2 size={15} />,  readyKey: null },
-  { href: "/screener",  label: "🔍 복합 스크리너",   exact: false, icon: <Filter size={15} />,     readyKey: null },
   { href: "/sectors",   label: "🌐 이슈 섹터",       exact: false, icon: <GitBranch size={15} />,  readyKey: null },
   { href: "/favorites", label: "💼 포트폴리오 관리", exact: false, icon: <Star size={15} />,       readyKey: null },
   { href: "/agent",     label: "🤖 AI 에이전트",      exact: false, icon: <Brain size={15} />,      readyKey: null },
