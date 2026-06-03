@@ -98,7 +98,12 @@ def run_research_watch(push: bool = True, limit_per: int = 6) -> dict:
         )
         resp = _call_gemini(prompt, use_search=False, temperature=0.4,
                             response_mime_type="application/json", max_output_tokens=4000)
-        issues = _parse_json_array(resp)
+        # _call_gemini은 GenerateContentResponse 객체를 반환 → .text 로 추출
+        if isinstance(resp, str):
+            raw = resp
+        else:
+            raw = getattr(resp, "text", None) or ""
+        issues = _parse_json_array(raw)
     except Exception as e:
         print(f"[research watch] AI 요약 실패: {e}")
 
