@@ -1218,6 +1218,21 @@ async def get_ai_performance_summary():
     return await asyncio.to_thread(load_ai_performance_summary)
 
 
+@router.post("/research-watch/run")
+async def run_research_watch_ep():
+    """리서치 텔레그램 채널 수집 → AI 요약 → 텔레그램 브리핑 푸시 (수동 실행)."""
+    from research_watcher import run_research_watch
+    return await asyncio.to_thread(run_research_watch, True)
+
+
+@router.get("/research-watch/preview")
+async def preview_research_watch_ep():
+    """리서치 채널에서 수집되는 원문 미리보기(요약·푸시 없음)."""
+    from research_watcher import fetch_research_posts, _channels
+    posts = await asyncio.to_thread(fetch_research_posts)
+    return {"channels": _channels(), "posts": posts}
+
+
 @router.get("/exit-guidance")
 async def get_exit_guidance_ep():
     """청산 가이드 — 백테스트 분포 기반 최적 보유기간·목표가·손절."""

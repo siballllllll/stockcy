@@ -386,6 +386,31 @@ def start_screener_warm_scheduler():
     print("[screener warm] 복합 스크리너 캐시 워밍 스케줄러 시작 (시작 시 + 110분마다)")
 
 
+# ── 10-b3. 리서치 텔레그램 채널 워처 (이슈 자동 수집·요약·푸시) ────────────────────
+def _research_watch_loop():
+    """RESEARCH_TG_CHANNELS 설정 시, 25분마다 리서치 채널의 신규 글을 요약해 텔레그램 푸시."""
+    import os
+    if not os.environ.get("RESEARCH_TG_CHANNELS", "").strip():
+        print("[research watch] RESEARCH_TG_CHANNELS 미설정 — 워처 비활성")
+        return
+    _time.sleep(30)   # 서버 안정화 후 시작
+    while True:
+        try:
+            from research_watcher import run_research_watch
+            r = run_research_watch(push=True)
+            print(f"[research watch] {r}")
+        except Exception as e:
+            print(f"[research watch] 오류: {e}")
+        _time.sleep(1500)   # 25분
+
+
+@app.on_event("startup")
+def start_research_watch_scheduler():
+    t = _threading.Thread(target=_research_watch_loop, daemon=True)
+    t.start()
+    print("[research watch] 리서치 채널 워처 스케줄러 시작 (설정 시 25분마다)")
+
+
 # ── 10-c. 외국인·기관 수급 일일 스냅샷 스케줄러 (세력 자금 이동 추적용) ──────────
 _LAST_SUPPLY_SNAPSHOT_DATE = ""
 
