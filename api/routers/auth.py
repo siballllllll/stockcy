@@ -17,6 +17,8 @@ from api.auth import (
     authenticate, create_token, get_current_user, require_admin,
     create_user, list_users, set_active, change_password, get_user,
     COOKIE_NAME, TOKEN_TTL_SEC,
+    create_access_request, get_my_pending_request, list_access_requests,
+    decide_access_request, list_users_with_usage, add_credits,
 )
 
 router = APIRouter()
@@ -42,6 +44,19 @@ class CreateUserRequest(BaseModel):
 
 class ToggleUserRequest(BaseModel):
     is_active: bool
+
+
+class AiAccessRequest(BaseModel):
+    reason: str = ""
+
+
+class DecideRequest(BaseModel):
+    approve: bool
+    count: int = 5          # 승인 시 부여할 횟수
+
+
+class CreditsAdjust(BaseModel):
+    delta: int              # 가감할 횟수(음수 가능)
 
 
 # ── 인증 ──────────────────────────────────────────────────────────────────────
@@ -121,3 +136,50 @@ async def admin_toggle_user(username: str, req: ToggleUserRequest,
     if not ok:
         raise HTTPException(status_code=400, detail=msg)
     return {"success": True, "message": msg}
+
+
+# ── AI 사용 승인제 (Phase 4) ──────────────────────────────────────────────────
+@router.post("/ai-request")
+async def submit_ai_request(req: AiAccessRequest, user: dict = Depends(get_current_user)):
+    """일반 유저가 AI 사용 권한(횟수)을 신청한다."""
+    ok, msg = create_access_request(user["username"], req.reason)
+    return {"success": ok, "message": msg}
+
+
+@router.get("/ai-status")
+async def my_ai_status(user: dict = Depends(get_current_user)):
+    """현재 유저의 AI 잔여 횟수 + 대기 중 신청 여부."""
+    pending = get_my_pending_request(user["username"])
+    return {
+        "ai_credits": user["ai_credits"],
+        "is_admin": user["role"] == "admin",
+        "pending": bool(pending),
+        "pending_since": pending["requested_at"] if pending else None,
+    }
+
+
+@router.get("/admin/ai-requests")
+async def admin_list_ai_requests(status: str = "pending", _admin: dict = Depends(require_admin)):
+    return {"requests": list_access_requests(status or None)}
+
+
+@router.post("/admin/ai-requests/{req_id}/decide")
+async def admin_decide_ai_request(req_id: int, body: DecideRequest, admin: dict = Depends(require_admin)):
+    ok, msg = decide_access_request(req_id, body.approve, body.count, admin["username"])
+    if not ok:
+        raise HTTPException(status_code=400, detail=msg)
+    return {"success": True, "message": msg}
+
+
+@router.get("/admin/users-usage")
+async def admin_users_usage(_admin: dict = Depends(require_admin)):
+    """유저별 잔여 크레딧 + 사용량 + 대기 신청 여부."""
+    return {"users": list_users_with_usage()}
+
+
+@router.post("/users/{username}/credits")
+async def admin_adjust_credits(username: str, body: CreditsAdjust, _admin: dict = Depends(require_admin)):
+    if not get_user(username):
+        raise HTTPException(status_code=404, detail="존재하지 않는 계정")
+    new_bal = add_credits(username, body.delta)
+    return {"success": True, "ai_credits": new_bal, "message": f"{username} 잔여 {new_bal}회"}

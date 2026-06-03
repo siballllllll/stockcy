@@ -51,6 +51,28 @@ def ensure_auth_tables() -> None:
             value TEXT
         )
     """)
+    # AI 사용 승인 요청 (Phase 4)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS ai_access_requests (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            username      TEXT NOT NULL,
+            requested_at  TEXT,
+            reason        TEXT,
+            status        TEXT NOT NULL DEFAULT 'pending',  -- pending | approved | denied
+            granted_count INTEGER DEFAULT 0,
+            decided_at    TEXT,
+            decided_by    TEXT
+        )
+    """)
+    # AI 사용량 로그 (Phase 4)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS usage_log (
+            id        INTEGER PRIMARY KEY AUTOINCREMENT,
+            username  TEXT NOT NULL,
+            feature   TEXT,
+            called_at TEXT
+        )
+    """)
     conn.commit()
     conn.close()
 
@@ -266,6 +288,165 @@ async def get_optional_user(request: Request) -> Optional[dict]:
     user = get_user(username)
     if not user or not user.get("is_active"):
         return None
+    return user
+
+
+# ── AI 사용 승인제 / 사용량 / 크레딧 (Phase 4) ────────────────────────────────
+def get_credits(username: str) -> int:
+    conn = get_db_conn()
+    row = conn.execute("SELECT ai_credits FROM users WHERE username = ?", (username,)).fetchone()
+    conn.close()
+    return int(row["ai_credits"]) if row else 0
+
+
+def add_credits(username: str, delta: int) -> int:
+    """크레딧 증감(음수 가능). 0 미만으로는 안 내려감. 새 잔액 반환."""
+    conn = get_db_conn()
+    conn.execute(
+        "UPDATE users SET ai_credits = MAX(0, ai_credits + ?) WHERE username = ?",
+        (int(delta), username),
+    )
+    conn.commit()
+    row = conn.execute("SELECT ai_credits FROM users WHERE username = ?", (username,)).fetchone()
+    conn.close()
+    return int(row["ai_credits"]) if row else 0
+
+
+def consume_one_credit(username: str) -> bool:
+    """잔여 크레딧이 있으면 1 차감(원자적). 성공 여부 반환."""
+    conn = get_db_conn()
+    cur = conn.execute(
+        "UPDATE users SET ai_credits = ai_credits - 1 WHERE username = ? AND ai_credits > 0",
+        (username,),
+    )
+    conn.commit()
+    n = cur.rowcount
+    conn.close()
+    return n > 0
+
+
+def log_usage(username: str, feature: str) -> None:
+    try:
+        conn = get_db_conn()
+        conn.execute(
+            "INSERT INTO usage_log(username, feature, called_at) VALUES(?,?,?)",
+            (username, feature, datetime.now().strftime("%Y-%m-%d %H:%M:%S")),
+        )
+        conn.commit()
+        conn.close()
+    except Exception:
+        pass
+
+
+def create_access_request(username: str, reason: str = "") -> tuple[bool, str]:
+    """AI 사용 신청. 이미 대기 중이면 중복 생성하지 않음."""
+    conn = get_db_conn()
+    existing = conn.execute(
+        "SELECT id FROM ai_access_requests WHERE username = ? AND status = 'pending'",
+        (username,),
+    ).fetchone()
+    if existing:
+        conn.close()
+        return True, "이미 승인 대기 중인 신청이 있습니다."
+    conn.execute(
+        "INSERT INTO ai_access_requests(username, requested_at, reason, status) VALUES(?,?,?,'pending')",
+        (username, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), reason or ""),
+    )
+    conn.commit()
+    conn.close()
+    return True, "AI 사용 신청이 접수되었습니다. 관리자 승인을 기다려 주세요."
+
+
+def get_my_pending_request(username: str) -> Optional[dict]:
+    conn = get_db_conn()
+    row = conn.execute(
+        "SELECT * FROM ai_access_requests WHERE username = ? AND status = 'pending' ORDER BY id DESC LIMIT 1",
+        (username,),
+    ).fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+def list_access_requests(status: Optional[str] = None) -> list[dict]:
+    conn = get_db_conn()
+    if status:
+        rows = conn.execute(
+            "SELECT * FROM ai_access_requests WHERE status = ? ORDER BY id DESC", (status,)
+        ).fetchall()
+    else:
+        rows = conn.execute("SELECT * FROM ai_access_requests ORDER BY id DESC").fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def decide_access_request(req_id: int, approve: bool, count: int, admin_name: str) -> tuple[bool, str]:
+    conn = get_db_conn()
+    row = conn.execute("SELECT * FROM ai_access_requests WHERE id = ?", (req_id,)).fetchone()
+    if not row:
+        conn.close()
+        return False, "존재하지 않는 신청"
+    if row["status"] != "pending":
+        conn.close()
+        return False, "이미 처리된 신청입니다."
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    if approve:
+        conn.execute(
+            "UPDATE ai_access_requests SET status='approved', granted_count=?, decided_at=?, decided_by=? WHERE id=?",
+            (int(count), now, admin_name, req_id),
+        )
+        conn.execute(
+            "UPDATE users SET ai_credits = ai_credits + ? WHERE username = ?",
+            (int(count), row["username"]),
+        )
+        msg = f"{row['username']} 에게 {count}회 부여했습니다."
+    else:
+        conn.execute(
+            "UPDATE ai_access_requests SET status='denied', decided_at=?, decided_by=? WHERE id=?",
+            (now, admin_name, req_id),
+        )
+        msg = f"{row['username']} 신청을 거부했습니다."
+    conn.commit()
+    conn.close()
+    return True, msg
+
+
+def list_users_with_usage() -> list[dict]:
+    """유저 목록 + 잔여 크레딧 + 누적/오늘 사용량 + 대기 신청 여부."""
+    today = datetime.now().strftime("%Y-%m-%d")
+    conn = get_db_conn()
+    users = conn.execute(
+        "SELECT username, role, is_active, ai_credits, created_at FROM users ORDER BY created_at"
+    ).fetchall()
+    result = []
+    for u in users:
+        d = dict(u)
+        uname = d["username"]
+        total = conn.execute("SELECT COUNT(*) c FROM usage_log WHERE username=?", (uname,)).fetchone()["c"]
+        tod = conn.execute(
+            "SELECT COUNT(*) c FROM usage_log WHERE username=? AND called_at LIKE ?", (uname, today + "%")
+        ).fetchone()["c"]
+        pend = conn.execute(
+            "SELECT COUNT(*) c FROM ai_access_requests WHERE username=? AND status='pending'", (uname,)
+        ).fetchone()["c"]
+        d["usage_total"] = total
+        d["usage_today"] = tod
+        d["has_pending"] = pend > 0
+        result.append(d)
+    conn.close()
+    return result
+
+
+async def consume_ai_credit(request: Request, user: dict = Depends(get_current_user)) -> dict:
+    """비용 발생 AI 엔드포인트용 의존성. 관리자는 무제한, 일반 유저는 크레딧 1 차감.
+    크레딧이 없으면 403(NEED_AI_CREDIT)."""
+    if user.get("role") == "admin":
+        return user
+    if not consume_one_credit(user["username"]):
+        raise HTTPException(
+            status_code=403,
+            detail="AI 사용 횟수가 없습니다. 관리자 승인이 필요합니다. (NEED_AI_CREDIT)",
+        )
+    log_usage(user["username"], request.url.path)
     return user
 
 

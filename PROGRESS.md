@@ -31,10 +31,14 @@
 - 참고: 에이전트/워처/가격체크 루프는 owner 미지정 → 전체 favorites/alerts 스캔(의도된 동작)
 - 참고: AI 자동 알림(auto_register_ai_alerts)은 owner 기본 'admin' (Phase 4에서 AI 게이팅 시 정교화)
 
-## ⬜ Phase 4 — AI 승인제 + 사용량/계정 컨트롤
-- [ ] `ai_access_requests` / `usage_log` 테이블
-- [ ] 비용 엔드포인트에 credit 차감 의존성, 평소 차단(ai_credits=0)
-- [ ] 관리자 화면: 대기 신청 승인(횟수 부여)·계정 on/off·횟수 가감
+## 🔄 Phase 4 — AI 승인제 + 사용량/계정 컨트롤  (4a 백엔드 완료, 4b 프론트 진행 중)
+- [x] **4a 백엔드:** `ai_access_requests`/`usage_log` 테이블, credit 함수 + `consume_ai_credit` 의존성
+- [x] **4a:** ai.py 비용 엔드포인트 21종에 `consume_ai_credit`(관리자 무제한/유저 1차감, 0이면 403 NEED_AI_CREDIT)
+- [x] **4a:** 엔드포인트 — POST /auth/ai-request, GET /auth/ai-status, GET /auth/admin/ai-requests,
+      POST /auth/admin/ai-requests/{id}/decide, GET /auth/admin/users-usage, POST /auth/users/{u}/credits
+- [x] **4a:** 검증 — 0크레딧 403 → 신청 → 승인2회 → credits=2 → 차감 2→1→0
+- [ ] **4b 프론트 (다음):** AuthContext에 ai_credits/신청, 비용버튼 잠금+신청 UX(403 NEED_AI_CREDIT 핸들),
+      관리자 화면(대기 신청 승인·유저별 크레딧/사용량/on·off/가감)
 
 ## ⬜ Phase 5 — 텔레그램 유저별 (공유봇 + 본인 챗ID)
 - [ ] `_get_credentials(owner)` + 유저별 챗ID 저장, send_message(text, chat_id)

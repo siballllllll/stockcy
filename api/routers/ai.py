@@ -13,7 +13,7 @@ import asyncio
 import json
 import time
 from fastapi import APIRouter, Body, Query, Depends
-from api.auth import get_current_user, require_admin
+from api.auth import get_current_user, require_admin, consume_ai_credit
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from typing import Any
@@ -269,7 +269,7 @@ def _extract_scenario_stocks(result: dict) -> list:
 
 
 @router.post("/scenarios/custom")
-async def custom_issue_scenario(req: CustomIssueRequest):
+async def custom_issue_scenario(req: CustomIssueRequest, _credit: dict = Depends(consume_ai_credit)):
     """사용자 지정 이슈 키워드 A/B 시나리오 (SSE)."""
     from ai_engine import analyze_custom_issue
     from db import load_ai_cache, save_scenario_stocks
@@ -303,7 +303,7 @@ async def custom_issue_scenario(req: CustomIssueRequest):
 # ── 시나리오 심층 분석 ────────────────────────────────────────────────────────
 
 @router.post("/scenarios/detail")
-async def scenario_detail(req: ScenarioDetailRequest):
+async def scenario_detail(req: ScenarioDetailRequest, _credit: dict = Depends(consume_ai_credit)):
     """특정 시나리오 심층 분석 (SSE)."""
     from ai_engine import generate_scenario_detail
 
@@ -328,7 +328,7 @@ async def scenario_detail(req: ScenarioDetailRequest):
 # ── 미국 종목 AI 분석 리포트 ─────────────────────────────────────────────────
 
 @router.post("/stock-report")
-async def us_stock_report(req: StockReportRequest):
+async def us_stock_report(req: StockReportRequest, _credit: dict = Depends(consume_ai_credit)):
     """미국 종목 AI 수급·단타·중장기 분석 (SSE). 캐시 12시간 적용."""
     from ai_engine import generate_stock_report
     from db import load_ai_cache, save_ai_cache
@@ -378,7 +378,7 @@ async def us_stock_report(req: StockReportRequest):
 # ── 국내 종목 AI 분석 리포트 ─────────────────────────────────────────────────
 
 @router.post("/kr-stock-report")
-async def kr_stock_report(req: KrStockReportRequest):
+async def kr_stock_report(req: KrStockReportRequest, _credit: dict = Depends(consume_ai_credit)):
     """국내 종목 AI 수급 분석 및 단타 타점 리포트 (SSE). 캐시 12시간 적용."""
     from ai_engine import generate_kr_stock_report
     from db import load_ai_cache, save_ai_cache
@@ -430,7 +430,7 @@ async def kr_stock_report(req: KrStockReportRequest):
 # ── 매도 타이밍 분석 ─────────────────────────────────────────────────────────
 
 @router.post("/sell-timing")
-async def sell_timing(req: SellTimingRequest):
+async def sell_timing(req: SellTimingRequest, _credit: dict = Depends(consume_ai_credit)):
     """보유 종목 AI 매도 타이밍 분석 (SSE)."""
     from ai_engine import analyze_sell_timing
 
@@ -455,7 +455,7 @@ async def sell_timing(req: SellTimingRequest):
 # ── 미국 단타 핫 종목 발굴 ────────────────────────────────────────────────────
 
 @router.post("/hot-stock-us")
-async def hot_stock_us(req: HotStockRequest):
+async def hot_stock_us(req: HotStockRequest, _credit: dict = Depends(consume_ai_credit)):
     """Google Search 기반 오늘의 미국 단타 유망 종목 발굴 (SSE)."""
     from ai_engine import discover_hot_day_trading_stock
 
@@ -475,7 +475,7 @@ async def hot_stock_us(req: HotStockRequest):
 # ── 국내 실시간 픽 (거래량+등락률+테마 종합) ─────────────────────────────────
 
 @router.post("/realtime-picks-kr")
-async def realtime_picks_kr(req: RealtimePicksRequest):
+async def realtime_picks_kr(req: RealtimePicksRequest, _credit: dict = Depends(consume_ai_credit)):
     """테마·수급·기술 시그널 종합 AI 국내 픽 3종목 (SSE)."""
     from ai_engine import generate_realtime_picks
 
@@ -560,7 +560,7 @@ async def realtime_picks_kr(req: RealtimePicksRequest):
 # ── 미국 실시간 픽 (거래량+등락률 종합) ──────────────────────────────────────
 
 @router.post("/realtime-picks-us")
-async def realtime_picks_us(req: RealtimePicksRequest):
+async def realtime_picks_us(req: RealtimePicksRequest, _credit: dict = Depends(consume_ai_credit)):
     """테마·수급 기반 미국 실시간 픽 3종목 (SSE)."""
     from ai_engine import generate_us_realtime_picks
 
@@ -733,7 +733,7 @@ class RecommendEntryRequest(BaseModel):
     w52_low: float = None
 
 @router.post("/recommend-entry")
-async def recommend_entry(req: RecommendEntryRequest):
+async def recommend_entry(req: RecommendEntryRequest, _credit: dict = Depends(consume_ai_credit)):
     """미매수 관심종목 매수가 추천 (SSE)"""
     from ai_engine import recommend_entry_price
 
@@ -770,7 +770,7 @@ class PostmortemRequest(BaseModel):
     owner: str = "USER"
 
 @router.post("/postmortem")
-async def postmortem_analysis(req: PostmortemRequest, user: dict = Depends(get_current_user)):
+async def postmortem_analysis(req: PostmortemRequest, user: dict = Depends(consume_ai_credit)):
     """특정 거래에 대한 AI 사후 분석 (SSE). owner 는 세션에서 강제."""
     from ai_engine import analyze_trade_postmortem
     owner = user["username"]
@@ -845,7 +845,7 @@ def auto_register_ai_alerts(market: str, ticker: str, name: str, buy_target: str
 
 
 @router.post("/box-pattern")
-async def box_pattern_analysis(req: BoxPatternRequest):
+async def box_pattern_analysis(req: BoxPatternRequest, _credit: dict = Depends(consume_ai_credit)):
     """지지선/저항선 및 AI 박스권·수급 심층 분석 (SSE). 캐시 12시간 적용."""
     from ai_engine import analyze_box_pattern
     from db import load_ai_cache, save_ai_cache
@@ -887,7 +887,7 @@ class ShadowSectorRequest(BaseModel):
 
 
 @router.post("/shadow-sector")
-async def shadow_sector_analysis(req: ShadowSectorRequest):
+async def shadow_sector_analysis(req: ShadowSectorRequest, _credit: dict = Depends(consume_ai_credit)):
     """실시간 AI 쉐도우 섹터 & 찌라시 팩트 체커 분석 (SSE). 캐시 12시간 적용."""
     from ai_engine import analyze_shadow_sector_catalyst
     from db import load_ai_cache, save_ai_cache
@@ -929,7 +929,7 @@ class ShadowDiscoverRequest(BaseModel):
 
 
 @router.post("/shadow-discover")
-async def shadow_discover_analysis(req: ShadowDiscoverRequest):
+async def shadow_discover_analysis(req: ShadowDiscoverRequest, _credit: dict = Depends(consume_ai_credit)):
     """실시간 AI 쉐도우 종목 발굴 즉석 탐색기 (SSE). 캐시 12시간 적용."""
     from ai_engine import discover_shadow_stocks
     from db import load_ai_cache, save_ai_cache
@@ -976,7 +976,7 @@ class OvernightGapRequest(BaseModel):
 
 
 @router.post("/overnight-gap")
-async def overnight_gap_analysis(req: OvernightGapRequest):
+async def overnight_gap_analysis(req: OvernightGapRequest, _credit: dict = Depends(consume_ai_credit)):
     """실시간 AI 시간외 긴급 진단 & 익일 갭 예측 (SSE). 캐시 2시간 적용."""
     from ai_engine import analyze_overnight_gap_risk
     from db import load_ai_cache, save_ai_cache
@@ -1020,7 +1020,7 @@ class OvernightGapBulkRequest(BaseModel):
 
 
 @router.post("/overnight-gap-bulk")
-async def overnight_gap_bulk_analysis(req: OvernightGapBulkRequest):
+async def overnight_gap_bulk_analysis(req: OvernightGapBulkRequest, _credit: dict = Depends(consume_ai_credit)):
     """관심/보유 종목 일괄 갭 분석용 API. 캐시된 갭 정보가 있는 것들만 고속 반환합니다.
     사용자의 수동 '일괄 분석기 작동' 트리거 발생 시 캐시되지 않은 항목들도 큐에 태울 수 있습니다.
     """
@@ -1087,7 +1087,7 @@ def _run_gap_bulk_job(tickers: list, names: dict):
 
 
 @router.post("/overnight-gap-bulk/start")
-async def start_gap_bulk(req: GapBulkStartRequest):
+async def start_gap_bulk(req: GapBulkStartRequest, _credit: dict = Depends(consume_ai_credit)):
     """일괄 갭 분석을 서버 백그라운드에서 시작 (즉시 반환, 화면 이탈해도 계속 진행).
     진행 상황은 GET /overnight-gap-bulk/status, 결과는 POST /overnight-gap-bulk(캐시)로 확인."""
     global _GAP_BULK_JOB
@@ -1168,7 +1168,7 @@ def resume_gap_bulk_job_if_any():
 # ── 리딩방 패턴 AI 분석 ────────────────────────────────────────────────────────
 
 @router.post("/pattern-screener")
-async def pattern_screener():
+async def pattern_screener(_credit: dict = Depends(consume_ai_credit)):
     """내 거래 패턴 기반 오늘의 단기 추천 종목 (SSE)."""
     from ai_engine import screen_by_my_pattern
 
@@ -1311,7 +1311,7 @@ async def get_agent_learning():
 
 
 @router.post("/capital-rotation")
-async def capital_rotation(ticker: str = ""):
+async def capital_rotation(ticker: str = "", _credit: dict = Depends(consume_ai_credit)):
     """보유 종목 자금 회전 분석 — 홀딩/차익실현/로테이션 판단 (SSE). ticker 지정 시 단일 종목."""
     from ai_engine import analyze_capital_rotation
 
@@ -1488,7 +1488,7 @@ async def build_pattern_profile_endpoint(_admin: dict = Depends(require_admin)):
 
 
 @router.post("/supply-rotation-detect")
-async def supply_rotation_detect():
+async def supply_rotation_detect(_credit: dict = Depends(consume_ai_credit)):
     """실시간 수급 이동 감지 — 오늘 거래량·등락률·뉴스 종합 분석 (SSE)."""
     from ai_engine import detect_realtime_supply_rotation
 
@@ -1504,7 +1504,7 @@ async def supply_rotation_detect():
 
 
 @router.post("/supply-rotation-detect/us")
-async def supply_rotation_detect_us():
+async def supply_rotation_detect_us(_credit: dict = Depends(consume_ai_credit)):
     """미국 주식 수급 이동 감지 — yfinance institutional/insider/volume 기반 (SSE)."""
     from ai_engine import detect_us_supply_rotation
 
