@@ -23,6 +23,7 @@ type AuthCtx = {
   login: (username: string, password: string) => Promise<void>;
   logout: () => void;
   refresh: () => Promise<void>;
+  requestAiAccess: (reason?: string) => Promise<string>;
 };
 
 const AuthContext = createContext<AuthCtx>({
@@ -31,6 +32,7 @@ const AuthContext = createContext<AuthCtx>({
   login: async () => {},
   logout: () => {},
   refresh: async () => {},
+  requestAiAccess: async () => "",
 });
 
 /** fetch 몽키패치 등에서 동기적으로 토큰을 읽기 위한 헬퍼. */
@@ -111,8 +113,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }).catch(() => {});
   }, []);
 
+  const requestAiAccess = useCallback(async (reason = "") => {
+    const res = await fetch("/backend/api/auth/ai-request", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "ngrok-skip-browser-warning": "69420" },
+      body: JSON.stringify({ reason }),
+    });
+    const d = await res.json().catch(() => ({}));
+    return d?.message || (res.ok ? "신청이 접수되었습니다." : "신청에 실패했습니다.");
+  }, []);
+
   return (
-    <AuthContext.Provider value={{ user, loading, login, logout, refresh }}>
+    <AuthContext.Provider value={{ user, loading, login, logout, refresh, requestAiAccess }}>
       {children}
     </AuthContext.Provider>
   );

@@ -132,6 +132,31 @@ function AiTaskIndicator() {
   );
 }
 
+function AiCreditChip() {
+  const { data } = useSWR(
+    "/backend/api/auth/ai-status",
+    (u: string) => fetch(u, { cache: "no-store" }).then(r => r.json()),
+    { refreshInterval: 30000, revalidateOnFocus: true }
+  );
+  if (!data || data.is_admin) return null;
+  const credits = data.ai_credits ?? 0;
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: "5px" }}>
+      <span title="AI 분석 잔여 횟수" style={{ fontSize: "0.72rem", fontWeight: 700, color: credits > 0 ? "#34d399" : "var(--color-muted)", background: "var(--color-surface)", border: "1px solid var(--color-border)", borderRadius: "20px", padding: "3px 9px", whiteSpace: "nowrap" }}>
+        🎟 AI {credits}회{data.pending ? " · 승인대기" : ""}
+      </span>
+      {credits <= 0 && !data.pending && (
+        <button
+          onClick={() => window.dispatchEvent(new CustomEvent("stockcy:need-ai-credit"))}
+          style={{ fontSize: "0.72rem", fontWeight: 700, color: "#fff", background: "var(--color-accent)", border: "none", borderRadius: "20px", padding: "3px 9px", cursor: "pointer" }}
+        >
+          신청
+        </button>
+      )}
+    </div>
+  );
+}
+
 const TABS = [
   { href: "/",          label: "🔥 대시보드",        exact: true,  icon: <TrendingUp size={15} />, readyKey: "picks"     as const },
   { href: "/search",    label: "📊 종합 검색",       exact: false, icon: <BarChart2 size={15} />,  readyKey: null },
@@ -275,9 +300,17 @@ export function TopNav() {
             </button>
           </div>
 
+          {/* 비관리자 AI 잔여 횟수 */}
+          {user && user.role !== "admin" && <AiCreditChip />}
+
           {/* 로그인 사용자 + 로그아웃 */}
           {user && (
             <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", paddingLeft: "0.25rem", borderLeft: "1px solid var(--color-border)" }}>
+              {user.role === "admin" && (
+                <Link href="/admin" style={{ fontSize: "0.75rem", fontWeight: 700, color: "var(--color-accent)", textDecoration: "none", border: "1px solid var(--color-accent)", borderRadius: "6px", padding: "3px 8px", whiteSpace: "nowrap" }}>
+                  ⚙ 관리자
+                </Link>
+              )}
               <span style={{ fontSize: "0.78rem", fontWeight: 600, color: "var(--color-text)", whiteSpace: "nowrap" }}>
                 {user.username}
                 {user.role === "admin" && (
