@@ -25,4 +25,7 @@ db.sqlite3
 db.sqlite3-wal
 db.sqlite3-shm
 *.log
-scratch/
+# scratch는 무시하되, 운영 런처(프록시·터널)는 추적 — 백업/재배포용
+scratch/*
+!scratch/dev_proxy.js
+!scratch/run_tunnel.py
