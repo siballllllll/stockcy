@@ -24,9 +24,12 @@
 - [x] 프론트 포트폴리오: 리딩방 패턴분석 버튼/패널 + 출처·유형(리딩방/테스트) 토글·필터 숨김 (`app/favorites/page.tsx`)
 - [x] 비관리자 403 검증 통과 (admin 200 / user 403), tsc 통과
 
-## ⬜ Phase 3 — favorites·price_alerts·trade_analysis 유저별 격리
-- [ ] 세 테이블에 owner 컬럼 추가(마이그레이션) + 함수/엔드포인트 owner 스코핑
-- 현재는 전역 공유 상태 (로그인은 필요하나 유저 간 공유됨)
+## ✅ Phase 3 — favorites·price_alerts·trade_analysis 유저별 격리  (완료·커밋됨, v3.18.0)
+- [x] favorites/price_alerts에 owner 컬럼 + PK 재생성(마이그레이션), trade_analysis 키 `owner::` 네임스페이스
+- [x] db 함수 owner 스코핑(내부 호출용 owner=None=전체 유지), portfolio.py 엔드포인트가 세션 owner 전달
+- [x] 기존 데이터 owner='admin' 귀속, 신규유저 격리 검증(p3user TSLA가 admin에 안 보임)
+- 참고: 에이전트/워처/가격체크 루프는 owner 미지정 → 전체 favorites/alerts 스캔(의도된 동작)
+- 참고: AI 자동 알림(auto_register_ai_alerts)은 owner 기본 'admin' (Phase 4에서 AI 게이팅 시 정교화)
 
 ## ⬜ Phase 4 — AI 승인제 + 사용량/계정 컨트롤
 - [ ] `ai_access_requests` / `usage_log` 테이블

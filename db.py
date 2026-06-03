@@ -37,10 +37,14 @@ def init_local_db():
     # 1. favorites
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS favorites (
-            ticker TEXT PRIMARY KEY,
+            owner TEXT,
+            ticker TEXT,
             name TEXT,
             market_type TEXT,
-            added_time TEXT
+            added_time TEXT,
+            memo TEXT,
+            sector TEXT,
+            PRIMARY KEY (owner, ticker)
         )
     """)
     
@@ -132,6 +136,7 @@ def init_local_db():
     # 8. price_alerts
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS price_alerts (
+            owner TEXT,
             market TEXT,
             ticker TEXT,
             name TEXT,
@@ -139,7 +144,7 @@ def init_local_db():
             target_price REAL,
             updated_time TEXT,
             status TEXT,
-            PRIMARY KEY (ticker, alert_type)
+            PRIMARY KEY (owner, ticker, alert_type)
         )
     """)
     
@@ -1227,14 +1232,14 @@ def _resolve_sector(ticker: str) -> str:
     return lk.get(t.zfill(6) if t.isdigit() else t.upper(), "")
 
 
-def save_favorite(market_type: str, ticker: str, name: str, memo: str = "", sector: str = ""):
-    """종목을 로컬 SQLite 즐겨찾기에 추가하고, 백그라운드로 구글 시트에 업데이트합니다."""
+def save_favorite(market_type: str, ticker: str, name: str, memo: str = "", sector: str = "", owner: str = "admin"):
+    """종목을 로컬 SQLite 즐겨찾기에 추가하고, 백그라운드로 구글 시트에 업데이트합니다. (유저별 격리)"""
     try:
         conn = get_db_conn()
         cursor = conn.cursor()
 
-        # 중복 체크
-        cursor.execute("SELECT COUNT(*) FROM favorites WHERE ticker = ?", (ticker,))
+        # 중복 체크 (소유자 기준)
+        cursor.execute("SELECT COUNT(*) FROM favorites WHERE ticker = ? AND owner = ?", (ticker, owner))
         if cursor.fetchone()[0] > 0:
             conn.close()
             return True, "이미 즐겨찾기에 등록된 종목입니다."
@@ -1243,8 +1248,8 @@ def save_favorite(market_type: str, ticker: str, name: str, memo: str = "", sect
             sector = _resolve_sector(ticker)
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         cursor.execute(
-            "INSERT INTO favorites (ticker, name, market_type, added_time, memo, sector) VALUES (?, ?, ?, ?, ?, ?)",
-            (ticker, name, market_type, now, memo or "", sector or "")
+            "INSERT INTO favorites (owner, ticker, name, market_type, added_time, memo, sector) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (owner, ticker, name, market_type, now, memo or "", sector or "")
         )
         conn.commit()
         conn.close()
@@ -1255,12 +1260,12 @@ def save_favorite(market_type: str, ticker: str, name: str, memo: str = "", sect
         return False, f"로컬 저장 오류: {e}"
 
 
-def update_favorite_memo(ticker: str, memo: str):
-    """즐겨찾기 종목의 메모를 갱신한다."""
+def update_favorite_memo(ticker: str, memo: str, owner: str = "admin"):
+    """즐겨찾기 종목의 메모를 갱신한다. (유저별 격리)"""
     try:
         conn = get_db_conn()
         cursor = conn.cursor()
-        cursor.execute("UPDATE favorites SET memo = ? WHERE ticker = ?", (memo or "", ticker))
+        cursor.execute("UPDATE favorites SET memo = ? WHERE ticker = ? AND owner = ?", (memo or "", ticker, owner))
         conn.commit()
         conn.close()
         return True, "메모가 저장되었습니다."
@@ -1282,12 +1287,12 @@ def _gsheet_backup_remove_favorite(ticker: str):
         print(f"Failed to delete favorite from Google Sheets: {e}")
         return False, str(e)
 
-def remove_favorite(ticker: str):
-    """로컬 SQLite 즐겨찾기에서 종목을 즉시 삭제하고, 백그라운드 스레드로 구글 시트에서 삭제합니다."""
+def remove_favorite(ticker: str, owner: str = "admin"):
+    """로컬 SQLite 즐겨찾기에서 종목을 즉시 삭제하고, 백그라운드 스레드로 구글 시트에서 삭제합니다. (유저별 격리)"""
     try:
         conn = get_db_conn()
         cursor = conn.cursor()
-        cursor.execute("DELETE FROM favorites WHERE ticker = ?", (ticker,))
+        cursor.execute("DELETE FROM favorites WHERE ticker = ? AND owner = ?", (ticker, owner))
         conn.commit()
         conn.close()
         
@@ -1296,12 +1301,16 @@ def remove_favorite(ticker: str):
     except Exception as e:
         return False, f"로컬 삭제 오류: {e}"
 
-def load_favorites():
-    """로컬 SQLite에서 즐겨찾기 목록을 불러옵니다."""
+def load_favorites(owner=None):
+    """로컬 SQLite에서 즐겨찾기 목록을 불러옵니다. owner 주어지면 해당 소유자만(미지정 시 전체 — 에이전트/워처용)."""
     try:
         conn = get_db_conn()
         cursor = conn.cursor()
-        cursor.execute("SELECT added_time as 추가시간, market_type as 시장, ticker as 티커, name as 종목명, COALESCE(memo,'') as 메모, COALESCE(sector,'') as 섹터 FROM favorites")
+        base = "SELECT added_time as 추가시간, market_type as 시장, ticker as 티커, name as 종목명, COALESCE(memo,'') as 메모, COALESCE(sector,'') as 섹터 FROM favorites"
+        if owner:
+            cursor.execute(base + " WHERE owner = ?", (owner,))
+        else:
+            cursor.execute(base)
         rows = cursor.fetchall()
         conn.close()
 
@@ -1324,9 +1333,9 @@ def load_favorites():
         return [], f"로컬 DB 오류: {e}"
 
 
-def is_favorite(ticker):
-    """특정 종목이 즐겨찾기에 있는지 확인합니다."""
-    favs, _ = load_favorites()
+def is_favorite(ticker, owner: str = "admin"):
+    """특정 종목이 (해당 소유자의) 즐겨찾기에 있는지 확인합니다."""
+    favs, _ = load_favorites(owner)
     return any(str(f.get('티커', '')) == str(ticker) for f in favs)
 
 
@@ -1840,12 +1849,12 @@ def _gsheet_backup_save_trade_analysis_record(trade_data: dict, analysis_result:
         print(f"Failed to backup trade analysis record: {e}")
         return False, str(e)
 
-def save_trade_analysis_record(trade_data: dict, analysis_result: dict):
-    """AI 거래 분석 결과를 로컬 SQLite 'trade_analysis'에 즉시 저장하고, 백그라운드로 구글 시트에 업데이트합니다."""
+def save_trade_analysis_record(trade_data: dict, analysis_result: dict, owner: str = "admin"):
+    """AI 거래 분석 결과를 로컬 SQLite 'trade_analysis'에 즉시 저장하고, 백그라운드로 구글 시트에 업데이트합니다. (유저별 키 네임스페이스)"""
     try:
         ticker = str(trade_data.get("ticker", ""))
         sell_date = str(trade_data.get("sell_date", ""))[:10]
-        key = f"record_{ticker}_{sell_date}"
+        key = f"{owner}::record_{ticker}_{sell_date}"
         
         # trade_data와 analysis_result를 통합하여 JSON 저장
         payload = {
@@ -1868,12 +1877,12 @@ def save_trade_analysis_record(trade_data: dict, analysis_result: dict):
     except Exception as e:
         return False, f"로컬 저장 오류: {e}"
 
-def load_trade_analysis_records():
-    """로컬 SQLite 'trade_analysis' 테이블에서 모든 분석 기록을 로드합니다."""
+def load_trade_analysis_records(owner: str = "admin"):
+    """로컬 SQLite 'trade_analysis' 테이블에서 해당 소유자의 분석 기록을 로드합니다."""
     try:
         conn = get_db_conn()
         cursor = conn.cursor()
-        cursor.execute("SELECT analysis_json FROM trade_analysis WHERE key_name LIKE 'record_%'")
+        cursor.execute("SELECT analysis_json FROM trade_analysis WHERE key_name LIKE ?", (f"{owner}::record_%",))
         rows = cursor.fetchall()
         conn.close()
         
@@ -1935,8 +1944,8 @@ def _gsheet_backup_save_trade_analysis(analysis: dict):
         print(f"Failed to backup trade analysis: {e}")
         return False, str(e)
 
-def save_trade_analysis(analysis: dict):
-    """AI 거래 분석 결과를 로컬 SQLite 'trade_analysis'에 저장하고 백그라운드로 구글 시트에 업데이트합니다."""
+def save_trade_analysis(analysis: dict, owner: str = "admin"):
+    """AI 거래 분석 결과를 로컬 SQLite 'trade_analysis'에 저장하고 백그라운드로 구글 시트에 업데이트합니다. (유저별 키 네임스페이스)"""
     try:
         conn = get_db_conn()
         cursor = conn.cursor()
@@ -1964,7 +1973,7 @@ def save_trade_analysis(analysis: dict):
         
         cursor.execute(
             "INSERT OR REPLACE INTO trade_analysis (key_name, analysis_json) VALUES (?, ?)",
-            ("latest_analysis", _json.dumps(payload, ensure_ascii=False))
+            (f"{owner}::latest_analysis", _json.dumps(payload, ensure_ascii=False))
         )
         conn.commit()
         conn.close()
@@ -1974,12 +1983,12 @@ def save_trade_analysis(analysis: dict):
     except Exception as e:
         return False, f"로컬 저장 오류: {e}"
 
-def load_trade_analysis():
-    """로컬 SQLite 'trade_analysis'에서 가장 최근 분석 결과를 불러옵니다."""
+def load_trade_analysis(owner: str = "admin"):
+    """로컬 SQLite 'trade_analysis'에서 해당 소유자의 가장 최근 분석 결과를 불러옵니다."""
     try:
         conn = get_db_conn()
         cursor = conn.cursor()
-        cursor.execute("SELECT analysis_json FROM trade_analysis WHERE key_name = 'latest_analysis'")
+        cursor.execute("SELECT analysis_json FROM trade_analysis WHERE key_name = ?", (f"{owner}::latest_analysis",))
         row = cursor.fetchone()
         conn.close()
         
@@ -2242,15 +2251,15 @@ def _gsheet_backup_save_alert(market, ticker, name, alert_type, target_price):
         return False, str(e)
 
 def save_price_alert(market: str, ticker: str, name: str,
-                     alert_type: str, target_price: float) -> tuple:
-    """가격 알림을 로컬 SQLite 'price_alerts'에 저장하고 백그라운드로 구글 시트에 업데이트합니다."""
+                     alert_type: str, target_price: float, owner: str = "admin") -> tuple:
+    """가격 알림을 로컬 SQLite 'price_alerts'에 저장하고 백그라운드로 구글 시트에 업데이트합니다. (유저별 격리)"""
     try:
         conn = get_db_conn()
         cursor = conn.cursor()
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         cursor.execute(
-            "INSERT OR REPLACE INTO price_alerts (market, ticker, name, alert_type, target_price, updated_time, status) VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (market, ticker, name, alert_type, float(target_price), now, "활성")
+            "INSERT OR REPLACE INTO price_alerts (owner, market, ticker, name, alert_type, target_price, updated_time, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (owner, market, ticker, name, alert_type, float(target_price), now, "활성")
         )
         conn.commit()
         conn.close()
@@ -2260,14 +2269,20 @@ def save_price_alert(market: str, ticker: str, name: str,
     except Exception as e:
         return False, f"알림 저장 오류: {e}"
 
-def load_price_alerts() -> list:
-    """로컬 SQLite 'price_alerts'에서 활성 알림 목록을 반환합니다."""
+def load_price_alerts(owner=None) -> list:
+    """로컬 SQLite 'price_alerts'에서 활성 알림 목록을 반환합니다. owner 주어지면 해당 소유자만(미지정 시 전체 — 가격체크 루프용)."""
     try:
         conn = get_db_conn()
         cursor = conn.cursor()
-        cursor.execute(
-            "SELECT market, ticker, name, alert_type, target_price FROM price_alerts WHERE status = '활성'"
-        )
+        if owner:
+            cursor.execute(
+                "SELECT market, ticker, name, alert_type, target_price FROM price_alerts WHERE status = '활성' AND owner = ?",
+                (owner,)
+            )
+        else:
+            cursor.execute(
+                "SELECT market, ticker, name, alert_type, target_price FROM price_alerts WHERE status = '활성'"
+            )
         rows = cursor.fetchall()
         conn.close()
         
@@ -2305,14 +2320,14 @@ def _gsheet_backup_delete_alert(ticker, alert_type):
         print(f"Failed to backup delete alert: {e}")
         return False, str(e)
 
-def delete_price_alert(ticker: str, alert_type: str) -> tuple:
-    """로컬 SQLite 'price_alerts'에서 특정 알림을 즉시 삭제하고, 백그라운드 스레드로 구글 시트에서 삭제합니다."""
+def delete_price_alert(ticker: str, alert_type: str, owner: str = "admin") -> tuple:
+    """로컬 SQLite 'price_alerts'에서 특정 알림을 즉시 삭제하고, 백그라운드 스레드로 구글 시트에서 삭제합니다. (유저별 격리)"""
     try:
         conn = get_db_conn()
         cursor = conn.cursor()
         cursor.execute(
-            "DELETE FROM price_alerts WHERE ticker = ? AND alert_type = ?",
-            (ticker, alert_type)
+            "DELETE FROM price_alerts WHERE ticker = ? AND alert_type = ? AND owner = ?",
+            (ticker, alert_type, owner)
         )
         conn.commit()
         conn.close()

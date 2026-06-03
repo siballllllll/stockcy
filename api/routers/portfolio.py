@@ -113,35 +113,35 @@ class TelegramConfigRequest(BaseModel):
 @router.get("/favorites")
 async def list_favorites(user: dict = Depends(get_current_user)):
     from db import load_favorites
-    records, msg = await asyncio.to_thread(load_favorites)
+    records, msg = await asyncio.to_thread(load_favorites, user["username"])
     return {"data": records or [], "message": msg}
 
 
 @router.post("/favorites")
 async def add_favorite(req: FavoriteRequest, user: dict = Depends(get_current_user)):
     from db import save_favorite
-    ok, msg = await asyncio.to_thread(save_favorite, req.market_type, req.ticker, req.name, req.memo, req.sector)
+    ok, msg = await asyncio.to_thread(save_favorite, req.market_type, req.ticker, req.name, req.memo, req.sector, user["username"])
     return {"success": ok, "message": msg}
 
 
 @router.post("/favorites/memo")
 async def update_favorite_memo(req: FavoriteMemoRequest, user: dict = Depends(get_current_user)):
     from db import update_favorite_memo
-    ok, msg = await asyncio.to_thread(update_favorite_memo, req.ticker, req.memo)
+    ok, msg = await asyncio.to_thread(update_favorite_memo, req.ticker, req.memo, user["username"])
     return {"success": ok, "message": msg}
 
 
 @router.delete("/favorites/{ticker}")
 async def remove_favorite(ticker: str, user: dict = Depends(get_current_user)):
     from db import remove_favorite
-    ok, msg = await asyncio.to_thread(remove_favorite, ticker)
+    ok, msg = await asyncio.to_thread(remove_favorite, ticker, user["username"])
     return {"success": ok, "message": msg}
 
 
 @router.get("/favorites/{ticker}/check")
 async def check_favorite(ticker: str, user: dict = Depends(get_current_user)):
     from db import is_favorite
-    result = await asyncio.to_thread(is_favorite, ticker)
+    result = await asyncio.to_thread(is_favorite, ticker, user["username"])
     return {"is_favorite": result}
 
 
@@ -321,7 +321,7 @@ async def log_recommendation(req: AiLogRequest, user: dict = Depends(get_current
 @router.get("/alerts")
 async def load_alerts(user: dict = Depends(get_current_user)):
     from db import load_price_alerts
-    data = await asyncio.to_thread(load_price_alerts)
+    data = await asyncio.to_thread(load_price_alerts, user["username"])
     return data or []
 
 
@@ -330,7 +330,7 @@ async def save_alert(req: AlertRequest, user: dict = Depends(get_current_user)):
     from db import save_price_alert
     ok, msg = await asyncio.to_thread(
         save_price_alert,
-        req.market, req.ticker, req.name, req.alert_type, req.target_price,
+        req.market, req.ticker, req.name, req.alert_type, req.target_price, user["username"],
     )
     return {"success": ok, "message": msg}
 
@@ -338,7 +338,7 @@ async def save_alert(req: AlertRequest, user: dict = Depends(get_current_user)):
 @router.delete("/alerts")
 async def delete_alert(req: DeleteAlertRequest, user: dict = Depends(get_current_user)):
     from db import delete_price_alert
-    ok, msg = await asyncio.to_thread(delete_price_alert, req.ticker, req.alert_type)
+    ok, msg = await asyncio.to_thread(delete_price_alert, req.ticker, req.alert_type, user["username"])
     return {"success": ok, "message": msg}
 
 
@@ -347,14 +347,14 @@ async def delete_alert(req: DeleteAlertRequest, user: dict = Depends(get_current
 @router.post("/trade-analysis")
 async def save_trade_analysis(req: TradeAnalysisSaveRequest, user: dict = Depends(get_current_user)):
     from db import save_trade_analysis
-    ok, msg = await asyncio.to_thread(save_trade_analysis, req.analysis)
+    ok, msg = await asyncio.to_thread(save_trade_analysis, req.analysis, user["username"])
     return {"success": ok, "message": msg}
 
 
 @router.get("/trade-analysis")
 async def load_trade_analysis(user: dict = Depends(get_current_user)):
     from db import load_trade_analysis
-    data, msg = await asyncio.to_thread(load_trade_analysis)
+    data, msg = await asyncio.to_thread(load_trade_analysis, user["username"])
     return {"data": data, "message": msg}
 
 
@@ -362,7 +362,7 @@ async def load_trade_analysis(user: dict = Depends(get_current_user)):
 async def save_trade_analysis_record(req: TradeAnalysisRecordRequest, user: dict = Depends(get_current_user)):
     from db import save_trade_analysis_record
     ok, msg = await asyncio.to_thread(
-        save_trade_analysis_record, req.trade_data, req.analysis_result
+        save_trade_analysis_record, req.trade_data, req.analysis_result, user["username"]
     )
     return {"success": ok, "message": msg}
 
@@ -370,7 +370,7 @@ async def save_trade_analysis_record(req: TradeAnalysisRecordRequest, user: dict
 @router.get("/trade-analysis/records")
 async def load_trade_analysis_records(user: dict = Depends(get_current_user)):
     from db import load_trade_analysis_records
-    data, msg = await asyncio.to_thread(load_trade_analysis_records)
+    data, msg = await asyncio.to_thread(load_trade_analysis_records, user["username"])
     return {"data": data or [], "message": msg}
 
 
