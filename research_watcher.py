@@ -92,8 +92,9 @@ def run_research_watch(push: bool = True, limit_per: int = 6) -> dict:
         prompt = (
             "다음은 증권사 리서치/이슈 텔레그램 채널의 최신 글들입니다. 투자 관점에서 핵심만 추려주세요.\n"
             "절대로 한자(漢字)를 사용하지 마세요. 한글/영문만.\n"
-            "의미있는 이슈만(중복·잡담·광고 제외). 각 이슈: 한 줄 요약, 관련 섹터, 관련 종목(있으면 티커), 단기 방향(긍정/부정/중립).\n"
-            'JSON 배열로만 출력: [{"issue":"...","sector":"...","tickers":["..."],"direction":"긍정"}]\n\n'
+            "의미있는 이슈만(중복·잡담·광고 제외). 각 이슈: 한 줄 요약, 관련 섹터, 관련 종목(종목명+티커), 단기 방향(긍정/부정/중립).\n"
+            "종목은 반드시 회사명과 티커를 함께. 국내=6자리 숫자코드, 미국=영문심볼.\n"
+            'JSON 배열로만 출력: [{"issue":"...","sector":"...","stocks":[{"name":"삼성전자","ticker":"005930"}],"direction":"긍정"}]\n\n'
             + joined
         )
         resp = _call_gemini(prompt, use_search=False, temperature=0.4,
@@ -107,20 +108,34 @@ def run_research_watch(push: bool = True, limit_per: int = 6) -> dict:
     except Exception as e:
         print(f"[research watch] AI 요약 실패: {e}")
 
+    # 종목 정규화 (stocks:[{name,ticker}] 우선, 구버전 tickers:[..] 호환)
+    def _stocks_of(it):
+        out = []
+        for s in (it.get("stocks") or []):
+            if isinstance(s, dict):
+                out.append({"name": str(s.get("name") or "").strip(), "ticker": str(s.get("ticker") or "").strip()})
+        for t in (it.get("tickers") or []):   # 구버전 호환
+            out.append({"name": "", "ticker": str(t).strip()})
+        return out
+
+    def _norm_ticker(t):
+        t = str(t).strip().upper()
+        if t.isdigit():
+            return t.zfill(6)
+        return t if (t.isalpha() and 1 <= len(t) <= 5) else None
+
     # 이슈→시나리오 자동 등록 (티커 있는 이슈만) → 교차검증·적중률 추적에 반영
     registered = 0
     try:
         from db import save_scenario_stocks
         for it in issues:
             valid = []
-            for t in (it.get("tickers") or []):
-                t = str(t).strip().upper()
-                if t.isdigit():
-                    t = t.zfill(6)
-                elif not (t.isalpha() and 1 <= len(t) <= 5):
+            role = "피해" if "부정" in str(it.get("direction", "")) else "수혜"
+            for s in _stocks_of(it):
+                tk = _norm_ticker(s["ticker"])
+                if not tk:
                     continue
-                role = "피해" if "부정" in str(it.get("direction", "")) else "수혜"
-                valid.append({"ticker": t, "name": t, "role": role, "horizon": ""})
+                valid.append({"ticker": tk, "name": s["name"] or tk, "role": role, "horizon": ""})
             if valid:
                 issue_txt = str(it.get("issue", ""))[:60]
                 save_scenario_stocks(f"[리서치] {issue_txt}", issue_txt, valid)
@@ -133,12 +148,20 @@ def run_research_watch(push: bool = True, limit_per: int = 6) -> dict:
             from telegram_bot import send_message
             lines = ["📑 <b>리서치 이슈 브리핑</b>"]
             for it in issues[:10]:
-                tk = ", ".join(it.get("tickers") or [])
+                # 종목명(티커) 형태로 표시 — 이름 있으면 이름, 없으면 티커
+                names = []
+                for s in _stocks_of(it):
+                    nm, tk = s.get("name"), s.get("ticker")
+                    if nm and tk:
+                        names.append(f"{nm}({tk})")
+                    elif nm or tk:
+                        names.append(nm or tk)
+                stock_str = ", ".join(names)
                 d = str(it.get("direction", ""))
                 emoji = "🔺" if "긍정" in d else ("🔻" if "부정" in d else "▪️")
                 meta = it.get("sector", "") or ""
-                if tk:
-                    meta = f"{meta} · {tk}" if meta else tk
+                if stock_str:
+                    meta = f"{meta} · {stock_str}" if meta else stock_str
                 lines.append(f"{emoji} {it.get('issue', '')}" + (f"\n   <i>{meta}</i>" if meta else ""))
             send_message("\n\n".join(lines))
         except Exception as e:
