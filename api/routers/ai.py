@@ -1218,6 +1218,20 @@ async def get_ai_performance_summary():
     return await asyncio.to_thread(load_ai_performance_summary)
 
 
+@router.post("/catalyst-scan/run")
+async def run_catalyst_scan_ep():
+    """관심종목 급변동(촉매) 스캔 → 텔레그램 알림 (수동 실행)."""
+    from watchlist_alerts import run_catalyst_scan
+    return await asyncio.to_thread(run_catalyst_scan, True)
+
+
+@router.get("/earnings-calendar")
+async def get_earnings_calendar_ep(days: int = 10):
+    """US 관심종목 다가오는 실적일."""
+    from watchlist_alerts import load_earnings_calendar
+    return await asyncio.to_thread(load_earnings_calendar, days)
+
+
 @router.post("/research-watch/run")
 async def run_research_watch_ep():
     """리서치 텔레그램 채널 수집 → AI 요약 → 텔레그램 브리핑 푸시 (수동 실행)."""

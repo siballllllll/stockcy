@@ -411,6 +411,45 @@ def start_research_watch_scheduler():
     print("[research watch] 리서치 채널 워처 스케줄러 시작 (설정 시 25분마다)")
 
 
+# ── 10-b4. 관심종목 촉매 알림(B) + 실적 임박 경고(C) ──────────────────────────────
+def _watchlist_alert_loop():
+    """평일 장중 15분마다 관심종목 급변동 스캔, 1일 1회 실적 임박 경고."""
+    import datetime as _dt
+    _time.sleep(45)
+    _last_earnings_date = ""
+    while True:
+        try:
+            now = _dt.datetime.now()
+            wd = now.weekday()
+            # 촉매 스캔: 평일 09~익일 06시(KR장+US장 커버) 15분마다
+            if wd <= 4 and (now.hour >= 9 or now.hour <= 6):
+                try:
+                    from watchlist_alerts import run_catalyst_scan
+                    run_catalyst_scan(push=True)
+                except Exception as e:
+                    print(f"[catalyst] 오류: {e}")
+            # 실적 경고: 매일 08시대 1회
+            today = now.strftime("%Y-%m-%d")
+            if now.hour == 8 and _last_earnings_date != today:
+                try:
+                    from watchlist_alerts import run_earnings_alert
+                    r = run_earnings_alert(push=True, within=2)
+                    _last_earnings_date = today
+                    print(f"[earnings] {r}")
+                except Exception as e:
+                    print(f"[earnings] 오류: {e}")
+        except Exception:
+            pass
+        _time.sleep(900)   # 15분
+
+
+@app.on_event("startup")
+def start_watchlist_alert_scheduler():
+    t = _threading.Thread(target=_watchlist_alert_loop, daemon=True)
+    t.start()
+    print("[watchlist] 촉매/실적 알림 스케줄러 시작 (장중 15분 / 실적 08시)")
+
+
 # ── 10-c. 외국인·기관 수급 일일 스냅샷 스케줄러 (세력 자금 이동 추적용) ──────────
 _LAST_SUPPLY_SNAPSHOT_DATE = ""
 
