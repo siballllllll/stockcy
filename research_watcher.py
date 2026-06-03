@@ -102,6 +102,27 @@ def run_research_watch(push: bool = True, limit_per: int = 6) -> dict:
     except Exception as e:
         print(f"[research watch] AI 요약 실패: {e}")
 
+    # 이슈→시나리오 자동 등록 (티커 있는 이슈만) → 교차검증·적중률 추적에 반영
+    registered = 0
+    try:
+        from db import save_scenario_stocks
+        for it in issues:
+            valid = []
+            for t in (it.get("tickers") or []):
+                t = str(t).strip().upper()
+                if t.isdigit():
+                    t = t.zfill(6)
+                elif not (t.isalpha() and 1 <= len(t) <= 5):
+                    continue
+                role = "피해" if "부정" in str(it.get("direction", "")) else "수혜"
+                valid.append({"ticker": t, "name": t, "role": role, "horizon": ""})
+            if valid:
+                issue_txt = str(it.get("issue", ""))[:60]
+                save_scenario_stocks(f"[리서치] {issue_txt}", issue_txt, valid)
+                registered += len(valid)
+    except Exception as e:
+        print(f"[research watch] 시나리오 등록 실패: {e}")
+
     if push and issues:
         try:
             from telegram_bot import send_message
@@ -122,4 +143,4 @@ def run_research_watch(push: bool = True, limit_per: int = 6) -> dict:
     new_ids = list(seen) + [p["id"] for p in new_posts]
     save_ai_cache("research_seen", {"ids": new_ids[-500:]}, ttl_hours=72)
 
-    return {"new": len(new_posts), "posts": len(posts), "issues": len(issues)}
+    return {"new": len(new_posts), "posts": len(posts), "issues": len(issues), "registered": registered}
