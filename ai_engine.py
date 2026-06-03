@@ -3629,8 +3629,7 @@ def analyze_leading_room_patterns() -> dict:
             """SELECT ticker, name, buy_price, sell_price, profit, profit_pct,
                       result, buy_date, sell_date, trade_type, buy_reason
                FROM trade_history
-               WHERE UPPER(owner) = 'USER'
-                 AND LOWER(COALESCE(trade_source,'')) LIKE '%리딩방%'
+               WHERE LOWER(COALESCE(trade_source,'')) LIKE '%리딩방%'
                ORDER BY sell_date DESC"""
         )
         rows = [dict(r) for r in cursor.fetchall()]
@@ -3763,22 +3762,23 @@ def analyze_leading_room_patterns() -> dict:
 # ── 패턴 프로파일 빌드 & 저장 ────────────────────────────────────────────────
 
 def build_pattern_profile(source: str = 'all') -> dict:
-    """패턴 프로파일 빌드 및 DB 저장.
+    """패턴 프로파일 빌드 및 DB 저장. (멀티유저: 전 유저 거래 통합 학습)
     source:
-      'all'      — 전체 USER·AI_AGENT 거래 (v1 + v2 저장)
-      'personal' — 리딩방 제외 개인 거래만 (v2 저장)
-      'leading'  — 리딩방 거래만 (v2 저장)
+      'all'      — 전 유저(+AI_AGENT) 전체 거래 (v1 + v2 저장)
+      'personal' — 리딩방 제외 개인 거래만 (전 유저, v2 저장)
+      'leading'  — 리딩방 거래만 (전 유저, v2 저장)
     가중치: 기본 1배, 최근 30일 2배, 리딩방+screener_matched 추가 2배
     """
     from db import get_db_conn, save_pattern_profile, save_pattern_profile_v2
     from datetime import datetime, timedelta
 
+    # owner 제한 없음 — 모든 사용자의 거래를 학습 풀에 통합 (Phase 6)
     if source == 'personal':
-        where = "WHERE UPPER(owner) IN ('USER','AI_AGENT') AND LOWER(COALESCE(trade_source,'')) NOT LIKE '%리딩방%'"
+        where = "WHERE LOWER(COALESCE(trade_source,'')) NOT LIKE '%리딩방%'"
     elif source == 'leading':
-        where = "WHERE UPPER(owner)='USER' AND LOWER(COALESCE(trade_source,'')) LIKE '%리딩방%'"
+        where = "WHERE LOWER(COALESCE(trade_source,'')) LIKE '%리딩방%'"
     else:
-        where = "WHERE UPPER(owner) IN ('USER','AI_AGENT')"
+        where = "WHERE 1=1"
 
     conn = get_db_conn()
     cursor = conn.cursor()
@@ -4386,7 +4386,7 @@ def analyze_entry_timing(source: str = "leading", market: str = "kr") -> dict:
     if source == "leading":
         where_parts.append("LOWER(COALESCE(trade_source,'')) LIKE '%리딩방%'")
     elif source == "personal":
-        where_parts.append("UPPER(owner) IN ('USER','AI_AGENT') AND LOWER(COALESCE(trade_source,'')) NOT LIKE '%리딩방%'")
+        where_parts.append("LOWER(COALESCE(trade_source,'')) NOT LIKE '%리딩방%'")
 
     # 시장 필터 — KR은 숫자 티커, US는 알파벳 포함
     if market == "us":

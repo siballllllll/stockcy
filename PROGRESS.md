@@ -47,8 +47,10 @@
 - [x] 프론트: TopNav 🔔 버튼 → TelegramSettingsModal(본인 chat_id 입력+테스트)
 - [x] 검증: chat_id 저장/조회, 알림 owner 필드 노출 (실발송은 실제 chat_id 필요)
 
-## ⬜ Phase 6 — 학습 통합
-- [ ] build_pattern_profile를 전 유저(all owner) 정기 실행 (background.py)
+## ✅ Phase 6 — 학습 통합  (완료·커밋됨, v3.21.0)
+- [x] ai_engine 학습 쿼리 owner 제한 제거 → 전 유저 거래 통합 (build_pattern_profile / analyze_leading_room_patterns / analyze_entry_timing)
+- [x] (마이그레이션 후 'USER' 부재로 학습 0건이던 버그도 동시 해결 — all=21건 통합 확인)
+- [x] main.py 일일 패턴 재빌드 스케줄러(시작 시 + 매일 04:00, 순수 DB 집계라 Gemini 비용 0)
 
 ## ⬜ Phase 7 — 호스팅 (ngrok 탈피)
 - [ ] Cloudflare Tunnel(임시) 또는 VPS 이전 + 쿠키 secure/도메인/env

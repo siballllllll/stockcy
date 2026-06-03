@@ -486,6 +486,41 @@ def start_supply_snapshot_scheduler():
     print("[supply snapshot] 수급 스냅샷 스케줄러 시작 (평일 15:45)")
 
 
+# ── 10-d. 전 유저 패턴 학습 정기 재빌드 (Phase 6) ──────────────────────────────
+def _pattern_rebuild_loop():
+    """서버 시작 60초 후 1회 + 매일 04:00 KST에 전 유저 거래 통합 패턴 프로파일 재빌드.
+    거래 변경 시에도 즉시 재빌드되지만, 신규 유저 데이터·서버 재시작 누락 방지용 안전망.
+    build_pattern_profile는 순수 DB 집계라 Gemini 비용이 들지 않는다."""
+    import datetime as _dt
+    _time.sleep(60)
+    try:
+        from db import _rebuild_pattern_profile_bg
+        _rebuild_pattern_profile_bg()
+        print("[pattern] 시작 시 전 유저 패턴 학습 재빌드 완료")
+    except Exception as e:
+        print(f"[pattern] 시작 시 재빌드 오류: {e}")
+    _last = ""
+    while True:
+        try:
+            now = _dt.datetime.now()
+            today = now.strftime("%Y-%m-%d")
+            if now.hour == 4 and _last != today:
+                from db import _rebuild_pattern_profile_bg
+                _rebuild_pattern_profile_bg()
+                _last = today
+                print(f"[pattern] 일일 전 유저 패턴 학습 재빌드 완료 ({today})")
+        except Exception as e:
+            print(f"[pattern] 일일 재빌드 오류: {e}")
+        _time.sleep(600)
+
+
+@app.on_event("startup")
+def start_pattern_rebuild_scheduler():
+    t = _threading.Thread(target=_pattern_rebuild_loop, daemon=True)
+    t.start()
+    print("[pattern] 전 유저 패턴 학습 스케줄러 시작 (시작 시 + 매일 04:00)")
+
+
 @app.on_event("startup")
 def resume_gap_bulk_job():
     """서버 재시작으로 중단된 시간외 갭 일괄 분석 작업이 있으면 이어서 진행."""
