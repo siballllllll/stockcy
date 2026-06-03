@@ -17,16 +17,21 @@ def _get_credentials() -> tuple[str, str] | tuple[None, None]:
     return None, None
 
 
-def send_message(text: str) -> bool:
-    """텔레그램 봇으로 메시지를 전송합니다. secrets에 [telegram] 설정이 없으면 False 반환."""
-    token, chat_id = _get_credentials()
+def send_message(text: str, chat_id: str | None = None) -> bool:
+    """텔레그램 봇으로 메시지를 전송합니다. (공유 봇 토큰 + 대상 chat_id)
+    chat_id 를 주면 그 사용자에게, 없으면 전역 기본 챗(관리자)으로 보냅니다.
+    봇 토큰이나 대상 챗이 없으면 False."""
+    token, default_chat = _get_credentials()
     if not token:
+        return False
+    target = (chat_id or "").strip() or default_chat
+    if not target:
         return False
     try:
         url = f"https://api.telegram.org/bot{token}/sendMessage"
         resp = requests.post(
             url,
-            json={"chat_id": chat_id, "text": text, "parse_mode": "HTML"},
+            json={"chat_id": target, "text": text, "parse_mode": "HTML"},
             timeout=8,
         )
         return resp.ok
@@ -35,8 +40,9 @@ def send_message(text: str) -> bool:
 
 
 def send_price_alert(market: str, ticker: str, name: str,
-                     alert_type: str, current_price: float, target_price: float) -> bool:
-    """가격 알림 전용 포맷 메시지를 전송합니다."""
+                     alert_type: str, current_price: float, target_price: float,
+                     chat_id: str | None = None) -> bool:
+    """가격 알림 전용 포맷 메시지를 전송합니다. chat_id 주면 해당 사용자에게 발송."""
     flag = "🇰🇷" if market == "국내" else "🇺🇸"
     currency = "₩" if market == "국내" else "$"
 
@@ -62,7 +68,7 @@ def send_price_alert(market: str, ticker: str, name: str,
         f"목표가: {currency}{fmt(target_price)}\n"
         f"현재가: {currency}{fmt(current_price)}"
     )
-    return send_message(text)
+    return send_message(text, chat_id)
 
 
 def is_configured() -> bool:

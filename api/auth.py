@@ -212,6 +212,20 @@ def change_password(username: str, new_password: str) -> tuple[bool, str]:
     return (n > 0), ("비밀번호 변경 완료" if n else "존재하지 않는 계정")
 
 
+def set_telegram_chat_id(username: str, chat_id: str) -> bool:
+    """유저별 텔레그램 챗 ID 저장 (공유 봇 + 본인 챗ID 방식 — Phase 5)."""
+    conn = get_db_conn()
+    conn.execute("UPDATE users SET telegram_chat_id = ? WHERE username = ?", ((chat_id or "").strip(), username))
+    conn.commit()
+    conn.close()
+    return True
+
+
+def get_telegram_chat_id(username: str) -> str:
+    u = get_user(username)
+    return (u.get("telegram_chat_id") or "") if u else ""
+
+
 def authenticate(username: str, password: str) -> Optional[dict]:
     user = get_user((username or "").strip())
     if not user:

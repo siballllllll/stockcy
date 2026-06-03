@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { BarChart2, TrendingUp, GitBranch, Star, Layers, FlaskConical, Brain, Bell } from "lucide-react";
 import { BriefingModal } from "@/components/ui/BriefingModal";
+import { TelegramSettingsModal } from "@/components/auth/TelegramSettingsModal";
 import { useMarket } from "@/lib/market-context";
 import { useAnalysisReady } from "@/lib/analysis-ready-context";
 import { useAiTask } from "@/contexts/AiTaskContext";
@@ -169,6 +170,7 @@ const TABS = [
 export function TopNav() {
   const pathname = usePathname();
   const [briefingOpen, setBriefingOpen] = useState(false);
+  const [telegramOpen, setTelegramOpen] = useState(false);
   const { market, setMarket } = useMarket();
   const { ready } = useAnalysisReady();
   const { user, logout } = useAuth();
@@ -306,6 +308,9 @@ export function TopNav() {
           {/* 로그인 사용자 + 로그아웃 */}
           {user && (
             <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", paddingLeft: "0.25rem", borderLeft: "1px solid var(--color-border)" }}>
+              <button onClick={() => setTelegramOpen(true)} title="텔레그램 알림 설정" style={{ background: "var(--color-surface)", border: "1px solid var(--color-border)", borderRadius: "6px", padding: "3px 7px", fontSize: "0.85rem", cursor: "pointer" }}>
+                🔔
+              </button>
               {user.role === "admin" && (
                 <Link href="/admin" style={{ fontSize: "0.75rem", fontWeight: 700, color: "var(--color-accent)", textDecoration: "none", border: "1px solid var(--color-accent)", borderRadius: "6px", padding: "3px 8px", whiteSpace: "nowrap" }}>
                   ⚙ 관리자
@@ -334,6 +339,7 @@ export function TopNav() {
     </header>
 
     {briefingOpen && <BriefingModal onClose={() => setBriefingOpen(false)} />}
+    <TelegramSettingsModal open={telegramOpen} onClose={() => setTelegramOpen(false)} />
     </>
   );
 }

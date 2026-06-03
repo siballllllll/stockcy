@@ -40,8 +40,12 @@
 - [x] **4b:** `app/admin/page.tsx` — 대기 신청 승인(횟수 입력)·유저별 크레딧/사용량/on·off/가감
 - [x] 검증: 백엔드 플로우 + 브라우저(관리자 콘솔 렌더·비관리자 칩·신청 모달) 통과
 
-## ⬜ Phase 5 — 텔레그램 유저별 (공유봇 + 본인 챗ID)
-- [ ] `_get_credentials(owner)` + 유저별 챗ID 저장, send_message(text, chat_id)
+## ✅ Phase 5 — 텔레그램 유저별 (공유봇 + 본인 챗ID)  (완료·커밋됨, v3.20.0)
+- [x] `send_message(text, chat_id=None)` / `send_price_alert(..., chat_id)` — 공유 봇 토큰 + 대상 챗ID
+- [x] `users.telegram_chat_id` 활용(set/get_telegram_chat_id), POST /auth/telegram/chat-id (저장+테스트발송)
+- [x] load_price_alerts에 owner 포함, background가 알림 owner의 챗ID로 발송(없으면 전역기본=관리자), update_price_alert_status owner 스코프
+- [x] 프론트: TopNav 🔔 버튼 → TelegramSettingsModal(본인 chat_id 입력+테스트)
+- [x] 검증: chat_id 저장/조회, 알림 owner 필드 노출 (실발송은 실제 chat_id 필요)
 
 ## ⬜ Phase 6 — 학습 통합
 - [ ] build_pattern_profile를 전 유저(all owner) 정기 실행 (background.py)

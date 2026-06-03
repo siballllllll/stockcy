@@ -2276,12 +2276,12 @@ def load_price_alerts(owner=None) -> list:
         cursor = conn.cursor()
         if owner:
             cursor.execute(
-                "SELECT market, ticker, name, alert_type, target_price FROM price_alerts WHERE status = '활성' AND owner = ?",
+                "SELECT owner, market, ticker, name, alert_type, target_price FROM price_alerts WHERE status = '활성' AND owner = ?",
                 (owner,)
             )
         else:
             cursor.execute(
-                "SELECT market, ticker, name, alert_type, target_price FROM price_alerts WHERE status = '활성'"
+                "SELECT owner, market, ticker, name, alert_type, target_price FROM price_alerts WHERE status = '활성'"
             )
         rows = cursor.fetchall()
         conn.close()
@@ -2292,6 +2292,7 @@ def load_price_alerts(owner=None) -> list:
             if ticker.isdigit() and len(ticker) < 6:
                 ticker = ticker.zfill(6)
             result.append({
+                "owner":      str(r["owner"] or ""),
                 "market":     str(r["market"]),
                 "ticker":     ticker,
                 "name":       str(r["name"]),
@@ -2355,15 +2356,17 @@ def _gsheet_backup_update_alert_status(ticker, alert_type, new_status):
         print(f"Failed to backup update alert status: {e}")
         return False
 
-def update_price_alert_status(ticker: str, alert_type: str, new_status: str) -> bool:
-    """로컬 SQLite 'price_alerts'에서 알림 상태를 갱신하고, 백그라운드 스레드로 구글 시트에 반영합니다."""
+def update_price_alert_status(ticker: str, alert_type: str, new_status: str, owner=None) -> bool:
+    """로컬 SQLite 'price_alerts'에서 알림 상태를 갱신하고, 백그라운드 스레드로 구글 시트에 반영합니다. owner 주어지면 해당 소유자만."""
     try:
         conn = get_db_conn()
         cursor = conn.cursor()
-        cursor.execute(
-            "UPDATE price_alerts SET status = ? WHERE ticker = ? AND alert_type = ?",
-            (new_status, ticker, alert_type)
-        )
+        sql = "UPDATE price_alerts SET status = ? WHERE ticker = ? AND alert_type = ?"
+        params = [new_status, ticker, alert_type]
+        if owner:
+            sql += " AND owner = ?"
+            params.append(owner)
+        cursor.execute(sql, params)
         conn.commit()
         conn.close()
         

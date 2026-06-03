@@ -61,20 +61,28 @@ async def price_alert_loop():
                     triggered = True
 
                 if triggered:
-                    # 텔레그램 발송
+                    # 알림 소유자의 텔레그램 챗으로 발송 (없으면 전역 기본=관리자)
+                    owner = alert.get("owner") or ""
+                    chat_id = None
+                    if owner:
+                        try:
+                            from api.auth import get_telegram_chat_id
+                            chat_id = await asyncio.to_thread(get_telegram_chat_id, owner) or None
+                        except Exception:
+                            chat_id = None
                     success = await asyncio.to_thread(
                         send_price_alert,
                         alert["market"], ticker, alert["name"],
-                        alert_type, cp, tp
+                        alert_type, cp, tp, chat_id
                     )
-                    
+
                     if success:
-                        # 발송 성공 시 상태 완료 처리
+                        # 발송 성공 시 상태 완료 처리 (소유자 스코프)
                         await asyncio.to_thread(
                             update_price_alert_status,
-                            ticker, alert_type, "완료"
+                            ticker, alert_type, "완료", owner or None
                         )
-                        logger.info(f"Alert sent and marked completed for {ticker} ({alert_type})")
+                        logger.info(f"Alert sent to '{owner}' and marked completed for {ticker} ({alert_type})")
 
         except Exception as e:
             logger.error(f"Error in price alert loop: {e}")

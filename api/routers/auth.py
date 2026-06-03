@@ -19,6 +19,7 @@ from api.auth import (
     COOKIE_NAME, TOKEN_TTL_SEC,
     create_access_request, get_my_pending_request, list_access_requests,
     decide_access_request, list_users_with_usage, add_credits,
+    set_telegram_chat_id,
 )
 
 router = APIRouter()
@@ -57,6 +58,10 @@ class DecideRequest(BaseModel):
 
 class CreditsAdjust(BaseModel):
     delta: int              # 가감할 횟수(음수 가능)
+
+
+class TelegramChatIdRequest(BaseModel):
+    chat_id: str
 
 
 # ── 인증 ──────────────────────────────────────────────────────────────────────
@@ -144,6 +149,19 @@ async def submit_ai_request(req: AiAccessRequest, user: dict = Depends(get_curre
     """일반 유저가 AI 사용 권한(횟수)을 신청한다."""
     ok, msg = create_access_request(user["username"], req.reason)
     return {"success": ok, "message": msg}
+
+
+@router.post("/telegram/chat-id")
+async def set_my_telegram_chat_id(req: TelegramChatIdRequest, user: dict = Depends(get_current_user)):
+    """본인 텔레그램 챗 ID 등록 + 테스트 메시지 발송 (공유 봇)."""
+    set_telegram_chat_id(user["username"], req.chat_id)
+    from telegram_bot import send_message
+    ok = send_message("✅ <b>스톡시 알림</b>이 이 채팅으로 연결되었습니다!", req.chat_id)
+    return {
+        "success": True,
+        "test_sent": ok,
+        "message": "챗 ID가 저장되었습니다." + (" 테스트 메시지를 확인하세요!" if ok else " (테스트 발송 실패 — 봇에게 먼저 /start 를 보냈는지, 챗 ID가 맞는지 확인하세요.)"),
+    }
 
 
 @router.get("/ai-status")
