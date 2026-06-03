@@ -856,15 +856,18 @@ def _gsheet_backup_delete_trade(ticker, sell_date):
         print(f"Failed to delete trade from Google Sheets: {e}")
         return False, str(e)
 
-def delete_trade_from_gsheet(ticker: str, sell_date: str):
-    """로컬 SQLite에서 특정 거래 정보를 즉시 삭제하고, 백그라운드 스레드로 구글 시트에서 지웁니다."""
+def delete_trade_from_gsheet(ticker: str, sell_date: str, owner=None):
+    """로컬 SQLite에서 특정 거래 정보를 즉시 삭제하고, 백그라운드 스레드로 구글 시트에서 지웁니다.
+    owner 가 주어지면 해당 소유자의 행만 삭제(멀티유저 격리)."""
     try:
         conn = get_db_conn()
         cursor = conn.cursor()
-        cursor.execute(
-            "DELETE FROM trade_history WHERE TRIM(sell_date) = TRIM(?) AND TRIM(ticker) = TRIM(?)",
-            (sell_date, ticker)
-        )
+        sql = "DELETE FROM trade_history WHERE TRIM(sell_date) = TRIM(?) AND TRIM(ticker) = TRIM(?)"
+        params = [sell_date, ticker]
+        if owner:
+            sql += " AND UPPER(owner) = UPPER(?)"
+            params.append(owner)
+        cursor.execute(sql, params)
         conn.commit()
         conn.close()
         
@@ -897,20 +900,23 @@ def _gsheet_backup_update_learning_point(ticker, sell_date, learning_point):
         print(f"Failed to update learning point in Google Sheets: {e}")
         return False, str(e)
 
-def update_trade_source_type(ticker: str, sell_date: str, trade_source: str, trade_type: str):
-    """로컬 SQLite에서 특정 거래의 출처/유형을 즉시 갱신하고, 백그라운드 스레드로 구글 시트에 동기화합니다."""
+def update_trade_source_type(ticker: str, sell_date: str, trade_source: str, trade_type: str, owner=None):
+    """로컬 SQLite에서 특정 거래의 출처/유형을 즉시 갱신하고, 백그라운드 스레드로 구글 시트에 동기화합니다.
+    owner 가 주어지면 해당 소유자의 행만 갱신(멀티유저 격리)."""
     try:
         conn = get_db_conn()
         cursor = conn.cursor()
         # 티커: 제로패딩 정규화 (DB에 '96770', 프론트에서 '096770' 올 수 있음)
         # sell_date: T/공백 구분자 혼재 정규화
-        cursor.execute(
-            """UPDATE trade_history
+        sql = """UPDATE trade_history
                SET trade_source = ?, trade_type = ?
                WHERE LTRIM(TRIM(ticker), '0') = LTRIM(TRIM(?), '0')
-                 AND REPLACE(TRIM(sell_date), 'T', ' ') = REPLACE(TRIM(?), 'T', ' ')""",
-            (trade_source, trade_type, ticker, sell_date)
-        )
+                 AND REPLACE(TRIM(sell_date), 'T', ' ') = REPLACE(TRIM(?), 'T', ' ')"""
+        params = [trade_source, trade_type, ticker, sell_date]
+        if owner:
+            sql += " AND UPPER(owner) = UPPER(?)"
+            params.append(owner)
+        cursor.execute(sql, params)
         conn.commit()
         conn.close()
         run_background_backup(_gsheet_backup_update_trade_source_type, ticker, sell_date, trade_source, trade_type)
@@ -920,19 +926,21 @@ def update_trade_source_type(ticker: str, sell_date: str, trade_source: str, tra
         return False, f"로컬 업데이트 오류: {e}"
 
 
-def update_trade_buy_date(ticker: str, sell_date: str, buy_date: str):
+def update_trade_buy_date(ticker: str, sell_date: str, buy_date: str, owner=None):
     """거래내역의 매수 시각(buy_date)을 수정하고 패턴 프로파일을 재빌드합니다.
-    (시세창에서 즉시 매수해 매수 시각이 누락/부정확한 경우 보정용)."""
+    (시세창에서 즉시 매수해 매수 시각이 누락/부정확한 경우 보정용). owner 주어지면 해당 소유자 행만."""
     try:
         conn = get_db_conn()
         cursor = conn.cursor()
-        cursor.execute(
-            """UPDATE trade_history
+        sql = """UPDATE trade_history
                SET buy_date = ?
                WHERE LTRIM(TRIM(ticker), '0') = LTRIM(TRIM(?), '0')
-                 AND REPLACE(TRIM(sell_date), 'T', ' ') = REPLACE(TRIM(?), 'T', ' ')""",
-            (buy_date, ticker, sell_date)
-        )
+                 AND REPLACE(TRIM(sell_date), 'T', ' ') = REPLACE(TRIM(?), 'T', ' ')"""
+        params = [buy_date, ticker, sell_date]
+        if owner:
+            sql += " AND UPPER(owner) = UPPER(?)"
+            params.append(owner)
+        cursor.execute(sql, params)
         n = cursor.rowcount
         conn.commit()
         conn.close()
@@ -969,18 +977,20 @@ def _gsheet_backup_update_trade_buy_date(ticker, sell_date, buy_date):
     return True, "ok"
 
 
-def update_trade_buy_reason(ticker: str, sell_date: str, buy_reason: str):
-    """거래내역의 매수 근거(리딩방이 왜 사라고 했는지 등)를 수정합니다."""
+def update_trade_buy_reason(ticker: str, sell_date: str, buy_reason: str, owner=None):
+    """거래내역의 매수 근거(리딩방이 왜 사라고 했는지 등)를 수정합니다. owner 주어지면 해당 소유자 행만."""
     try:
         conn = get_db_conn()
         cursor = conn.cursor()
-        cursor.execute(
-            """UPDATE trade_history
+        sql = """UPDATE trade_history
                SET buy_reason = ?
                WHERE LTRIM(TRIM(ticker), '0') = LTRIM(TRIM(?), '0')
-                 AND REPLACE(TRIM(sell_date), 'T', ' ') = REPLACE(TRIM(?), 'T', ' ')""",
-            (buy_reason, ticker, sell_date)
-        )
+                 AND REPLACE(TRIM(sell_date), 'T', ' ') = REPLACE(TRIM(?), 'T', ' ')"""
+        params = [buy_reason, ticker, sell_date]
+        if owner:
+            sql += " AND UPPER(owner) = UPPER(?)"
+            params.append(owner)
+        cursor.execute(sql, params)
         n = cursor.rowcount
         conn.commit()
         conn.close()
@@ -1033,15 +1043,18 @@ def _gsheet_backup_update_trade_source_type(ticker, sell_date, trade_source, tra
         print(f"Failed to update trade source/type in Google Sheets: {e}")
         return False, str(e)
 
-def update_trade_learning_point(ticker: str, sell_date: str, learning_point: str):
-    """로컬 SQLite에서 특정 거래의 학습포인트를 즉시 갱신하고, 백그라운드 스레드로 구글 시트에 동기화합니다."""
+def update_trade_learning_point(ticker: str, sell_date: str, learning_point: str, owner=None):
+    """로컬 SQLite에서 특정 거래의 학습포인트를 즉시 갱신하고, 백그라운드 스레드로 구글 시트에 동기화합니다.
+    owner 주어지면 해당 소유자 행만."""
     try:
         conn = get_db_conn()
         cursor = conn.cursor()
-        cursor.execute(
-            "UPDATE trade_history SET learning_point = ? WHERE TRIM(sell_date) = TRIM(?) AND TRIM(ticker) = TRIM(?)",
-            (learning_point, sell_date, ticker)
-        )
+        sql = "UPDATE trade_history SET learning_point = ? WHERE TRIM(sell_date) = TRIM(?) AND TRIM(ticker) = TRIM(?)"
+        params = [learning_point, sell_date, ticker]
+        if owner:
+            sql += " AND UPPER(owner) = UPPER(?)"
+            params.append(owner)
+        cursor.execute(sql, params)
         conn.commit()
         conn.close()
         

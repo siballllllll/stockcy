@@ -12,7 +12,8 @@ SSE 이벤트 형식:
 import asyncio
 import json
 import time
-from fastapi import APIRouter, Body, Query
+from fastapi import APIRouter, Body, Query, Depends
+from api.auth import get_current_user
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from typing import Any
@@ -769,9 +770,10 @@ class PostmortemRequest(BaseModel):
     owner: str = "USER"
 
 @router.post("/postmortem")
-async def postmortem_analysis(req: PostmortemRequest):
-    """특정 거래에 대한 AI 사후 분석 (SSE)"""
+async def postmortem_analysis(req: PostmortemRequest, user: dict = Depends(get_current_user)):
+    """특정 거래에 대한 AI 사후 분석 (SSE). owner 는 세션에서 강제."""
     from ai_engine import analyze_trade_postmortem
+    owner = user["username"]
 
     async def _gen():
         yield _sse({"status": "running", "message": f"🤖 {req.name} 거래 복기(Postmortem) 분석 중..."})
@@ -786,17 +788,18 @@ async def postmortem_analysis(req: PostmortemRequest):
                 req.buy_date,
                 req.sell_date,
                 req.profit_pct,
-                req.owner
+                owner
             )
-            # 성공적으로 분석이 완료되면 DB의 학습포인트도 업데이트
+            # 성공적으로 분석이 완료되면 DB의 학습포인트도 업데이트 (본인 거래만)
             if result and result.get("learning_point") and result.get("learning_point") != "-":
                 from db import update_trade_learning_point
                 # 백그라운드 스레드에서 DB 업데이트
                 await asyncio.to_thread(
-                    update_trade_learning_point, 
-                    req.ticker, 
-                    req.sell_date, 
-                    result["learning_point"]
+                    update_trade_learning_point,
+                    req.ticker,
+                    req.sell_date,
+                    result["learning_point"],
+                    owner
                 )
 
             yield _sse({"status": "done", "result": result})

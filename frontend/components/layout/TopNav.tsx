@@ -7,7 +7,8 @@ import { BriefingModal } from "@/components/ui/BriefingModal";
 import { useMarket } from "@/lib/market-context";
 import { useAnalysisReady } from "@/lib/analysis-ready-context";
 import { useAiTask } from "@/contexts/AiTaskContext";
-import { Loader2, CheckCircle2 } from "lucide-react";
+import { useAuth } from "@/lib/auth-context";
+import { Loader2, CheckCircle2, LogOut } from "lucide-react";
 import useSWR from "swr";
 
 // 완료 시각 → "방금 전 / N분 전 / N시간 전 / N일 전" 상대시간 문자열
@@ -145,6 +146,7 @@ export function TopNav() {
   const [briefingOpen, setBriefingOpen] = useState(false);
   const { market, setMarket } = useMarket();
   const { ready } = useAnalysisReady();
+  const { user, logout } = useAuth();
   const { data: versionData } = useSWR(
     "/backend/api/admin/version",
     (url: string) => fetch(url).then(r => r.json()),
@@ -272,6 +274,28 @@ export function TopNav() {
               🇺🇸 미국
             </button>
           </div>
+
+          {/* 로그인 사용자 + 로그아웃 */}
+          {user && (
+            <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", paddingLeft: "0.25rem", borderLeft: "1px solid var(--color-border)" }}>
+              <span style={{ fontSize: "0.78rem", fontWeight: 600, color: "var(--color-text)", whiteSpace: "nowrap" }}>
+                {user.username}
+                {user.role === "admin" && (
+                  <span style={{ marginLeft: "5px", fontSize: "0.62rem", fontWeight: 700, color: "var(--color-accent)", border: "1px solid var(--color-accent)", borderRadius: "4px", padding: "1px 4px" }}>
+                    관리자
+                  </span>
+                )}
+              </span>
+              <button
+                onClick={logout}
+                title="로그아웃"
+                style={{ display: "flex", alignItems: "center", gap: "4px", background: "var(--color-surface)", border: "1px solid var(--color-border)", borderRadius: "6px", padding: "4px 8px", fontSize: "0.75rem", color: "var(--color-muted)", cursor: "pointer" }}
+              >
+                <LogOut size={13} />
+                로그아웃
+              </button>
+            </div>
+          )}
         </div>
       </div>
     </header>

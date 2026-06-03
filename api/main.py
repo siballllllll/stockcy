@@ -55,7 +55,8 @@ from api.routers import (
     portfolio,
     admin,
     trading,
-    screener
+    screener,
+    auth,
 )
 
 # ── 4. FastAPI 앱 생성 ───────────────────────────────────────────────────────
@@ -91,6 +92,7 @@ app.include_router(ai.router,         prefix="/api/ai",       tags=["AI 분석"]
 app.include_router(screener.router,   prefix="/api/screener", tags=["스크리너"])
 app.include_router(portfolio.router,  prefix="/api",          tags=["포트폴리오·즐겨찾기"])
 app.include_router(admin.router,      prefix="/api/admin",    tags=["관리자"])
+app.include_router(auth.router,       prefix="/api/auth",     tags=["인증"])
 
 # ── 7. 헬스체크 ───────────────────────────────────────────────────────────────
 # async def로 정의 → 동기 스레드풀을 쓰지 않으므로, 외부 시세 소스 장애로 풀이

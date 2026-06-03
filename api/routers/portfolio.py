@@ -1,11 +1,18 @@
 """
 포트폴리오 / 즐겨찾기 / 거래내역 / 가격 알림 라우터
-모든 데이터는 Google Sheets (db.py) 에 저장됩니다.
+모든 데이터는 로컬 SQLite(db.py) + Google Sheets 백업에 저장됩니다.
+
+[Phase 1c] 멀티유저: 모든 엔드포인트는 로그인 필수이며, owner 는 클라이언트가 아닌
+로그인 세션(current_user)에서 강제로 결정된다. 클라이언트가 보내는 owner 값은 무시한다.
+※ favorites / price_alerts / trade_analysis 테이블은 아직 owner 컬럼이 없어 전역 공유 상태이며,
+  유저별 격리는 Phase 3(스키마 마이그레이션)에서 처리한다. 여기서는 로그인만 요구한다.
 """
 import asyncio
-from fastapi import APIRouter, Body
+from fastapi import APIRouter, Body, Depends
 from pydantic import BaseModel
 from typing import Any, List, Optional
+
+from api.auth import get_current_user, require_admin
 
 router = APIRouter()
 
@@ -56,7 +63,7 @@ class UpdateTradeBuyDateRequest(BaseModel):
 class UpdatePortfolioBuyTimeRequest(BaseModel):
     ticker:   str
     buy_time: str    # "YYYY-MM-DD HH:MM" 또는 "YYYY-MM-DD"
-    owner:    str = "USER"
+    owner:    str = "USER"   # (무시됨 — owner 는 세션에서 결정. 하위호환용 필드)
 
 class UpdateTradeBuyReasonRequest(BaseModel):
     ticker:     str
@@ -101,38 +108,38 @@ class TelegramConfigRequest(BaseModel):
     chat_id: str
 
 
-# ── 즐겨찾기 ─────────────────────────────────────────────────────────────────
+# ── 즐겨찾기 (전역 공유 — Phase 3에서 유저별 격리 예정) ───────────────────────
 
 @router.get("/favorites")
-async def list_favorites():
+async def list_favorites(user: dict = Depends(get_current_user)):
     from db import load_favorites
     records, msg = await asyncio.to_thread(load_favorites)
     return {"data": records or [], "message": msg}
 
 
 @router.post("/favorites")
-async def add_favorite(req: FavoriteRequest):
+async def add_favorite(req: FavoriteRequest, user: dict = Depends(get_current_user)):
     from db import save_favorite
     ok, msg = await asyncio.to_thread(save_favorite, req.market_type, req.ticker, req.name, req.memo, req.sector)
     return {"success": ok, "message": msg}
 
 
 @router.post("/favorites/memo")
-async def update_favorite_memo(req: FavoriteMemoRequest):
+async def update_favorite_memo(req: FavoriteMemoRequest, user: dict = Depends(get_current_user)):
     from db import update_favorite_memo
     ok, msg = await asyncio.to_thread(update_favorite_memo, req.ticker, req.memo)
     return {"success": ok, "message": msg}
 
 
 @router.delete("/favorites/{ticker}")
-async def remove_favorite(ticker: str):
+async def remove_favorite(ticker: str, user: dict = Depends(get_current_user)):
     from db import remove_favorite
     ok, msg = await asyncio.to_thread(remove_favorite, ticker)
     return {"success": ok, "message": msg}
 
 
 @router.get("/favorites/{ticker}/check")
-async def check_favorite(ticker: str):
+async def check_favorite(ticker: str, user: dict = Depends(get_current_user)):
     from db import is_favorite
     result = await asyncio.to_thread(is_favorite, ticker)
     return {"is_favorite": result}
@@ -141,7 +148,7 @@ async def check_favorite(ticker: str):
 # ── 포트폴리오 ────────────────────────────────────────────────────────────────
 
 @router.get("/portfolio/debug")
-async def debug_portfolio():
+async def debug_portfolio(user: dict = Depends(get_current_user)):
     """포트폴리오 로드 디버그용 엔드포인트"""
     import traceback
     try:
@@ -162,28 +169,28 @@ async def debug_portfolio():
 
 
 @router.get("/portfolio")
-async def load_portfolio():
+async def load_portfolio(user: dict = Depends(get_current_user)):
     from db import load_portfolio_from_gsheet
-    data = await asyncio.to_thread(load_portfolio_from_gsheet)
+    data = await asyncio.to_thread(load_portfolio_from_gsheet, owner=user["username"])
     return data or []
 
 
 @router.get("/portfolio/agent")
-async def load_agent_portfolio():
+async def load_agent_portfolio(user: dict = Depends(get_current_user)):
     from db import load_portfolio_from_gsheet
     data = await asyncio.to_thread(load_portfolio_from_gsheet, owner="AI_AGENT")
     return data or []
 
 
 @router.get("/portfolio/agent/scan-logs")
-async def load_agent_scan_logs():
+async def load_agent_scan_logs(user: dict = Depends(get_current_user)):
     from db import load_agent_scan_logs_from_gsheet
     data = await asyncio.to_thread(load_agent_scan_logs_from_gsheet)
     return data or []
 
 
 @router.post("/portfolio/agent/scan-now")
-async def run_agent_scan_now():
+async def run_agent_scan_now(user: dict = Depends(get_current_user)):
     """AI 에이전트 1회 스캔 즉시 실행 (30분 주기를 기다리지 않고 수동 점검).
     휴장이어도 force로 진행하여 즐겨찾기·보유종목을 분석하고 고민일지를 남긴다."""
     from api.agent import _run_one_scan
@@ -197,7 +204,7 @@ async def run_agent_scan_now():
 
 
 @router.post("/portfolio")
-async def save_portfolio(req: PortfolioSaveRequest):
+async def save_portfolio(req: PortfolioSaveRequest, user: dict = Depends(get_current_user)):
     from db import save_portfolio_to_gsheet
     import pandas as pd
     prices_df = None
@@ -207,20 +214,20 @@ async def save_portfolio(req: PortfolioSaveRequest):
         except Exception:
             prices_df = None
     ok, msg = await asyncio.to_thread(
-        save_portfolio_to_gsheet, req.portfolio_list, prices_df
+        save_portfolio_to_gsheet, req.portfolio_list, prices_df, user["username"]
     )
     return {"success": ok, "message": msg}
 
 
 @router.get("/portfolio/ai")
-async def load_ai_portfolio():
+async def load_ai_portfolio(user: dict = Depends(get_current_user)):
     from db import load_ai_portfolio_from_gsheet
     data = await asyncio.to_thread(load_ai_portfolio_from_gsheet)
     return data or []
 
 
 @router.post("/portfolio/ai")
-async def save_ai_portfolio(req: AiPortfolioSaveRequest):
+async def save_ai_portfolio(req: AiPortfolioSaveRequest, user: dict = Depends(get_current_user)):
     from db import save_ai_portfolio_to_gsheet
     ok, msg = await asyncio.to_thread(save_ai_portfolio_to_gsheet, req.portfolio_list)
     return {"success": ok, "message": msg}
@@ -229,16 +236,16 @@ async def save_ai_portfolio(req: AiPortfolioSaveRequest):
 # ── 거래 내역 ─────────────────────────────────────────────────────────────────
 
 @router.get("/trades")
-async def load_trades():
+async def load_trades(user: dict = Depends(get_current_user)):
     from db import load_trade_history_from_gsheet
-    df, msg = await asyncio.to_thread(load_trade_history_from_gsheet, owner="USER")
+    df, msg = await asyncio.to_thread(load_trade_history_from_gsheet, owner=user["username"])
     if df is None or (hasattr(df, "empty") and df.empty):
         return {"data": [], "message": msg}
     return {"data": df.to_dict(orient="records"), "message": msg}
 
 
 @router.get("/trades/agent")
-async def load_agent_trades():
+async def load_agent_trades(user: dict = Depends(get_current_user)):
     from db import load_trade_history_from_gsheet
     df, msg = await asyncio.to_thread(load_trade_history_from_gsheet, owner="AI_AGENT")
     if df is None or (hasattr(df, "empty") and df.empty):
@@ -247,9 +254,9 @@ async def load_agent_trades():
 
 
 @router.post("/trades")
-async def save_trade(req: TradeRecordRequest):
+async def save_trade(req: TradeRecordRequest, user: dict = Depends(get_current_user)):
     from db import save_trade_record, match_screener_for_trade
-    owner = str(req.trade.get("owner", "USER")).upper()
+    owner = user["username"]   # 세션에서 강제 — 클라이언트 owner 무시
     ok, msg = await asyncio.to_thread(save_trade_record, req.trade, owner)
     is_leading = "리딩방" in str(req.trade.get("trade_source", ""))
     if ok and is_leading:
@@ -259,47 +266,47 @@ async def save_trade(req: TradeRecordRequest):
 
 
 @router.patch("/trades")
-async def update_trade_tag(req: UpdateTradeTagRequest):
+async def update_trade_tag(req: UpdateTradeTagRequest, user: dict = Depends(get_current_user)):
     from db import update_trade_source_type
-    ok, msg = await asyncio.to_thread(update_trade_source_type, req.ticker, req.sell_date, req.trade_source, req.trade_type)
+    ok, msg = await asyncio.to_thread(update_trade_source_type, req.ticker, req.sell_date, req.trade_source, req.trade_type, user["username"])
     return {"success": ok, "message": msg}
 
 
 @router.patch("/trades/buy-date")
-async def update_trade_buy_date_ep(req: UpdateTradeBuyDateRequest):
+async def update_trade_buy_date_ep(req: UpdateTradeBuyDateRequest, user: dict = Depends(get_current_user)):
     """거래내역의 매수 시각(buy_date) 수정 — 패턴 학습 정확도 보정용."""
     from db import update_trade_buy_date
-    ok, msg = await asyncio.to_thread(update_trade_buy_date, req.ticker, req.sell_date, req.buy_date)
+    ok, msg = await asyncio.to_thread(update_trade_buy_date, req.ticker, req.sell_date, req.buy_date, user["username"])
     return {"success": ok, "message": msg}
 
 
 @router.patch("/portfolio/buy-time")
-async def update_portfolio_buy_time_ep(req: UpdatePortfolioBuyTimeRequest):
+async def update_portfolio_buy_time_ep(req: UpdatePortfolioBuyTimeRequest, user: dict = Depends(get_current_user)):
     """보유종목의 매수 시각(updated_time) 수정."""
     from db import update_portfolio_buy_time
-    ok, msg = await asyncio.to_thread(update_portfolio_buy_time, req.ticker, req.owner, req.buy_time)
+    ok, msg = await asyncio.to_thread(update_portfolio_buy_time, req.ticker, user["username"], req.buy_time)
     return {"success": ok, "message": msg}
 
 
 @router.patch("/trades/buy-reason")
-async def update_trade_buy_reason_ep(req: UpdateTradeBuyReasonRequest):
+async def update_trade_buy_reason_ep(req: UpdateTradeBuyReasonRequest, user: dict = Depends(get_current_user)):
     """거래내역의 매수 근거(리딩방 추천 사유 등) 수정."""
     from db import update_trade_buy_reason
-    ok, msg = await asyncio.to_thread(update_trade_buy_reason, req.ticker, req.sell_date, req.buy_reason)
+    ok, msg = await asyncio.to_thread(update_trade_buy_reason, req.ticker, req.sell_date, req.buy_reason, user["username"])
     return {"success": ok, "message": msg}
 
 
 @router.delete("/trades")
-async def delete_trade(req: DeleteTradeRequest):
+async def delete_trade(req: DeleteTradeRequest, user: dict = Depends(get_current_user)):
     from db import delete_trade_from_gsheet
-    ok, msg = await asyncio.to_thread(delete_trade_from_gsheet, req.ticker, req.sell_date)
+    ok, msg = await asyncio.to_thread(delete_trade_from_gsheet, req.ticker, req.sell_date, user["username"])
     return {"success": ok, "message": msg}
 
 
-# ── AI 추천 로그 ──────────────────────────────────────────────────────────────
+# ── AI 추천 로그 (전역 로그) ──────────────────────────────────────────────────
 
 @router.post("/ai-log")
-async def log_recommendation(req: AiLogRequest):
+async def log_recommendation(req: AiLogRequest, user: dict = Depends(get_current_user)):
     from db import log_ai_recommendation
     ok, msg = await asyncio.to_thread(
         log_ai_recommendation,
@@ -309,17 +316,17 @@ async def log_recommendation(req: AiLogRequest):
     return {"success": ok, "message": msg}
 
 
-# ── 가격 알림 설정 ────────────────────────────────────────────────────────────
+# ── 가격 알림 설정 (전역 공유 — Phase 3에서 유저별 격리 예정) ─────────────────
 
 @router.get("/alerts")
-async def load_alerts():
+async def load_alerts(user: dict = Depends(get_current_user)):
     from db import load_price_alerts
     data = await asyncio.to_thread(load_price_alerts)
     return data or []
 
 
 @router.post("/alerts")
-async def save_alert(req: AlertRequest):
+async def save_alert(req: AlertRequest, user: dict = Depends(get_current_user)):
     from db import save_price_alert
     ok, msg = await asyncio.to_thread(
         save_price_alert,
@@ -329,30 +336,30 @@ async def save_alert(req: AlertRequest):
 
 
 @router.delete("/alerts")
-async def delete_alert(req: DeleteAlertRequest):
+async def delete_alert(req: DeleteAlertRequest, user: dict = Depends(get_current_user)):
     from db import delete_price_alert
     ok, msg = await asyncio.to_thread(delete_price_alert, req.ticker, req.alert_type)
     return {"success": ok, "message": msg}
 
 
-# ── 매매 분석 일지 ────────────────────────────────────────────────────────────
+# ── 매매 분석 일지 (전역 공유 — Phase 3에서 유저별 격리 예정) ─────────────────
 
 @router.post("/trade-analysis")
-async def save_trade_analysis(req: TradeAnalysisSaveRequest):
+async def save_trade_analysis(req: TradeAnalysisSaveRequest, user: dict = Depends(get_current_user)):
     from db import save_trade_analysis
     ok, msg = await asyncio.to_thread(save_trade_analysis, req.analysis)
     return {"success": ok, "message": msg}
 
 
 @router.get("/trade-analysis")
-async def load_trade_analysis():
+async def load_trade_analysis(user: dict = Depends(get_current_user)):
     from db import load_trade_analysis
     data, msg = await asyncio.to_thread(load_trade_analysis)
     return {"data": data, "message": msg}
 
 
 @router.post("/trade-analysis/record")
-async def save_trade_analysis_record(req: TradeAnalysisRecordRequest):
+async def save_trade_analysis_record(req: TradeAnalysisRecordRequest, user: dict = Depends(get_current_user)):
     from db import save_trade_analysis_record
     ok, msg = await asyncio.to_thread(
         save_trade_analysis_record, req.trade_data, req.analysis_result
@@ -361,14 +368,16 @@ async def save_trade_analysis_record(req: TradeAnalysisRecordRequest):
 
 
 @router.get("/trade-analysis/records")
-async def load_trade_analysis_records():
+async def load_trade_analysis_records(user: dict = Depends(get_current_user)):
     from db import load_trade_analysis_records
     data, msg = await asyncio.to_thread(load_trade_analysis_records)
     return {"data": data or [], "message": msg}
 
 
+# ── 텔레그램 설정 (전역 봇 — 관리자 전용. 유저별 알림은 Phase 5) ──────────────
+
 @router.get("/telegram/config")
-async def get_telegram_config():
+async def get_telegram_config(_admin: dict = Depends(require_admin)):
     from db import load_telegram_config
     token, chat_id = await asyncio.to_thread(load_telegram_config)
     # 보안상 마스킹 처리
@@ -381,11 +390,11 @@ async def get_telegram_config():
             masked_token = f"{bot_id}:{masked_secret}"
         else:
             masked_token = token[:5] + "*" * (len(token) - 8) + token[-3:] if len(token) > 8 else "******"
-            
+
     masked_chat_id = ""
     if chat_id:
         masked_chat_id = chat_id[:3] + "*" * (len(chat_id) - 5) + chat_id[-2:] if len(chat_id) > 5 else "******"
-        
+
     return {
         "token": token,
         "chat_id": chat_id,
@@ -395,13 +404,13 @@ async def get_telegram_config():
 
 
 @router.post("/telegram/config")
-async def save_and_test_telegram(req: TelegramConfigRequest):
+async def save_and_test_telegram(req: TelegramConfigRequest, _admin: dict = Depends(require_admin)):
     from db import save_telegram_config
     # 1. 설정 저장
     ok, msg = await asyncio.to_thread(save_telegram_config, req.token, req.chat_id)
     if not ok:
         return {"success": False, "message": f"설정 저장 실패: {msg}"}
-        
+
     # 2. 테스트 메시지 전송
     from telegram_bot import send_message
     test_text = (
