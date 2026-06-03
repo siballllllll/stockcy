@@ -25,6 +25,11 @@ export default function AdminPage() {
   const { data: userData, mutate: mutateUsers } = useSWR("/backend/api/auth/admin/users-usage", fetcher, { refreshInterval: 15000 });
   const [grantCounts, setGrantCounts] = useState<Record<number, number>>({});
 
+  // 새 유저 생성 폼
+  const [newUser, setNewUser] = useState({ username: "", password: "", role: "user", ai_credits: 0 });
+  const [creating, setCreating] = useState(false);
+  const [createMsg, setCreateMsg] = useState<{ ok: boolean; text: string } | null>(null);
+
   if (loading) return <div style={{ color: "var(--color-muted)" }}>불러오는 중…</div>;
   if (!user || user.role !== "admin") {
     return <div style={{ color: "var(--color-danger)", fontWeight: 700, padding: "2rem" }}>관리자만 접근할 수 있습니다.</div>;
@@ -45,6 +50,23 @@ export default function AdminPage() {
   async function toggle(username: string, isActive: boolean) {
     await post(`/backend/api/auth/users/${username}/toggle`, { is_active: isActive });
     mutateUsers();
+  }
+  async function createUser() {
+    if (!newUser.username.trim() || !newUser.password) {
+      setCreateMsg({ ok: false, text: "아이디와 비밀번호를 입력하세요." });
+      return;
+    }
+    setCreating(true);
+    setCreateMsg(null);
+    const res = await post("/backend/api/auth/users", newUser);
+    setCreating(false);
+    if (res?.success) {
+      setCreateMsg({ ok: true, text: res.message || "계정 생성 완료" });
+      setNewUser({ username: "", password: "", role: "user", ai_credits: 0 });
+      mutateUsers();
+    } else {
+      setCreateMsg({ ok: false, text: res?.detail || res?.message || "생성 실패" });
+    }
   }
 
   return (
@@ -76,6 +98,60 @@ export default function AdminPage() {
                 </div>
               </div>
             ))}
+          </div>
+        )}
+      </section>
+
+      {/* 유저 추가 */}
+      <section style={{ background: "var(--color-card)", border: "1px solid var(--color-border)", borderRadius: "12px", padding: "1.2rem" }}>
+        <h2 style={{ fontSize: "1rem", fontWeight: 700, marginBottom: "0.8rem" }}>➕ 유저 추가</h2>
+        <div style={{ display: "flex", flexWrap: "wrap", alignItems: "flex-end", gap: "0.6rem" }}>
+          <label style={{ display: "flex", flexDirection: "column", gap: "3px", fontSize: "0.72rem", color: "var(--color-muted)" }}>
+            아이디
+            <input
+              value={newUser.username}
+              onChange={(e) => setNewUser((u) => ({ ...u, username: e.target.value }))}
+              placeholder="새 유저 아이디"
+              style={{ width: "150px", padding: "6px 8px", borderRadius: "6px", border: "1px solid var(--color-border)", background: "var(--color-bg)", color: "var(--color-text)", fontSize: "0.85rem" }}
+            />
+          </label>
+          <label style={{ display: "flex", flexDirection: "column", gap: "3px", fontSize: "0.72rem", color: "var(--color-muted)" }}>
+            임시 비밀번호
+            <input
+              type="text"
+              value={newUser.password}
+              onChange={(e) => setNewUser((u) => ({ ...u, password: e.target.value }))}
+              placeholder="로그인 후 변경 권장"
+              style={{ width: "160px", padding: "6px 8px", borderRadius: "6px", border: "1px solid var(--color-border)", background: "var(--color-bg)", color: "var(--color-text)", fontSize: "0.85rem" }}
+            />
+          </label>
+          <label style={{ display: "flex", flexDirection: "column", gap: "3px", fontSize: "0.72rem", color: "var(--color-muted)" }}>
+            역할
+            <select
+              value={newUser.role}
+              onChange={(e) => setNewUser((u) => ({ ...u, role: e.target.value }))}
+              style={{ padding: "6px 8px", borderRadius: "6px", border: "1px solid var(--color-border)", background: "var(--color-bg)", color: "var(--color-text)", fontSize: "0.85rem" }}
+            >
+              <option value="user">유저</option>
+              <option value="admin">관리자</option>
+            </select>
+          </label>
+          <label style={{ display: "flex", flexDirection: "column", gap: "3px", fontSize: "0.72rem", color: "var(--color-muted)" }}>
+            초기 AI 횟수
+            <input
+              type="number" min={0}
+              value={newUser.ai_credits}
+              onChange={(e) => setNewUser((u) => ({ ...u, ai_credits: parseInt(e.target.value) || 0 }))}
+              style={{ width: "90px", padding: "6px 8px", borderRadius: "6px", border: "1px solid var(--color-border)", background: "var(--color-bg)", color: "var(--color-text)", fontSize: "0.85rem" }}
+            />
+          </label>
+          <button onClick={createUser} disabled={creating} className="stockcy-btn stockcy-btn-primary" style={{ padding: "7px 16px", fontSize: "0.85rem", opacity: creating ? 0.6 : 1 }}>
+            {creating ? "생성 중…" : "계정 생성"}
+          </button>
+        </div>
+        {createMsg && (
+          <div style={{ marginTop: "0.6rem", fontSize: "0.8rem", fontWeight: 600, color: createMsg.ok ? "#34d399" : "var(--color-danger)" }}>
+            {createMsg.text}
           </div>
         )}
       </section>
