@@ -225,26 +225,24 @@ async def market_scenarios(use_cache: bool = Query(True), user: dict = Depends(g
         if use_cache:
             cached = await asyncio.to_thread(load_ai_cache, CACHE_KEY)
             if cached and "error" not in cached:
-                # 캐시 데이터에도 타점 재계산 (구버전 캐시 호환)
+                # 캐시는 생성 시 이미 타점이 계산돼 저장되므로 즉시 반환(조회 지연 제거).
+                # 종목 가격 재조회(_override_targets)는 매 조회마다 수십 종목을 부르느라
+                # 느렸음 → 생략. 적중률 추적 기록은 응답 후 백그라운드로.
+                yield _sse({"status": "done", "result": cached, "from_cache": True})
                 try:
-                    await asyncio.to_thread(_override_targets, cached)
+                    asyncio.create_task(asyncio.to_thread(_capture_main_scenario_stocks, cached))
                 except Exception:
                     pass
-                # 캐시본도 적중률 추적 대상에 등록 (save_scenario_stocks가 중복 제거하므로 멱등)
-                await asyncio.to_thread(_capture_main_scenario_stocks, cached)
-                yield _sse({"status": "done", "result": cached, "from_cache": True})
                 return
             # 자동 로드인데 캐시가 없음 → 일반 유저는 읽기 전용(과금 없이 안내만).
             if not is_admin:
                 yield _sse({"status": "error", "message": "아직 생성된 시나리오가 없습니다. 관리자가 생성하면 표시됩니다. (읽기 전용)"})
                 return
         else:
-            # 명시적 새로고침(업데이트) → 일반 유저는 크레딧 1 차감, 관리자는 무제한.
+            # 명시적 새로고침(생성) → 관리자 전용. 일반 유저는 읽기 전용(생성 불가).
             if not is_admin:
-                if not consume_one_credit(user["username"]):
-                    yield _sse({"status": "error", "message": "AI 사용 횟수가 없습니다. 관리자 승인이 필요합니다. (NEED_AI_CREDIT)"})
-                    return
-                log_usage(user["username"], "/api/ai/scenarios")
+                yield _sse({"status": "error", "message": "시나리오 생성은 관리자만 가능합니다. 관리자가 생성하면 모두에게 표시됩니다. (읽기 전용)"})
+                return
 
         yield _sse({"status": "running", "message": "🔍 Google Search로 오늘의 매크로 이슈 분석 중... (최대 4분 소요)"})
         try:

@@ -1373,6 +1373,8 @@ function MarketCommentaryCard() {
 function ScenariosPageInner() {
   const { setReady } = useAnalysisReady();
   const { notifyDone } = useAiTask();
+  const { user } = useAuth();
+  const isAdmin = user?.role === "admin";   // 시나리오 생성은 관리자만, 일반 유저는 읽기 전용
 
   const [mounted, setMounted] = useState(false);
   const [loading, setLoading]     = useState(false);
@@ -1643,16 +1645,22 @@ function ScenariosPageInner() {
           {lastUpdated && !loading && (
             <div style={{ fontSize: "0.7rem", color: "var(--color-muted)" }}>마지막 업데이트: {lastUpdated}</div>
           )}
-          <button
-            onClick={handleUpdate}
-            disabled={loading}
-            className="stockcy-btn stockcy-btn-primary"
-            style={{ display: "flex", alignItems: "center", gap: "6px", padding: "6px 14px", fontSize: "0.82rem", fontWeight: 700, flexShrink: 0 }}
-            title="AI 새로 분석 (약 1~2분)"
-          >
-            {loading ? <Loader2 className="animate-spin" size={15} /> : <RefreshCw size={15} />}
-            {loading ? "분석 중..." : "AI 업데이트"}
-          </button>
+          {isAdmin ? (
+            <button
+              onClick={handleUpdate}
+              disabled={loading}
+              className="stockcy-btn stockcy-btn-primary"
+              style={{ display: "flex", alignItems: "center", gap: "6px", padding: "6px 14px", fontSize: "0.82rem", fontWeight: 700, flexShrink: 0 }}
+              title="AI 새로 분석 (약 1~2분)"
+            >
+              {loading ? <Loader2 className="animate-spin" size={15} /> : <RefreshCw size={15} />}
+              {loading ? "분석 중..." : "AI 업데이트"}
+            </button>
+          ) : (
+            <span style={{ fontSize: "0.72rem", color: "var(--color-muted)", padding: "6px 10px", border: "1px solid var(--color-border)", borderRadius: "6px", whiteSpace: "nowrap" }} title="시나리오는 관리자가 생성합니다">
+              👁 읽기 전용
+            </span>
+          )}
         </div>
       </div>
 
@@ -1867,17 +1875,25 @@ function ScenariosPageInner() {
             <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", minHeight: "400px", gap: "1rem" }}>
               <div style={{ fontSize: "2.5rem" }}>🤖</div>
               <div style={{ fontWeight: 700, fontSize: "1rem", color: "var(--color-text)" }}>AI 시나리오 분석이 필요합니다</div>
-              <div style={{ fontSize: "0.85rem", color: "var(--color-muted)", textAlign: "center", lineHeight: 1.6 }}>
-                상단 <strong>AI 업데이트</strong> 버튼을 눌러 글로벌 시장 시나리오를 분석하세요.<br />
-                분석 결과는 이 기기에 저장되어 다음 방문 시 즉시 표시됩니다.
-              </div>
-              <button
-                onClick={handleUpdate}
-                className="stockcy-btn stockcy-btn-primary"
-                style={{ padding: "10px 24px", fontWeight: 700, fontSize: "0.9rem", display: "flex", alignItems: "center", gap: "8px" }}
-              >
-                <RefreshCw size={16} /> AI 시나리오 분석 시작
-              </button>
+              {isAdmin ? (
+                <>
+                  <div style={{ fontSize: "0.85rem", color: "var(--color-muted)", textAlign: "center", lineHeight: 1.6 }}>
+                    상단 <strong>AI 업데이트</strong> 버튼을 눌러 글로벌 시장 시나리오를 분석하세요.<br />
+                    분석 결과는 모든 사용자에게 공유됩니다.
+                  </div>
+                  <button
+                    onClick={handleUpdate}
+                    className="stockcy-btn stockcy-btn-primary"
+                    style={{ padding: "10px 24px", fontWeight: 700, fontSize: "0.9rem", display: "flex", alignItems: "center", gap: "8px" }}
+                  >
+                    <RefreshCw size={16} /> AI 시나리오 분석 시작
+                  </button>
+                </>
+              ) : (
+                <div style={{ fontSize: "0.85rem", color: "var(--color-muted)", textAlign: "center", lineHeight: 1.6 }}>
+                  아직 생성된 시나리오가 없습니다.<br />관리자가 생성하면 여기에 표시됩니다. (읽기 전용)
+                </div>
+              )}
             </div>
           ) : (
             <>
