@@ -246,16 +246,24 @@ async def market_scenarios(use_cache: bool = Query(True), user: dict = Depends(g
                     return
                 log_usage(user["username"], "/api/ai/scenarios")
 
-        yield _sse({"status": "running", "message": "🔍 Google Search로 오늘의 매크로 이슈 분석 중... (최대 2분 소요)"})
+        yield _sse({"status": "running", "message": "🔍 Google Search로 오늘의 매크로 이슈 분석 중... (최대 4분 소요)"})
         try:
-            try:
-                result = await asyncio.wait_for(
-                    asyncio.to_thread(generate_market_scenarios),
-                    timeout=130,
-                )
-            except asyncio.TimeoutError:
-                yield _sse({"status": "error", "message": "AI 시나리오 분석 시간이 초과됐습니다 (130초). 잠시 후 다시 시도해주세요."})
-                return
+            # 생성을 백그라운드 태스크로 돌리고 15초마다 하트비트 전송.
+            # → 게이트웨이의 유휴 연결 끊김 방지 + 사용자에게 진행상황 표시. 한도 240초.
+            _task = asyncio.create_task(asyncio.to_thread(generate_market_scenarios))
+            _elapsed = 0
+            result = None
+            while True:
+                try:
+                    result = await asyncio.wait_for(asyncio.shield(_task), timeout=15)
+                    break
+                except asyncio.TimeoutError:
+                    _elapsed += 15
+                    if _elapsed >= 240:
+                        _task.cancel()
+                        yield _sse({"status": "error", "message": "AI 시나리오 분석 시간이 초과됐습니다 (240초). 잠시 후 다시 시도해주세요."})
+                        return
+                    yield _sse({"status": "running", "message": f"🔍 매크로 이슈 분석 중... ({_elapsed}초 경과)"})
             if "error" not in result:
                 await asyncio.to_thread(save_ai_cache, CACHE_KEY, result, 12)
                 await asyncio.to_thread(_capture_main_scenario_stocks, result)

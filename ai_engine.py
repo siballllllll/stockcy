@@ -819,7 +819,7 @@ def generate_market_scenarios() -> dict:
         "}"
     )
     try:
-        response = _call_gemini(prompt, use_search=True, temperature=0.6, timeout_sec=130, max_output_tokens=16000, thinking=True)
+        response = _call_gemini(prompt, use_search=True, temperature=0.6, timeout_sec=220, max_output_tokens=16000, thinking=True)
         res = _parse_json_response(response)
         _fix_scenario_names(res)
         _override_targets(res)
@@ -883,7 +883,7 @@ def analyze_custom_issue(keyword: str) -> dict:
         "}"
     )
     try:
-        response = _call_gemini(prompt, use_search=True, temperature=0.6, timeout_sec=130, max_output_tokens=16000, thinking=True)
+        response = _call_gemini(prompt, use_search=True, temperature=0.6, timeout_sec=220, max_output_tokens=16000, thinking=True)
         res = _parse_json_response(response)
 
         _fix_scenario_names(res)
