@@ -2782,13 +2782,15 @@ def load_agent_learning_summary() -> dict:
                     "win_rate": round(w / len(subset) * 100, 1),
                     "avg_return": round(avg, 2)}
 
+        # ⚠️ 지표값이 None인 행은 해당 버킷에서 제외 — (x or 0) 으로 처리하면 None이 0으로
+        #    둔갑해 "RSI 40 미만" 같은 '미만' 버킷에 RSI 미수집 종목이 잘못 끼는 버그가 생긴다.
         candidates = [
-            (lambda r: (r["rsi"] or 0) < 40, "RSI 40 미만 매수"),
-            (lambda r: 40 <= (r["rsi"] or 0) < 60, "RSI 40~60 매수"),
-            (lambda r: (r["rsi"] or 0) >= 60, "RSI 60 이상 매수"),
+            (lambda r: r["rsi"] is not None and r["rsi"] < 40, "RSI 40 미만 매수"),
+            (lambda r: r["rsi"] is not None and 40 <= r["rsi"] < 60, "RSI 40~60 매수"),
+            (lambda r: r["rsi"] is not None and r["rsi"] >= 60, "RSI 60 이상 매수"),
             (lambda r: r["ma_aligned"] == 1, "MA 정배열 매수"),
-            (lambda r: (r["vol_ratio"] or 0) >= 2, "거래량 2배+ 매수"),
-            (lambda r: (r["pos_52w"] or 0) >= 80, "52주 고점권 매수"),
+            (lambda r: r["vol_ratio"] is not None and r["vol_ratio"] >= 2, "거래량 2배+ 매수"),
+            (lambda r: r["pos_52w"] is not None and r["pos_52w"] >= 80, "52주 고점권 매수"),
         ]
         for pred, label in candidates:
             res = _bucket_winrate(pred, label)
