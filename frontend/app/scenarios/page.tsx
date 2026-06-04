@@ -138,6 +138,16 @@ async function readSSE(
   };
   if (body) opts.body = JSON.stringify(body);
   const res = await fetch(`${BASE_URL}${url}`, opts);
+  // 에러 상태(특히 403 크레딧 부족)는 SSE 본문이 아니므로 먼저 처리.
+  // 안 하면 아래 SSE 파서가 빈 결과(null)를 돌려주고, 호출부가 그 빈 값을 저장해 버린다.
+  if (!res.ok) {
+    let detail = "";
+    try { detail = await res.text(); } catch {}
+    if (res.status === 403 && detail.includes("NEED_AI_CREDIT")) {
+      throw new Error("NEED_AI_CREDIT");
+    }
+    throw new Error(detail || `요청 실패 (${res.status})`);
+  }
   if (!res.body) throw new Error("No SSE body");
   const reader = res.body.getReader();
   const dec = new TextDecoder();
@@ -1580,8 +1590,13 @@ function ScenariosPageInner() {
         { keyword },
         () => {}
       );
+      // 빈/불완전 결과는 저장하지 않는다 (저장하면 이후 클릭 시 title undefined로 크래시)
+      const r = result as Issue | null;
+      if (!r || (!r.title && !(Array.isArray(r.scenarios) && r.scenarios.length > 0))) {
+        throw new Error("분석 결과를 받지 못했습니다. 잠시 후 다시 시도해주세요.");
+      }
       const searchedAt = new Date().toLocaleString("ko-KR", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false });
-      const newIssue = { ...(result as Issue), isCustom: true as const, keyword, searchedAt };
+      const newIssue = { ...r, title: r.title || keyword, isCustom: true as const, keyword, searchedAt };
       const updated = [...customIssues, newIssue].slice(-10); // FIFO max 10
       setCustomIssues(updated);
       localStorage.setItem(CUSTOM_KEY, JSON.stringify(updated));
@@ -1589,7 +1604,7 @@ function ScenariosPageInner() {
       setIssueIdx(newIdx);
       setCustomKeyword("");
     } catch (e) {
-      setCustomError(String(e));
+      setCustomError(cleanScenarioError(String(e)));
     } finally {
       setCustomLoading(false);
     }
