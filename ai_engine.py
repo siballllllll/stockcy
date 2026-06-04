@@ -395,6 +395,30 @@ def _parse_json_response(response) -> dict:
         raise ValueError("no_json_found")
 
 
+def _log_gemini_usage(response, source: str, use_search: bool = False):
+    """[비용 추적] 각 Gemini 호출의 토큰 사용량을 기능(source)별로 JSONL에 1줄 기록.
+    베스트에포트 — 실패해도 본 호출에 절대 영향 주지 않음. 집계: scratch/gemini_cost_report.py"""
+    try:
+        um = getattr(response, "usage_metadata", None)
+        if um is None:
+            return
+        rec = {
+            "ts": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "source": source or "unknown",
+            "in": int(getattr(um, "prompt_token_count", 0) or 0),
+            "out": int(getattr(um, "candidates_token_count", 0) or 0),
+            "think": int(getattr(um, "thoughts_token_count", 0) or 0),
+            "total": int(getattr(um, "total_token_count", 0) or 0),
+            "search": bool(use_search),
+        }
+        path = os.path.join(os.path.dirname(__file__), "data_csv", "gemini_usage.jsonl")
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "a", encoding="utf-8") as f:
+            f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+    except Exception:
+        pass
+
+
 def _call_gemini(prompt, use_search=False, temperature=0.7, response_mime_type=None, timeout_sec=None, max_output_tokens=8000, thinking=False):
     """Gemini API 호출 공통 헬퍼 (모델 폴백 + 재시도 + 타임아웃).
     [비용방어] gemini-2.5 계열은 기본적으로 thinking_budget=0으로 thinking 토큰(출력 토큰으로 과금되는
@@ -407,6 +431,12 @@ def _call_gemini(prompt, use_search=False, temperature=0.7, response_mime_type=N
     import copy
     _timeout = timeout_sec if timeout_sec else _API_TIMEOUT_SEC
     global _QUOTA_EXHAUSTED
+    # [비용 추적] 어느 기능이 이 호출을 했는지 = 바로 위 호출자 함수명
+    try:
+        import inspect as _inspect
+        _usage_src = _inspect.stack()[1].function
+    except Exception:
+        _usage_src = "unknown"
 
     if _QUOTA_EXHAUSTED:
         raise Exception("QUOTA_EXHAUSTED: 오늘의 Gemini API 무료 할당량이 소진되었습니다. 내일 자정(한국 기준) 초기화됩니다.")
@@ -449,6 +479,7 @@ def _call_gemini(prompt, use_search=False, temperature=0.7, response_mime_type=N
                 ex.shutdown(wait=False)
 
                 _QUOTA_EXHAUSTED = False
+                _log_gemini_usage(response, _usage_src, use_search)
                 return response
 
             except Exception as api_err:
@@ -1270,6 +1301,7 @@ def analyze_autonomous_trading(ticker: str, name: str, current_price: float, mar
                 thinking_config=types.ThinkingConfig(thinking_budget=0),
             ),
         )
+        _log_gemini_usage(response, "analyze_autonomous_trading(agent)", use_search=False)
         res_text = response.text.strip()
         if res_text.startswith("```json"):
             res_text = res_text[7:-3]
