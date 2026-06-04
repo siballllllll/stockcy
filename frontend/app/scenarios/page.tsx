@@ -11,6 +11,7 @@ import { MarkdownLite } from "@/components/ui/MarkdownLite";
 import { SupplyPowerFlow } from "@/components/SupplyPowerFlow";
 import { SectorTrend } from "@/components/SectorTrend";
 import { AiCostBadge } from "@/components/ui/AiCostBadge";
+import { useAuth, getToken } from "@/lib/auth-context";
 
 // Next.js 프록시 우회 — 프록시가 큰 done JSON을 버퍼링해서 결과가 안 뜨는 문제 방지
 const BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8000";
@@ -125,9 +126,14 @@ async function readSSE(
   onMessage?: (msg: string) => void,
   signal?: AbortSignal
 ): Promise<any> {
+  const token = getToken();
   const opts: RequestInit = {
     method,
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      "ngrok-skip-browser-warning": "69420",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
     signal,
   };
   if (body) opts.body = JSON.stringify(body);
@@ -1252,6 +1258,8 @@ const SC_TS_KEY   = "stockcy_scenarios_ts";
 
 // ── 시장 해설 카드 (왜 지금 장이 이렇게 움직이나) ───────────────────────────────
 function MarketCommentaryCard() {
+  const { user } = useAuth();
+  const isAdmin = user?.role === "admin";
   const [data, setData] = useState<any>(null);
   const [status, setStatus] = useState<"loading" | "done" | "error">("loading");
   const [open, setOpen] = useState(false);   // 기본 접힘 — 클릭해야 펼쳐짐
@@ -1261,7 +1269,13 @@ function MarketCommentaryCard() {
     if (refresh) setSeen(false);   // 새로 생성하면 다시 '업데이트 있음'
     setStatus("loading");
     try {
-      const res = await fetch(`/backend/api/ai/market-commentary${refresh ? "?refresh=true" : ""}`);
+      const token = getToken();
+      const res = await fetch(`/backend/api/ai/market-commentary${refresh ? "?refresh=true" : ""}`, {
+        headers: {
+          "ngrok-skip-browser-warning": "69420",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+      });
       if (!res.ok || !res.body) { setStatus("error"); return; }
       const reader = res.body.getReader();
       const dec = new TextDecoder();
@@ -1299,9 +1313,13 @@ function MarketCommentaryCard() {
           )}
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-          <button onClick={() => load(true)} disabled={status === "loading"} className="stockcy-btn stockcy-btn-secondary" style={{ padding: "3px 9px", fontSize: "0.72rem" }} title="새로 생성">
-            <RefreshCw size={12} />
-          </button>
+          {isAdmin ? (
+            <button onClick={() => load(true)} disabled={status === "loading"} className="stockcy-btn stockcy-btn-secondary" style={{ padding: "3px 9px", fontSize: "0.72rem" }} title="새로 생성">
+              <RefreshCw size={12} />
+            </button>
+          ) : (
+            <span style={{ fontSize: "0.68rem", color: "var(--color-muted)" }} title="시장 해설은 관리자가 생성한 내용을 읽기 전용으로 제공합니다.">읽기 전용</span>
+          )}
           <button onClick={() => { setOpen(o => !o); setSeen(true); }} className="stockcy-btn stockcy-btn-secondary" style={{ padding: "3px 9px", fontSize: "0.72rem" }}>
             {open ? "접기" : "펴기"}
           </button>
@@ -1316,7 +1334,7 @@ function MarketCommentaryCard() {
             </div>
           ) : status === "error" || !data || data.error ? (
             <div style={{ color: "var(--color-muted)", fontSize: "0.85rem" }}>
-              해설을 불러오지 못했습니다. <button onClick={() => load(true)} style={{ color: "var(--color-accent)", background: "none", border: "none", cursor: "pointer", textDecoration: "underline" }}>다시 시도</button>
+              {isAdmin ? "해설을 불러오지 못했습니다." : "아직 생성된 시장 해설이 없습니다. 관리자가 생성하면 표시됩니다."} <button onClick={() => load(isAdmin)} style={{ color: "var(--color-accent)", background: "none", border: "none", cursor: "pointer", textDecoration: "underline" }}>다시 시도</button>
             </div>
           ) : (
             <>

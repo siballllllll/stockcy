@@ -4,6 +4,7 @@
  */
 
 import type { Favorite } from "@/lib/types";
+import { getToken } from "@/lib/auth-context";
 
 const BASE = typeof window === "undefined"
   ? (process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8000")
@@ -13,6 +14,8 @@ async function req<T>(path: string, opts?: RequestInit): Promise<T> {
   const headers = new Headers(opts?.headers);
   headers.set("Content-Type", "application/json");
   headers.set("ngrok-skip-browser-warning", "69420");
+  const token = getToken();
+  if (token) headers.set("Authorization", `Bearer ${token}`);
 
   const res = await fetch(`${BASE}${path}`, {
     ...opts,
@@ -210,6 +213,8 @@ export async function connectSSE<T>(
   const headers = new Headers();
   headers.set("Content-Type", "application/json");
   headers.set("ngrok-skip-browser-warning", "69420");
+  const token = getToken();
+  if (token) headers.set("Authorization", `Bearer ${token}`);
 
   const res = await fetch(`${SSE_BASE}${path}`, {
     method,

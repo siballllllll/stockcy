@@ -13,7 +13,7 @@ import asyncio
 import json
 import time
 from fastapi import APIRouter, Body, Query, Depends
-from api.auth import get_current_user, require_admin, consume_ai_credit
+from api.auth import get_current_user, require_admin, consume_ai_credit, consume_one_credit, log_usage
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from typing import Any
@@ -145,18 +145,25 @@ async def daily_briefing():
 # ── 매크로 분석: 마인드맵 ─────────────────────────────────────────────────────
 
 @router.get("/market-commentary")
-async def market_commentary(refresh: bool = False):
+async def market_commentary(refresh: bool = False, user: dict = Depends(get_current_user)):
     """리딩방 스타일 '시장 해설' (왜 지금 장이 이렇게 움직이나) — SSE, 3시간 캐시.
-    refresh=true면 캐시 무시하고 새로 생성."""
+
+    권한: 로그인 필수. 캐시는 누구나 읽기 전용으로 조회.
+    새로 생성(refresh=true)은 관리자만 가능 — 일반 유저는 크레딧이 있어도 불가(읽기 전용)."""
     from ai_engine import generate_market_commentary
     from db import load_ai_cache, save_ai_cache
     CACHE_KEY = "market_commentary_latest"
+    is_admin = user.get("role") == "admin"
 
     async def _gen():
-        if not refresh:
+        # 일반 유저는 새로고침 불가 → 항상 캐시만. 관리자만 새로 생성.
+        if not (refresh and is_admin):
             cached = await asyncio.to_thread(load_ai_cache, CACHE_KEY)
             if cached:
                 yield _sse({"status": "done", "result": cached, "from_cache": True})
+                return
+            if not is_admin:
+                yield _sse({"status": "error", "message": "아직 생성된 시장 해설이 없습니다. 관리자가 생성하면 표시됩니다. (읽기 전용)"})
                 return
         yield _sse({"status": "running", "message": "📰 시장 구조·수급·심리 분석 중..."})
         try:
@@ -189,12 +196,17 @@ async def mindmap():
 # ── 시나리오 분석: 오늘의 매크로 시나리오 ────────────────────────────────────
 
 @router.get("/scenarios")
-async def market_scenarios(use_cache: bool = Query(True)):
-    """6대 매크로 이슈 A/B 시나리오 분석 (SSE). GSheet 캐시 우선 사용."""
+async def market_scenarios(use_cache: bool = Query(True), user: dict = Depends(get_current_user)):
+    """6대 매크로 이슈 A/B 시나리오 분석 (SSE). GSheet 캐시 우선 사용.
+
+    권한: 로그인 필수. 캐시 결과는 누구나 읽기 전용으로 무료 조회.
+    - 자동 로드(use_cache=true): 캐시 있으면 무료, 없으면 일반 유저는 읽기 전용(과금 없음).
+    - 명시적 새로고침(use_cache=false): 일반 유저는 크레딧 1 차감, 관리자는 무제한."""
     from ai_engine import generate_market_scenarios
     from db import load_ai_cache, save_ai_cache, save_scenario_stocks
 
     CACHE_KEY = "market_scenarios_latest"
+    is_admin = user.get("role") == "admin"
 
     def _capture_main_scenario_stocks(res: dict):
         """메인 시나리오 등장 종목을 이슈별로 적중률 추적 대상에 저장."""
@@ -222,6 +234,17 @@ async def market_scenarios(use_cache: bool = Query(True)):
                 await asyncio.to_thread(_capture_main_scenario_stocks, cached)
                 yield _sse({"status": "done", "result": cached, "from_cache": True})
                 return
+            # 자동 로드인데 캐시가 없음 → 일반 유저는 읽기 전용(과금 없이 안내만).
+            if not is_admin:
+                yield _sse({"status": "error", "message": "아직 생성된 시나리오가 없습니다. 관리자가 생성하면 표시됩니다. (읽기 전용)"})
+                return
+        else:
+            # 명시적 새로고침(업데이트) → 일반 유저는 크레딧 1 차감, 관리자는 무제한.
+            if not is_admin:
+                if not consume_one_credit(user["username"]):
+                    yield _sse({"status": "error", "message": "AI 사용 횟수가 없습니다. 관리자 승인이 필요합니다. (NEED_AI_CREDIT)"})
+                    return
+                log_usage(user["username"], "/api/ai/scenarios")
 
         yield _sse({"status": "running", "message": "🔍 Google Search로 오늘의 매크로 이슈 분석 중... (최대 2분 소요)"})
         try:
