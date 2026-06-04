@@ -19,6 +19,7 @@ function AgentLearningDashboard() {
   const sample = data?.sample ?? 0;
   const realizedSample = data?.realized_sample ?? 0;
   const provisionalSample = data?.provisional_sample ?? 0;
+  const realizedWinRate = data?.realized_win_rate;   // null이면 확정 표본 없음
   const rules = data?.rules ?? [];
 
   return (
@@ -29,7 +30,10 @@ function AgentLearningDashboard() {
         <span style={{ fontSize: "0.75rem", color: "var(--color-muted)", marginLeft: "auto" }}>
           학습 표본 {sample}건
           {sample > 0 && <span style={{ color: "var(--color-subtle)" }}> (확정 {realizedSample} · 보유중 {provisionalSample})</span>}
-          {sample > 0 && ` · 전체 승률 ${data?.overall_win_rate ?? 0}% · 평균 ${data?.overall_avg_return >= 0 ? "+" : ""}${data?.overall_avg_return ?? 0}%`}
+          {realizedSample > 0 && (
+            <span style={{ color: "#34d399", fontWeight: 700 }}> · 확정 승률 {realizedWinRate ?? 0}% ({realizedSample}건)</span>
+          )}
+          {sample > 0 && ` · 잠정포함 ${data?.overall_win_rate ?? 0}% · 평균 ${data?.overall_avg_return >= 0 ? "+" : ""}${data?.overall_avg_return ?? 0}%`}
         </span>
       </div>
 

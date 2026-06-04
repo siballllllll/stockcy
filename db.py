@@ -2745,6 +2745,11 @@ def load_agent_learning_summary() -> dict:
             return {"sample": 0, "realized_sample": 0, "provisional_sample": 0, "rules": []}
 
         wins = [r for r in rows if (r["outcome_return"] or 0) > 0]
+
+        # 확정(매도완료)만 따로 집계 — 거래내역과 정확히 일치하는 '실현 승률'
+        realized_rows = [r for r in rows if r["is_realized"] == 1]
+        realized_wins = [r for r in realized_rows if (r["outcome_return"] or 0) > 0]
+
         rules = []
 
         def _bucket_winrate(predicate, label):
@@ -2777,6 +2782,9 @@ def load_agent_learning_summary() -> dict:
             "provisional_sample": provisional_n,
             "overall_win_rate": round(len(wins) / len(rows) * 100, 1),
             "overall_avg_return": round(sum(r["outcome_return"] or 0 for r in rows) / len(rows), 2),
+            # 확정(매도완료)만의 실현 승률 — 표본 없으면 None
+            "realized_win_rate": round(len(realized_wins) / realized_n * 100, 1) if realized_n else None,
+            "realized_avg_return": round(sum(r["outcome_return"] or 0 for r in realized_rows) / realized_n, 2) if realized_n else None,
             "rules": rules,
         }
     except Exception as e:
