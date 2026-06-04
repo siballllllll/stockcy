@@ -165,6 +165,18 @@ async function readSSE(
   return null;
 }
 
+// 시나리오 에러 메시지를 사용자용으로 정리 (Error: 접두/내부 코드 제거)
+function isCreditError(msg: string): boolean {
+  return !!msg && msg.includes("NEED_AI_CREDIT");
+}
+function cleanScenarioError(msg: string): string {
+  if (!msg) return "";
+  if (isCreditError(msg)) {
+    return "AI 사용 횟수가 없어 새로 생성할 수 없습니다. 관리자 승인(크레딧)이 필요합니다.";
+  }
+  return msg.replace(/^Error:\s*/, "");
+}
+
 // ── 시그널 뱃지 ────────────────────────────────────────────────────────────────
 function SignalBadge({ signal }: { signal: string }) {
   return (
@@ -1820,13 +1832,37 @@ function ScenariosPageInner() {
             </>
           )}
 
+          {/* 새로고침 실패(예: 크레딧 없음)인데 이미 보던 시나리오가 있으면 → 본문은 유지하고 상단 알림 배너로만 표시 */}
+          {insightTab === "scenario" && loadError && issues.length > 0 && (
+            <div role="alert" style={{
+              display: "flex", alignItems: "center", gap: "10px", padding: "10px 14px", marginBottom: "12px",
+              borderRadius: "10px", border: "1px solid",
+              borderColor: isCreditError(loadError) ? "rgba(251,191,36,0.5)" : "rgba(248,113,113,0.5)",
+              background: isCreditError(loadError) ? "rgba(251,191,36,0.12)" : "rgba(248,113,113,0.12)",
+              color: "var(--color-text)", fontSize: "0.85rem", fontWeight: 600,
+            }}>
+              <span style={{ fontSize: "1.05rem" }}>{isCreditError(loadError) ? "🔒" : "⚠️"}</span>
+              <span style={{ flex: 1 }}>
+                {cleanScenarioError(loadError)}
+                <span style={{ color: "var(--color-muted)", fontWeight: 500 }}> · 아래는 관리자가 생성한 최신 시나리오입니다.</span>
+              </span>
+              <button onClick={() => setLoadError("")} title="닫기" style={{ background: "none", border: "none", color: "var(--color-muted)", cursor: "pointer", fontSize: "1rem", lineHeight: 1 }}>✕</button>
+            </div>
+          )}
+
           {insightTab === "scenario" && (loading ? (
             <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", minHeight: "400px", gap: "1rem" }}>
               <Loader2 className="animate-spin" size={36} color="var(--color-accent)" />
               <div style={{ color: "var(--color-muted)", fontSize: "0.9rem", fontWeight: 600 }}>{statusMsg}</div>
             </div>
-          ) : loadError ? (
-            <div style={{ color: "var(--color-danger)", textAlign: "center", padding: "2rem" }}>{loadError}</div>
+          ) : (loadError && issues.length === 0) ? (
+            <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", minHeight: "400px", gap: "0.8rem", textAlign: "center", padding: "2rem" }}>
+              <div style={{ fontSize: "2.2rem" }}>{isCreditError(loadError) ? "🔒" : "⚠️"}</div>
+              <div style={{ color: isCreditError(loadError) ? "var(--color-text)" : "var(--color-danger)", fontWeight: 700, fontSize: "0.95rem" }}>{cleanScenarioError(loadError)}</div>
+              {isCreditError(loadError) && (
+                <div style={{ fontSize: "0.82rem", color: "var(--color-muted)", lineHeight: 1.6 }}>관리자가 시나리오를 생성하면 여기에 읽기 전용으로 표시됩니다.</div>
+              )}
+            </div>
           ) : issues.length === 0 ? (
             <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", minHeight: "400px", gap: "1rem" }}>
               <div style={{ fontSize: "2.5rem" }}>🤖</div>
