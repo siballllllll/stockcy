@@ -1396,7 +1396,7 @@ function ScenariosPageInner() {
   const [regionFilter, setRegionFilter] = useState<RegionFilter>("전체");
   const [fetchTrigger, setFetchTrigger] = useState<number | null>(null);
 
-  // 커스텀 이슈 (localStorage 영속)
+  // 커스텀 이슈 · 최근 검색어 — 서버(계정별)에 영속. (CUSTOM_KEY/RECENT_KEY는 레거시 localStorage 1회 이관용)
   const CUSTOM_KEY   = "stockcy_custom_issues";
   const RECENT_KEY   = "stockcy_recent_searches";
   const [customKeyword, setCustomKeyword] = useState("");
@@ -1405,7 +1405,7 @@ function ScenariosPageInner() {
   const [insightTab, setInsightTab]       = useState<"scenario" | "insight">("scenario");
   const [showRecent, setShowRecent]       = useState(false);
 
-  const [customIssues, setCustomIssues] = useState<Array<Issue & { isCustom: true; keyword: string }>>([]);
+  const [customIssues, setCustomIssues] = useState<Array<Issue & { isCustom: true; keyword: string; id?: number }>>([]);
   const [recentSearches, setRecentSearches] = useState<string[]>([]);
 
   // 에이전트가 자동 생성한 오늘의 시나리오 (네가 AI업데이트 안 눌러도 자동 표시)
@@ -1438,29 +1438,59 @@ function ScenariosPageInner() {
 
       const savedTs = localStorage.getItem(SC_TS_KEY);
       if (savedTs) setLastUpdated(savedTs);
-
-      const savedCustom = localStorage.getItem(CUSTOM_KEY);
-      if (savedCustom) {
-        const parsed = JSON.parse(savedCustom);
-        // 깨진 항목 정리: 과거 크레딧 부족(403) 등으로 scenarios 없는 빈 이슈가
-        // 저장된 경우 렌더 중 undefined.length 크래시를 유발하므로 걸러낸다.
-        const migrated = (Array.isArray(parsed) ? parsed : [])
-          .filter((issue: any) => issue && Array.isArray(issue.scenarios) && issue.scenarios.length > 0)
-          .map((issue: any) => ({
-            ...issue,
-            title: issue.title || issue.keyword || "커스텀 이슈",
-            searchedAt: issue.searchedAt || "이전 검색",
-          }));
-        setCustomIssues(migrated);
-        localStorage.setItem(CUSTOM_KEY, JSON.stringify(migrated));
-      }
-
-      const savedRecent = localStorage.getItem(RECENT_KEY);
-      if (savedRecent) setRecentSearches(JSON.parse(savedRecent));
     } catch (e) {
       console.error("[Scenarios] LocalStorage load failed:", e);
     }
   }, []);
+
+  // 커스텀 시나리오 · 최근 검색어 — 서버(계정별)에서 로드.
+  // 과거 브라우저 localStorage에 남아있던 데이터는 1회 서버로 이관 후 제거한다.
+  useEffect(() => {
+    if (!mounted) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        // (1) 레거시 localStorage → 서버 1회 이관
+        try {
+          const legacyCustom = localStorage.getItem(CUSTOM_KEY);
+          if (legacyCustom) {
+            const arr = JSON.parse(legacyCustom);
+            if (Array.isArray(arr)) {
+              for (const it of arr) {  // 오래된→최신 순 그대로
+                if (it && Array.isArray(it.scenarios) && it.scenarios.length > 0) {
+                  await api.scenarios.saveCustom(it.keyword || it.title || "커스텀 이슈", it.title || it.keyword || "", it, it.searchedAt || "");
+                }
+              }
+            }
+            localStorage.removeItem(CUSTOM_KEY);
+          }
+          const legacyRecent = localStorage.getItem(RECENT_KEY);
+          if (legacyRecent) {
+            const arr = JSON.parse(legacyRecent);
+            if (Array.isArray(arr)) {
+              for (const kw of [...arr].reverse()) {  // 최신이 마지막에 저장되도록 역순
+                if (kw) await api.scenarios.saveRecent(String(kw));
+              }
+            }
+            localStorage.removeItem(RECENT_KEY);
+          }
+        } catch { /* 이관 실패는 무시 */ }
+
+        // (2) 서버에서 로드
+        const [custom, recent] = await Promise.all([
+          api.scenarios.loadCustom(),
+          api.scenarios.loadRecent(),
+        ]);
+        if (!cancelled) {
+          setCustomIssues(custom as any);
+          setRecentSearches(recent);
+        }
+      } catch (e) {
+        console.error("[Scenarios] 서버 유저데이터 로드 실패:", e);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [mounted]);
 
   // 마운트 시: 서버 캐시(오늘 자동 생성된 최신 시나리오)를 가볍게 동기화 — 비용 0 (캐시 사용)
   // localStorage에 옛 데이터가 있어도 서버에 더 최신 캐시가 있으면 화면을 갱신한다.
@@ -1583,12 +1613,11 @@ function ScenariosPageInner() {
     setCustomError("");
     setShowRecent(false);
 
-    // 최근 검색어 저장 (최대 10개)
-    const newRecent = [keyword, ...recentSearches.filter(k => k !== keyword)].slice(0, 10);
-    setRecentSearches(newRecent);
-    localStorage.setItem(RECENT_KEY, JSON.stringify(newRecent));
+    // 최근 검색어 저장 (서버 + 화면 즉시 반영, 최대 10개)
+    setRecentSearches(prev => [keyword, ...prev.filter(k => k !== keyword)].slice(0, 10));
+    api.scenarios.saveRecent(keyword).catch(() => {});
 
-    const newIdx = customIssues.length >= 6 ? 5 : customIssues.length;
+    const newIdx = Math.min(customIssues.length, 9);
     try {
       const result = await readSSE(
         "/api/ai/scenarios/custom",
@@ -1602,10 +1631,14 @@ function ScenariosPageInner() {
         throw new Error("분석 결과를 받지 못했습니다. 잠시 후 다시 시도해주세요.");
       }
       const searchedAt = new Date().toLocaleString("ko-KR", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false });
-      const newIssue = { ...r, title: r.title || keyword, isCustom: true as const, keyword, searchedAt };
-      const updated = [...customIssues, newIssue].slice(-10); // FIFO max 10
-      setCustomIssues(updated);
-      localStorage.setItem(CUSTOM_KEY, JSON.stringify(updated));
+      // 서버에 저장하고 발급된 id를 받아 화면 상태에 반영 (삭제 시 사용)
+      let newId: number | undefined;
+      try {
+        const saved = await api.scenarios.saveCustom(keyword, r.title || keyword, r, searchedAt);
+        newId = saved?.id ?? undefined;
+      } catch { /* 저장 실패해도 화면에는 표시 */ }
+      const newIssue = { ...r, id: newId, title: r.title || keyword, isCustom: true as const, keyword, searchedAt };
+      setCustomIssues(prev => [...prev, newIssue].slice(-10)); // FIFO max 10
       setRegionFilter("커스텀");
       setIssueIdx(newIdx);
       setCustomKeyword("");
@@ -1616,11 +1649,11 @@ function ScenariosPageInner() {
     }
   };
 
-  const handleDeleteCustomIssue = (idx: number) => {
-    const updated = customIssues.filter((_, i) => i !== idx);
-    setCustomIssues(updated);
-    localStorage.setItem(CUSTOM_KEY, JSON.stringify(updated));
-    setIssueIdx(prev => (prev >= idx ? Math.max(0, prev - 1) : prev));
+  const handleDeleteCustomIssue = (issue: Issue & { id?: number }) => {
+    const idx = customIssues.findIndex(ci => ci === issue);
+    setCustomIssues(prev => prev.filter(ci => ci !== issue));
+    if (issue?.id != null) api.scenarios.deleteCustom(issue.id).catch(() => {});
+    setIssueIdx(prev => (idx >= 0 && prev >= idx ? Math.max(0, prev - 1) : prev));
   };
 
   const filteredIssues: Array<Issue & { isCustom?: boolean; isAgent?: boolean }> = regionFilter === "에이전트"
@@ -1812,7 +1845,7 @@ function ScenariosPageInner() {
                       )}
                     </button>
                     <button
-                      onClick={() => handleDeleteCustomIssue(i)}
+                      onClick={() => handleDeleteCustomIssue(issue)}
                       style={{ flexShrink: 0, padding: "4px", background: "transparent", border: "none", cursor: "pointer", color: "var(--color-muted)" }}
                       title="삭제"
                     >
@@ -2014,7 +2047,7 @@ function ScenariosPageInner() {
                         </button>
                         {(issue as any).isCustom && (
                           <button
-                            onClick={() => handleDeleteCustomIssue(customIssues.findIndex(ci => ci === issue))}
+                            onClick={() => handleDeleteCustomIssue(issue as any)}
                             style={{ padding: "2px", background: "transparent", border: "none", cursor: "pointer", color: "var(--color-muted)", flexShrink: 0 }}
                             title="삭제"
                           >

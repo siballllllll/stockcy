@@ -386,6 +386,29 @@ def init_local_db():
         )
     """)
 
+    # custom_scenarios (유저별 커스텀 이슈 시나리오 — 서버 영속, 브라우저 localStorage 대체)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS custom_scenarios (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            owner TEXT NOT NULL,
+            keyword TEXT,
+            title TEXT,
+            payload TEXT,
+            searched_at TEXT,
+            created_time TEXT
+        )
+    """)
+
+    # recent_searches (유저별 최근 검색어 — 서버 영속)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS recent_searches (
+            owner TEXT NOT NULL,
+            keyword TEXT NOT NULL,
+            searched_time TEXT,
+            PRIMARY KEY (owner, keyword)
+        )
+    """)
+
     # 컬럼 마이그레이션 — 이미 존재하면 무시
     for migration in [
         "ALTER TABLE portfolio ADD COLUMN trade_source TEXT DEFAULT '개인'",
@@ -1368,6 +1391,118 @@ def is_favorite(ticker, owner: str = "admin"):
     """특정 종목이 (해당 소유자의) 즐겨찾기에 있는지 확인합니다."""
     favs, _ = load_favorites(owner)
     return any(str(f.get('티커', '')) == str(ticker) for f in favs)
+
+
+# ── 커스텀 시나리오 (유저별 서버 영속) ──────────────────────────────────────────
+def save_custom_scenario(owner: str, keyword: str, title: str, payload: dict,
+                         searched_at: str = "", max_keep: int = 10):
+    """유저의 커스텀 이슈 시나리오를 저장하고 최신 max_keep개만 유지한다.
+    같은 keyword 재검색 시 기존 항목을 갱신(최신으로 끌어올림)한다."""
+    try:
+        conn = get_db_conn()
+        cursor = conn.cursor()
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        cursor.execute("DELETE FROM custom_scenarios WHERE owner = ? AND keyword = ?", (owner, keyword))
+        cursor.execute(
+            "INSERT INTO custom_scenarios (owner, keyword, title, payload, searched_at, created_time) VALUES (?, ?, ?, ?, ?, ?)",
+            (owner, keyword, title or keyword, _json.dumps(payload, ensure_ascii=False), searched_at or now, now),
+        )
+        new_id = cursor.lastrowid
+        # max_keep 초과분(오래된 것)부터 삭제
+        cursor.execute(
+            """DELETE FROM custom_scenarios WHERE owner = ? AND id NOT IN (
+                   SELECT id FROM custom_scenarios WHERE owner = ? ORDER BY id DESC LIMIT ?
+               )""",
+            (owner, owner, max_keep),
+        )
+        conn.commit()
+        conn.close()
+        return True, new_id
+    except Exception as e:
+        return False, str(e)
+
+
+def load_custom_scenarios(owner: str):
+    """유저의 커스텀 시나리오 목록을 오래된→최신 순으로 반환(프론트 append 순서와 동일)."""
+    try:
+        conn = get_db_conn()
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT id, keyword, title, payload, searched_at FROM custom_scenarios WHERE owner = ? ORDER BY id ASC",
+            (owner,),
+        )
+        rows = cursor.fetchall()
+        conn.close()
+        out = []
+        for r in rows:
+            try:
+                data = _json.loads(r["payload"]) if r["payload"] else {}
+            except Exception:
+                data = {}
+            if not isinstance(data, dict):
+                data = {}
+            data["id"] = r["id"]
+            data["keyword"] = r["keyword"]
+            data["title"] = data.get("title") or r["title"] or r["keyword"]
+            data["searchedAt"] = r["searched_at"]
+            data["isCustom"] = True
+            out.append(data)
+        return out
+    except Exception:
+        return []
+
+
+def delete_custom_scenario(owner: str, sid: int):
+    """유저의 커스텀 시나리오 1건을 id로 삭제한다."""
+    try:
+        conn = get_db_conn()
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM custom_scenarios WHERE owner = ? AND id = ?", (owner, sid))
+        conn.commit()
+        conn.close()
+        return True, "삭제되었습니다."
+    except Exception as e:
+        return False, str(e)
+
+
+# ── 최근 검색어 (유저별 서버 영속) ──────────────────────────────────────────────
+def save_recent_search(owner: str, keyword: str, max_keep: int = 10):
+    """최근 검색어 저장(중복 시 시간만 갱신) 후 최신 max_keep개만 유지."""
+    try:
+        conn = get_db_conn()
+        cursor = conn.cursor()
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        cursor.execute(
+            "INSERT OR REPLACE INTO recent_searches (owner, keyword, searched_time) VALUES (?, ?, ?)",
+            (owner, keyword, now),
+        )
+        cursor.execute(
+            """DELETE FROM recent_searches WHERE owner = ? AND keyword NOT IN (
+                   SELECT keyword FROM recent_searches WHERE owner = ? ORDER BY searched_time DESC LIMIT ?
+               )""",
+            (owner, owner, max_keep),
+        )
+        conn.commit()
+        conn.close()
+        return True, "저장되었습니다."
+    except Exception as e:
+        return False, str(e)
+
+
+def load_recent_searches(owner: str, limit: int = 10):
+    """유저의 최근 검색어를 최신순으로 반환."""
+    try:
+        conn = get_db_conn()
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT keyword FROM recent_searches WHERE owner = ? ORDER BY searched_time DESC LIMIT ?",
+            (owner, limit),
+        )
+        rows = cursor.fetchall()
+        conn.close()
+        return [r["keyword"] for r in rows]
+    except Exception:
+        return []
 
 
 def _gsheet_backup_log_agent_scan(ticker: str, name: str, current_price: float, position: str, action: str, confidence: int, reason: str):

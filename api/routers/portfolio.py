@@ -108,6 +108,17 @@ class TelegramConfigRequest(BaseModel):
     chat_id: str
 
 
+class CustomScenarioSaveRequest(BaseModel):
+    keyword:     str
+    title:       str = ""
+    payload:     dict          # 시나리오 전체(이슈 객체)
+    searched_at: str = ""
+
+
+class RecentSearchRequest(BaseModel):
+    keyword: str
+
+
 # ── 즐겨찾기 (전역 공유 — Phase 3에서 유저별 격리 예정) ───────────────────────
 
 @router.get("/favorites")
@@ -423,3 +434,44 @@ async def save_and_test_telegram(req: TelegramConfigRequest, _admin: dict = Depe
         return {"success": True, "message": "텔레그램 설정 저장 및 웰컴 테스트 메시지 발송에 성공했습니다. 폰을 확인해 보세요!"}
     else:
         return {"success": False, "message": "설정은 성공적으로 저장되었으나, 텔레그램 테스트 발송에 실패했습니다. 봇 토큰과 Chat ID가 정확한지 확인해 주세요."}
+
+
+# ── 커스텀 시나리오 (유저별 서버 영속 — 브라우저 localStorage 대체) ────────────
+
+@router.get("/custom-scenarios")
+async def list_custom_scenarios(user: dict = Depends(get_current_user)):
+    from db import load_custom_scenarios
+    data = await asyncio.to_thread(load_custom_scenarios, user["username"])
+    return {"data": data or []}
+
+
+@router.post("/custom-scenarios")
+async def add_custom_scenario(req: CustomScenarioSaveRequest, user: dict = Depends(get_current_user)):
+    from db import save_custom_scenario
+    ok, result = await asyncio.to_thread(
+        save_custom_scenario, user["username"], req.keyword, req.title, req.payload, req.searched_at
+    )
+    return {"success": ok, "id": result if ok else None, "message": "" if ok else str(result)}
+
+
+@router.delete("/custom-scenarios/{sid}")
+async def remove_custom_scenario(sid: int, user: dict = Depends(get_current_user)):
+    from db import delete_custom_scenario
+    ok, msg = await asyncio.to_thread(delete_custom_scenario, user["username"], sid)
+    return {"success": ok, "message": msg}
+
+
+# ── 최근 검색어 (유저별 서버 영속) ──────────────────────────────────────────────
+
+@router.get("/recent-searches")
+async def list_recent_searches(user: dict = Depends(get_current_user)):
+    from db import load_recent_searches
+    data = await asyncio.to_thread(load_recent_searches, user["username"])
+    return {"data": data or []}
+
+
+@router.post("/recent-searches")
+async def add_recent_search(req: RecentSearchRequest, user: dict = Depends(get_current_user)):
+    from db import save_recent_search
+    ok, msg = await asyncio.to_thread(save_recent_search, user["username"], req.keyword)
+    return {"success": ok, "message": msg}

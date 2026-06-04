@@ -178,6 +178,26 @@ export const api = {
                      req("/api/alerts", { method: "DELETE", body: JSON.stringify({ ticker, alert_type: alertType }) }),
   },
 
+  // ── 시나리오 유저 데이터(서버 영속): 커스텀 시나리오 · 최근 검색어 ──────────
+  scenarios: {
+    loadCustom: async () => {
+      const r = await req<{ data: any[] }>("/api/custom-scenarios");
+      return r.data ?? [];
+    },
+    saveCustom: (keyword: string, title: string, payload: any, searchedAt = "") =>
+      req<{ success: boolean; id: number | null }>("/api/custom-scenarios", {
+        method: "POST",
+        body: JSON.stringify({ keyword, title, payload, searched_at: searchedAt }),
+      }),
+    deleteCustom: (id: number) => req(`/api/custom-scenarios/${id}`, { method: "DELETE" }),
+    loadRecent: async () => {
+      const r = await req<{ data: string[] }>("/api/recent-searches");
+      return r.data ?? [];
+    },
+    saveRecent: (keyword: string) =>
+      req("/api/recent-searches", { method: "POST", body: JSON.stringify({ keyword }) }),
+  },
+
   // ── 트레이딩 ──────────────────────────────────────────────────────────────
   trading: {
     getBalances: () => req("/api/trading/balances"),
