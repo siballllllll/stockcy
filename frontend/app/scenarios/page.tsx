@@ -1442,9 +1442,15 @@ function ScenariosPageInner() {
       const savedCustom = localStorage.getItem(CUSTOM_KEY);
       if (savedCustom) {
         const parsed = JSON.parse(savedCustom);
-        const migrated = parsed.map((issue: any) =>
-          issue.searchedAt ? issue : { ...issue, searchedAt: "이전 검색" }
-        );
+        // 깨진 항목 정리: 과거 크레딧 부족(403) 등으로 scenarios 없는 빈 이슈가
+        // 저장된 경우 렌더 중 undefined.length 크래시를 유발하므로 걸러낸다.
+        const migrated = (Array.isArray(parsed) ? parsed : [])
+          .filter((issue: any) => issue && Array.isArray(issue.scenarios) && issue.scenarios.length > 0)
+          .map((issue: any) => ({
+            ...issue,
+            title: issue.title || issue.keyword || "커스텀 이슈",
+            searchedAt: issue.searchedAt || "이전 검색",
+          }));
         setCustomIssues(migrated);
         localStorage.setItem(CUSTOM_KEY, JSON.stringify(migrated));
       }
