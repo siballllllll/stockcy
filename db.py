@@ -24,7 +24,36 @@ def _pad_kr_ticker(ticker: str) -> str:
     return t.upper()
 
 
+# ── Turso 원격 백업 복원 가드 (best-effort, 실패해도 로컬DB로 정상 동작) ──────────
+# 첫 DB 연결 직전 1회만 실행: 로컬 DB가 비어있고 Turso 백업이 있으면 복원한다.
+# 모든 DB 접근이 get_db_conn()을 거치므로 어떤 코드보다 먼저 복원이 보장된다.
+import db_sync as _db_sync
+_restore_lock = threading.Lock()
+_restore_done = False
+
+
+def _ensure_restored_once():
+    global _restore_done
+    if _restore_done:
+        return
+    with _restore_lock:
+        if _restore_done:
+            return
+        try:
+            if _db_sync.enabled():
+                need_restore = (not os.path.exists(DB_PATH)) or os.path.getsize(DB_PATH) == 0
+                if need_restore:
+                    _db_sync.restore_to(DB_PATH)
+                # 백업 데몬 1회 기동(주기적 백업)
+                _db_sync.start_backup_loop(DB_PATH)
+        except Exception as e:
+            print(f"[turso] 복원 가드 오류(무시): {e}")
+        finally:
+            _restore_done = True
+
+
 def get_db_conn():
+    _ensure_restored_once()
     conn = sqlite3.connect(DB_PATH, timeout=10.0)
     conn.row_factory = sqlite3.Row
     # WAL 모드: write가 진행 중에도 read가 블로킹되지 않음
