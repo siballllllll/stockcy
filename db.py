@@ -717,8 +717,36 @@ def save_portfolio_to_gsheet(portfolio_list, current_prices_df=None, owner="USER
         cursor.execute("DELETE FROM portfolio WHERE UPPER(owner) = ?", (owner.upper(),))
 
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+        # 같은 티커가 여러 번 들어오면(예: 추가매수) 평단가 가중평균·수량 합산으로 병합.
+        # PK가 (owner, ticker)라 병합하지 않으면 INSERT OR REPLACE 로 마지막 항목이
+        # 기존 보유분을 덮어써 평단/수량이 사라진다.
+        merged = {}
+        order = []
         for item in portfolio_list:
-            ticker = _pad_kr_ticker(item["ticker"])
+            tkey = _pad_kr_ticker(item["ticker"])
+            q = float(item.get("quantity") or 0)
+            p = float(item.get("buy_price") or 0)
+            if tkey not in merged:
+                m = dict(item)
+                m["quantity"] = q
+                m["buy_price"] = p
+                merged[tkey] = m
+                order.append(tkey)
+            else:
+                m = merged[tkey]
+                tot_q = m["quantity"] + q
+                m["buy_price"] = ((m["buy_price"] * m["quantity"]) + (p * q)) / tot_q if tot_q > 0 else p
+                m["quantity"] = tot_q
+                # 매수 근거 누적(새 항목에 근거가 있으면 줄바꿈으로 덧붙임)
+                r_new = item.get("buy_reason")
+                if r_new:
+                    r_old = str(m.get("buy_reason") or "").strip()
+                    m["buy_reason"] = (r_old + "\n" + str(r_new).strip()).strip() if r_old else str(r_new).strip()
+
+        for tkey in order:
+            item = merged[tkey]
+            ticker = tkey
             buy_time = item.get("buy_date") or item.get("updated_time") or existing_times.get(ticker) or now
             # 매수 근거: 들어온 값 우선, 없으면 기존 값 보존
             buy_reason = item.get("buy_reason")

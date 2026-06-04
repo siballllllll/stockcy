@@ -376,24 +376,57 @@ function AddPortfolioForm({ onAdded }: { onAdded: () => void }) {
     if (!ticker.trim() || !name.trim() || !price || !qty) return;
     setLoading(true);
     try {
-      const currentList = await api.portfolio.loadPortfolio() as any[];
-      const updatedList = [...(currentList ?? []), {
-        ticker:       ticker.trim().toUpperCase(),
-        name:         name.trim(),
-        buy_price:    Number(price),
-        quantity:     Number(qty),
-        rating:       "-",
-        trade_source: tradeSource,
-        trade_type:   tradeType,
-        buy_reason:   buyReason,
-      }];
+      const tk = ticker.trim().toUpperCase();
+      const addPrice = Number(price);
+      const addQty   = Number(qty);
+      const currentList = (await api.portfolio.loadPortfolio() as any[]) ?? [];
+      const existing = currentList.find((p: any) => String(p.ticker).toUpperCase() === tk);
+
+      let updatedList: any[];
+      let resultMsg: string;
+
+      if (existing) {
+        // ── 이미 보유 중 → 추가매수: 평단가 가중평균 + 수량 합산 + 근거 누적 ──
+        const oldQty   = Number(existing.quantity)  || 0;
+        const oldPrice = Number(existing.buy_price) || 0;
+        const newQty   = oldQty + addQty;
+        const newAvg   = newQty > 0 ? (oldQty * oldPrice + addQty * addPrice) / newQty : addPrice;
+
+        const stamp = new Date().toLocaleString("ko-KR", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false });
+        const priceLabel = market === "국내" ? `₩${addPrice.toLocaleString()}` : `$${addPrice}`;
+        const addLine = `[추가매수 ${stamp} ${priceLabel}×${addQty}주]${buyReason.trim() ? ` ${buyReason.trim()}` : ""}`;
+        const mergedReason = [String(existing.buy_reason ?? "").trim(), addLine].filter(Boolean).join("\n");
+
+        updatedList = currentList.map((p: any) =>
+          String(p.ticker).toUpperCase() === tk
+            ? { ...p, quantity: newQty, buy_price: newAvg, buy_reason: mergedReason }  // 출처·유형은 기존 포지션 분류 유지
+            : p
+        );
+        const avgLabel = market === "국내"
+          ? `₩${Math.round(newAvg).toLocaleString()}`
+          : `$${newAvg.toFixed(2)}`;
+        resultMsg = `${name.trim()} 추가매수 반영 — 평단 ${avgLabel} · 수량 ${newQty}주`;
+      } else {
+        updatedList = [...currentList, {
+          ticker:       tk,
+          name:         name.trim(),
+          buy_price:    addPrice,
+          quantity:     addQty,
+          rating:       "-",
+          trade_source: tradeSource,
+          trade_type:   tradeType,
+          buy_reason:   buyReason,
+        }];
+        resultMsg = `${name.trim()} (${tk}) 추가 완료 [${tradeSource} · ${tradeType}]`;
+      }
+
       const res = await fetch(`${BASE_URL}/api/portfolio`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ portfolio_list: updatedList }),
       });
       if (!res.ok) throw new Error(`서버 오류: ${res.status}`);
-      setMsg({ type: "success", text: `${name.trim()} (${ticker.trim().toUpperCase()}) 추가 완료 [${tradeSource} · ${tradeType}]` });
+      setMsg({ type: "success", text: resultMsg });
       setTicker(""); setName(""); setPrice(""); setQty(""); setBuyReason("");
       onAdded();
     } catch (e) {
