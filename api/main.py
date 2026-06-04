@@ -236,12 +236,9 @@ def _daily_issue_loop():
             r = analyze_agent_daily_issues()
             _LAST_ISSUE_DATE = today_str
             print(f"[daily issue] 서버 시작 시 분석 완료: {r.get('count',0)}개 이슈")
-            try:
-                from ai_engine import send_scenario_alert
-                sres = send_scenario_alert()
-                print(f"[scenario alert] 시작 시 발송: {sres}")
-            except Exception as se:
-                print(f"[scenario alert] 시작 시 발송 오류: {se}")
+            # [노이즈 절감] 시나리오/일일이슈 텔레그램 알림 비활성 — 앱 내 시나리오 화면으로 충분.
+            #   분석(analyze_agent_daily_issues)은 유지 = AI 학습/앱 데이터는 계속 갱신됨.
+            #   다시 켜려면 아래 send_scenario_alert 호출 복원.
     except Exception as e:
         print(f"[daily issue] 시작 시 분석 오류: {e}")
 
@@ -265,12 +262,8 @@ def _daily_issue_loop():
                     r = analyze_agent_daily_issues()
                     _slot_done[slot] = today
                     print(f"[daily issue] {slot} 슬롯 분석 완료: {r.get('count',0)}개 이슈 ({today})")
-                    try:
-                        from ai_engine import send_scenario_alert
-                        sres = send_scenario_alert()
-                        print(f"[scenario alert] {slot} 슬롯 발송: {sres}")
-                    except Exception as se:
-                        print(f"[scenario alert] {slot} 슬롯 발송 오류: {se}")
+                    # [노이즈 절감] 시나리오/일일이슈 텔레그램 알림 비활성 — 앱 내 시나리오 화면으로 충분.
+                    #   분석은 유지 = AI 학습/앱 데이터는 계속 갱신됨.
                 except Exception as e:
                     print(f"[daily issue] {slot} 슬롯 오류: {e}")
         except Exception:
@@ -344,13 +337,8 @@ def _scenario_tracking_loop():
                     r = track_scenario_stocks_performance()
                     _LAST_SCENARIO_TRACK_DATE = today
                     print(f"[scenario track] 자동 추적 완료: {r.get('updated_now', 0)}건 갱신 ({today})")
-                    # 추적 직후 결과를 텔레그램으로 요약 발송 (US 포함 등장가 대비 수익률)
-                    try:
-                        from ai_engine import send_scenario_tracking_alert
-                        tres = send_scenario_tracking_alert()
-                        print(f"[scenario track] 텔레그램 발송: {tres}")
-                    except Exception as te:
-                        print(f"[scenario track] 텔레그램 발송 오류: {te}")
+                    # [노이즈 절감] 시나리오 적중률 텔레그램 발송 비활성 — 앱 내 시나리오 화면에서 확인.
+                    #   추적 계산(track_scenario_stocks_performance)은 유지 = 적중률 데이터는 계속 갱신됨.
                 except Exception as e:
                     print(f"[scenario track] 자동 추적 오류: {e}")
         except Exception:

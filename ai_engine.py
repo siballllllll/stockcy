@@ -1264,7 +1264,10 @@ def analyze_autonomous_trading(ticker: str, name: str, current_price: float, mar
             config=types.GenerateContentConfig(
                 system_instruction=system_instruction,
                 temperature=0.3,
-                response_mime_type="application/json"
+                response_mime_type="application/json",
+                # [비용방어] 이 호출은 _call_gemini를 거치지 않아 thinking_budget=0 기본방어가
+                # 적용되지 않았음 → thinking 토큰이 출력으로 과금되던 누수. 명시적으로 0 차단.
+                thinking_config=types.ThinkingConfig(thinking_budget=0),
             ),
         )
         res_text = response.text.strip()
