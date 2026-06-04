@@ -1785,7 +1785,7 @@ function ScenariosPageInner() {
                       }}
                       title={issue.title}
                     >
-                      <span>{issue.keyword || issue.title.slice(0, 16)}</span>
+                      <span>{issue.keyword || String(issue.title || "").slice(0, 16)}</span>
                       {(issue as any).searchedAt && (
                         <span style={{ fontSize: "0.65rem", color: "var(--color-muted)", display: "block", marginTop: "1px" }}>{(issue as any).searchedAt}</span>
                       )}
@@ -1981,15 +1981,15 @@ function ScenariosPageInner() {
                         >
                           {(issue as any).isCustom ? (
                             <span>
-                              <span style={{ display: "block" }}>Custom {idx + 1}: {String(issue.title).slice(0, 14)}{issue.title.length > 14 ? "…" : ""}</span>
+                              <span style={{ display: "block" }}>Custom {idx + 1}: {String((issue as any).keyword || issue.title || "").slice(0, 14)}{((issue as any).keyword || issue.title || "").length > 14 ? "…" : ""}</span>
                               {(issue as any).searchedAt && <span style={{ fontSize: "0.65rem", color: "var(--color-muted)", display: "block" }}>{(issue as any).searchedAt}</span>}
                             </span>
                           ) : (issue as any).isAgent ? (
                             <span>
-                              <span style={{ display: "block" }}>🤖 {String(issue.title || (issue as any)._keyword).slice(0, 14)}{(issue.title || "").length > 14 ? "…" : ""}</span>
+                              <span style={{ display: "block" }}>🤖 {String(issue.title || (issue as any)._keyword || "").slice(0, 14)}{(issue.title || "").length > 14 ? "…" : ""}</span>
                               {(issue as any)._scenario_date && <span style={{ fontSize: "0.65rem", color: "var(--color-muted)", display: "block" }}>{(issue as any)._scenario_date}</span>}
                             </span>
-                          ) : `Issue ${idx + 1}: ${String(issue.title).slice(0, 16)}${issue.title.length > 16 ? "…" : ""}`}
+                          ) : `Issue ${idx + 1}: ${String(issue.title || "").slice(0, 16)}${(issue.title || "").length > 16 ? "…" : ""}`}
                         </button>
                         {(issue as any).isCustom && (
                           <button
