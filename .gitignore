@@ -29,3 +29,4 @@ db.sqlite3-shm
 scratch/*
 !scratch/dev_proxy.js
 !scratch/run_tunnel.py
+cloudflared.exe

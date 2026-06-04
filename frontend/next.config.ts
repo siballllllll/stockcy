@@ -19,7 +19,9 @@ const nextConfig: NextConfig = {
   // ngrok 외부 원격 터널을 통한 HMR 및 Webpack 개발 리소스 로딩 차단 해제
   allowedDevOrigins: [
     "drop-down-prankish-breath.ngrok-free.dev",
-    "*.ngrok-free.dev"
+    "*.ngrok-free.dev",
+    "stockcy.trade",
+    "*.stockcy.trade"
   ],
 };
 
