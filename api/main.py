@@ -74,11 +74,16 @@ origins = [
     "http://127.0.0.1:3001",
     "https://drop-down-prankish-breath.ngrok-free.dev",
 ]
+# 클라우드 배포 시 프론트 도메인 허용: FRONTEND_URL 환경변수가 있으면 추가
+_frontend_env = os.environ.get("FRONTEND_URL", "").strip()
+if _frontend_env and _frontend_env not in origins:
+    origins.append(_frontend_env)
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
-    allow_origin_regex=r"https://.*\.ngrok-free\.dev", # ngrok 도메인 변경 대비 동적 regex 허용
+    # ngrok / cloudtype 배포 도메인 동적 허용 (SSE 직접연결 CORS 차단 방지)
+    allow_origin_regex=r"https://.*\.(ngrok-free\.dev|cloudtype\.app)",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
