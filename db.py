@@ -2736,19 +2736,39 @@ def load_agent_learning_summary() -> dict:
                WHERE action='BUY' AND outcome_return IS NOT NULL"""
         )
         rows = [dict(r) for r in cursor.fetchall()]
+
+        # '확정 거래' 승률은 실제 완료된 AI 거래내역(trade_history)에서 직접 집계 —
+        # agent_decisions에 매수행이 없는 거래(과거 매수·정리된 행 등)까지 포함해
+        # 화면의 '거래내역'과 정확히 일치시킨다.
+        rt_n, rt_wins, rt_sum = 0, 0, 0.0
+        try:
+            for tr in cursor.execute(
+                "SELECT profit_pct, result FROM trade_history WHERE owner='AI_AGENT'"
+            ).fetchall():
+                tr = dict(tr)
+                pct = tr.get("profit_pct")
+                is_win = (pct is not None and pct > 0) or ("수익" in str(tr.get("result") or ""))
+                rt_n += 1
+                rt_wins += 1 if is_win else 0
+                rt_sum += float(pct or 0)
+        except Exception as _te:
+            print(f"[learning] trade_history 집계 오류: {_te}")
         conn.close()
 
-        realized_n   = sum(1 for r in rows if r["is_realized"] == 1)
-        provisional_n = len(rows) - realized_n
+        # 보유 중(미매도) 잠정 표본 수 = agent_decisions의 미확정 BUY 판단
+        provisional_n = sum(1 for r in rows if r["is_realized"] == 0)
+
+        realized_block = {
+            "realized_trades":   rt_n,
+            "realized_win_rate": round(rt_wins / rt_n * 100, 1) if rt_n else None,
+            "realized_avg_return": round(rt_sum / rt_n, 2) if rt_n else None,
+        }
 
         if not rows:
-            return {"sample": 0, "realized_sample": 0, "provisional_sample": 0, "rules": []}
+            return {"sample": 0, "realized_sample": 0, "provisional_sample": 0,
+                    "rules": [], **realized_block}
 
         wins = [r for r in rows if (r["outcome_return"] or 0) > 0]
-
-        # 확정(매도완료)만 따로 집계 — 거래내역과 정확히 일치하는 '실현 승률'
-        realized_rows = [r for r in rows if r["is_realized"] == 1]
-        realized_wins = [r for r in realized_rows if (r["outcome_return"] or 0) > 0]
 
         rules = []
 
@@ -2777,15 +2797,12 @@ def load_agent_learning_summary() -> dict:
         rules.sort(key=lambda x: x["win_rate"], reverse=True)
 
         return {
-            "sample": len(rows),
-            "realized_sample": realized_n,
-            "provisional_sample": provisional_n,
+            "sample": len(rows),                       # 학습 표본(agent_decisions): 확정학습 + 보유중 잠정
+            "provisional_sample": provisional_n,        # 그중 보유중(미실현) 표본 수
             "overall_win_rate": round(len(wins) / len(rows) * 100, 1),
             "overall_avg_return": round(sum(r["outcome_return"] or 0 for r in rows) / len(rows), 2),
-            # 확정(매도완료)만의 실현 승률 — 표본 없으면 None
-            "realized_win_rate": round(len(realized_wins) / realized_n * 100, 1) if realized_n else None,
-            "realized_avg_return": round(sum(r["outcome_return"] or 0 for r in realized_rows) / realized_n, 2) if realized_n else None,
             "rules": rules,
+            **realized_block,                           # 확정 거래(trade_history) 승률 — 거래내역과 일치
         }
     except Exception as e:
         print(f"load_agent_learning_summary error: {e}")

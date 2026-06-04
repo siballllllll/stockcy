@@ -17,9 +17,9 @@ function AgentLearningDashboard() {
   );
 
   const sample = data?.sample ?? 0;
-  const realizedSample = data?.realized_sample ?? 0;
   const provisionalSample = data?.provisional_sample ?? 0;
-  const realizedWinRate = data?.realized_win_rate;   // null이면 확정 표본 없음
+  const realizedTrades = data?.realized_trades ?? 0;     // 실제 완료된 AI 거래내역 건수
+  const realizedWinRate = data?.realized_win_rate;        // null이면 확정 거래 없음
   const rules = data?.rules ?? [];
 
   return (
@@ -28,12 +28,12 @@ function AgentLearningDashboard() {
         <Brain size={18} color="#a5b4fc" />
         <span style={{ fontSize: "1rem", fontWeight: 800, color: "var(--color-text)" }}>AI 자기학습 현황</span>
         <span style={{ fontSize: "0.75rem", color: "var(--color-muted)", marginLeft: "auto" }}>
-          학습 표본 {sample}건
-          {sample > 0 && <span style={{ color: "var(--color-subtle)" }}> (확정 {realizedSample} · 보유중 {provisionalSample})</span>}
-          {realizedSample > 0 && (
-            <span style={{ color: "#34d399", fontWeight: 700 }}> · 확정 승률 {realizedWinRate ?? 0}% ({realizedSample}건)</span>
+          {realizedTrades > 0 && (
+            <span style={{ color: "#34d399", fontWeight: 700 }}>확정 거래 승률 {realizedWinRate ?? 0}% ({realizedTrades}건) · </span>
           )}
-          {sample > 0 && ` · 잠정포함 ${data?.overall_win_rate ?? 0}% · 평균 ${data?.overall_avg_return >= 0 ? "+" : ""}${data?.overall_avg_return ?? 0}%`}
+          학습 표본 {sample}건
+          {sample > 0 && <span style={{ color: "var(--color-subtle)" }}> (보유중 {provisionalSample})</span>}
+          {sample > 0 && ` · 잠정포함 ${data?.overall_win_rate ?? 0}%`}
         </span>
       </div>
 
