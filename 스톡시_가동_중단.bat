@@ -22,6 +22,15 @@ for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":3000 " ^| findstr "LISTENIN
     taskkill /f /pid %%a >nul 2>&1 && echo [OK] killed port 3000 PID %%a
 )
 
+echo [*] Step 4: Killing Cloudflare tunnel (cloudflared + run_cloudflared.py)...
+powershell -NoProfile -Command "Get-CimInstance Win32_Process | Where-Object { ($_.Name -eq 'python.exe') -and ($_.CommandLine -like '*run_cloudflared*') } | ForEach-Object { try { Stop-Process -Id $_.ProcessId -Force; Write-Host ('[OK] killed run_cloudflared PID ' + $_.ProcessId) } catch {} }"
+taskkill /f /im cloudflared.exe >nul 2>&1 && echo [OK] killed cloudflared.exe
+
+echo [*] Killing process holding port 3500 (proxy)...
+for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":3500 " ^| findstr "LISTENING"') do (
+    taskkill /f /pid %%a >nul 2>&1 && echo [OK] killed port 3500 PID %%a
+)
+
 echo [*] Stopping Node.js...
 taskkill /f /im node.exe >nul 2>&1
 
