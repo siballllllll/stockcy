@@ -1,6 +1,7 @@
 "use client";
 import { useState, useEffect, useRef } from "react";
 import { X, RefreshCw, ChevronDown, ChevronRight } from "lucide-react";
+import { getToken } from "@/lib/auth-context";
 
 interface SectorItem {
   keyword: string;
@@ -38,8 +39,13 @@ export function BriefingModal({ onClose }: Props) {
       const BASE = typeof window === "undefined"
         ? (process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8000")
         : "/backend";
+      const token = getToken();
       const res = await fetch(`${BASE}/api/ai/daily-briefing`, {
         signal: abortRef.current.signal,
+        headers: {
+          "ngrok-skip-browser-warning": "69420",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
       });
       if (!res.body) throw new Error("No body");
 

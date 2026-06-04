@@ -864,7 +864,14 @@ function AgentDailyIssuesPanel() {
   const refresh = async () => {
     setRefreshing(true);
     try {
-      await fetch("/backend/api/ai/agent-daily-issues/refresh", { method: "POST" });
+      const token = getToken();
+      await fetch("/backend/api/ai/agent-daily-issues/refresh", {
+        method: "POST",
+        headers: {
+          "ngrok-skip-browser-warning": "69420",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+      });
       await mutate();
     } catch {}
     setRefreshing(false);

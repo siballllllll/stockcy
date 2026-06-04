@@ -128,8 +128,8 @@ def delete_cache(cache_key: str):
 # ── 매크로 분석: 일간 주도 섹터 브리핑 (SSE) ──────────────────────────────────
 
 @router.get("/daily-briefing")
-async def daily_briefing():
-    """Google Search Grounding 기반 주도 섹터 브리핑 (SSE)."""
+async def daily_briefing(_credit: dict = Depends(consume_ai_credit)):
+    """Google Search Grounding 기반 주도 섹터 브리핑 (SSE). 일반 유저는 크레딧 1 차감."""
     from ai_engine import generate_daily_briefing
 
     async def _gen():
@@ -178,8 +178,8 @@ async def market_commentary(refresh: bool = False, user: dict = Depends(get_curr
 
 
 @router.get("/mindmap")
-async def mindmap():
-    """급등/급락 인과관계 Mermaid 마인드맵 생성 (SSE)."""
+async def mindmap(_credit: dict = Depends(consume_ai_credit)):
+    """급등/급락 인과관계 Mermaid 마인드맵 생성 (SSE). 일반 유저는 크레딧 1 차감."""
     from ai_engine import generate_mindmap_data
 
     async def _gen():
@@ -681,8 +681,8 @@ async def realtime_picks_us(req: RealtimePicksRequest, _credit: dict = Depends(c
 # ── 섹터 로테이션 분석 ────────────────────────────────────────────────────────
 
 @router.get("/sector-rotation")
-async def sector_rotation():
-    """국내 핫 섹터 탐지 및 대장주 분석 (SSE). 시장 데이터를 자동 수집합니다."""
+async def sector_rotation(_credit: dict = Depends(consume_ai_credit)):
+    """국내 핫 섹터 탐지 및 대장주 분석 (SSE). 일반 유저는 크레딧 1 차감."""
     from ai_engine import analyze_sector_rotation
 
     async def _gen():
@@ -1245,8 +1245,8 @@ async def get_ai_performance_summary():
 
 
 @router.post("/catalyst-scan/run")
-async def run_catalyst_scan_ep():
-    """관심종목 급변동(촉매) 스캔 → 텔레그램 알림 (수동 실행)."""
+async def run_catalyst_scan_ep(_admin: dict = Depends(require_admin)):
+    """[관리자] 관심종목 급변동(촉매) 스캔 → 텔레그램 알림 (수동 실행)."""
     from watchlist_alerts import run_catalyst_scan
     return await asyncio.to_thread(run_catalyst_scan, True)
 
@@ -1259,8 +1259,8 @@ async def get_earnings_calendar_ep(days: int = 10):
 
 
 @router.post("/research-watch/run")
-async def run_research_watch_ep():
-    """리서치 텔레그램 채널 수집 → AI 요약 → 텔레그램 브리핑 푸시 (수동 실행)."""
+async def run_research_watch_ep(_admin: dict = Depends(require_admin)):
+    """[관리자] 리서치 텔레그램 채널 수집 → AI 요약 → 텔레그램 브리핑 푸시 (수동 실행)."""
     from research_watcher import run_research_watch
     return await asyncio.to_thread(run_research_watch, True)
 
@@ -1320,8 +1320,8 @@ async def get_agent_scenarios(days: int = 1):
 
 
 @router.post("/agent-daily-issues/refresh")
-async def refresh_agent_daily_issues():
-    """오늘의 이슈 즉시 재분석 (수동 트리거)."""
+async def refresh_agent_daily_issues(_credit: dict = Depends(consume_ai_credit)):
+    """오늘의 이슈 즉시 재분석 (수동 트리거). 일반 유저는 크레딧 1 차감."""
     from ai_engine import analyze_agent_daily_issues
     return await asyncio.to_thread(analyze_agent_daily_issues)
 
