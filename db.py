@@ -11,7 +11,9 @@ from datetime import datetime, timedelta
 _GSHEET_CACHE = {}
 _GSHEET_CACHE_TTL = timedelta(seconds=60)
 
-DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "db.sqlite3")
+# 클라우드(영구 디스크) 배포 시 DB_PATH 환경변수로 위치 지정 가능.
+# 미지정(로컬)이면 기존과 동일하게 프로젝트 루트의 db.sqlite3 사용.
+DB_PATH = os.environ.get("DB_PATH") or os.path.join(os.path.dirname(os.path.abspath(__file__)), "db.sqlite3")
 _US_FDR_SECTOR_CACHE_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data_csv", "us_fdr_sector_cache.json")
 
 def _pad_kr_ticker(ticker: str) -> str:
