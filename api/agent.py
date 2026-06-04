@@ -451,10 +451,8 @@ def _run_one_scan(force: bool = False) -> dict:
                     ai_holdings[ticker] = new_item  # 즉시 동기화
                     save_portfolio_to_gsheet(ai_portfolio, owner=AI_OWNER_NAME)
                     
-                    # 텔레그램 알림
-                    currency = "$" if market == "미국" else "₩"
-                    msg = f"[AI 매수 진입] 출처:{source_korean} | 종목:{name}({ticker}) | 매수가:{currency}{current_price:,.0f} | 수량:{qty}주 | 수수료:{fee_krw:,.0f}원 | 잔고:{new_ai_cash:,.0f}원 | 사유:{reason}"
-                    send_price_alert(msg)
+                    # [노이즈 절감] AI 모의매매는 학습 목적 — 매수 텔레그램 알림 비활성.
+                    #   체결·학습 기록은 위에서 완료됨. 결과는 앱 내 AI 포트폴리오에서 확인.
                     
                 elif action == "SELL" and position == "HOLDING" and confidence >= 60:
                     # 최소 4시간 이상 보유 여부 검증 (초단타/스캘핑 강력 방어 가드)
@@ -557,10 +555,8 @@ def _run_one_scan(force: bool = False) -> dict:
                     ai_holdings.pop(ticker, None)  # 즉시 동기화
                     save_portfolio_to_gsheet(ai_portfolio, owner=AI_OWNER_NAME)
                     
-                    # 텔레그램 알림
-                    currency = "$" if market == "미국" else "₩"
-                    msg = f"[AI 매도 청산] 종목:{name}({ticker}) | 매도가:{currency}{sp:,.0f} | 손익:{profit:+,.0f}원({profit_pct:+.2f}%) | 잔고:{new_ai_cash:,.0f}원 | 사유:{reason}"
-                    send_price_alert(msg)
+                    # [노이즈 절감] AI 모의매매는 학습 목적 — 매도 텔레그램 알림 비활성.
+                    #   체결·학습 기록은 위에서 완료됨. 결과는 앱 내 AI 포트폴리오에서 확인.
                     
             logger.info(f"[agent] 1주기 스캔 완료. scanned={summary['scanned']} buy={summary['buy']} sell={summary['sell']} hold={summary['hold']}")
 

@@ -387,7 +387,8 @@ def _research_watch_loop():
     while True:
         try:
             from research_watcher import run_research_watch
-            r = run_research_watch(push=True)
+            # [노이즈 절감] 수집·AI 요약(학습/시나리오 자동등록)은 유지하되 텔레그램 푸시는 OFF.
+            r = run_research_watch(push=False)
             print(f"[research watch] {r}")
         except Exception as e:
             print(f"[research watch] 오류: {e}")
