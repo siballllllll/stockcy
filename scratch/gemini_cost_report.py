@@ -14,6 +14,12 @@ import sys
 from collections import defaultdict
 from datetime import datetime
 
+# Windows 콘솔(cp949)에서 em대시·한글 등 출력 시 UnicodeEncodeError 방지
+try:
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+except Exception:
+    pass
+
 PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                     "data_csv", "gemini_usage.jsonl")
 

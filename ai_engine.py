@@ -399,6 +399,7 @@ def _log_gemini_usage(response, source: str, use_search: bool = False):
     """[비용 추적] 각 Gemini 호출의 토큰 사용량을 기능(source)별로 JSONL에 1줄 기록.
     베스트에포트 — 실패해도 본 호출에 절대 영향 주지 않음. 집계: scratch/gemini_cost_report.py"""
     try:
+        from datetime import datetime  # 모듈 레벨 미import — 로컬 import로 NameError 방지
         um = getattr(response, "usage_metadata", None)
         if um is None:
             return
