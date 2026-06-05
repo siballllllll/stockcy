@@ -406,6 +406,7 @@ def _log_gemini_usage(response, source: str, use_search: bool = False):
         rec = {
             "ts": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             "source": source or "unknown",
+            "model": str(getattr(response, "model_version", "") or ""),
             "in": int(getattr(um, "prompt_token_count", 0) or 0),
             "out": int(getattr(um, "candidates_token_count", 0) or 0),
             "think": int(getattr(um, "thoughts_token_count", 0) or 0),
@@ -3246,14 +3247,6 @@ def analyze_trading_patterns(records: list) -> dict:
 
 def recommend_entry_price(ticker: str, name: str, market: str, current_price: float, w52_high: float = None, w52_low: float = None) -> dict:
     """미매수 관심종목에 대한 AI 매수가(타점) 추천"""
-    api_key = os.environ.get("GEMINI_API_KEY")
-    if not api_key:
-        try:
-            api_key = st.secrets["gemini"]["api_key"]
-        except Exception:
-            pass
-    client = genai.Client(api_key=api_key, http_options={"api_version": "v1alpha"})
-    
     currency = "KRW" if market == "국내" else "USD"
     price_info = f"- 현재가: {current_price} {currency}\n"
     if w52_high and w52_low:
@@ -3280,14 +3273,8 @@ def recommend_entry_price(ticker: str, name: str, market: str, current_price: fl
 오직 JSON만 출력하세요. 마크다운 백틱(```json)도 사용하지 마세요.
 """
     try:
-        response = client.models.generate_content(
-            model='gemini-2.5-flash',
-            contents=prompt,
-            config=types.GenerateContentConfig(
-                temperature=0.3,
-                response_mime_type="application/json"
-            ),
-        )
+        # _call_gemini 경유: thinking_budget=0(과금 차단) + 비용 로깅 + 모델 폴백 자동 적용
+        response = _call_gemini(prompt, use_search=False, temperature=0.3, response_mime_type="application/json")
         return json.loads(response.text)
     except Exception as e:
         return {"error": str(e), "recommended_price": current_price, "reason": "AI 타점 추천에 실패했습니다. 현재가를 기준으로 분석을 보완합니다."}

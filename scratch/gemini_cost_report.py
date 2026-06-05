@@ -38,7 +38,7 @@ def main():
     if len(sys.argv) > 1:
         day = datetime.now().strftime("%Y-%m-%d") if sys.argv[1] == "today" else sys.argv[1]
 
-    agg = defaultdict(lambda: {"calls": 0, "in": 0, "out": 0, "think": 0})
+    agg = defaultdict(lambda: {"calls": 0, "in": 0, "out": 0, "think": 0, "search": 0})
     lines = 0
     with open(PATH, encoding="utf-8") as f:
         for line in f:
@@ -54,6 +54,7 @@ def main():
             a["in"] += int(r.get("in", 0))
             a["out"] += int(r.get("out", 0))
             a["think"] += int(r.get("think", 0))
+            if r.get("search"): a["search"] += 1
 
     if lines == 0:
         print(f"해당 조건({day or '전체'})에 기록이 없습니다.")
@@ -68,16 +69,18 @@ def main():
 
     scope = day or "전체 누적"
     print(f"\n=== Gemini 기능별 사용량 ({scope}) ===")
-    print(f"{'기능(source)':38} {'호출':>6} {'입력토큰':>12} {'출력+think':>12} {'추정$':>9} {'추정원':>9}")
+    print(f"{'기능(source)':38} {'호출':>6} {'입력토큰':>12} {'출력+think':>12} {'추정원':>9} {'회당원':>8} {'검색':>5}")
     print("-" * 92)
     grand = 0.0
     gcalls = 0
     for cost, src, a, out_total in rows:
         grand += cost
         gcalls += a["calls"]
-        print(f"{src[:38]:38} {a['calls']:>6} {a['in']:>12,} {out_total:>12,} {cost:>9.4f} {int(cost*USD_KRW):>9,}")
+        krw = int(cost * USD_KRW)
+        per = int(cost * USD_KRW / max(1, a["calls"]))
+        print(f"{src[:38]:38} {a['calls']:>6} {a['in']:>12,} {out_total:>12,} {krw:>9,} {per:>8,} {a.get('search', 0):>5}")
     print("-" * 92)
-    print(f"{'합계':38} {gcalls:>6} {'':>12} {'':>12} {grand:>9.4f} {int(grand*USD_KRW):>9,}")
+    print(f"{'합계':38} {gcalls:>6} {'':>12} {'':>12} {int(grand*USD_KRW):>9,}")
     print(f"\n* 단가 가정: 입력 ${IN_RATE}/1M, 출력+thinking ${OUT_RATE}/1M (gemini-2.5-flash 기준)")
     print(f"* 그라운딩(검색) 호출은 무료 한도(1,500/일) 내라고 가정 — 초과 시 별도 과금.")
 
