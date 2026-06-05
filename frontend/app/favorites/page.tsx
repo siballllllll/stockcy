@@ -746,6 +746,10 @@ function PortfolioTab({ gapBulkMap }: { gapBulkMap: Record<string, any> }) {
   const [editType,   setEditType]   = useState<"실매매" | "테스트">("실매매");
   const [editBuyTime, setEditBuyTime] = useState<string>("");
   const [editReason,  setEditReason]  = useState<string>("");
+  // 편집 패널 모드: 직접 수정 vs 추가매수(물타기)
+  const [editMode, setEditMode] = useState<"edit" | "add">("edit");
+  const [addPrice, setAddPrice] = useState<string>("");
+  const [addQty,   setAddQty]   = useState<string>("");
 
   // AI 매도 타이밍 패널
   const [sellTarget, setSellTarget] = useState<any | null>(null);
@@ -766,7 +770,6 @@ function PortfolioTab({ gapBulkMap }: { gapBulkMap: Record<string, any> }) {
           ticker: p.ticker, name: p.name,
           avg_price: p.buy_price, current_price: p.currentPrice,
           market: p.isUs ? "US" : "KR",
-          quantity: p.quantity ?? 0,
         }),
       });
       if (!res.body) throw new Error("no body");
@@ -843,6 +846,36 @@ function PortfolioTab({ gapBulkMap }: { gapBulkMap: Record<string, any> }) {
       body: JSON.stringify({ portfolio_list: updated }),
     }).catch(() => {});
     setEditTicker(null);
+    mutate();
+  };
+
+  // 추가매수(물타기): 추가 매수가·수량으로 평단 가중평균·수량 합산·근거 누적
+  const handleAddMore = async (p: any) => {
+    const addP = Number(addPrice);
+    const addQ = Number(addQty);
+    if (!addP || !addQ || addP <= 0 || addQ <= 0) return;
+    const oldQty = Number(p.quantity)  || 0;
+    const oldAvg = Number(p.buy_price) || 0;
+    const newQty = oldQty + addQ;
+    const newAvg = newQty > 0 ? (oldQty * oldAvg + addQ * addP) / newQty : addP;
+
+    const stamp = new Date().toLocaleString("ko-KR", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false });
+    const priceLabel = p.isUs ? `$${addP}` : `₩${addP.toLocaleString()}`;
+    const extra = editReason.trim();
+    const addLine = `[추가매수 ${stamp} ${priceLabel}×${addQ}주]${extra ? ` ${extra}` : ""}`;
+    const mergedReason = [String(p.buy_reason ?? "").trim(), addLine].filter(Boolean).join("\n");
+
+    const updated = (portfolio ?? []).map((item: any) =>
+      item.ticker === p.ticker
+        ? { ...item, buy_price: newAvg, quantity: newQty, buy_reason: mergedReason }
+        : item
+    );
+    await fetch(`${BASE_URL}/api/portfolio`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ portfolio_list: updated }),
+    }).catch(() => {});
+    setEditTicker(null); setAddPrice(""); setAddQty(""); setEditReason("");
     mutate();
   };
 
@@ -1013,8 +1046,8 @@ function PortfolioTab({ gapBulkMap }: { gapBulkMap: Record<string, any> }) {
                         🔄
                       </button>
                     )}
-                    <button className="stockcy-btn stockcy-btn-secondary" style={{ padding: "2px 6px", fontSize: "0.7rem" }} title="편집"
-                      onClick={() => { setEditTicker(isEditing ? null : p.ticker); setEditPrice(String(p.buy_price)); setEditQty(String(p.quantity)); setEditSource((p.trade_source as "리딩방" | "개인") || "개인"); setEditType((p.trade_type as "실매매" | "테스트") || "실매매"); setEditBuyTime(String(p.buy_date ?? "").slice(0, 16).replace(" ", "T")); setEditReason(String(p.buy_reason ?? "")); }}>
+                    <button className="stockcy-btn stockcy-btn-secondary" style={{ padding: "2px 6px", fontSize: "0.7rem" }} title="수정 / 추가매수"
+                      onClick={() => { setEditTicker(isEditing ? null : p.ticker); setEditMode("edit"); setAddPrice(""); setAddQty(""); setEditPrice(String(p.buy_price)); setEditQty(String(p.quantity)); setEditSource((p.trade_source as "리딩방" | "개인") || "개인"); setEditType((p.trade_type as "실매매" | "테스트") || "실매매"); setEditBuyTime(String(p.buy_date ?? "").slice(0, 16).replace(" ", "T")); setEditReason(String(p.buy_reason ?? "")); }}>
                       ✏️
                     </button>
                     <button
@@ -1028,34 +1061,76 @@ function PortfolioTab({ gapBulkMap }: { gapBulkMap: Record<string, any> }) {
                   </div>
                 </div>
 
-                {/* 인라인 편집 폼 */}
+                {/* 인라인 편집 폼 — 수정 / 추가매수 */}
                 {isEditing && (
-                  <div style={{ background: "rgba(0,0,0,0.3)", padding: "10px 12px", display: "flex", gap: "0.6rem", alignItems: "center", flexWrap: "wrap" }}>
-                    {isAdmin && (<>
-                    <span style={{ fontSize: "0.75rem", color: "var(--color-muted)" }}>출처</span>
-                    <ToggleGroup
-                      options={[{ label: "리딩방", value: "리딩방" as const }, { label: "개인", value: "개인" as const }]}
-                      value={editSource} onChange={setEditSource}
-                      colors={{ "리딩방": "#7c3aed", "개인": "#2563eb" }}
-                    />
-                    <span style={{ fontSize: "0.75rem", color: "var(--color-muted)" }}>유형</span>
-                    <ToggleGroup
-                      options={[{ label: "실매매", value: "실매매" as const }, { label: "테스트", value: "테스트" as const }]}
-                      value={editType} onChange={setEditType}
-                      colors={{ "실매매": "#059669", "테스트": "#d97706" }}
-                    />
-                    </>)}
-                    <span style={{ fontSize: "0.75rem", color: "var(--color-muted)" }}>평단가</span>
-                    <input className="stockcy-input" type="number" value={editPrice} onChange={e => setEditPrice(e.target.value)} style={{ width: "100px" }} />
-                    <span style={{ fontSize: "0.75rem", color: "var(--color-muted)" }}>수량</span>
-                    <input className="stockcy-input" type="number" value={editQty} onChange={e => setEditQty(e.target.value)} style={{ width: "80px" }} />
-                    <span style={{ fontSize: "0.75rem", color: "var(--color-muted)" }}>매수시각</span>
-                    <input className="stockcy-input" type="datetime-local" value={editBuyTime} onChange={e => setEditBuyTime(e.target.value)} style={{ padding: "3px 6px", fontSize: "0.76rem", minWidth: "170px" }} title="매수한 시각 (누락 시 보정)" />
-                    <input className="stockcy-input" placeholder="매수 근거 (리딩방 사유 등)" value={editReason} onChange={e => setEditReason(e.target.value)} style={{ padding: "3px 6px", fontSize: "0.78rem", flex: 1, minWidth: "200px" }} />
-                    <button className="stockcy-btn stockcy-btn-primary" style={{ padding: "4px 10px", fontSize: "0.8rem" }} onClick={() => handleUpdateEntry(p)}>저장</button>
-                    <div style={{ marginLeft: "auto" }}>
-                      <SellButton p={p} onSell={handleSellRecord} />
+                  <div style={{ background: "rgba(0,0,0,0.3)", padding: "10px 12px", display: "flex", flexDirection: "column", gap: "0.6rem" }}>
+                    {/* 모드 전환 */}
+                    <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                      <ToggleGroup
+                        options={[{ label: "✏️ 수정", value: "edit" as const }, { label: "➕ 추가매수", value: "add" as const }]}
+                        value={editMode} onChange={setEditMode}
+                        colors={{ "edit": "#2563eb", "add": "#059669" }}
+                      />
+                      <span style={{ fontSize: "0.7rem", color: "var(--color-muted)" }}>
+                        {editMode === "edit" ? "평단·수량을 직접 고칩니다" : "추가 매수가·수량을 넣으면 평단이 자동 재계산됩니다"}
+                      </span>
                     </div>
+
+                    {editMode === "edit" ? (
+                      <div style={{ display: "flex", gap: "0.6rem", alignItems: "center", flexWrap: "wrap" }}>
+                        {isAdmin && (<>
+                        <span style={{ fontSize: "0.75rem", color: "var(--color-muted)" }}>출처</span>
+                        <ToggleGroup
+                          options={[{ label: "리딩방", value: "리딩방" as const }, { label: "개인", value: "개인" as const }]}
+                          value={editSource} onChange={setEditSource}
+                          colors={{ "리딩방": "#7c3aed", "개인": "#2563eb" }}
+                        />
+                        <span style={{ fontSize: "0.75rem", color: "var(--color-muted)" }}>유형</span>
+                        <ToggleGroup
+                          options={[{ label: "실매매", value: "실매매" as const }, { label: "테스트", value: "테스트" as const }]}
+                          value={editType} onChange={setEditType}
+                          colors={{ "실매매": "#059669", "테스트": "#d97706" }}
+                        />
+                        </>)}
+                        <span style={{ fontSize: "0.75rem", color: "var(--color-muted)" }}>평단가</span>
+                        <input className="stockcy-input" type="number" value={editPrice} onChange={e => setEditPrice(e.target.value)} style={{ width: "100px" }} />
+                        <span style={{ fontSize: "0.75rem", color: "var(--color-muted)" }}>수량</span>
+                        <input className="stockcy-input" type="number" value={editQty} onChange={e => setEditQty(e.target.value)} style={{ width: "80px" }} />
+                        <span style={{ fontSize: "0.75rem", color: "var(--color-muted)" }}>매수시각</span>
+                        <input className="stockcy-input" type="datetime-local" value={editBuyTime} onChange={e => setEditBuyTime(e.target.value)} style={{ padding: "3px 6px", fontSize: "0.76rem", minWidth: "170px" }} title="매수한 시각 (누락 시 보정)" />
+                        <input className="stockcy-input" placeholder="매수 근거 (리딩방 사유 등)" value={editReason} onChange={e => setEditReason(e.target.value)} style={{ padding: "3px 6px", fontSize: "0.78rem", flex: 1, minWidth: "200px" }} />
+                        <button className="stockcy-btn stockcy-btn-primary" style={{ padding: "4px 10px", fontSize: "0.8rem" }} onClick={() => handleUpdateEntry(p)}>저장</button>
+                        <div style={{ marginLeft: "auto" }}>
+                          <SellButton p={p} onSell={handleSellRecord} />
+                        </div>
+                      </div>
+                    ) : (() => {
+                      const cur = p.isUs ? "$" : "₩";
+                      const fmt = (v: number) => p.isUs ? `${cur}${v.toFixed(2)}` : `${cur}${Math.round(v).toLocaleString()}`;
+                      const oq = Number(p.quantity) || 0;
+                      const oa = Number(p.buy_price) || 0;
+                      const ap = Number(addPrice), aq = Number(addQty);
+                      const valid = ap > 0 && aq > 0;
+                      const nq = oq + (valid ? aq : 0);
+                      const na = valid && nq > 0 ? (oq * oa + aq * ap) / nq : oa;
+                      const addCost = valid ? ap * aq : 0;
+                      return (
+                        <div style={{ display: "flex", gap: "0.6rem", alignItems: "center", flexWrap: "wrap" }}>
+                          <span style={{ fontSize: "0.75rem", color: "var(--color-muted)" }}>현재 평단 {fmt(oa)} · {oq}주</span>
+                          <span style={{ fontSize: "0.75rem", color: "var(--color-muted)" }}>추가 매수가</span>
+                          <input className="stockcy-input" type="number" placeholder={p.currentPrice ? String(p.currentPrice) : "매수가"} value={addPrice} onChange={e => setAddPrice(e.target.value)} style={{ width: "110px" }} />
+                          <span style={{ fontSize: "0.75rem", color: "var(--color-muted)" }}>추가 수량</span>
+                          <input className="stockcy-input" type="number" placeholder="수량" value={addQty} onChange={e => setAddQty(e.target.value)} style={{ width: "80px" }} />
+                          <input className="stockcy-input" placeholder="추가매수 근거 (선택)" value={editReason} onChange={e => setEditReason(e.target.value)} style={{ padding: "3px 6px", fontSize: "0.78rem", flex: 1, minWidth: "180px" }} />
+                          {valid && (
+                            <span style={{ fontSize: "0.8rem", fontWeight: 700, color: "#34d399", whiteSpace: "nowrap" }}>
+                              → 새 평단 {fmt(na)} · {nq}주 <span style={{ color: "var(--color-muted)", fontWeight: 400 }}>(투입 {fmt(addCost)})</span>
+                            </span>
+                          )}
+                          <button className="stockcy-btn stockcy-btn-primary" style={{ padding: "4px 10px", fontSize: "0.8rem" }} disabled={!valid} onClick={() => handleAddMore(p)}>추가매수 반영</button>
+                        </div>
+                      );
+                    })()}
                   </div>
                 )}
               </div>
@@ -1088,7 +1163,7 @@ function PortfolioTab({ gapBulkMap }: { gapBulkMap: Record<string, any> }) {
             if (parsed.error) return (
               <StatusBox type="danger">{parsed.error}</StatusBox>
             );
-            const hasAnyField = parsed.verdict || parsed.timing || parsed.target_exit || parsed.reason || parsed.risk || parsed.avg_down_verdict;
+            const hasAnyField = parsed.verdict || parsed.timing || parsed.target_exit || parsed.reason || parsed.risk;
             if (!hasAnyField) return (
               <MarkdownLite text={sellResult} style={{ fontSize: "0.8rem", color: "var(--color-subtle)", wordBreak: "break-word", background: "rgba(0,0,0,0.2)", padding: "12px", borderRadius: "6px" }} />
             );
@@ -1125,56 +1200,6 @@ function PortfolioTab({ gapBulkMap }: { gapBulkMap: Record<string, any> }) {
                   <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
                     <div style={{ fontWeight: 600, fontSize: "0.73rem", color: "var(--color-muted)", textTransform: "uppercase", letterSpacing: "0.05em" }}>⚠️ 주요 리스크</div>
                     <div style={{ lineHeight: 1.65, color: "var(--color-subtle)" }}>{parsed.risk}</div>
-                  </div>
-                )}
-
-                {/* 💧 물타기 / 추가매수 가이드 */}
-                {(parsed.avg_down_verdict || parsed.add_reason || (Array.isArray(parsed.avg_down_scenarios) && parsed.avg_down_scenarios.length > 0)) && (
-                  <div style={{ display: "flex", flexDirection: "column", gap: "8px", padding: "10px 12px", background: "rgba(56,189,248,0.07)", border: "1px solid rgba(56,189,248,0.3)", borderRadius: "8px" }}>
-                    <div style={{ fontWeight: 700, fontSize: "0.85rem", color: "#38bdf8", display: "flex", alignItems: "center", gap: "6px" }}>
-                      💧 물타기 / 추가매수 가이드
-                      {parsed.avg_down_verdict && (
-                        <span style={{ fontSize: "0.72rem", fontWeight: 800, padding: "1px 8px", borderRadius: "10px",
-                          background: String(parsed.avg_down_verdict).includes("권장") && !String(parsed.avg_down_verdict).includes("비권장") ? "rgba(52,211,153,0.18)" : String(parsed.avg_down_verdict).includes("비권장") ? "rgba(248,113,113,0.18)" : "rgba(251,191,36,0.18)",
-                          color: String(parsed.avg_down_verdict).includes("권장") && !String(parsed.avg_down_verdict).includes("비권장") ? "#34d399" : String(parsed.avg_down_verdict).includes("비권장") ? "#f87171" : "#fbbf24",
-                          border: "1px solid currentColor" }}>
-                          {parsed.avg_down_verdict}
-                        </span>
-                      )}
-                    </div>
-                    {parsed.add_reason && (
-                      <div style={{ fontSize: "0.8rem", lineHeight: 1.6, color: "var(--color-subtle)" }}>{parsed.add_reason}</div>
-                    )}
-                    {Array.isArray(parsed.avg_down_scenarios) && parsed.avg_down_scenarios.length > 0 && (
-                      <div style={{ overflowX: "auto" }}>
-                        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.76rem" }}>
-                          <thead>
-                            <tr style={{ color: "var(--color-muted)", textAlign: "left", borderBottom: "1px solid var(--color-border)" }}>
-                              {["추가매수 규모", "수량", "매수가", "투입금액", "→ 새 평단", "현재가 대비"].map(h => (
-                                <th key={h} style={{ padding: "5px 8px", fontWeight: 700, whiteSpace: "nowrap" }}>{h}</th>
-                              ))}
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {parsed.avg_down_scenarios.map((s: any, i: number) => (
-                              <tr key={i} style={{ borderBottom: "1px solid rgba(255,255,255,0.04)" }}>
-                                <td style={{ padding: "5px 8px", fontWeight: 600 }}>{s.label}</td>
-                                <td style={{ padding: "5px 8px" }}>{s.add_qty}주</td>
-                                <td style={{ padding: "5px 8px" }}>{s.add_price}</td>
-                                <td style={{ padding: "5px 8px", color: "var(--color-muted)" }}>{s.add_cost}</td>
-                                <td style={{ padding: "5px 8px", fontWeight: 700, color: "#38bdf8" }}>{s.new_avg}</td>
-                                <td style={{ padding: "5px 8px", fontWeight: 700, color: (s.new_pnl_pct ?? 0) >= 0 ? "var(--color-danger)" : "var(--color-primary)" }}>
-                                  {(s.new_pnl_pct ?? 0) >= 0 ? "+" : ""}{s.new_pnl_pct}%
-                                </td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                        <div style={{ fontSize: "0.66rem", color: "var(--color-muted)", marginTop: "4px", lineHeight: 1.4 }}>
-                          ※ AI 권장 매수가 기준 시뮬레이션. 물타기는 추세가 살아있는 종목에서만 분할로 — 떨어지는 칼날은 피하세요.
-                        </div>
-                      </div>
-                    )}
                   </div>
                 )}
               </div>

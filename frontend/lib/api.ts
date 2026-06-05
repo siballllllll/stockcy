@@ -102,10 +102,10 @@ export const api = {
         method: "POST",
         body: JSON.stringify({ ticker, current_price: currentPrice, change_pct: changePct }),
       }),
-    sellTiming: (ticker: string, name: string, avgPrice: number, currentPrice: number, market: string, quantity = 0) =>
+    sellTiming: (ticker: string, name: string, avgPrice: number, currentPrice: number, market: string) =>
       req("/api/ai/sell-timing", {
         method: "POST",
-        body: JSON.stringify({ ticker, name, avg_price: avgPrice, current_price: currentPrice, market, quantity }),
+        body: JSON.stringify({ ticker, name, avg_price: avgPrice, current_price: currentPrice, market }),
       }),
     boxPattern: (ticker: string, name: string, priceData: any, market: string = "KR") =>
       req("/api/ai/box-pattern", {

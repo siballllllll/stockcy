@@ -43,7 +43,6 @@ class SellTimingRequest(BaseModel):
     avg_price:     float
     current_price: float
     market:        str = "KR"
-    quantity:      float = 0   # 보유 수량 (물타기 시나리오 계산용)
 
 
 class CustomIssueRequest(BaseModel):
@@ -474,7 +473,6 @@ async def sell_timing(req: SellTimingRequest, _credit: dict = Depends(consume_ai
                 req.avg_price,
                 req.current_price,
                 req.market,
-                req.quantity,
             )
             yield _sse({"status": "done", "result": result})
         except Exception as e:
