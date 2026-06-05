@@ -255,7 +255,8 @@ def init_local_db():
             rsi REAL,
             vol_ratio REAL,
             pos_52w REAL,
-            ma_aligned INTEGER DEFAULT 0
+            ma_aligned INTEGER DEFAULT 0,
+            price REAL
         )
     """)
 
@@ -418,6 +419,7 @@ def init_local_db():
         "ALTER TABLE trade_history ADD COLUMN buy_date TEXT DEFAULT ''",
         "ALTER TABLE trade_history ADD COLUMN screener_matched INTEGER DEFAULT 0",
         "ALTER TABLE screener_picks ADD COLUMN market TEXT DEFAULT 'kr'",
+        "ALTER TABLE screener_picks ADD COLUMN price REAL",  # 추천 당시가(교차검증용)
         "ALTER TABLE screener_backtest_results ADD COLUMN market TEXT DEFAULT 'kr'",
         "ALTER TABLE scenario_stocks ADD COLUMN horizon TEXT",
         "ALTER TABLE portfolio ADD COLUMN buy_reason TEXT DEFAULT ''",
@@ -3513,13 +3515,13 @@ def load_confluence_picks(days: int = 5, min_engines: int = 2) -> list:
             a["engines"].add("시나리오"); a["detail"].setdefault("시나리오", r.get("scenario_keyword") or "")
             _add_date(a, r.get("captured_at")); _add_priced(a, r.get("captured_at"), r.get("captured_price"))
 
-        # 2. 패턴 스크리너 (당시가 없음)
-        cur.execute("SELECT ticker, name, match_score, signal, picked_date FROM screener_picks WHERE picked_date >= ?", (cutoff,))
+        # 2. 패턴 스크리너 (당시가: price — v3.34.1부터 적재, 이전 픽은 NULL)
+        cur.execute("SELECT ticker, name, match_score, signal, picked_date, price FROM screener_picks WHERE picked_date >= ?", (cutoff,))
         for r in cur.fetchall():
             r = dict(r); k = _norm(r["ticker"]); a = agg[k]
             a["name"] = a["name"] or r["name"]; a["market"] = a["market"] or _mkt(k)
             a["engines"].add("패턴스크리너"); a["detail"].setdefault("패턴스크리너", f"매칭 {r.get('match_score','')}점 {r.get('signal','') or ''}".strip())
-            _add_date(a, r.get("picked_date"))
+            _add_date(a, r.get("picked_date")); _add_priced(a, r.get("picked_date"), r.get("price"))
 
         # 3. AI 에이전트 (BUY 판단, 당시가: entry_price)
         cur.execute("SELECT ticker, name, market, confidence, decided_at, entry_price FROM agent_decisions WHERE action='BUY' AND decided_at >= ?", (cutoff,))
@@ -3662,12 +3664,12 @@ def save_screener_picks(picks: list):
         for p in picks:
             cursor.execute(
                 """INSERT INTO screener_picks
-                   (picked_date, ticker, name, match_score, signal, rsi, vol_ratio, pos_52w, ma_aligned)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                   (picked_date, ticker, name, match_score, signal, rsi, vol_ratio, pos_52w, ma_aligned, price)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (today, _pad_kr_ticker(p.get("code", "")), p.get("name", ""),
                  p.get("match_score"), p.get("signal"), p.get("rsi"),
                  p.get("vol_ratio"), p.get("pos_52w"),
-                 1 if p.get("ma_aligned") else 0)
+                 1 if p.get("ma_aligned") else 0, p.get("current_price"))
             )
         conn.commit()
         conn.close()
