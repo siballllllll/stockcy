@@ -9,8 +9,9 @@ import { useMarket } from "@/lib/market-context";
 import { useAnalysisReady } from "@/lib/analysis-ready-context";
 import { useAiTask } from "@/contexts/AiTaskContext";
 import { useAuth } from "@/lib/auth-context";
-import { Loader2, CheckCircle2, LogOut } from "lucide-react";
+import { Loader2, CheckCircle2, LogOut, Menu, X } from "lucide-react";
 import useSWR from "swr";
+import { useIsMobile } from "@/lib/use-is-mobile";
 
 // 완료 시각 → "방금 전 / N분 전 / N시간 전 / N일 전" 상대시간 문자열
 function _relTime(ts?: number): string {
@@ -171,15 +172,88 @@ export function TopNav() {
   const pathname = usePathname();
   const [briefingOpen, setBriefingOpen] = useState(false);
   const [telegramOpen, setTelegramOpen] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
   const { market, setMarket } = useMarket();
   const { ready } = useAnalysisReady();
   const { user, logout } = useAuth();
+  const isMobile = useIsMobile();
   const { data: versionData } = useSWR(
     "/backend/api/admin/version",
     (url: string) => fetch(url).then(r => r.json()),
     { revalidateOnFocus: false, refreshInterval: 0 }
   );
   const appVersion = versionData?.version ?? "...";
+
+  // 라우트 이동 시 모바일 메뉴 자동 닫기
+  useEffect(() => { setMenuOpen(false); }, [pathname]);
+
+  // 탭 렌더 (가로=데스크톱, 세로=모바일 드롭다운)
+  const renderTabs = (vertical: boolean) => TABS.map((tab) => {
+    const active = tab.exact ? pathname === tab.href : pathname.startsWith(tab.href);
+    const isReady = tab.readyKey ? ready[tab.readyKey] : false;
+    return (
+      <Link
+        key={tab.href}
+        href={tab.href}
+        onClick={() => setMenuOpen(false)}
+        style={{
+          display:        "flex",
+          alignItems:     "center",
+          gap:            "0.5rem",
+          padding:        vertical ? "0.7rem 0.5rem" : "0 1rem",
+          fontSize:       "0.9rem",
+          fontWeight:     active ? 700 : 500,
+          color:          active ? "var(--color-text)" : "var(--color-muted)",
+          borderBottom:   vertical ? "none" : (active ? "3px solid var(--color-danger)" : "3px solid transparent"),
+          borderLeft:     vertical ? (active ? "3px solid var(--color-danger)" : "3px solid transparent") : undefined,
+          background:     vertical && active ? "var(--color-surface)" : undefined,
+          borderRadius:   vertical ? "4px" : undefined,
+          textDecoration: "none",
+          transition:     "color 0.15s, border-color 0.15s",
+          whiteSpace:     "nowrap",
+          position:       "relative",
+        }}
+      >
+        {tab.icon}
+        {tab.label}
+        {isReady && !active && (
+          <span style={{
+            width: "7px", height: "7px", borderRadius: "50%",
+            background: "#22c55e",
+            animation: "blink-green 1.2s ease-in-out infinite",
+            flexShrink: 0,
+          }} />
+        )}
+      </Link>
+    );
+  });
+
+  // 시장 토글 (데스크톱·모바일 공용)
+  const marketToggle = (
+    <div style={{ display: "flex", background: "var(--color-bg)", borderRadius: "6px", padding: "2px", border: "1px solid var(--color-border)" }}>
+      <button onClick={() => setMarket("KR")} style={{ padding: "2px 10px", fontSize: "0.8rem", borderRadius: "4px", border: "none", cursor: "pointer", background: market === "KR" ? "var(--color-accent)" : "transparent", color: market === "KR" ? "white" : "var(--color-muted)", fontWeight: 600, transition: "0.15s" }}>🇰🇷 국내</button>
+      <button onClick={() => setMarket("US")} style={{ padding: "2px 10px", fontSize: "0.8rem", borderRadius: "4px", border: "none", cursor: "pointer", background: market === "US" ? "var(--color-accent)" : "transparent", color: market === "US" ? "white" : "var(--color-muted)", fontWeight: 600, transition: "0.15s" }}>🇺🇸 미국</button>
+    </div>
+  );
+
+  // 사용자 + 로그아웃 블록 (vertical=모바일에서 약간 다른 정렬)
+  const userBlock = user && (
+    <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", paddingLeft: isMobile ? 0 : "0.25rem", borderLeft: isMobile ? "none" : "1px solid var(--color-border)" }}>
+      <button onClick={() => { setTelegramOpen(true); setMenuOpen(false); }} title="텔레그램 알림 설정" style={{ background: "var(--color-surface)", border: "1px solid var(--color-border)", borderRadius: "6px", padding: "3px 7px", fontSize: "0.85rem", cursor: "pointer" }}>🔔</button>
+      {user.role === "admin" && (
+        <Link href="/admin" onClick={() => setMenuOpen(false)} style={{ fontSize: "0.75rem", fontWeight: 700, color: "var(--color-accent)", textDecoration: "none", border: "1px solid var(--color-accent)", borderRadius: "6px", padding: "3px 8px", whiteSpace: "nowrap" }}>⚙ 관리자</Link>
+      )}
+      <span style={{ fontSize: "0.78rem", fontWeight: 600, color: "var(--color-text)", whiteSpace: "nowrap" }}>
+        {user.username}
+        {user.role === "admin" && (
+          <span style={{ marginLeft: "5px", fontSize: "0.62rem", fontWeight: 700, color: "var(--color-accent)", border: "1px solid var(--color-accent)", borderRadius: "4px", padding: "1px 4px" }}>관리자</span>
+        )}
+      </span>
+      <button onClick={logout} title="로그아웃" style={{ display: "flex", alignItems: "center", gap: "4px", background: "var(--color-surface)", border: "1px solid var(--color-border)", borderRadius: "6px", padding: "4px 8px", fontSize: "0.75rem", color: "var(--color-muted)", cursor: "pointer" }}>
+        <LogOut size={13} /> 로그아웃
+      </button>
+    </div>
+  );
 
   return (
     <>
@@ -197,7 +271,7 @@ export function TopNav() {
         style={{
           width:      "100%",
           margin:     "0 auto",
-          padding:    "0 5%",
+          padding:    isMobile ? "0 0.75rem" : "0 5%",
           display:    "flex",
           alignItems: "stretch",
           height:     "52px",
@@ -209,8 +283,8 @@ export function TopNav() {
           style={{
             display:    "flex",
             alignItems: "center",
-            paddingRight: "1.75rem",
-            borderRight: "1px solid var(--color-border)",
+            paddingRight: isMobile ? "0.75rem" : "1.75rem",
+            borderRight: isMobile ? "none" : "1px solid var(--color-border)",
             marginRight: "0.5rem",
             flexShrink:  0,
           }}
@@ -223,119 +297,49 @@ export function TopNav() {
           </span>
         </div>
 
-        {/* 탭 목록 */}
-        <nav style={{ display: "flex", flex: 1 }}>
-          {TABS.map((tab) => {
-            const active = tab.exact ? pathname === tab.href : pathname.startsWith(tab.href);
-            const isReady = tab.readyKey ? ready[tab.readyKey] : false;
-            return (
-              <Link
-                key={tab.href}
-                href={tab.href}
-                style={{
-                  display:        "flex",
-                  alignItems:     "center",
-                  gap:            "0.375rem",
-                  padding:        "0 1rem",
-                  fontSize:       "0.9rem",
-                  fontWeight:     active ? 700 : 500,
-                  color:          active ? "var(--color-text)" : "var(--color-muted)",
-                  borderBottom:   active ? "3px solid var(--color-danger)" : "3px solid transparent",
-                  textDecoration: "none",
-                  transition:     "color 0.15s, border-color 0.15s",
-                  whiteSpace:     "nowrap",
-                  position:       "relative",
-                }}
-              >
-                {tab.icon}
-                {tab.label}
-                {isReady && !active && (
-                  <span style={{
-                    width: "7px", height: "7px", borderRadius: "50%",
-                    background: "#22c55e",
-                    animation: "blink-green 1.2s ease-in-out infinite",
-                    flexShrink: 0,
-                  }} />
-                )}
-              </Link>
-            );
-          })}
-        </nav>
+        {/* 데스크톱: 가로 탭 / 모바일: 공간만 */}
+        {!isMobile
+          ? <nav style={{ display: "flex", flex: 1 }}>{renderTabs(false)}</nav>
+          : <div style={{ flex: 1 }} />}
+
         {/* 우측 유틸리티 영역 */}
-        <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", marginLeft: "auto", paddingLeft: "1rem" }}>
-          
-          {/* AI 태스크 인디케이터 */}
+        <div style={{ display: "flex", alignItems: "center", gap: "0.6rem", marginLeft: "auto", paddingLeft: "0.5rem" }}>
           <AiTaskIndicator />
-
-          {/* 브리핑 버튼 (팝업 오픈용) */}
-          <button 
-            className="stockcy-btn stockcy-btn-primary" 
-            style={{ padding: "4px 12px", fontSize: "0.8rem", fontWeight: 600 }}
-            onClick={() => setBriefingOpen(true)}
-          >
-            📰 브리핑
-          </button>
-          
-          {/* 시장 토글 버튼 */}
-          <div style={{ display: "flex", background: "var(--color-bg)", borderRadius: "6px", padding: "2px", border: "1px solid var(--color-border)" }}>
-            <button
-              onClick={() => setMarket("KR")}
-              style={{
-                padding: "2px 10px", fontSize: "0.8rem", borderRadius: "4px", border: "none", cursor: "pointer",
-                background: market === "KR" ? "var(--color-accent)" : "transparent",
-                color: market === "KR" ? "white" : "var(--color-muted)", fontWeight: 600,
-                transition: "0.15s",
-              }}
-            >
-              🇰🇷 국내
-            </button>
-            <button
-              onClick={() => setMarket("US")}
-              style={{
-                padding: "2px 10px", fontSize: "0.8rem", borderRadius: "4px", border: "none", cursor: "pointer",
-                background: market === "US" ? "var(--color-accent)" : "transparent",
-                color: market === "US" ? "white" : "var(--color-muted)", fontWeight: 600,
-                transition: "0.15s",
-              }}
-            >
-              🇺🇸 미국
-            </button>
-          </div>
-
-          {/* 비관리자 AI 잔여 횟수 */}
-          {user && user.role !== "admin" && <AiCreditChip />}
-
-          {/* 로그인 사용자 + 로그아웃 */}
-          {user && (
-            <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", paddingLeft: "0.25rem", borderLeft: "1px solid var(--color-border)" }}>
-              <button onClick={() => setTelegramOpen(true)} title="텔레그램 알림 설정" style={{ background: "var(--color-surface)", border: "1px solid var(--color-border)", borderRadius: "6px", padding: "3px 7px", fontSize: "0.85rem", cursor: "pointer" }}>
-                🔔
-              </button>
-              {user.role === "admin" && (
-                <Link href="/admin" style={{ fontSize: "0.75rem", fontWeight: 700, color: "var(--color-accent)", textDecoration: "none", border: "1px solid var(--color-accent)", borderRadius: "6px", padding: "3px 8px", whiteSpace: "nowrap" }}>
-                  ⚙ 관리자
-                </Link>
-              )}
-              <span style={{ fontSize: "0.78rem", fontWeight: 600, color: "var(--color-text)", whiteSpace: "nowrap" }}>
-                {user.username}
-                {user.role === "admin" && (
-                  <span style={{ marginLeft: "5px", fontSize: "0.62rem", fontWeight: 700, color: "var(--color-accent)", border: "1px solid var(--color-accent)", borderRadius: "4px", padding: "1px 4px" }}>
-                    관리자
-                  </span>
-                )}
-              </span>
+          {!isMobile ? (
+            <>
+              <button className="stockcy-btn stockcy-btn-primary" style={{ padding: "4px 12px", fontSize: "0.8rem", fontWeight: 600 }} onClick={() => setBriefingOpen(true)}>📰 브리핑</button>
+              {marketToggle}
+              {user && user.role !== "admin" && <AiCreditChip />}
+              {userBlock}
+            </>
+          ) : (
+            <>
+              {user && user.role !== "admin" && <AiCreditChip />}
               <button
-                onClick={logout}
-                title="로그아웃"
-                style={{ display: "flex", alignItems: "center", gap: "4px", background: "var(--color-surface)", border: "1px solid var(--color-border)", borderRadius: "6px", padding: "4px 8px", fontSize: "0.75rem", color: "var(--color-muted)", cursor: "pointer" }}
+                onClick={() => setMenuOpen(o => !o)}
+                aria-label="메뉴 열기"
+                style={{ display: "flex", alignItems: "center", background: "var(--color-surface)", border: "1px solid var(--color-border)", borderRadius: "6px", padding: "6px 8px", cursor: "pointer", color: "var(--color-text)" }}
               >
-                <LogOut size={13} />
-                로그아웃
+                {menuOpen ? <X size={18} /> : <Menu size={18} />}
               </button>
-            </div>
+            </>
           )}
         </div>
       </div>
+
+      {/* 모바일 드롭다운 메뉴 */}
+      {isMobile && menuOpen && (
+        <div style={{ borderTop: "1px solid var(--color-border)", background: "var(--color-card)", padding: "0.6rem 0.75rem", display: "flex", flexDirection: "column", gap: "0.6rem", boxShadow: "0 8px 24px rgba(0,0,0,0.4)" }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>{renderTabs(true)}</div>
+          <div style={{ display: "flex", alignItems: "center", gap: "0.6rem", flexWrap: "wrap", paddingTop: "0.6rem", borderTop: "1px solid var(--color-border)" }}>
+            {marketToggle}
+            <button className="stockcy-btn stockcy-btn-primary" style={{ padding: "4px 12px", fontSize: "0.8rem", fontWeight: 600 }} onClick={() => { setBriefingOpen(true); setMenuOpen(false); }}>📰 브리핑</button>
+          </div>
+          {userBlock && (
+            <div style={{ paddingTop: "0.6rem", borderTop: "1px solid var(--color-border)" }}>{userBlock}</div>
+          )}
+        </div>
+      )}
     </header>
 
     {briefingOpen && <BriefingModal onClose={() => setBriefingOpen(false)} />}

@@ -171,6 +171,31 @@ html, body {
 }
 .animate-spin    { animation: spin    0.8s linear infinite; }
 .animate-pulse   { animation: pulse   1.5s ease-in-out infinite; }
+
+/* ── 모바일 반응형 (≤768px) ─────────────────────────────────────────
+   앱이 전부 인라인 스타일이라(@media 불가) 여기서 전역으로 보정한다.
+   핵심: 인라인 다단 그리드(grid-template-columns)를 1단으로 세로 스택.
+   스타일시트의 !important 가 인라인 스타일을 이기므로 페이지 파일 수정 없이 적용됨. */
+@media (max-width: 768px) {
+  /* 본문 좌우 여백 축소 (데스크톱 5% → 모바일 좁게) */
+  main { padding: 0.875rem 0.75rem !important; }
+
+  /* 인라인 다단 그리드 → 모바일에서 1열 세로 스택 (2단 레이아웃·카드 그리드 전부) */
+  main [style*="grid-template-columns"] { grid-template-columns: 1fr !important; }
+
+  /* 카드 내부 여백 축소 */
+  .stockcy-card { padding: 0.75rem; }
+
+  /* 표는 가로 스크롤 허용 (찌그러짐 방지) */
+  table { display: block; overflow-x: auto; white-space: nowrap; -webkit-overflow-scrolling: touch; }
+}
+
+/* 화면폭 기반 표시 전환 헬퍼 */
+.mobile-only  { display: none; }
+@media (max-width: 768px) {
+  .mobile-only  { display: flex; }
+  .desktop-only { display: none !important; }
+}
 .skeleton {
   background: linear-gradient(90deg,
     var(--color-card) 25%,
