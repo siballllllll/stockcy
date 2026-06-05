@@ -12,6 +12,7 @@ import { SupplyPowerFlow } from "@/components/SupplyPowerFlow";
 import { SectorTrend } from "@/components/SectorTrend";
 import { AiCostBadge } from "@/components/ui/AiCostBadge";
 import { useAuth, getToken } from "@/lib/auth-context";
+import { useIsMobile } from "@/lib/use-is-mobile";
 
 // Next.js 프록시 우회 — 프록시가 큰 done JSON을 버퍼링해서 결과가 안 뜨는 문제 방지
 const BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8000";
@@ -1386,6 +1387,8 @@ function ScenariosPageInner() {
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";   // 시나리오 생성은 관리자만, 일반 유저는 읽기 전용
 
+  const isMobile = useIsMobile();
+  const [sidebarOpen, setSidebarOpen] = useState(false);  // 모바일에서 부가 정보(좌측) 접기/펼치기
   const [mounted, setMounted] = useState(false);
   const [loading, setLoading]     = useState(false);
   const [statusMsg, setStatusMsg] = useState("AI 모델에 연결 중...");
@@ -1718,10 +1721,27 @@ function ScenariosPageInner() {
         </div>
       </div>
 
+      {/* 모바일 전용: 부가 정보(주요 지수·환율·시장경보·에이전트 이슈 등) 접기/펼치기 */}
+      {isMobile && (
+        <button
+          onClick={() => setSidebarOpen(o => !o)}
+          style={{
+            display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%",
+            padding: "10px 14px", borderRadius: "8px", cursor: "pointer",
+            border: "1px solid var(--color-border)", background: "var(--color-card)",
+            color: "var(--color-text)", fontSize: "0.85rem", fontWeight: 700,
+          }}
+        >
+          <span>📊 주요 지수 · 환율 · 에이전트 이슈</span>
+          {sidebarOpen ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+        </button>
+      )}
+
       {/* 2단 레이아웃 */}
       <div style={{ display: "grid", gridTemplateColumns: "220px 1fr", gap: "1.5rem", alignItems: "start" }}>
 
-        {/* ── 좌측: 시장 지표 ── */}
+        {/* ── 좌측: 시장 지표 ── (모바일에선 펼쳤을 때만 표시) */}
+        {(!isMobile || sidebarOpen) && (
         <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
 
           <div className="stockcy-card" style={{ padding: "12px", display: "flex", flexDirection: "column", gap: "10px" }}>
@@ -1864,6 +1884,7 @@ function ScenariosPageInner() {
           <ScenarioTrackingPanel />
 
         </div>
+        )}
 
         {/* ── 우측: 메인 콘텐츠 ── */}
         <div className="stockcy-card" style={{ padding: "1.5rem", minHeight: "500px" }}>
