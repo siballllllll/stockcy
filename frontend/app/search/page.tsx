@@ -11,30 +11,32 @@ import { MarkdownLite } from "@/components/ui/MarkdownLite";
 import { AiCostBadge } from "@/components/ui/AiCostBadge";
 import ReactMarkdown from "react-markdown";
 
-// ── 종목 AI 분석 결과 localStorage 캐시 (페이지 이동 후 복원용, 6시간 유효) ──
+// ── 종목 AI 분석 결과 localStorage 캐시 (페이지 이동/재방문 후 복원용, 14일 유효) ──
+// 분석 시점(ts)·당시 주가(price)를 함께 저장해 "언제·당시 얼마에 분석/추천했는지"를 표시 → 교차검증.
 const _AI_CACHE_PREFIX = "stockcy_ai_stock_";
-const _AI_CACHE_TTL = 6 * 60 * 60 * 1000;
+const _AI_CACHE_TTL = 14 * 24 * 60 * 60 * 1000;  // 14일
 function _aiKey(code: string) { return _AI_CACHE_PREFIX + String(code).trim().toUpperCase(); }
 // 분석 결과가 정상적인 객체 형태인지 검증 (구버전 배열 캐시 등 비정상 형태 차단)
 function _isValidAiResult(r: any): boolean {
   return !!r && typeof r === "object" && !Array.isArray(r) && typeof r.rating !== "undefined";
 }
-function _saveAiCache(code: string, result: any) {
+function _saveAiCache(code: string, result: any, price?: number) {
   if (typeof window === "undefined" || !code || !_isValidAiResult(result)) return;
   try {
-    localStorage.setItem(_aiKey(code), JSON.stringify({ result, ts: Date.now() }));
+    localStorage.setItem(_aiKey(code), JSON.stringify({ result, ts: Date.now(), price: Number(price) || 0 }));
   } catch {}
 }
-function _loadAiCache(code: string): any | null {
+// 반환: { result, ts, price } (없으면 null)
+function _loadAiCache(code: string): { result: any; ts: number; price: number } | null {
   if (typeof window === "undefined" || !code) return null;
   try {
     const raw = localStorage.getItem(_aiKey(code));
     if (!raw) return null;
-    const { result, ts } = JSON.parse(raw);
+    const { result, ts, price } = JSON.parse(raw);
     if (Date.now() - ts > _AI_CACHE_TTL) { localStorage.removeItem(_aiKey(code)); return null; }
     // 구버전 배열 캐시 등 비정상 형태면 제거하고 재분석 유도 (가짜 '분석 중' 표시 방지)
     if (!_isValidAiResult(result)) { localStorage.removeItem(_aiKey(code)); return null; }
-    return result;
+    return { result, ts: Number(ts) || 0, price: Number(price) || 0 };
   } catch { return null; }
 }
 
@@ -267,6 +269,7 @@ function SearchPageInner() {
   const [showDropdown, setShowDropdown] = useState(false);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [aiResult, setAiResult] = useState<any>(null);
+  const [aiMeta, setAiMeta] = useState<{ ts: number; price: number } | null>(null);  // 분석 시점·당시가 (교차검증용)
   const [aiStatus, setAiStatus] = useState<"idle" | "loading" | "done" | "error">("idle");
   const [aiAnalysisTab, setAiAnalysisTab] = useState<"short" | "entry" | "mid" | "long">("short");
   const [aiMsg, setAiMsg] = useState("");
@@ -579,8 +582,8 @@ function SearchPageInner() {
     setCurrentCode(upper);
     // 종목 AI 분석 결과 캐시 복원 (이전에 분석했던 종목이면 결과 즉시 표시)
     const _cachedAi = _loadAiCache(upper);
-    if (_cachedAi) { setAiResult(_cachedAi); setAiStatus("done"); }
-    else { setAiStatus("idle"); setAiResult(null); }
+    if (_cachedAi) { setAiResult(_cachedAi.result); setAiMeta({ ts: _cachedAi.ts, price: _cachedAi.price }); setAiStatus("done"); }
+    else { setAiStatus("idle"); setAiResult(null); setAiMeta(null); }
     // 최근 검색 저장
     let displayName = nameHint || upper;
     if (!nameHint) {
@@ -796,6 +799,7 @@ function SearchPageInner() {
   const runAiAnalysis = async () => {
     setAiStatus("loading");
     setAiResult(null);
+    setAiMeta(null);
     setAiMsg("분석을 준비중입니다...");
     try {
       const payload = {
@@ -827,7 +831,7 @@ function SearchPageInner() {
           try {
             const parsed = JSON.parse(line.slice(5).trim());
             if (parsed.status === "running") setAiMsg(parsed.message ?? aiMsg);
-            else if (parsed.status === "done") { gotTerminal = true; setAiResult(parsed.result); setAiStatus("done"); _saveAiCache(currentCode, parsed.result); notifyDone(`stock-${currentCode}`, `${stockName || currentCode} AI 분석`, `/search?q=${currentCode}&market=KR`); }
+            else if (parsed.status === "done") { gotTerminal = true; setAiResult(parsed.result); setAiMeta({ ts: Date.now(), price }); setAiStatus("done"); _saveAiCache(currentCode, parsed.result, price); notifyDone(`stock-${currentCode}`, `${stockName || currentCode} AI 분석`, `/search?q=${currentCode}&market=KR`); }
             else if (parsed.status === "error") { gotTerminal = true; setAiMsg(`❌ ${parsed.message}`); setAiStatus("error"); }
           } catch {}
         }
@@ -847,6 +851,7 @@ function SearchPageInner() {
   const runUsAiAnalysis = async () => {
     setAiStatus("loading");
     setAiResult(null);
+    setAiMeta(null);
     setAiMsg("US 종목 분석 중...");
     try {
       const BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
@@ -872,7 +877,7 @@ function SearchPageInner() {
           try {
             const parsed = JSON.parse(line.slice(5).trim());
             if (parsed.status === "running") setAiMsg(parsed.message ?? aiMsg);
-            else if (parsed.status === "done") { gotTerminal = true; setAiResult(parsed.result); setAiStatus("done"); _saveAiCache(currentCode, parsed.result); notifyDone(`stock-${currentCode}`, `${stockName || currentCode} AI 분석`, `/search?q=${currentCode}&market=US`); }
+            else if (parsed.status === "done") { gotTerminal = true; setAiResult(parsed.result); setAiMeta({ ts: Date.now(), price }); setAiStatus("done"); _saveAiCache(currentCode, parsed.result, price); notifyDone(`stock-${currentCode}`, `${stockName || currentCode} AI 분석`, `/search?q=${currentCode}&market=US`); }
             else if (parsed.status === "error") { gotTerminal = true; setAiMsg(`❌ ${parsed.message}`); setAiStatus("error"); }
           } catch {}
         }
@@ -1603,6 +1608,26 @@ function SearchPageInner() {
                       <span style={{ fontSize: "0.8rem", color: "var(--color-warning)" }}>⚠️ 실제 종목: {aiResult.verified_name}</span>
                     )}
                   </div>
+
+                  {/* 교차검증: 언제·당시가 대비 현재가 (재분석 여부 판단용) */}
+                  {aiMeta && (
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: "6px 14px", alignItems: "center", fontSize: "0.78rem", padding: "8px 12px", background: "rgba(255,255,255,0.03)", border: "1px solid var(--color-border)", borderRadius: "6px" }}>
+                      <span style={{ color: "var(--color-muted)" }}>🕒 분석 시점 <b style={{ color: "var(--color-text)" }}>{new Date(aiMeta.ts).toLocaleString("ko-KR", { year: "2-digit", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false })}</b></span>
+                      {aiMeta.price > 0 && (
+                        <span style={{ color: "var(--color-muted)" }}>당시가 <b style={{ color: "var(--color-text)" }}>{isKR ? `₩${Math.round(aiMeta.price).toLocaleString()}` : `$${aiMeta.price.toFixed(2)}`}</b></span>
+                      )}
+                      {price > 0 && (
+                        <span style={{ color: "var(--color-muted)" }}>현재가 <b style={{ color: "var(--color-text)" }}>{isKR ? `₩${Math.round(price).toLocaleString()}` : `$${price.toFixed(2)}`}</b></span>
+                      )}
+                      {aiMeta.price > 0 && price > 0 && (() => {
+                        const d = (price - aiMeta.price) / aiMeta.price * 100;
+                        return <span style={{ fontWeight: 700, color: d >= 0 ? "var(--color-danger)" : "var(--color-primary)" }}>{d >= 0 ? "▲" : "▼"} {Math.abs(d).toFixed(2)}% (분석 이후)</span>;
+                      })()}
+                      {((Date.now() - aiMeta.ts) / 3600000 >= 24) && (
+                        <span style={{ fontSize: "0.72rem", color: "var(--color-warning)", fontWeight: 600 }}>· 24시간 경과 — 재분석 권장</span>
+                      )}
+                    </div>
+                  )}
 
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "8px" }}>
                     {[
