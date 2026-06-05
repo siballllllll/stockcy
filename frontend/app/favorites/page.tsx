@@ -766,6 +766,7 @@ function PortfolioTab({ gapBulkMap }: { gapBulkMap: Record<string, any> }) {
           ticker: p.ticker, name: p.name,
           avg_price: p.buy_price, current_price: p.currentPrice,
           market: p.isUs ? "US" : "KR",
+          quantity: p.quantity ?? 0,
         }),
       });
       if (!res.body) throw new Error("no body");
@@ -1087,7 +1088,7 @@ function PortfolioTab({ gapBulkMap }: { gapBulkMap: Record<string, any> }) {
             if (parsed.error) return (
               <StatusBox type="danger">{parsed.error}</StatusBox>
             );
-            const hasAnyField = parsed.verdict || parsed.timing || parsed.target_exit || parsed.reason || parsed.risk;
+            const hasAnyField = parsed.verdict || parsed.timing || parsed.target_exit || parsed.reason || parsed.risk || parsed.avg_down_verdict;
             if (!hasAnyField) return (
               <MarkdownLite text={sellResult} style={{ fontSize: "0.8rem", color: "var(--color-subtle)", wordBreak: "break-word", background: "rgba(0,0,0,0.2)", padding: "12px", borderRadius: "6px" }} />
             );
@@ -1124,6 +1125,56 @@ function PortfolioTab({ gapBulkMap }: { gapBulkMap: Record<string, any> }) {
                   <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
                     <div style={{ fontWeight: 600, fontSize: "0.73rem", color: "var(--color-muted)", textTransform: "uppercase", letterSpacing: "0.05em" }}>⚠️ 주요 리스크</div>
                     <div style={{ lineHeight: 1.65, color: "var(--color-subtle)" }}>{parsed.risk}</div>
+                  </div>
+                )}
+
+                {/* 💧 물타기 / 추가매수 가이드 */}
+                {(parsed.avg_down_verdict || parsed.add_reason || (Array.isArray(parsed.avg_down_scenarios) && parsed.avg_down_scenarios.length > 0)) && (
+                  <div style={{ display: "flex", flexDirection: "column", gap: "8px", padding: "10px 12px", background: "rgba(56,189,248,0.07)", border: "1px solid rgba(56,189,248,0.3)", borderRadius: "8px" }}>
+                    <div style={{ fontWeight: 700, fontSize: "0.85rem", color: "#38bdf8", display: "flex", alignItems: "center", gap: "6px" }}>
+                      💧 물타기 / 추가매수 가이드
+                      {parsed.avg_down_verdict && (
+                        <span style={{ fontSize: "0.72rem", fontWeight: 800, padding: "1px 8px", borderRadius: "10px",
+                          background: String(parsed.avg_down_verdict).includes("권장") && !String(parsed.avg_down_verdict).includes("비권장") ? "rgba(52,211,153,0.18)" : String(parsed.avg_down_verdict).includes("비권장") ? "rgba(248,113,113,0.18)" : "rgba(251,191,36,0.18)",
+                          color: String(parsed.avg_down_verdict).includes("권장") && !String(parsed.avg_down_verdict).includes("비권장") ? "#34d399" : String(parsed.avg_down_verdict).includes("비권장") ? "#f87171" : "#fbbf24",
+                          border: "1px solid currentColor" }}>
+                          {parsed.avg_down_verdict}
+                        </span>
+                      )}
+                    </div>
+                    {parsed.add_reason && (
+                      <div style={{ fontSize: "0.8rem", lineHeight: 1.6, color: "var(--color-subtle)" }}>{parsed.add_reason}</div>
+                    )}
+                    {Array.isArray(parsed.avg_down_scenarios) && parsed.avg_down_scenarios.length > 0 && (
+                      <div style={{ overflowX: "auto" }}>
+                        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.76rem" }}>
+                          <thead>
+                            <tr style={{ color: "var(--color-muted)", textAlign: "left", borderBottom: "1px solid var(--color-border)" }}>
+                              {["추가매수 규모", "수량", "매수가", "투입금액", "→ 새 평단", "현재가 대비"].map(h => (
+                                <th key={h} style={{ padding: "5px 8px", fontWeight: 700, whiteSpace: "nowrap" }}>{h}</th>
+                              ))}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {parsed.avg_down_scenarios.map((s: any, i: number) => (
+                              <tr key={i} style={{ borderBottom: "1px solid rgba(255,255,255,0.04)" }}>
+                                <td style={{ padding: "5px 8px", fontWeight: 600 }}>{s.label}</td>
+                                <td style={{ padding: "5px 8px" }}>{s.add_qty}주</td>
+                                <td style={{ padding: "5px 8px" }}>{s.add_price}</td>
+                                <td style={{ padding: "5px 8px", color: "var(--color-muted)" }}>{s.add_cost}</td>
+                                <td style={{ padding: "5px 8px", fontWeight: 700, color: "#38bdf8" }}>{s.new_avg}</td>
+                                <td style={{ padding: "5px 8px", fontWeight: 700, color: (s.new_pnl_pct ?? 0) >= 0 ? "var(--color-danger)" : "var(--color-primary)" }}>
+                                  {(s.new_pnl_pct ?? 0) >= 0 ? "+" : ""}{s.new_pnl_pct}%
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                        <div style={{ fontSize: "0.66rem", color: "var(--color-muted)", marginTop: "4px", lineHeight: 1.4 }}>
+                          ※ AI 권장 매수가 기준 시뮬레이션. 물타기는 추세가 살아있는 종목에서만 분할로 — 떨어지는 칼날은 피하세요.
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>

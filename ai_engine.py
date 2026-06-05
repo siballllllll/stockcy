@@ -1339,16 +1339,22 @@ def analyze_autonomous_trading(ticker: str, name: str, current_price: float, mar
 
 
 @st.cache_data(ttl=300)
-def analyze_sell_timing(ticker: str, name: str, avg_price: float, current_price: float, market: str = "KR") -> dict:
-    """평단가 기준 AI 매도 타이밍 분석. 결과를 5분간 캐싱."""
+def analyze_sell_timing(ticker: str, name: str, avg_price: float, current_price: float, market: str = "KR", quantity: float = 0) -> dict:
+    """평단가 기준 AI 매도 타이밍 + 물타기/추가매수 가이드 분석."""
     pnl_pct = (current_price - avg_price) / avg_price * 100 if avg_price > 0 else 0
     sign = "+" if pnl_pct >= 0 else ""
-    if market == "KR":
-        avg_str = f"{int(avg_price):,}원"
-        cp_str  = f"{int(current_price):,}원"
-    else:
-        avg_str = f"${avg_price:.2f}"
-        cp_str  = f"${current_price:.2f}"
+
+    def _fmt(v: float) -> str:
+        return f"{int(round(v)):,}원" if market == "KR" else f"${v:.2f}"
+
+    avg_str = _fmt(avg_price)
+    cp_str  = _fmt(current_price)
+    cur = "원" if market == "KR" else "달러"
+
+    # 보유 규모 컨텍스트 (수량이 있을 때만)
+    holding_ctx = ""
+    if quantity and quantity > 0:
+        holding_ctx = f"보유 수량: {quantity:g}주\n평가 금액: {_fmt(current_price * quantity)} (취득원가 {_fmt(avg_price * quantity)})\n"
 
     prompt = f"""당신은 개인 투자자의 실전 포트폴리오를 관리하는 전문 트레이딩 어드바이저입니다.\n절대로 한자(漢字)를 사용하지 마세요. 모든 출력은 한글과 영문만 사용하세요.
 
@@ -1356,10 +1362,11 @@ def analyze_sell_timing(ticker: str, name: str, avg_price: float, current_price:
 종목: {name} ({ticker})
 평단가: {avg_str}
 현재가: {cp_str}
-현재 수익률: {sign}{pnl_pct:.2f}%
+{holding_ctx}현재 수익률: {sign}{pnl_pct:.2f}%
 
 구글 검색으로 {name}({ticker})의 최신 뉴스, 차트 흐름, 수급 동향, 거시경제 변수를 파악하세요.
 위 투자자가 보유 중인 포지션 기준으로, 지금 매도하는 것이 좋은지, 기다려야 하는지, 타이밍을 어떻게 잡아야 하는지 분석하세요.
+또한 손실/조정 구간이라면 물타기(추가매수)로 평단을 낮추는 것이 합리적인지, 한다면 어느 가격대에서 분할로 담아야 하는지도 판단하세요.
 
 반드시 아래 JSON 형식으로만 응답하세요 (마크다운 백틱 없이):
 {{
@@ -1367,16 +1374,66 @@ def analyze_sell_timing(ticker: str, name: str, avg_price: float, current_price:
   "timing": "구체적인 매도 타이밍 — 오늘 장 마감 전 / 다음 저항선 도달 시 / 실적 발표 전 등 구체 조건",
   "reason": "판단 근거 — 현재 수익률 상황, 차트 기술적 위치, 최신 뉴스·이슈, 수급 흐름을 종합 (마크다운 불릿 3~4줄)",
   "target_exit": "권장 매도 목표가 또는 청산 트리거 조건 (구체적 가격 또는 이벤트)",
-  "risk": "보유 지속 시 주의해야 할 핵심 리스크 1~2문장"
+  "risk": "보유 지속 시 주의해야 할 핵심 리스크 1~2문장",
+  "avg_down_verdict": "물타기/추가매수 판단 — '물타기 권장' | '신중 접근' | '물타기 비권장' 중 하나",
+  "add_price": "권장 추가매수(물타기) 가격 — {cur} 기준 숫자만 (통화기호·콤마 없이, 예: 67500). 지지선·눌림목 부근으로 제시. 물타기 비권장이면 0",
+  "add_reason": "물타기/추가매수 판단 근거 — 지지선 위치, 펀더멘털 훼손 여부, 하락추세 지속 위험, 분할매수 전략 (2~3문장). 추세가 무너진 '떨어지는 칼날' 물타기의 위험성도 솔직히 경고"
 }}"""
 
     try:
         response = _call_gemini(prompt, use_search=True, temperature=0.4)
-        return _parse_json_response(response)
+        res = _parse_json_response(response)
+        if isinstance(res, dict) and "error" not in res:
+            res["avg_down_scenarios"] = _compute_avg_down_scenarios(
+                avg_price, current_price, quantity, res.get("add_price"), market
+            )
+        return res
     except Exception as e:
         if "QUOTA" in str(e) or "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
             return {"error": "API 할당량 초과 — 잠시 후 다시 시도하세요."}
         return {"error": _friendly_error(e)}
+
+
+def _compute_avg_down_scenarios(avg_price: float, current_price: float, quantity: float,
+                                add_price_raw, market: str = "KR") -> list:
+    """추가매수(물타기) 시나리오를 결정론적으로 계산.
+    보유수량×여러 배수로 추가매수했을 때의 새 평단·투입금액·현재가 대비 손익률을 표로 반환.
+    수량 또는 추천 매수가가 없으면 빈 리스트."""
+    import re
+    try:
+        if not quantity or quantity <= 0 or not avg_price or avg_price <= 0:
+            return []
+        # AI가 준 추천 추가매수가 파싱(숫자만). 없거나 0이면 현재가로 폴백.
+        add_price = 0.0
+        if add_price_raw is not None:
+            nums = re.findall(r'[-+]?\d[\d,]*\.?\d*', str(add_price_raw))
+            if nums:
+                add_price = float(nums[0].replace(",", ""))
+        if add_price <= 0:
+            add_price = float(current_price)
+        if add_price <= 0:
+            return []
+
+        def _fmt(v: float) -> str:
+            return f"{int(round(v)):,}원" if market == "KR" else f"${v:.2f}"
+
+        scenarios = []
+        for mult, label in [(0.5, "보유의 50%"), (1.0, "보유의 100% (동일 수량)"), (2.0, "보유의 200%")]:
+            add_qty = max(1, int(round(quantity * mult)))
+            new_qty = quantity + add_qty
+            new_avg = (quantity * avg_price + add_qty * add_price) / new_qty
+            new_pnl = (current_price - new_avg) / new_avg * 100 if new_avg > 0 else 0
+            scenarios.append({
+                "label": label,
+                "add_qty": add_qty,
+                "add_price": _fmt(add_price),
+                "add_cost": _fmt(add_qty * add_price),
+                "new_avg": _fmt(new_avg),
+                "new_pnl_pct": round(new_pnl, 2),
+            })
+        return scenarios
+    except Exception:
+        return []
 
 
 def generate_stock_report(ticker, current_price, change_pct):
