@@ -1,1 +1,1 @@
-APP_VERSION = "3.32.1"
+APP_VERSION = "3.32.2"
