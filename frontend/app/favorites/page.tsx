@@ -18,6 +18,7 @@ import { StockModal } from "@/components/ui/StockModal";
 import type { StockInfo } from "@/components/ui/StockModal";
 import { useSSE } from "@/hooks/useSSE";
 import { useAuth } from "@/lib/auth-context";
+import { useIsMobile } from "@/lib/use-is-mobile";
 
 // ── 투자 가이드 배지 (Streamlit 원본 로직 동일) ─────────────────────────────
 function getStatusInfo(pct: number | null, price?: number, w52High?: number, w52Low?: number) {
@@ -756,6 +757,7 @@ function PortfolioTab({ gapBulkMap }: { gapBulkMap: Record<string, any> }) {
   const [sellResult, setSellResult] = useState<string>("");
   const [sellStatus, setSellStatus] = useState<"idle" | "loading" | "done" | "error">("idle");
   const [sellMsg,    setSellMsg]    = useState("");
+  const isMobile = useIsMobile();
 
   const openSellAnalysis = async (p: any) => {
     setSellTarget(p);
@@ -936,7 +938,8 @@ function PortfolioTab({ gapBulkMap }: { gapBulkMap: Record<string, any> }) {
         <StatusBox type="info">보유 종목이 없습니다.</StatusBox>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: "0" }}>
-          {/* 헤더 행 */}
+          {/* 헤더 행 (모바일에선 숨김 — 카드형으로 표시) */}
+          {!isMobile && (
           <div style={{ display: "grid", gridTemplateColumns: "2.2fr 1fr 1fr 0.7fr 1fr 0.8fr 1.2fr 124px", gap: "6px", padding: "8px 12px", fontSize: "0.75rem", color: "var(--color-muted)", fontWeight: 600, borderBottom: "1px solid var(--color-border)" }}>
             <div>종목명</div>
             <div style={{ textAlign: "right" }}>평단가</div>
@@ -947,6 +950,7 @@ function PortfolioTab({ gapBulkMap }: { gapBulkMap: Record<string, any> }) {
             <div style={{ textAlign: "center" }}>추천 상태</div>
             <div style={{ textAlign: "center" }}>액션</div>
           </div>
+          )}
 
           {enriched.map((p, i) => {
             const isEditing = editTicker === p.ticker;
@@ -970,8 +974,54 @@ function PortfolioTab({ gapBulkMap }: { gapBulkMap: Record<string, any> }) {
             const gapDown = gapData?.gap_direction?.includes("하락");
             const gapText = gapData?.gap_strength && gapData?.gap_strength !== "보합권" ? gapData.gap_strength : null;
 
+            // 액션 버튼 (데스크톱·모바일 공용)
+            const actionButtons = (
+              <>
+                <button className="stockcy-btn stockcy-btn-secondary" style={{ padding: "2px 6px", fontSize: "0.7rem" }} title={p.hasPrice ? "AI 매도 타이밍" : "현재가 로딩 중"} disabled={!p.hasPrice} onClick={() => openSellAnalysis(p)}>AI</button>
+                {p.trade_type !== "테스트" ? (
+                  <button className="stockcy-btn stockcy-btn-secondary" style={{ padding: "2px 6px", fontSize: "0.7rem" }} title="자금 회전 진단 (홀딩/차익실현/로테이션)" onClick={() => setRotationTarget({ ticker: p.normalTicker || p.ticker, name: p.name || p.ticker })}>🔄</button>
+                ) : (
+                  <button className="stockcy-btn stockcy-btn-secondary" aria-hidden tabIndex={-1} disabled style={{ padding: "2px 6px", fontSize: "0.7rem", visibility: "hidden" }}>🔄</button>
+                )}
+                <button className="stockcy-btn stockcy-btn-secondary" style={{ padding: "2px 6px", fontSize: "0.7rem" }} title="수정 / 추가매수" onClick={() => { setEditTicker(isEditing ? null : p.ticker); setEditMode("edit"); setAddPrice(""); setAddQty(""); setEditPrice(String(p.buy_price)); setEditQty(String(p.quantity)); setEditSource((p.trade_source as "리딩방" | "개인") || "개인"); setEditType((p.trade_type as "실매매" | "테스트") || "실매매"); setEditBuyTime(String(p.buy_date ?? "").slice(0, 16).replace(" ", "T")); setEditReason(String(p.buy_reason ?? "")); }}>✏️</button>
+                <button className="stockcy-btn" style={{ padding: "2px 6px", fontSize: "0.7rem", border: "1px solid rgba(255,60,60,0.35)", color: "var(--color-danger)", background: "rgba(255,60,60,0.06)" }} title="삭제" onClick={() => { if (window.confirm(`${p.name || p.ticker} 보유종목에서 삭제할까요?`)) handleDeleteEntry(p.ticker); }}><Trash2 size={11} /></button>
+              </>
+            );
+
             return (
               <div key={i} style={{ borderBottom: "1px solid rgba(255,255,255,0.04)" }}>
+                {/* ── 모바일: 카드형 ── */}
+                {isMobile && (
+                  <div style={{ padding: "10px 12px", display: "flex", flexDirection: "column", gap: "7px" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "8px" }}>
+                      <div style={{ fontWeight: 700, display: "flex", alignItems: "center", gap: "4px", flexWrap: "wrap", fontSize: "0.92rem" }}>
+                        <span>{p.name || p.normalTicker || p.ticker}</span>
+                        <span style={{ fontSize: "0.7rem", color: "var(--color-muted)", fontWeight: 400 }}>({p.normalTicker || p.ticker})</span>
+                        {p.isUs && <span style={{ fontSize: "0.62rem", padding: "1px 5px", background: "rgba(50,200,100,0.15)", border: "1px solid rgba(50,200,100,0.3)", borderRadius: "3px", color: "var(--color-success)" }}>US</span>}
+                        {p.trade_source === "리딩방" && <span style={{ fontSize: "0.6rem", padding: "1px 5px", background: "rgba(124,58,237,0.15)", border: "1px solid rgba(124,58,237,0.35)", borderRadius: "3px", color: "#a78bfa", fontWeight: 700 }}>리딩방</span>}
+                        {p.trade_type === "테스트" && <span style={{ fontSize: "0.6rem", padding: "1px 5px", background: "rgba(217,119,6,0.15)", border: "1px solid rgba(217,119,6,0.35)", borderRadius: "3px", color: "#fbbf24", fontWeight: 700 }}>테스트</span>}
+                        {p.buy_reason && <span title={p.buy_reason} style={{ fontSize: "0.6rem", padding: "1px 5px", background: "rgba(56,189,248,0.12)", border: "1px solid rgba(56,189,248,0.35)", borderRadius: "3px", color: "#38bdf8", fontWeight: 700 }}>💬</span>}
+                      </div>
+                      <div style={{ textAlign: "right", flexShrink: 0 }}>
+                        <div style={{ color: p.hasPrice ? color : "var(--color-muted)", fontWeight: 800, fontSize: "0.95rem" }}>{p.hasPrice ? `${p.profitPct >= 0 ? "+" : ""}${p.profitPct.toFixed(2)}%` : "-"}</div>
+                        <div style={{ marginTop: "2px" }}><RecommendBadge pct={p.profitPct} hasPrice={p.hasPrice} /></div>
+                      </div>
+                    </div>
+                    {gapData && gapText && (
+                      <span title={`🌙 시간외 주요 변수:\n${gapData.overnight_issue_summary}\n\n💡 대응 가이드:\n${gapData.trading_action_guide}`} style={{ alignSelf: "flex-start", fontSize: "0.65rem", padding: "1px 5px", borderRadius: "3px", background: gapUp ? "rgba(16,185,129,0.15)" : gapDown ? "rgba(239,68,68,0.15)" : "rgba(255,255,255,0.06)", color: gapUp ? "#34d399" : gapDown ? "#f87171" : "#a1a1aa", border: `1px solid ${gapUp ? "rgba(16,185,129,0.3)" : gapDown ? "rgba(239,68,68,0.3)" : "rgba(255,255,255,0.12)"}`, fontWeight: 800 }}>{gapUp ? "🟢 갭상" : gapDown ? "🔴 갭하" : "⚪ 보합"} {gapText}</span>
+                    )}
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: "3px 14px", fontSize: "0.8rem", color: "var(--color-muted)" }}>
+                      <span>평단 <b style={{ color: "var(--color-text)" }}>{buyStr}</b></span>
+                      <span>현재 <b style={{ color: "var(--color-text)" }}>{p.hasPrice ? priceStr : "…"}</b></span>
+                      <span><b style={{ color: "var(--color-text)" }}>{Number(p.quantity ?? 0).toLocaleString()}주</b></span>
+                      <span>손익 <b style={{ color: p.hasPrice ? color : "var(--color-muted)" }}>{p.hasPrice ? profitStr : "-"}</b>{p.hasPrice && profitKrwHint ? ` (${profitKrwHint})` : ""}</span>
+                    </div>
+                    <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>{actionButtons}</div>
+                  </div>
+                )}
+
+                {/* ── 데스크톱: 표(그리드) ── */}
+                {!isMobile && (
                 <div style={{ display: "grid", gridTemplateColumns: "2.2fr 1fr 1fr 0.7fr 1fr 0.8fr 1.2fr 124px", gap: "6px", padding: "10px 12px", alignItems: "center", fontSize: "0.85rem" }}>
                   <div style={{ fontWeight: 600, display: "flex", flexDirection: "column", gap: "2px" }}>
                     <div style={{ display: "flex", alignItems: "center", gap: "4px", flexWrap: "wrap" }}>
@@ -1031,35 +1081,9 @@ function PortfolioTab({ gapBulkMap }: { gapBulkMap: Record<string, any> }) {
                     {p.hasPrice ? `${p.profitPct >= 0 ? "+" : ""}${p.profitPct.toFixed(2)}%` : "-"}
                   </div>
                   <div style={{ textAlign: "center" }}><RecommendBadge pct={p.profitPct} hasPrice={p.hasPrice} /></div>
-                  <div style={{ display: "flex", gap: "4px", flexWrap: "wrap" }}>
-                    <button className="stockcy-btn stockcy-btn-secondary" style={{ padding: "2px 6px", fontSize: "0.7rem" }} title={p.hasPrice ? "AI 매도 타이밍" : "현재가 로딩 중"} disabled={!p.hasPrice} onClick={() => openSellAnalysis(p)}>
-                      AI
-                    </button>
-                    {p.trade_type !== "테스트" ? (
-                      <button className="stockcy-btn stockcy-btn-secondary" style={{ padding: "2px 6px", fontSize: "0.7rem" }} title="자금 회전 진단 (홀딩/차익실현/로테이션)"
-                        onClick={() => setRotationTarget({ ticker: p.normalTicker || p.ticker, name: p.name || p.ticker })}>
-                        🔄
-                      </button>
-                    ) : (
-                      // 테스트 종목은 자금 회전 진단 대상이 아님 — 자리만 비워 버튼 정렬 유지
-                      <button className="stockcy-btn stockcy-btn-secondary" aria-hidden tabIndex={-1} disabled style={{ padding: "2px 6px", fontSize: "0.7rem", visibility: "hidden" }}>
-                        🔄
-                      </button>
-                    )}
-                    <button className="stockcy-btn stockcy-btn-secondary" style={{ padding: "2px 6px", fontSize: "0.7rem" }} title="수정 / 추가매수"
-                      onClick={() => { setEditTicker(isEditing ? null : p.ticker); setEditMode("edit"); setAddPrice(""); setAddQty(""); setEditPrice(String(p.buy_price)); setEditQty(String(p.quantity)); setEditSource((p.trade_source as "리딩방" | "개인") || "개인"); setEditType((p.trade_type as "실매매" | "테스트") || "실매매"); setEditBuyTime(String(p.buy_date ?? "").slice(0, 16).replace(" ", "T")); setEditReason(String(p.buy_reason ?? "")); }}>
-                      ✏️
-                    </button>
-                    <button
-                      className="stockcy-btn"
-                      style={{ padding: "2px 6px", fontSize: "0.7rem", border: "1px solid rgba(255,60,60,0.35)", color: "var(--color-danger)", background: "rgba(255,60,60,0.06)" }}
-                      title="삭제"
-                      onClick={() => { if (window.confirm(`${p.name || p.ticker} 보유종목에서 삭제할까요?`)) handleDeleteEntry(p.ticker); }}
-                    >
-                      <Trash2 size={11} />
-                    </button>
-                  </div>
+                  <div style={{ display: "flex", gap: "4px", flexWrap: "wrap" }}>{actionButtons}</div>
                 </div>
+                )}
 
                 {/* 인라인 편집 폼 — 수정 / 추가매수 */}
                 {isEditing && (
