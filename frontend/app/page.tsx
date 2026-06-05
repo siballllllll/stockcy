@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import ReactMarkdown from "react-markdown";
 import { BarChart2, Zap } from "lucide-react";
@@ -13,6 +13,7 @@ import { MarkdownLite } from "@/components/ui/MarkdownLite";
 import { SupplyPowerFlow } from "@/components/SupplyPowerFlow";
 import { AiCostBadge } from "@/components/ui/AiCostBadge";
 import { useAuth } from "@/lib/auth-context";
+import { api } from "@/lib/api";
 import useSWR from "swr";
 
 function EntryTimingStats() {
@@ -474,6 +475,34 @@ function ConfluenceTab({ onSelect }: { onSelect: (s: StockInfo) => void }) {
     "시나리오": "#a78bfa", "패턴스크리너": "#34d399", "에이전트": "#60a5fa", "AI추천": "#fbbf24",
   };
 
+  // ── 실시간 현재가 조회 (교차검증: 추천 당시가 대비 현재가) ──────────────────────
+  const krTickers = useMemo(() => [...new Set(picks.filter((p: any) => p.market === "kr").map((p: any) => p.ticker))] as string[], [picks]);
+  const usTickers = useMemo(() => [...new Set(picks.filter((p: any) => p.market !== "kr").map((p: any) => p.ticker))] as string[], [picks]);
+
+  const { data: krPrices } = useSWR(
+    krTickers.length > 0 ? `cf-kr-prices-${krTickers.join(",")}` : null,
+    async () => {
+      const map: Record<string, number> = {};
+      await Promise.all(krTickers.map(async (code) => {
+        try { const d = await api.kr.stockPrice(code) as any; if (d?.price) map[code] = d.price; } catch {}
+      }));
+      return map;
+    },
+    { revalidateOnFocus: false }
+  );
+  const { data: usPrices } = useSWR(
+    usTickers.length > 0 ? `cf-us-prices-${usTickers.join(",")}` : null,
+    async () => {
+      const arr = await api.us.stocks(usTickers) as any[];
+      const map: Record<string, number> = {};
+      for (const s of (arr ?? [])) { const t = s["심볼"] ?? s.ticker ?? ""; if (t) map[t] = s["현재가($)"] ?? 0; }
+      return map;
+    },
+    { revalidateOnFocus: false }
+  );
+  const priceOf = (p: any): number => (p.market === "kr" ? krPrices?.[p.ticker] : usPrices?.[p.ticker]) ?? 0;
+  const fmtPrice = (isKr: boolean, v: number) => isKr ? `₩${Math.round(v).toLocaleString()}` : `$${v.toFixed(2)}`;
+
   return (
     <div className="flex flex-col gap-4">
       <RegimeBanner />
@@ -513,6 +542,21 @@ function ConfluenceTab({ onSelect }: { onSelect: (s: StockInfo) => void }) {
                     }}>{e}</span>
                   ))}
                 </div>
+                {/* 교차검증: 추천 당시가 → 현재가 변동률 (재진입 판단용) */}
+                {(() => {
+                  const cur = priceOf(p);
+                  const rec = Number(p.rec_price) || 0;
+                  if (!p.first_date && rec <= 0 && cur <= 0) return null;
+                  const chg = rec > 0 && cur > 0 ? (cur - rec) / rec * 100 : null;
+                  return (
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: "3px 10px", alignItems: "center", fontSize: "0.66rem", color: "var(--color-muted)", borderTop: "1px solid var(--color-border)", paddingTop: "6px" }}>
+                      {p.first_date && <span>📅 최초 포착 <b style={{ color: "var(--color-text)" }}>{p.first_date}</b></span>}
+                      {rec > 0 && <span>당시가 <b style={{ color: "var(--color-text)" }}>{fmtPrice(isKr, rec)}</b></span>}
+                      {cur > 0 && <span>현재가 <b style={{ color: "var(--color-text)" }}>{fmtPrice(isKr, cur)}</b></span>}
+                      {chg != null && <span style={{ fontWeight: 700, color: chg >= 0 ? "#ff4b4b" : "#3b82f6" }}>{chg >= 0 ? "▲" : "▼"} {Math.abs(chg).toFixed(2)}%</span>}
+                    </div>
+                  );
+                })()}
                 {p.detail && Object.keys(p.detail).length > 0 && (
                   <div style={{ fontSize: "0.64rem", color: "var(--color-muted)", lineHeight: 1.5, borderTop: "1px solid var(--color-border)", paddingTop: "6px" }}>
                     {Object.entries(p.detail).map(([k, v]: [string, any]) => v ? (

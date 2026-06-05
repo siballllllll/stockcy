@@ -3485,35 +3485,52 @@ def load_confluence_picks(days: int = 5, min_engines: int = 2) -> list:
             return "kr" if str(given).lower() in ("kr", "국내") else "us"
         return "kr" if str(t).isdigit() else "us"
 
-    agg = defaultdict(lambda: {"name": None, "market": None, "engines": set(), "detail": {}})
+    # dates: 모든 엔진의 포착 시각(최초 포착일 산출용), priced: (날짜, 당시가) — 실제 가격이 있는 엔진만
+    agg = defaultdict(lambda: {"name": None, "market": None, "engines": set(), "detail": {}, "dates": [], "priced": []})
+
+    def _add_date(a, d):
+        d = str(d or "").strip()
+        if d:
+            a["dates"].append(d[:10])
+
+    def _add_priced(a, d, p):
+        try:
+            p = float(p)
+        except (TypeError, ValueError):
+            return
+        if p > 0:
+            a["priced"].append((str(d or "")[:10], p))
 
     try:
         conn = get_db_conn()
         cur = conn.cursor()
 
-        # 1. 시나리오
-        cur.execute("SELECT ticker, name, market, scenario_keyword FROM scenario_stocks WHERE captured_at >= ?", (cutoff,))
+        # 1. 시나리오 (당시가: captured_price)
+        cur.execute("SELECT ticker, name, market, scenario_keyword, captured_at, captured_price FROM scenario_stocks WHERE captured_at >= ?", (cutoff,))
         for r in cur.fetchall():
             r = dict(r); k = _norm(r["ticker"]); a = agg[k]
             a["name"] = a["name"] or r["name"]; a["market"] = a["market"] or _mkt(k, r.get("market"))
             a["engines"].add("시나리오"); a["detail"].setdefault("시나리오", r.get("scenario_keyword") or "")
+            _add_date(a, r.get("captured_at")); _add_priced(a, r.get("captured_at"), r.get("captured_price"))
 
-        # 2. 패턴 스크리너
-        cur.execute("SELECT ticker, name, match_score, signal FROM screener_picks WHERE picked_date >= ?", (cutoff,))
+        # 2. 패턴 스크리너 (당시가 없음)
+        cur.execute("SELECT ticker, name, match_score, signal, picked_date FROM screener_picks WHERE picked_date >= ?", (cutoff,))
         for r in cur.fetchall():
             r = dict(r); k = _norm(r["ticker"]); a = agg[k]
             a["name"] = a["name"] or r["name"]; a["market"] = a["market"] or _mkt(k)
             a["engines"].add("패턴스크리너"); a["detail"].setdefault("패턴스크리너", f"매칭 {r.get('match_score','')}점 {r.get('signal','') or ''}".strip())
+            _add_date(a, r.get("picked_date"))
 
-        # 3. AI 에이전트 (BUY 판단)
-        cur.execute("SELECT ticker, name, market, confidence FROM agent_decisions WHERE action='BUY' AND decided_at >= ?", (cutoff,))
+        # 3. AI 에이전트 (BUY 판단, 당시가: entry_price)
+        cur.execute("SELECT ticker, name, market, confidence, decided_at, entry_price FROM agent_decisions WHERE action='BUY' AND decided_at >= ?", (cutoff,))
         for r in cur.fetchall():
             r = dict(r); k = _norm(r["ticker"]); a = agg[k]
             a["name"] = a["name"] or r["name"]; a["market"] = a["market"] or _mkt(k, r.get("market"))
             a["engines"].add("에이전트"); a["detail"].setdefault("에이전트", f"신뢰도 {r.get('confidence','')}%")
+            _add_date(a, r.get("decided_at")); _add_priced(a, r.get("decided_at"), r.get("entry_price"))
 
-        # 4. AI 추천 (단타발굴/종목분석) — 비추천 등급 제외
-        cur.execute("SELECT ticker, name, rec_type, rating FROM ai_recommendations WHERE logged_time >= ?", (cutoff,))
+        # 4. AI 추천 (단타발굴/종목분석) — 비추천 등급 제외 (당시가 없음: buy_target은 목표가)
+        cur.execute("SELECT ticker, name, rec_type, rating, logged_time FROM ai_recommendations WHERE logged_time >= ?", (cutoff,))
         for r in cur.fetchall():
             r = dict(r); rating = str(r.get("rating") or "")
             if "비추천" in rating:
@@ -3521,6 +3538,7 @@ def load_confluence_picks(days: int = 5, min_engines: int = 2) -> list:
             k = _norm(r["ticker"]); a = agg[k]
             a["name"] = a["name"] or r["name"]; a["market"] = a["market"] or _mkt(k)
             a["engines"].add("AI추천"); a["detail"].setdefault("AI추천", f"{r.get('rec_type','') or ''} {rating}".strip())
+            _add_date(a, r.get("logged_time"))
 
         conn.close()
     except Exception as e:
@@ -3530,6 +3548,9 @@ def load_confluence_picks(days: int = 5, min_engines: int = 2) -> list:
     out = []
     for k, a in agg.items():
         if len(a["engines"]) >= min_engines:
+            first_date = min(a["dates"]) if a["dates"] else None
+            # 당시가: 가장 이른 날짜에 가격이 기록된 엔진의 값 (없으면 None)
+            rec_price = min(a["priced"], key=lambda x: x[0])[1] if a["priced"] else None
             out.append({
                 "ticker": k,
                 "name": a["name"] or k,
@@ -3537,6 +3558,8 @@ def load_confluence_picks(days: int = 5, min_engines: int = 2) -> list:
                 "score": len(a["engines"]),
                 "engines": sorted(a["engines"]),
                 "detail": a["detail"],
+                "first_date": first_date,
+                "rec_price": rec_price,
             })
     out.sort(key=lambda x: (-x["score"], x["name"] or ""))
     return out
