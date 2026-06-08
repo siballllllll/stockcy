@@ -5242,7 +5242,7 @@ def load_scenario_tracking_list(limit: int = 300) -> list:
     cur = conn.cursor()
     try:
         cur.execute(
-            """SELECT ticker, name, market, scenario_keyword, role, horizon,
+            """SELECT ticker, name, market, scenario_keyword, scenario_title, role, horizon,
                       captured_at, captured_price, d1_return, d3_return, d7_return
                FROM scenario_stocks
                ORDER BY captured_at DESC
