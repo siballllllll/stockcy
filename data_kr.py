@@ -304,6 +304,46 @@ def _format_market_cap(amt_in_eok):
     return f"{amt:,}억"
 
 
+@st.cache_data(ttl=86400)
+def _get_kr_fundamental_map() -> dict:
+    """전종목 PER/PBR 맵 (pykrx 펀더멘털, 24h 캐시) — KIS가 per/pbr을 비워 줄 때 보강용.
+    KRX 직접 접근이 막힌 환경에서는 빈 맵을 반환(보강 없이 KIS/yfinance 값 그대로 사용)."""
+    out: dict = {}
+    try:
+        from pykrx import stock as _pk
+        import datetime as _dt
+        for back in range(0, 7):   # 최근 거래일 탐색(주말·휴일 대비)
+            day = (_dt.date.today() - _dt.timedelta(days=back)).strftime("%Y%m%d")
+            try:
+                df = _pk.get_market_fundamental(day, market="ALL")
+            except Exception:
+                df = None
+            if df is not None and len(df):
+                for code, row in df.iterrows():
+                    try:
+                        out[str(code).zfill(6)] = {
+                            "per": float(row.get("PER", 0) or 0),
+                            "pbr": float(row.get("PBR", 0) or 0),
+                        }
+                    except Exception:
+                        continue
+                break
+    except Exception:
+        pass
+    return out
+
+
+def _kr_val_missing(x) -> bool:
+    """KIS per/pbr 값이 사실상 비어있는지 판정 ('', '-', '0', '0.00', 0 등)."""
+    s = str(x).strip().replace(",", "")
+    if s in ("", "-"):
+        return True
+    try:
+        return float(s) == 0.0
+    except Exception:
+        return False
+
+
 @st.cache_data(ttl=60)
 def get_kr_stock_price(stock_code: str):
     """국내 주식 현재가 및 기본 정보 조회 (KIS API → yfinance 폴백, 1분 캐싱)"""
@@ -317,6 +357,15 @@ def get_kr_stock_price(stock_code: str):
     )
     if data:
         o = data["output"]
+        # PER/PBR: KIS가 비워 주면(적자·일부 종목) pykrx 펀더멘털로 보강. ETF/적자는 원래 없음.
+        per_v, pbr_v = o.get("per", "-"), o.get("pbr", "-")
+        if _kr_val_missing(per_v) or _kr_val_missing(pbr_v):
+            fm = _get_kr_fundamental_map().get(stock_code)
+            if fm:
+                if _kr_val_missing(per_v) and fm.get("per"):
+                    per_v = round(fm["per"], 2)
+                if _kr_val_missing(pbr_v) and fm.get("pbr"):
+                    pbr_v = round(fm["pbr"], 2)
         return {
             "code": stock_code,
             "name": o.get("hts_kor_isnm") or stock_code,
@@ -331,8 +380,8 @@ def get_kr_stock_price(stock_code: str):
             "low": int(o.get("stck_lwpr", 0) or 0),
             "w52_high": int(o.get("w52_hgpr", 0) or 0),
             "w52_low": int(o.get("w52_lwpr", 0) or 0),
-            "per": o.get("per", "-"),
-            "pbr": o.get("pbr", "-"),
+            "per": per_v,
+            "pbr": pbr_v,
             "market_cap": _format_market_cap(o.get("hts_avls", "")),
             "status_code": o.get("iscd_stat_cls_code", "55"),
             "mrkt_warn": o.get("mrkt_warn_cls_code", "00"),
