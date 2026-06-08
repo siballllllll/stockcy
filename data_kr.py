@@ -344,6 +344,59 @@ def _kr_val_missing(x) -> bool:
         return False
 
 
+@st.cache_data(ttl=21600)
+def _get_kr_per_pbr_naver(code: str) -> dict:
+    """네이버 금융에서 단일 종목 PER/PBR 스크래핑 (KRX 직접 접근이 막힌 환경의 보강책, 6h 캐시).
+    1차: 종목 메인 HTML의 안정적 태그(id="_per"/"_pbr"), 2차: m.stock 통합 JSON API. 실패 시 빈 dict.
+    적자기업은 네이버도 PER을 'N/A'로 주므로 그대로 비워둔다."""
+    import re as _re
+    code = str(code).strip().zfill(6)
+    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0 Safari/537.36"}
+
+    def _num(v):
+        s = _re.sub(r"[^0-9.\-]", "", str(v or ""))
+        try:
+            return float(s) if s not in ("", "-", ".", "-.") else None
+        except Exception:
+            return None
+
+    # 1차: 데스크톱 종목 메인 — <em id="_per">11.49</em> / <em id="_pbr">1.08</em> (수년째 안정적)
+    try:
+        r = requests.get(f"https://finance.naver.com/item/main.naver?code={code}", headers=headers, timeout=4)
+        if r.ok:
+            html = r.text
+            out = {}
+            mp = _re.search(r'id="_per"[^>]*>\s*([\-\d.,]+)', html)
+            mb = _re.search(r'id="_pbr"[^>]*>\s*([\-\d.,]+)', html)
+            if mp:
+                p = _num(mp.group(1));  out["per"] = round(p, 2) if p else None
+            if mb:
+                b = _num(mb.group(1));  out["pbr"] = round(b, 2) if b else None
+            if out.get("per") or out.get("pbr"):
+                return out
+    except Exception:
+        pass
+
+    # 2차: 모바일 통합 JSON API (totalInfos 안에 PER/PBR)
+    try:
+        r = requests.get(f"https://m.stock.naver.com/api/stock/{code}/integration", headers=headers, timeout=4)
+        if r.ok:
+            out = {}
+            for item in (r.json().get("totalInfos") or []):
+                key = str(item.get("key", "")).lower()
+                lab = str(item.get("label", "")).upper()
+                if key == "per" or lab == "PER":
+                    p = _num(item.get("value"));  out["per"] = round(p, 2) if p else out.get("per")
+                elif key == "pbr" or lab == "PBR":
+                    b = _num(item.get("value"));  out["pbr"] = round(b, 2) if b else out.get("pbr")
+            if out.get("per") or out.get("pbr"):
+                return out
+    except Exception:
+        pass
+
+    return {}
+
+
 @st.cache_data(ttl=60)
 def get_kr_stock_price(stock_code: str):
     """국내 주식 현재가 및 기본 정보 조회 (KIS API → yfinance 폴백, 1분 캐싱)"""
@@ -357,10 +410,17 @@ def get_kr_stock_price(stock_code: str):
     )
     if data:
         o = data["output"]
-        # PER/PBR: KIS가 비워 주면(적자·일부 종목) pykrx 펀더멘털로 보강. ETF/적자는 원래 없음.
+        # PER/PBR: KIS가 비워 주면(적자·일부 종목) 네이버 → pykrx 순으로 보강. ETF/적자는 원래 없음.
         per_v, pbr_v = o.get("per", "-"), o.get("pbr", "-")
         if _kr_val_missing(per_v) or _kr_val_missing(pbr_v):
-            fm = _get_kr_fundamental_map().get(stock_code)
+            nv = _get_kr_per_pbr_naver(stock_code)   # 1차: 네이버 스크래핑(KRX 차단 환경에서도 동작)
+            if nv:
+                if _kr_val_missing(per_v) and nv.get("per"):
+                    per_v = nv["per"]
+                if _kr_val_missing(pbr_v) and nv.get("pbr"):
+                    pbr_v = nv["pbr"]
+        if _kr_val_missing(per_v) or _kr_val_missing(pbr_v):
+            fm = _get_kr_fundamental_map().get(stock_code)   # 2차: pykrx(가능한 환경에서만)
             if fm:
                 if _kr_val_missing(per_v) and fm.get("per"):
                     per_v = round(fm["per"], 2)
