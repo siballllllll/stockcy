@@ -526,7 +526,7 @@ function ConfluenceTab({ onSelect }: { onSelect: (s: StockInfo) => void }) {
                 <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
                   <span style={{ fontSize: "1.1rem", fontWeight: 900, color: "var(--color-accent)", minWidth: "26px" }}>×{p.score}</span>
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div title={p.name} style={{ fontWeight: 800, fontSize: "0.92rem", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", cursor: "default" }}>{p.name}</div>
+                    <div title={p.name} style={{ fontWeight: 800, fontSize: "0.92rem", display: "-webkit-box", WebkitBoxOrient: "vertical", WebkitLineClamp: 2, overflow: "hidden", wordBreak: "keep-all", lineHeight: 1.25, cursor: "default" }}>{p.name}</div>
                     <div style={{ fontSize: "0.68rem", color: "var(--color-muted)" }}>{p.ticker} · {isKr ? "🇰🇷 국내" : "🇺🇸 미국"}</div>
                   </div>
                 </div>
@@ -738,7 +738,7 @@ export default function Dashboard() {
                           <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
                             <span style={{ width: "22px", height: "22px", borderRadius: "50%", background: rankColor, color: "white", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "0.72rem", fontWeight: 800, flexShrink: 0 }}>{i + 1}</span>
                             <div style={{ flex: 1, minWidth: 0 }}>
-                              <div title={p.name} style={{ fontWeight: 700, fontSize: "0.95rem", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", cursor: "default" }}>{p.name}</div>
+                              <div title={p.name} style={{ fontWeight: 700, fontSize: "0.95rem", display: "-webkit-box", WebkitBoxOrient: "vertical", WebkitLineClamp: 2, overflow: "hidden", wordBreak: "keep-all", lineHeight: 1.25, cursor: "default" }}>{p.name}</div>
                               <div style={{ fontSize: "0.72rem", color: "var(--color-muted)" }}>{p.code}</div>
                             </div>
                             <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: "2px", flexShrink: 0 }}>
