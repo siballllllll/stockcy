@@ -1371,6 +1371,11 @@ def analyze_sell_timing(ticker: str, name: str, avg_price: float, current_price:
 
 구글 검색으로 {name}({ticker})의 최신 뉴스, 차트 흐름, 수급 동향, 거시경제 변수를 파악하세요.
 위 투자자가 보유 중인 포지션 기준으로, 지금 매도하는 것이 좋은지, 기다려야 하는지, 타이밍을 어떻게 잡아야 하는지 분석하세요.
+또한 **추가 매수(물타기)로 평단가를 낮추는 전략이 타당한지**, 타당하다면 어느 가격에·어느 평단까지 낮추고 그 평단 기준으로 언제 매도하면 좋은지도 함께 제시하세요.
+
+[추가 매수(물타기) 판단 원칙 — 매우 중요]
+- 추가 매수는 (1) 상승 논리(펀더멘털·수급·기술적 지지)가 여전히 유효하고 (2) 명확한 지지선 부근일 때만 "추천" 또는 "조건부"로 제시하세요.
+- 실적 악화·추세 붕괴·악재 등으로 매수 논리가 훼손됐다면 "물타기 금지"로 명확히 말하고 add_buy_price는 빈 문자열로 두세요. 단순히 "내렸으니 더 사라"는 무지성 물타기는 절대 금지입니다.
 
 반드시 아래 JSON 형식으로만 응답하세요 (마크다운 백틱 없이):
 {{
@@ -1378,12 +1383,42 @@ def analyze_sell_timing(ticker: str, name: str, avg_price: float, current_price:
   "timing": "구체적인 매도 타이밍 — 오늘 장 마감 전 / 다음 저항선 도달 시 / 실적 발표 전 등 구체 조건",
   "reason": "판단 근거 — 현재 수익률 상황, 차트 기술적 위치, 최신 뉴스·이슈, 수급 흐름을 종합 (마크다운 불릿 3~4줄)",
   "target_exit": "권장 매도 목표가 또는 청산 트리거 조건 (구체적 가격 또는 이벤트)",
-  "risk": "보유 지속 시 주의해야 할 핵심 리스크 1~2문장"
+  "risk": "보유 지속 시 주의해야 할 핵심 리스크 1~2문장",
+  "add_buy_verdict": "추가매수 추천 | 조건부 추가매수 | 물타기 금지",
+  "add_buy_price": "추가 매수 권장 가격 — 숫자만(단위·기호 없이). 지지선 부근의 구체 가격. 금지면 빈 문자열",
+  "add_buy_reason": "추가매수(또는 금지) 판단 근거 — 지지선·펀더멘털·수급 근거 1~2문장",
+  "target_avg_price": "추가 매수로 도달 권장하는 목표 평단가 (구체 가격). 금지면 빈 문자열",
+  "post_avg_exit": "평단을 낮춘 뒤 권장 매도 타이밍·목표가 — 새 평단 기준 본전/수익 구간을 어디서 어떻게 청산할지 (구체 조건)"
 }}"""
 
     try:
         response = _call_gemini(prompt, use_search=True, temperature=0.4)
-        return _parse_json_response(response)
+        res = _parse_json_response(response)
+        # 평단 계산은 AI에 맡기지 않고 Python으로 정확히: 추가매수 비율별 평단·손익분기 표 생성
+        if isinstance(res, dict) and "error" not in res:
+            import re as _re
+            def _num(x):
+                s = _re.sub(r"[^0-9.\-]", "", str(x or ""))
+                try:
+                    return float(s) if s not in ("", "-", ".", "-.") else None
+                except Exception:
+                    return None
+            add_p = _num(res.get("add_buy_price"))
+            allow = "금지" not in str(res.get("add_buy_verdict", ""))
+            if add_p and add_p > 0 and avg_price > 0 and allow:
+                table = []
+                for label, r in [("현재 수량의 +50%", 0.5), ("현재 수량의 +100%(동일)", 1.0)]:
+                    new_avg = (avg_price + add_p * r) / (1 + r)
+                    be = (new_avg - current_price) / current_price * 100 if current_price > 0 else None
+                    table.append({
+                        "label": label,
+                        "add_ratio": r,
+                        "new_avg": int(round(new_avg)) if market == "KR" else round(new_avg, 2),
+                        "breakeven_pct": round(be, 2) if be is not None else None,  # 현재가에서 본전까지 필요한 상승률
+                    })
+                res["avg_down_table"] = table
+                res["avg_down_note"] = "추가매수 비율별 도달 평단가와, 그 평단 본전까지 현재가에서 필요한 상승률(%)"
+        return res
     except Exception as e:
         if "QUOTA" in str(e) or "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
             return {"error": "API 할당량 초과 — 잠시 후 다시 시도하세요."}

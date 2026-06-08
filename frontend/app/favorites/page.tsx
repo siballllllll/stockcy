@@ -1187,7 +1187,8 @@ function PortfolioTab({ gapBulkMap }: { gapBulkMap: Record<string, any> }) {
             if (parsed.error) return (
               <StatusBox type="danger">{parsed.error}</StatusBox>
             );
-            const hasAnyField = parsed.verdict || parsed.timing || parsed.target_exit || parsed.reason || parsed.risk;
+            const hasAnyField = parsed.verdict || parsed.timing || parsed.target_exit || parsed.reason || parsed.risk || parsed.add_buy_verdict;
+            const cur = sellTarget?.isUs ? "$" : "₩";
             if (!hasAnyField) return (
               <MarkdownLite text={sellResult} style={{ fontSize: "0.8rem", color: "var(--color-subtle)", wordBreak: "break-word", background: "rgba(0,0,0,0.2)", padding: "12px", borderRadius: "6px" }} />
             );
@@ -1226,6 +1227,39 @@ function PortfolioTab({ gapBulkMap }: { gapBulkMap: Record<string, any> }) {
                     <div style={{ lineHeight: 1.65, color: "var(--color-subtle)" }}>{parsed.risk}</div>
                   </div>
                 )}
+                {(parsed.add_buy_verdict || (Array.isArray(parsed.avg_down_table) && parsed.avg_down_table.length > 0)) && (() => {
+                  const banned = String(parsed.add_buy_verdict || "").includes("금지");
+                  return (
+                    <div style={{ display: "flex", flexDirection: "column", gap: "6px", marginTop: "2px", padding: "10px 12px", background: banned ? "rgba(248,113,113,0.07)" : "rgba(56,189,248,0.08)", border: `1px solid ${banned ? "rgba(248,113,113,0.3)" : "rgba(56,189,248,0.3)"}`, borderRadius: "8px" }}>
+                      <div style={{ fontWeight: 700, fontSize: "0.86rem", color: banned ? "#f87171" : "#38bdf8" }}>💧 추가 매수(물타기) 전략</div>
+                      {parsed.add_buy_verdict && (
+                        <div style={{ fontWeight: 700, color: banned ? "#f87171" : "var(--color-text)" }}>판단: {parsed.add_buy_verdict}</div>
+                      )}
+                      {parsed.add_buy_reason && (
+                        <div style={{ fontSize: "0.8rem", color: "var(--color-subtle)", lineHeight: 1.6 }}>{parsed.add_buy_reason}</div>
+                      )}
+                      {!banned && parsed.add_buy_price && (
+                        <div style={{ fontSize: "0.82rem", color: "var(--color-text)" }}>추가매수 권장가 <b>{cur}{Number(String(parsed.add_buy_price).replace(/[^0-9.]/g, "")).toLocaleString()}</b></div>
+                      )}
+                      {!banned && Array.isArray(parsed.avg_down_table) && parsed.avg_down_table.length > 0 && (
+                        <div style={{ display: "flex", flexDirection: "column", gap: "3px", fontSize: "0.8rem" }}>
+                          {parsed.avg_down_table.map((row: any, i: number) => (
+                            <div key={i} style={{ display: "flex", justifyContent: "space-between", gap: "8px", background: "rgba(0,0,0,0.18)", padding: "5px 8px", borderRadius: "5px" }}>
+                              <span style={{ color: "var(--color-muted)" }}>{row.label}</span>
+                              <span style={{ color: "var(--color-text)" }}>평단 <b>{cur}{Number(row.new_avg).toLocaleString()}</b>{row.breakeven_pct != null && <> · 본전 <b style={{ color: "#fbbf24" }}>+{row.breakeven_pct}%</b></>}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      {!banned && parsed.target_avg_price && (
+                        <div style={{ fontSize: "0.82rem", color: "var(--color-text)" }}>🎯 목표 평단가 <b>{parsed.target_avg_price}</b></div>
+                      )}
+                      {!banned && parsed.post_avg_exit && (
+                        <div style={{ fontSize: "0.8rem", color: "var(--color-subtle)", lineHeight: 1.6 }}>📤 평단 인하 후 매도 타이밍: {parsed.post_avg_exit}</div>
+                      )}
+                    </div>
+                  );
+                })()}
               </div>
             );
           })()}
