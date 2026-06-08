@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useState, useCallback } from "react";
+import { useRouter } from "next/navigation";
 
 const BASE = "/backend";
 
@@ -16,11 +17,19 @@ function fmt(n: number) {
   return `${n.toLocaleString()}`;
 }
 
-function FlowRow({ x, inflow }: { x: FlowItem; inflow: boolean }) {
+function FlowRow({ x, inflow, onPick }: { x: FlowItem; inflow: boolean; onPick?: (code: string) => void }) {
   const strong = x.구분 === "동반매수" || x.구분 === "동반매도";
   const color = inflow ? "#f87171" : "#60a5fa";
+  const baseBg = strong ? (inflow ? "rgba(239,68,68,0.07)" : "rgba(96,165,250,0.07)") : "rgba(255,255,255,0.02)";
+  const clickable = !!(onPick && x.종목코드);
   return (
-    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "8px", padding: "5px 7px", borderRadius: "5px", background: strong ? (inflow ? "rgba(239,68,68,0.07)" : "rgba(96,165,250,0.07)") : "rgba(255,255,255,0.02)", fontSize: "0.74rem" }}>
+    <div
+      onClick={clickable ? () => onPick!(String(x.종목코드)) : undefined}
+      title={clickable ? `${x.종목명} 종목검색으로 이동` : undefined}
+      style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "8px", padding: "5px 7px", borderRadius: "5px", background: baseBg, fontSize: "0.74rem", cursor: clickable ? "pointer" : "default", transition: "background 0.12s" }}
+      onMouseEnter={clickable ? (e) => { e.currentTarget.style.background = inflow ? "rgba(239,68,68,0.15)" : "rgba(96,165,250,0.15)"; } : undefined}
+      onMouseLeave={clickable ? (e) => { e.currentTarget.style.background = baseBg; } : undefined}
+    >
       <div style={{ display: "flex", alignItems: "center", gap: "5px", overflow: "hidden" }}>
         <span style={{ fontWeight: 700, color: "var(--color-text)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{x.종목명}</span>
         {strong && <span style={{ fontSize: "0.58rem", padding: "0 4px", borderRadius: "3px", background: color, color: "#0e1117", fontWeight: 800, whiteSpace: "nowrap" }}>{inflow ? "동반매수" : "동반매도"}</span>}
@@ -41,6 +50,11 @@ export function SupplyPowerFlow() {
   const [sectorRot, setSectorRot] = useState<any>(null);
   const [mkt, setMkt] = useState<"J" | "Q">("J");
   const [loading, setLoading] = useState(true);
+  const router = useRouter();
+  // 순매수/순매도 종목 클릭 → 해당 종목 검색 페이지로 이동 (코스피·코스닥 모두 KR)
+  const goSearch = useCallback((code: string) => {
+    if (code) router.push(`/search?q=${encodeURIComponent(code)}&market=KR`);
+  }, [router]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -89,13 +103,13 @@ export function SupplyPowerFlow() {
             <div>
               <div style={{ fontSize: "0.72rem", fontWeight: 800, color: "#f87171", marginBottom: "4px" }}>🟢 세력 유입 TOP (순매수)</div>
               <div style={{ display: "flex", flexDirection: "column", gap: "3px" }}>
-                {(m.inflow || []).slice(0, 8).map((x: FlowItem, i: number) => <FlowRow key={i} x={x} inflow />)}
+                {(m.inflow || []).slice(0, 8).map((x: FlowItem, i: number) => <FlowRow key={i} x={x} inflow onPick={goSearch} />)}
               </div>
             </div>
             <div>
               <div style={{ fontSize: "0.72rem", fontWeight: 800, color: "#60a5fa", marginBottom: "4px" }}>🔴 세력 이탈 TOP (순매도)</div>
               <div style={{ display: "flex", flexDirection: "column", gap: "3px" }}>
-                {(m.outflow || []).slice(0, 8).map((x: FlowItem, i: number) => <FlowRow key={i} x={x} inflow={false} />)}
+                {(m.outflow || []).slice(0, 8).map((x: FlowItem, i: number) => <FlowRow key={i} x={x} inflow={false} onPick={goSearch} />)}
               </div>
             </div>
           </div>
