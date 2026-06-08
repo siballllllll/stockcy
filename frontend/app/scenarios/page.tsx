@@ -7,6 +7,7 @@ import dynamic from "next/dynamic";
 import { api } from "@/lib/api";
 import { useAnalysisReady } from "@/lib/analysis-ready-context";
 import { useAiTask } from "@/contexts/AiTaskContext";
+import { useSSE } from "@/hooks/useSSE";
 import { MarkdownLite } from "@/components/ui/MarkdownLite";
 import { SupplyPowerFlow } from "@/components/SupplyPowerFlow";
 import { SectorTrend } from "@/components/SectorTrend";
@@ -17,29 +18,8 @@ import { useIsMobile } from "@/lib/use-is-mobile";
 // Next.js 프록시 우회 — 프록시가 큰 done JSON을 버퍼링해서 결과가 안 뜨는 문제 방지
 const BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8000";
 
-// ── 시나리오 상세 분석 localStorage 캐시 (새로고침·페이지 이동 후 복원, 24시간 유효) ──
-const _DETAIL_CACHE_PREFIX = "stockcy_scenario_detail_";
-const _DETAIL_CACHE_TTL = 24 * 60 * 60 * 1000;
-function _detailKey(issueTitle: string, scenarioTitle: string) {
-  // 이슈+시나리오 제목으로 안정적 키 생성 (공백 정규화)
-  return _DETAIL_CACHE_PREFIX + `${issueTitle}__${scenarioTitle}`.replace(/\s+/g, " ").trim();
-}
-function _saveDetailCache(issueTitle: string, scenarioTitle: string, result: any) {
-  if (typeof window === "undefined" || !result || result.error) return;
-  try {
-    localStorage.setItem(_detailKey(issueTitle, scenarioTitle), JSON.stringify({ result, ts: Date.now() }));
-  } catch {}
-}
-function _loadDetailCache(issueTitle: string, scenarioTitle: string): any | null {
-  if (typeof window === "undefined") return null;
-  try {
-    const raw = localStorage.getItem(_detailKey(issueTitle, scenarioTitle));
-    if (!raw) return null;
-    const { result, ts } = JSON.parse(raw);
-    if (Date.now() - ts > _DETAIL_CACHE_TTL) { localStorage.removeItem(_detailKey(issueTitle, scenarioTitle)); return null; }
-    return result;
-  } catch { return null; }
-}
+// 시나리오 상세분석은 글로벌 AI 태스크 시스템(useSSE+globalId)으로 실행 →
+// 페이지 이동해도 백그라운드 유지 + 완료 시 상단 벨 알림 + 새로고침 복원(컨텍스트가 자체 보관).
 
 // ── 타입 정의 ──────────────────────────────────────────────────────────────────
 interface StockEntry {
@@ -543,17 +523,24 @@ function DetailPanel({ detail }: { detail: DetailResult }) {
 // ── 시나리오 콘텐츠 ────────────────────────────────────────────────────────────
 function ScenarioContent({ scenario, issueTitle }: { scenario: Scenario; issueTitle: string }) {
   const router = useRouter();
-  const [detailStatus, setDetailStatus] = useState<"idle" | "loading" | "done" | "error">("idle");
-  const [detailMsg, setDetailMsg] = useState("");
-  const [detailResult, setDetailResult] = useState<DetailResult | null>(null);
   const [showDetail, setShowDetail] = useState(false);
+  const [detailPending, setDetailPending] = useState(false);   // 5초 취소 유예 중 (아직 AI 호출 전)
+  const [detailCountdown, setDetailCountdown] = useState(0);
+  const detailGraceTimer = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // 새로고침·페이지 이동 후 캐시된 상세 분석 복원 (접힌 상태로 두고 '펼치기'로 다시 볼 수 있게)
-  useEffect(() => {
-    const cached = _loadDetailCache(issueTitle, scenario.title);
-    if (cached) { setDetailResult(cached); setDetailStatus("done"); }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [issueTitle, scenario.title]);
+  // 상세분석을 글로벌 태스크로 실행 → 다른 화면 이동해도 유지 + 완료 시 상단 벨 알림 + 새로고침 복원
+  const _detailId = `scenario-detail-${issueTitle}::${scenario.title}`.replace(/\s+/g, " ").trim().slice(0, 120);
+  const detailTask = useSSE<DetailResult>("/api/ai/scenarios/detail", {
+    method: "POST",
+    globalId: _detailId,
+    globalTitle: `${scenario.title} 상세분석`,
+  });
+  const detailStatus = detailTask.status;   // idle | running | done | error
+  const detailResult = detailTask.result;
+  const detailMsg = detailTask.message;
+
+  // unmount 시 유예 타이머 정리
+  useEffect(() => () => { if (detailGraceTimer.current) clearInterval(detailGraceTimer.current); }, []);
 
   const krRising   = scenario.rising_stocks?.filter(s => isKrTicker(s.ticker))  ?? [];
   const usRising   = scenario.rising_stocks?.filter(s => !isKrTicker(s.ticker)) ?? [];
@@ -608,30 +595,38 @@ function ScenarioContent({ scenario, issueTitle }: { scenario: Scenario; issueTi
 
   const priceMap: Record<string, PriceEntry> = { ...(krPrices ?? {}), ...(usPrices ?? {}) };
 
-  const fetchDetail = async () => {
-    setDetailStatus("loading");
-    setDetailMsg("상세 분석 중...");
+  // 상세분석 클릭 → 5초 취소 유예 후 AI 호출 시작. 유예 중 취소하면 호출 안 함 = 토큰 0.
+  const startDetailWithGrace = () => {
     setShowDetail(true);
-    try {
-      const result = await readSSE(
-        "/api/ai/scenarios/detail",
-        "POST",
-        {
-          issue_title: issueTitle,
-          scenario_title: scenario.title,
-          economic_analysis: scenario.economic_analysis,
-          rising: scenario.rising_stocks ?? [],
-          falling: scenario.falling_stocks ?? [],
-        },
-        (msg) => setDetailMsg(msg)
-      );
-      setDetailResult(result);
-      setDetailStatus("done");
-      _saveDetailCache(issueTitle, scenario.title, result);
-    } catch (e) {
-      setDetailMsg(String(e));
-      setDetailStatus("error");
-    }
+    if (detailStatus === "running" || detailPending) return;
+    setDetailPending(true);
+    setDetailCountdown(5);
+    if (detailGraceTimer.current) clearInterval(detailGraceTimer.current);
+    detailGraceTimer.current = setInterval(() => {
+      setDetailCountdown((c) => {
+        if (c <= 1) {
+          if (detailGraceTimer.current) { clearInterval(detailGraceTimer.current); detailGraceTimer.current = null; }
+          setDetailPending(false);
+          // 여기서 처음으로 실제 AI 요청 시작 (글로벌 태스크 → 이동해도 유지 + 완료 벨 알림)
+          detailTask.start({
+            issue_title: issueTitle,
+            scenario_title: scenario.title,
+            economic_analysis: scenario.economic_analysis,
+            rising: scenario.rising_stocks ?? [],
+            falling: scenario.falling_stocks ?? [],
+          });
+          return 0;
+        }
+        return c - 1;
+      });
+    }, 1000);
+  };
+
+  // 5초 유예 중 취소 → 타이머만 정리, AI 호출 시작 안 함(토큰 미사용)
+  const cancelDetailGrace = () => {
+    if (detailGraceTimer.current) { clearInterval(detailGraceTimer.current); detailGraceTimer.current = null; }
+    setDetailPending(false);
+    setDetailCountdown(0);
   };
 
   const navigate = (ticker: string) => {
@@ -758,18 +753,32 @@ function ScenarioContent({ scenario, issueTitle }: { scenario: Scenario; issueTi
 
       {/* 상세 분석 버튼 */}
       <div style={{ borderTop: "1px solid var(--color-border)", paddingTop: "1rem" }}>
-        {detailStatus === "idle" && (
+        {detailStatus === "idle" && !detailPending && (
           <button
             className="stockcy-btn stockcy-btn-primary"
             style={{ width: "100%", padding: "10px", fontWeight: 700 }}
-            onClick={fetchDetail}
+            onClick={startDetailWithGrace}
           >
-            상세 분석보기
+            상세 분석보기 <span style={{ fontSize: "0.72rem", opacity: 0.85 }}>(AI 토큰 사용)</span>
           </button>
         )}
-        {detailStatus === "loading" && (
+        {detailPending && (
+          <div style={{ display: "flex", alignItems: "center", gap: "10px", justifyContent: "space-between", background: "rgba(251,191,36,0.1)", border: "1px solid rgba(251,191,36,0.4)", borderRadius: "8px", padding: "8px 12px" }}>
+            <span style={{ fontSize: "0.82rem", color: "var(--color-text)" }}>
+              ⏳ <b>{detailCountdown}초</b> 후 분석 시작 — 지금 취소하면 <b>토큰이 사용되지 않습니다</b>
+            </span>
+            <button
+              className="stockcy-btn stockcy-btn-secondary"
+              style={{ padding: "5px 12px", fontWeight: 700, flexShrink: 0, display: "flex", alignItems: "center", gap: "4px" }}
+              onClick={cancelDetailGrace}
+            >
+              <X size={13} /> 취소
+            </button>
+          </div>
+        )}
+        {detailStatus === "running" && (
           <div style={{ display: "flex", alignItems: "center", gap: "8px", justifyContent: "center", color: "var(--color-muted)", fontSize: "0.85rem", padding: "10px" }}>
-            <Loader2 className="animate-spin" size={18} /> {detailMsg}
+            <Loader2 className="animate-spin" size={18} /> {detailMsg || "상세 분석 중..."} <span style={{ fontSize: "0.72rem", opacity: 0.8 }}>(다른 화면으로 이동해도 계속 진행됩니다)</span>
           </div>
         )}
         {(detailStatus === "done" || detailStatus === "error") && (
