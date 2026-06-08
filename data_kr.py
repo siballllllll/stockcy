@@ -116,8 +116,60 @@ def get_kr_fdr_sector_map() -> dict:
 
 
 @st.cache_data(ttl=86400)
+def _get_kr_etf_map() -> dict:
+    """국내 ETF 이름→{code, suffix} 맵 (24시간 캐시). FDR ETF/KR → pykrx 폴백.
+    국내 ETF는 모두 코스피 시장 상장이므로 suffix=.KS. 일반주식 리스팅(KOSPI/KOSDAQ)에는
+    ETF가 빠져있어 KODEX·TIGER 등이 검색되지 않던 문제를 보완한다."""
+    result: dict = {}
+    # 1차: FinanceDataReader (ETF/KR)
+    try:
+        import FinanceDataReader as fdr
+        df = fdr.StockListing("ETF/KR")
+        if df is not None and not df.empty:
+            cols = {str(c).strip().lower(): c for c in df.columns}
+            code_col = cols.get("symbol") or cols.get("code") or cols.get("종목코드")
+            name_col = cols.get("name") or cols.get("종목명")
+            if code_col and name_col:
+                for _, row in df.iterrows():
+                    code = str(row.get(code_col, "")).strip()
+                    name = str(row.get(name_col, "")).strip()
+                    if name and len(code) == 6 and code.isdigit():
+                        result[name] = {"code": code, "suffix": ".KS"}
+        if result:
+            return result
+    except Exception:
+        pass
+    # 2차: pykrx
+    try:
+        from pykrx import stock as _pykrx
+        import datetime
+        today = datetime.date.today().strftime("%Y%m%d")
+        for code in _pykrx.get_etf_ticker_list(today):
+            name = _pykrx.get_etf_ticker_name(code)
+            code = str(code).strip()
+            if name and len(code) == 6 and code.isdigit():
+                result[name] = {"code": code, "suffix": ".KS"}
+    except Exception:
+        pass
+    return result
+
+
+@st.cache_data(ttl=86400)
 def get_kr_name_to_code_map() -> dict:
-    """전체 KOSPI+KOSDAQ 종목 이름→{code, suffix} 맵 반환 (24시간 캐시).
+    """전체 KOSPI+KOSDAQ 일반주식 + 국내 ETF 이름→{code, suffix} 맵 반환 (24시간 캐시)."""
+    result = _load_kr_base_universe()
+    # 국내 ETF(KODEX·TIGER 등) 병합 — 일반주식 리스팅엔 ETF가 빠져있어 별도 병합.
+    # ETF 조회 실패해도 일반주식 맵은 그대로 유지(오프라인/차단 환경 안전).
+    try:
+        for name, info in _get_kr_etf_map().items():
+            result.setdefault(name, info)
+    except Exception:
+        pass
+    return result
+
+
+def _load_kr_base_universe() -> dict:
+    """전체 KOSPI+KOSDAQ 일반주식 이름→{code, suffix} 맵.
 
     정적 JSON → FinanceDataReader → pykrx → KRX 직접 API 순으로 시도.
     네트워크 장애나 KRX 방화벽 차단 환경에서도 0.001초 만에 즉시 실행을 보장하기 위해
