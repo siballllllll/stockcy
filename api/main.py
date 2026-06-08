@@ -347,6 +347,26 @@ def _scenario_tracking_loop():
                     #   추적 계산(track_scenario_stocks_performance)은 유지 = 적중률 데이터는 계속 갱신됨.
                 except Exception as e:
                     print(f"[scenario track] 자동 추적 오류: {e}")
+                # AI추천 사후 성과(d1/d3/d7) 측정 — AI 호출 없이 가격만 사용
+                try:
+                    from ai_engine import track_ai_recommendation_outcomes
+                    ar = track_ai_recommendation_outcomes()
+                    print(f"[ai-rec track] AI추천 성과 측정: {ar.get('updated_now', 0)}건 갱신 ({today})")
+                except Exception as e:
+                    print(f"[ai-rec track] 오류: {e}")
+                # 보유 종목 일별 스냅샷 (특정일 보유 복원용) — KR 현재가로 평가손익 기록
+                try:
+                    from db import save_portfolio_snapshot
+                    def _kr_price(tk):
+                        if str(tk).strip().isdigit():
+                            from data_kr import get_kr_stock_price
+                            d = get_kr_stock_price(str(tk).strip())
+                            return float((d or {}).get("price") or 0) or None
+                        return None
+                    sr = save_portfolio_snapshot(price_lookup=_kr_price)
+                    print(f"[pf snapshot] 보유 스냅샷 저장: {sr.get('saved', 0)}건 ({today})")
+                except Exception as e:
+                    print(f"[pf snapshot] 오류: {e}")
         except Exception:
             pass
         _time.sleep(300)   # 5분마다 체크

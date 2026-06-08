@@ -5221,6 +5221,108 @@ def load_scenario_tracking_list(limit: int = 300) -> list:
 
 
 _SCENARIO_TRACK_LOCK = threading.Lock()
+_AIREC_TRACK_LOCK = threading.Lock()
+
+
+def track_ai_recommendation_outcomes() -> dict:
+    """AI추천(ai_recommendations)의 사후 성과(d1/d3/d7 수익률)를 logged_time 기준으로 자동 측정.
+    추천 시점 가격을 따로 저장하지 않아도, 추천일 종가를 기준가로 잡아 1/3/7거래일 후 수익률을 계산한다.
+    (시나리오 추적과 동일한 방식 — AI 호출 없이 가격 데이터만 사용.)"""
+    if not _AIREC_TRACK_LOCK.acquire(blocking=False):
+        return {"updated_now": 0, "skipped": "already_running"}
+    try:
+        return _track_ai_recommendation_outcomes_impl()
+    finally:
+        _AIREC_TRACK_LOCK.release()
+
+
+def _track_ai_recommendation_outcomes_impl() -> dict:
+    from db import get_db_conn
+    from datetime import datetime, timedelta
+    import FinanceDataReader as fdr
+    import yfinance as yf
+
+    conn = get_db_conn()
+    cursor = conn.cursor()
+    # 최근 30일 내 추천 중 아직 d7까지 안 채워진 것만 (오래된 건 한 번 채워지면 영구 스킵)
+    cutoff = (datetime.now() - timedelta(days=30)).strftime("%Y-%m-%d")
+    cursor.execute(
+        """SELECT id, ticker, name, logged_time, d7_return
+           FROM ai_recommendations
+           WHERE logged_time >= ? AND d7_return IS NULL
+           ORDER BY logged_time ASC""",
+        (cutoff,)
+    )
+    rows = [dict(r) for r in cursor.fetchall()]
+    today = datetime.now().date()
+    pending = []
+
+    for row in rows:
+        try:
+            logged = datetime.fromisoformat(str(row["logged_time"])[:19]).date()
+        except Exception:
+            try:
+                logged = datetime.strptime(str(row["logged_time"])[:10], "%Y-%m-%d").date()
+            except Exception:
+                continue
+        if (today - logged).days < 1:
+            continue   # 하루도 안 지나면 측정 불가
+
+        raw = str(row["ticker"]).strip()
+        is_us = any(c.isalpha() for c in raw)
+        ticker = raw.upper() if is_us else raw.zfill(6)
+        fetch_start = (logged - timedelta(days=10)).strftime("%Y-%m-%d")
+        end_date = (logged + timedelta(days=14)).strftime("%Y-%m-%d")
+
+        try:
+            if is_us:
+                df = yf.download(ticker, start=fetch_start, end=end_date, progress=False, timeout=10)
+            else:
+                df = fdr.DataReader(ticker, fetch_start, end_date)
+            if df is None or df.empty:
+                continue
+
+            # 기준가 = 추천일(logged) 이하 마지막 거래일 종가
+            base_i = None
+            for j, dt in enumerate(df.index):
+                d = dt.date() if hasattr(dt, "date") else dt
+                if d <= logged:
+                    base_i = j
+                else:
+                    break
+            if base_i is None:
+                base_i = 0
+            entry = float(df["Close"].iloc[base_i])
+            if entry <= 0:
+                continue
+
+            def _p(offset):
+                k = base_i + offset
+                return float(df["Close"].iloc[k]) if len(df) > k else None
+
+            d1, d3, d7 = _p(1), _p(3), _p(7)
+            def _r(p): return round((p - entry) / entry * 100, 2) if p else None
+            now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            pending.append((entry, _r(d1), _r(d3), _r(d7), now, row["id"]))
+        except Exception as e:
+            print(f"[ai-rec tracking] {ticker} 실패: {e}")
+            continue
+
+    updated = 0
+    if pending:
+        try:
+            cursor.executemany(
+                """UPDATE ai_recommendations
+                   SET rec_price = ?, d1_return = ?, d3_return = ?, d7_return = ?, outcome_checked_at = ?
+                   WHERE id = ?""",
+                pending,
+            )
+            conn.commit()
+            updated = len(pending)
+        except Exception as e:
+            print(f"[ai-rec tracking] 일괄 저장 실패: {e}")
+    conn.close()
+    return {"updated_now": updated, "scanned": len(rows)}
 
 
 def track_scenario_stocks_performance() -> dict:

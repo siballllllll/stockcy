@@ -151,7 +151,7 @@ async def market_commentary(refresh: bool = False, user: dict = Depends(get_curr
     권한: 로그인 필수. 캐시는 누구나 읽기 전용으로 조회.
     새로 생성(refresh=true)은 관리자만 가능 — 일반 유저는 크레딧이 있어도 불가(읽기 전용)."""
     from ai_engine import generate_market_commentary
-    from db import load_ai_cache, save_ai_cache
+    from db import load_ai_cache, save_ai_cache, save_daily_market_log
     CACHE_KEY = "market_commentary_latest"
     is_admin = user.get("role") == "admin"
 
@@ -170,6 +170,7 @@ async def market_commentary(refresh: bool = False, user: dict = Depends(get_curr
             res = await asyncio.to_thread(generate_market_commentary)
             if res and "error" not in res:
                 await asyncio.to_thread(save_ai_cache, CACHE_KEY, res, 3)
+                await asyncio.to_thread(save_daily_market_log, "commentary", res)  # 날짜별 역사 보관
             yield _sse({"status": "done", "result": res})
         except Exception as e:
             yield _sse({"status": "error", "message": str(e)})
@@ -203,7 +204,7 @@ async def market_scenarios(use_cache: bool = Query(True), user: dict = Depends(g
     - 자동 로드(use_cache=true): 캐시 있으면 무료, 없으면 일반 유저는 읽기 전용(과금 없음).
     - 명시적 새로고침(use_cache=false): 일반 유저는 크레딧 1 차감, 관리자는 무제한."""
     from ai_engine import generate_market_scenarios
-    from db import load_ai_cache, save_ai_cache, save_scenario_stocks
+    from db import load_ai_cache, save_ai_cache, save_scenario_stocks, save_daily_market_log
 
     CACHE_KEY = "market_scenarios_latest"
     is_admin = user.get("role") == "admin"
@@ -265,6 +266,7 @@ async def market_scenarios(use_cache: bool = Query(True), user: dict = Depends(g
             if "error" not in result:
                 await asyncio.to_thread(save_ai_cache, CACHE_KEY, result, 12)
                 await asyncio.to_thread(_capture_main_scenario_stocks, result)
+                await asyncio.to_thread(save_daily_market_log, "scenarios", result)  # 날짜별 역사 보관
             yield _sse({"status": "done", "result": result})
         except Exception as e:
             yield _sse({"status": "error", "message": str(e)})
@@ -1241,6 +1243,36 @@ async def get_screener_backtest_stats():
     from db import load_backtest_stats
     stats = await asyncio.to_thread(load_backtest_stats)
     return stats
+
+
+@router.get("/recommendation-stats")
+async def get_recommendation_stats(user: dict = Depends(get_current_user)):
+    """AI추천(ai_recommendations) 사후 적중률·평균수익률(d1/d3/d7) 조회."""
+    from db import load_ai_recommendation_stats
+    return await asyncio.to_thread(load_ai_recommendation_stats)
+
+
+@router.get("/market-log/dates")
+async def get_market_log_dates(kind: str = "", limit: int = 90, user: dict = Depends(get_current_user)):
+    """보관된 시장 인사이트/시나리오 로그 날짜 목록(최신순)."""
+    from db import list_daily_market_log_dates
+    return {"items": await asyncio.to_thread(list_daily_market_log_dates, kind or None, limit)}
+
+
+@router.get("/market-log")
+async def get_market_log(date: str, kind: str, user: dict = Depends(get_current_user)):
+    """특정 날짜·종류('commentary'|'scenarios')의 시장 로그 1건 조회."""
+    from db import load_daily_market_log
+    data = await asyncio.to_thread(load_daily_market_log, date, kind)
+    return {"date": date, "kind": kind, "data": data}
+
+
+@router.get("/portfolio-snapshot")
+async def get_portfolio_snapshot(date: str, user: dict = Depends(get_current_user)):
+    """특정일 내 보유 종목 스냅샷 조회 (owner=로그인 세션)."""
+    from db import load_portfolio_snapshot
+    rows = await asyncio.to_thread(load_portfolio_snapshot, date, user["username"])
+    return {"date": date, "owner": user["username"], "holdings": rows}
 
 
 @router.get("/performance-summary")

@@ -410,8 +410,42 @@ def init_local_db():
         )
     """)
 
+    # 28. daily_market_log — 시장 인사이트·시나리오 해설을 날짜별로 누적 보관(덮어쓰기 대신 역사 기록)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS daily_market_log (
+            log_date TEXT,            -- YYYY-MM-DD
+            kind TEXT,                -- 'commentary' | 'scenarios'
+            title TEXT,
+            data_json TEXT,
+            created_at TEXT,
+            UNIQUE(log_date, kind)
+        )
+    """)
+
+    # 29. portfolio_snapshots — 보유 종목 일별 스냅샷(특정일 보유 상태 복원용)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS portfolio_snapshots (
+            snapshot_date TEXT,
+            owner TEXT,
+            ticker TEXT,
+            name TEXT,
+            quantity REAL,
+            buy_price REAL,
+            price REAL,
+            eval_pct REAL,
+            created_at TEXT,
+            UNIQUE(snapshot_date, owner, ticker)
+        )
+    """)
+
     # 컬럼 마이그레이션 — 이미 존재하면 무시
     for migration in [
+        # AI추천 사후 성과 추적(적중률) — logged_time 기준 d1/d3/d7 수익률
+        "ALTER TABLE ai_recommendations ADD COLUMN rec_price REAL",       # 추적 job이 채우는 기준가(추천일 종가)
+        "ALTER TABLE ai_recommendations ADD COLUMN d1_return REAL",
+        "ALTER TABLE ai_recommendations ADD COLUMN d3_return REAL",
+        "ALTER TABLE ai_recommendations ADD COLUMN d7_return REAL",
+        "ALTER TABLE ai_recommendations ADD COLUMN outcome_checked_at TEXT",
         "ALTER TABLE portfolio ADD COLUMN trade_source TEXT DEFAULT '개인'",
         "ALTER TABLE portfolio ADD COLUMN trade_type TEXT DEFAULT '실매매'",
         "ALTER TABLE trade_history ADD COLUMN trade_source TEXT DEFAULT '개인'",
@@ -2313,6 +2347,146 @@ def load_ai_cache(cache_key: str) -> dict | None:
     except Exception as e:
         print(f"Error loading AI cache from SQLite: {e}")
         return None
+
+
+# ── 역사 누적: 시장 인사이트·시나리오 일별 로그 / 보유 일별 스냅샷 ──────────────────
+def save_daily_market_log(kind: str, data: dict):
+    """시장 인사이트('commentary')·시나리오('scenarios') 결과를 날짜별로 1건 보관(덮어쓰기 캐시와 별개).
+    하루 1건(같은 날 재생성 시 최신본으로 갱신) — 역사적 흐름 추적용."""
+    import json as _json
+    try:
+        log_date = datetime.now().strftime("%Y-%m-%d")
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        title = str((data or {}).get("title") or "")[:200]
+        conn = get_db_conn()
+        cur = conn.cursor()
+        cur.execute(
+            "INSERT OR REPLACE INTO daily_market_log (log_date, kind, title, data_json, created_at) VALUES (?, ?, ?, ?, ?)",
+            (log_date, str(kind), title, _json.dumps(data, ensure_ascii=False), now)
+        )
+        conn.commit()
+        conn.close()
+        return True
+    except Exception as e:
+        print(f"save_daily_market_log error: {e}")
+        return False
+
+
+def load_daily_market_log(log_date: str, kind: str) -> dict | None:
+    """특정 날짜·종류의 시장 로그 1건 조회."""
+    import json as _json
+    try:
+        conn = get_db_conn(); cur = conn.cursor()
+        cur.execute("SELECT data_json FROM daily_market_log WHERE log_date=? AND kind=?", (str(log_date), str(kind)))
+        row = cur.fetchone(); conn.close()
+        if not row:
+            return None
+        return _json.loads(str(row["data_json"] or "") or "null")
+    except Exception as e:
+        print(f"load_daily_market_log error: {e}")
+        return None
+
+
+def list_daily_market_log_dates(kind: str | None = None, limit: int = 90) -> list:
+    """보관된 시장 로그 날짜 목록(최신순). kind 지정 시 해당 종류만."""
+    try:
+        conn = get_db_conn(); cur = conn.cursor()
+        if kind:
+            cur.execute("SELECT log_date, kind, title FROM daily_market_log WHERE kind=? ORDER BY log_date DESC LIMIT ?", (str(kind), int(limit)))
+        else:
+            cur.execute("SELECT log_date, kind, title FROM daily_market_log ORDER BY log_date DESC LIMIT ?", (int(limit),))
+        rows = [dict(r) for r in cur.fetchall()]; conn.close()
+        return rows
+    except Exception as e:
+        print(f"list_daily_market_log_dates error: {e}")
+        return []
+
+
+def save_portfolio_snapshot(price_lookup=None) -> dict:
+    """현재 portfolio 테이블 전체(모든 owner)를 오늘자 스냅샷으로 1건씩 저장(특정일 보유 복원용).
+    price_lookup(ticker)->현재가 콜백을 주면 평가손익률(eval_pct)도 기록. 같은 날 재실행 시 갱신."""
+    try:
+        snap_date = datetime.now().strftime("%Y-%m-%d")
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        conn = get_db_conn(); cur = conn.cursor()
+        cur.execute("SELECT owner, ticker, name, quantity, buy_price FROM portfolio")
+        holdings = [dict(r) for r in cur.fetchall()]
+        rows = []
+        for h in holdings:
+            buy = float(h.get("buy_price") or 0)
+            price = None
+            if price_lookup:
+                try:
+                    price = price_lookup(str(h.get("ticker") or ""))
+                except Exception:
+                    price = None
+            eval_pct = round((price - buy) / buy * 100, 2) if (price and buy > 0) else None
+            rows.append((snap_date, str(h.get("owner") or ""), str(h.get("ticker") or ""),
+                         str(h.get("name") or ""), float(h.get("quantity") or 0), buy,
+                         price, eval_pct, now))
+        if rows:
+            cur.executemany(
+                """INSERT OR REPLACE INTO portfolio_snapshots
+                   (snapshot_date, owner, ticker, name, quantity, buy_price, price, eval_pct, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                rows
+            )
+            conn.commit()
+        conn.close()
+        return {"snapshot_date": snap_date, "saved": len(rows)}
+    except Exception as e:
+        print(f"save_portfolio_snapshot error: {e}")
+        return {"snapshot_date": "", "saved": 0, "error": str(e)}
+
+
+def load_portfolio_snapshot(snapshot_date: str, owner: str | None = None) -> list:
+    """특정일 보유 스냅샷 조회. owner 지정 시 해당 유저만."""
+    try:
+        conn = get_db_conn(); cur = conn.cursor()
+        if owner:
+            cur.execute("SELECT * FROM portfolio_snapshots WHERE snapshot_date=? AND UPPER(owner)=? ORDER BY ticker",
+                        (str(snapshot_date), owner.upper()))
+        else:
+            cur.execute("SELECT * FROM portfolio_snapshots WHERE snapshot_date=? ORDER BY owner, ticker", (str(snapshot_date),))
+        rows = [dict(r) for r in cur.fetchall()]; conn.close()
+        return rows
+    except Exception as e:
+        print(f"load_portfolio_snapshot error: {e}")
+        return []
+
+
+def load_ai_recommendation_stats() -> dict:
+    """AI추천(ai_recommendations) 사후 성과 집계 — 적중률/평균수익률(d1/d3/d7).
+    '비추천' 등급은 하락 적중(수익률<0)을 성공으로 간주(방향성 기준)."""
+    try:
+        conn = get_db_conn(); cur = conn.cursor()
+        cur.execute("""SELECT rating, d1_return, d3_return, d7_return
+                       FROM ai_recommendations WHERE d7_return IS NOT NULL""")
+        rows = [dict(r) for r in cur.fetchall()]
+        cur.execute("SELECT COUNT(*) AS n FROM ai_recommendations")
+        total = dict(cur.fetchone() or {}).get("n", 0)
+        conn.close()
+        n = len(rows)
+        if n == 0:
+            return {"measured": 0, "total": total, "horizons": []}
+
+        def _is_bear(rating): return "비추천" in str(rating or "")
+        out_h = []
+        for label, key in [("1일", "d1_return"), ("3일", "d3_return"), ("7일", "d7_return")]:
+            vals = [(r[key], _is_bear(r["rating"])) for r in rows if r.get(key) is not None]
+            if not vals:
+                continue
+            # 방향 적중: 추천=상승(>0) / 비추천=하락(<0)
+            wins = sum(1 for v, bear in vals if ((v < 0) if bear else (v > 0)))
+            avg = sum(v for v, _ in vals) / len(vals)
+            out_h.append({"horizon": label, "n": len(vals),
+                          "win_rate": round(wins / len(vals) * 100, 1),
+                          "avg_return": round(avg, 2)})
+        return {"measured": n, "total": total, "horizons": out_h}
+    except Exception as e:
+        print(f"load_ai_recommendation_stats error: {e}")
+        return {"measured": 0, "total": 0, "horizons": [], "error": str(e)}
+
 
 def _gsheet_backup_delete_ai_cache(cache_key: str):
     """[구글 시트 백업 전용] 'AI캐시' 탭에서 특정 캐시를 삭제합니다."""
