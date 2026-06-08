@@ -3523,6 +3523,95 @@ def analyze_overnight_gap_risk(ticker: str, name: str, market: str) -> dict:
 
 # ── 리딩방 패턴 분석 ──────────────────────────────────────────────────────────
 
+def compute_haseunghoon_signals(opens, highs, lows, closes, volumes, is_kr: bool) -> dict:
+    """하승훈式 결정론 기술신호 — 일봉 OHLCV(과거→현재 순 배열)만으로 계산.
+    추가 다운로드 없이 _get_trade_indicators의 일봉 데이터로 산출해 패턴 스크리너 점수·AI 컨텍스트에 사용.
+
+    반환:
+      amount_ok       - 당일 거래대금 게이트(국내 ≥500억 / 미국 ≥5천만$) 통과 여부
+      turnover        - 당일 거래대금 추정(close*volume)
+      bollinger_break - 볼린저(20,2) 상단 상향 돌파(오늘 돌파, 어제는 밴드 내)
+      macd_hist_cross - MACD(12,26,9) 히스토그램 0 상향 돌파
+      dolpa_pullback  - ① 신고가 돌파 후 첫 눌림목(거래량 수축+지지+캔들 전환)
+      hsh_score       - 0~5 종합 점수, hsh_label - 요약 라벨
+    """
+    out = {"amount_ok": False, "turnover": 0.0, "bollinger_break": False,
+           "macd_hist_cross": False, "dolpa_pullback": False, "hsh_score": 0, "hsh_label": ""}
+    try:
+        o = [float(x) for x in opens]; h = [float(x) for x in highs]
+        l = [float(x) for x in lows];  c = [float(x) for x in closes]
+        v = [float(x) for x in volumes]
+        n = len(c)
+        if n < 35:
+            return out
+
+        # ── ① 거래대금 게이트 ──
+        turnover = c[-1] * v[-1]
+        thr = 5e10 if is_kr else 5e7
+        out["turnover"] = round(turnover, 0)
+        out["amount_ok"] = turnover >= thr
+
+        # ── ④ 볼린저(20,2) 상단 상향 돌파 ──
+        def _mean(a): return sum(a) / len(a)
+        def _std(a):
+            m = _mean(a); return (sum((x - m) ** 2 for x in a) / len(a)) ** 0.5
+        m20_now,  s20_now  = _mean(c[-20:]),   _std(c[-20:])
+        m20_prev, s20_prev = _mean(c[-21:-1]), _std(c[-21:-1])
+        up_now, up_prev = m20_now + 2 * s20_now, m20_prev + 2 * s20_prev
+        out["bollinger_break"] = c[-1] > up_now and c[-2] <= up_prev
+
+        # ── ④ MACD(12,26,9) 히스토그램 0 상향 돌파 ──
+        def _ema_series(a, span):
+            k = 2 / (span + 1); e = a[0]; res = [e]
+            for x in a[1:]:
+                e = x * k + e * (1 - k); res.append(e)
+            return res
+        ema12 = _ema_series(c, 12); ema26 = _ema_series(c, 26)
+        macd = [a - b for a, b in zip(ema12, ema26)]
+        sig  = _ema_series(macd, 9)
+        hist = [a - b for a, b in zip(macd, sig)]
+        out["macd_hist_cross"] = len(hist) >= 2 and hist[-2] <= 0 < hist[-1]
+
+        # ── ① 신고가 돌파 후 첫 눌림목 ──
+        ma5 = _mean(c[-5:])
+        for j in range(n - 4, n - 1):            # 1~3일 전 봉을 돌파봉 후보로
+            if j - 60 < 0:
+                continue
+            is_60d_high = h[j] >= max(h[j - 60:j + 1])
+            big_body    = o[j] > 0 and (c[j] - o[j]) / o[j] >= 0.05
+            vol_spike   = v[j] >= 5 * (_mean(v[j - 20:j]) or 1)
+            if not (is_60d_high and big_body and vol_spike):
+                continue
+            after_v = v[j + 1:]; after_l = l[j + 1:]
+            if not (1 <= len(after_v) <= 3):
+                continue
+            vol_contract = min(after_v) <= 0.2 * v[j]          # 거래량 20%↓ 급감
+            support_hold = min(after_l) >= o[j]                # 돌파봉 시가 지지(세력 이탈 X)
+            near_ma5     = ma5 > 0 and abs(c[-1] - ma5) / ma5 <= 0.02
+            rng = h[-1] - l[-1]
+            lower_shadow = rng > 0 and (min(o[-1], c[-1]) - l[-1]) / rng >= 0.4
+            doji         = rng > 0 and abs(c[-1] - o[-1]) / rng <= 0.1
+            if vol_contract and support_hold and near_ma5 and (lower_shadow or doji):
+                out["dolpa_pullback"] = True
+                break
+
+        # ── 종합 점수·라벨 ──
+        score = 0; notes = []
+        if out["dolpa_pullback"]:
+            score += 3; notes.append("돌파눌림목")
+        if out["bollinger_break"]:
+            score += 1; notes.append("볼린저상단돌파")
+        if out["macd_hist_cross"]:
+            score += 1; notes.append("MACD히스토전환")
+        if notes and not out["amount_ok"]:
+            notes.append("저유동성주의")
+        out["hsh_score"] = score
+        out["hsh_label"] = " · ".join(notes)
+    except Exception:
+        pass
+    return out
+
+
 def _get_trade_indicators(ticker: str, buy_date_str: str) -> dict:
     """단일 거래의 기술적 지표를 yfinance로 수집합니다."""
     import yfinance as yf
@@ -3597,6 +3686,12 @@ def _get_trade_indicators(ticker: str, buy_date_str: str) -> dict:
                 "today_change_pct": round(today_change_pct, 2),
                 "ma20":            round(ma20, 2),
             }
+            # 하승훈式 결정론 신호 병합 (추가 다운로드 없이 동일 hist 사용)
+            try:
+                result["daily"]["hsh"] = compute_haseunghoon_signals(
+                    opens, hist["High"].values, hist["Low"].values, closes, volumes, is_kr)
+            except Exception:
+                pass
     except Exception as e:
         result["daily"]["error"] = str(e)[:80]
 
@@ -4284,6 +4379,12 @@ def screen_by_my_pattern() -> dict:
             entry_comment = ("이미 과열 구간 — 추격 자제, 눌림목 대기 권장" if overheated
                              else "현재가 부근 분할 매수 가능 (이탈 시 손절)")
 
+        # ── 하승훈式 결정론 신호 가점 (돌파눌림목 +3·볼린저상단돌파 +1·MACD히스토전환 +1 → 점수 환산, 최대 +8) ──
+        hsh = ind["daily"].get("hsh") or {}
+        hsh_score = int(hsh.get("hsh_score", 0) or 0)
+        if hsh_score > 0:
+            match_score = min(100, match_score + min(8, hsh_score * 1.6))
+
         match_score = round(match_score, 1)   # 누적 보정으로 생긴 부동소수점 오차 정리
 
         scored.append({
@@ -4314,6 +4415,9 @@ def screen_by_my_pattern() -> dict:
             "momentum_stage":    momentum_stage,  # prebreak | runner | exhausted | extended | ""
             "supply_signal":     supply_signal,   # 외국인·기관 순매수 상위 (객관 수급)
             "hot_sector":        hot_sector,      # 오늘 핫섹터 키워드 (객관 모멘텀)
+            "hsh_label":         hsh.get("hsh_label", ""),     # 하승훈式 신호 요약 (돌파눌림목·볼린저·MACD)
+            "hsh_score":         hsh_score,                    # 0~5
+            "hsh_amount_ok":     bool(hsh.get("amount_ok", False)),  # 거래대금 게이트 통과
         })
 
     scored.sort(key=lambda x: x["match_score"], reverse=True)
@@ -4357,10 +4461,13 @@ def screen_by_my_pattern() -> dict:
         if s.get("hot_sector"):
             parts.append(f"핫섹터:{s['hot_sector']}")
         return f" [객관신호: {', '.join(parts)}]" if parts else ""
+    def _hsh_tag(s):
+        lbl = s.get("hsh_label")
+        return f" [하승훈式: {lbl}]" if lbl else ""
     candidates_text = "\n".join(
         f"- {s['name']}({s['code']}): 매칭점수={s['match_score']}, RSI={s['rsi']}, "
         f"거래량비율={s['vol_ratio']}배, 52주위치={s['pos_52w']}%, 당일등락={s.get('today_change_pct')}%, "
-        f"MA정배열={'O' if s['ma_aligned'] else 'X'}, 갭={s['gap_pct']}%, 신호={s['signal']}{_stage_tag(s)}{_market_tag(s)}"
+        f"MA정배열={'O' if s['ma_aligned'] else 'X'}, 갭={s['gap_pct']}%, 신호={s['signal']}{_stage_tag(s)}{_market_tag(s)}{_hsh_tag(s)}"
         for s in top
     )
 

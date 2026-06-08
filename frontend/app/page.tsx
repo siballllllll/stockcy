@@ -4,7 +4,6 @@ import { useRouter } from "next/navigation";
 import ReactMarkdown from "react-markdown";
 import { BarChart2, Zap } from "lucide-react";
 import { PicksBoard } from "@/components/picks/PicksBoard";
-import { ScreenerPanel } from "@/app/screener/page";
 import { useSSE } from "@/hooks/useSSE";
 import { SSEPanel } from "@/components/ui/SSEPanel";
 import { StockModal } from "@/components/ui/StockModal";
@@ -393,7 +392,7 @@ function getPickStatus(rsi?: number, signal?: string) {
   return                        { label: "⚪ 관망",         color: "#888",    bg: "rgba(150,150,150,0.10)", border: "rgba(150,150,150,0.3)" };
 }
 
-type Tab = "picks" | "confluence" | "rotation" | "mypattern" | "supply" | "screener";
+type Tab = "picks" | "confluence" | "rotation" | "mypattern" | "supply";
 
 const TABS: { id: Tab; label: string }[] = [
   { id: "picks",      label: "🎯 AI 타점 포착" },
@@ -401,7 +400,6 @@ const TABS: { id: Tab; label: string }[] = [
   { id: "rotation",   label: "📊 섹터 순환매" },
   { id: "mypattern",  label: "🧠 내 패턴 스크리너" },
   { id: "supply",     label: "🔄 수급 이동 감지" },
-  { id: "screener",   label: "🔍 복합 스크리너" },
 ];
 
 // ── 시장 레짐(장세 신호등) 배너 ────────────────────────────────────────────────
@@ -810,6 +808,11 @@ export default function Dashboard() {
                                 🧠 {p.agent_adjust > 0 ? "+" : ""}{p.agent_adjust}
                               </span>
                             )}
+                            {p.hsh_label && (
+                              <span style={{ fontSize: "0.72rem", padding: "2px 7px", borderRadius: "6px", background: "rgba(56,189,248,0.15)", border: "1px solid rgba(56,189,248,0.4)", color: "#38bdf8", fontWeight: 800 }} title="하승훈式 결정론 신호 (돌파눌림목·볼린저 상단돌파·MACD 히스토 전환 — 가점)">
+                                🎯 {p.hsh_label}
+                              </span>
+                            )}
                           </div>
 
                           {/* 현재가 + 추천 매수 구간 + 과열 경고 */}
@@ -1024,8 +1027,6 @@ export default function Dashboard() {
         </SSEPanel>
       )}
 
-      {/* 복합 스크리너 — 규칙 기반 기술적 필터 (별도 /screener 페이지와 동일 컴포넌트) */}
-      {activeTab === "screener" && <ScreenerPanel />}
     </div>
   );
 }
