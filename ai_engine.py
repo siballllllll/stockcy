@@ -794,6 +794,12 @@ def generate_market_scenarios() -> dict:
         "- 단타·스윙주 (2~3개, horizon='단타'): 이슈에 직접 연동되거나 과거 동일 이슈 때 시장 심리로 함께 급등한 이력이 있는 중소형주. 시총 1조 미만 코스닥 우선, 하루 5~15% 변동 가능. 역사적 패턴 근거 권장.\n"
         "- 중장기주 (2~3개, horizon='중장기'): 이 이슈의 구조적 수혜를 받을 중소형~중형 성장주·가치주. 단기 급등보다 실적 성장·펀더멘털 관점으로 선정. 시총 제한은 완화(중형 허용)하되 10조↑ 대형주는 제외.\n"
         "- ⚠️ rising_stocks·falling_stocks에 이미 있는 종목은 제외하세요.\n"
+        "【확률(probability_pct) 산정 규칙 — 매우 중요, 반드시 준수】\n"
+        "- 한 이슈의 A/B 두 시나리오는 상호 배타적이므로 확률 합이 정확히 100이 되게 하세요.\n"
+        "- ⛔ 40~60% 구간에 몰아넣는 것을 금지합니다. 게으른 5:5·6:4 분배는 실패로 간주합니다.\n"
+        "- 검색으로 확인한 근거(촉매 강도·수급·일정·과거 사례·정책 방향)의 우열을 반영해 5~95 범위에서 과감하고 세밀하게 책정하세요. 근거가 분명하면 82/18, 73/27처럼 벌리고, 정말 박빙일 때만 55/45.\n"
+        "- 이슈마다 확률 분포가 달라야 합니다. 모든 이슈가 60/40으로 똑같이 나오면 잘못된 것입니다.\n"
+        "- probability(높음/보통/낮음)는 pct와 일치시키세요(70+ 높음 / 40~69 보통 / 40미만 낮음).\n"
         "반드시 아래 JSON 형식으로만 응답하세요 (마크다운 백틱, 주석 절대 금지):\n\n"
         "{\n"
         '  "issues": [\n'
@@ -807,8 +813,8 @@ def generate_market_scenarios() -> dict:
         "        {\n"
         '          "label": "A",\n'
         '          "title": "시나리오 제목",\n'
-        '          "probability": "높음/보통/낮음",\n'
-        '          "probability_pct": 확률(정수),\n'
+        '          "probability_pct": 확률 정수(5~95, [확률 산정 규칙] 엄수 — 40~60 몰림 금지, A+B=100),\n'
+        '          "probability": "높음/보통/낮음 (pct와 일치)",\n'
         '          "market_direction": "강세/약세/혼조",\n'
         '          "trigger": "현실화 조건 (1문장)",\n'
         '          "economic_analysis": "경제적 영향. PER/밸류에이션 관점 포함 (2~3문장)",\n'
@@ -853,6 +859,8 @@ def analyze_custom_issue(keyword: str) -> dict:
         "검증 안 된 종목 절대 금지. 거래정지·폐지 종목도 제외.\n\n"
         "theme_stocks는 단타·스윙에 유리한 국내 중소형주(시총 1조 미만 코스닥 우선) 3~5개.\n"
         "rising_stocks·falling_stocks에 이미 있는 종목, 시총 10조↑ 대형주는 제외.\n\n"
+        "【확률(probability_pct) 산정 규칙】 A/B 확률 합=100. 40~60 몰림 금지(게으른 5:5·6:4 실패). "
+        "근거 우열을 반영해 5~95에서 과감·세밀하게(예: 80/20, 27/73) 책정하고, 정말 박빙일 때만 55/45.\n\n"
         "반드시 아래 JSON 형식으로만 응답 (백틱·주석 절대 금지):\n\n"
         "{\n"
         '  "title": "이슈 제목",\n'
@@ -861,7 +869,7 @@ def analyze_custom_issue(keyword: str) -> dict:
         "    {\n"
         '      "label": "A",\n'
         '      "title": "시나리오 제목",\n'
-        '      "probability_pct": 60,\n'
+        '      "probability_pct": 확률 정수(5~95, [확률 규칙] 준수),\n'
         '      "market_direction": "강세/약세/혼조",\n'
         '      "trigger": "현실화 조건 (1문장)",\n'
         '      "economic_analysis": "경제적 영향, PER·금리·수급 포함 (2~3문장)",\n'
@@ -880,7 +888,7 @@ def analyze_custom_issue(keyword: str) -> dict:
         "    {\n"
         '      "label": "B",\n'
         '      "title": "시나리오 제목",\n'
-        '      "probability_pct": 40,\n'
+        '      "probability_pct": (100 - A의 probability_pct),\n'
         '      "market_direction": "강세/약세/혼조",\n'
         '      "trigger": "현실화 조건 (1문장)",\n'
         '      "economic_analysis": "경제적 영향 (2~3문장)",\n'
