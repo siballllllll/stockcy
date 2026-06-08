@@ -1340,15 +1340,17 @@ async def get_agent_learning():
 
 
 @router.post("/capital-rotation")
-async def capital_rotation(ticker: str = "", _credit: dict = Depends(consume_ai_credit)):
+async def capital_rotation(ticker: str = "", user: dict = Depends(get_current_user),
+                           _credit: dict = Depends(consume_ai_credit)):
     """보유 종목 자금 회전 분석 — 홀딩/차익실현/로테이션 판단 (SSE). ticker 지정 시 단일 종목."""
     from ai_engine import analyze_capital_rotation
+    owner = user["username"]   # 세션에서 강제 — 포트폴리오 소유자는 로그인 유저 (USER 하드코딩 버그 수정)
 
     async def _gen():
         msg = f"💼 {ticker} 진단 중..." if ticker else "💼 보유 종목 지표 + 수급 데이터 분석 중..."
         yield _sse({"status": "running", "message": msg})
         try:
-            result = await asyncio.to_thread(analyze_capital_rotation, "USER", ticker)
+            result = await asyncio.to_thread(analyze_capital_rotation, owner, ticker)
             if "error" in result:
                 yield _sse({"status": "error", "message": result["error"]})
             else:
