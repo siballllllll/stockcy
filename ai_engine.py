@@ -1359,8 +1359,25 @@ def analyze_autonomous_trading(ticker: str, name: str, current_price: float, mar
 
 @st.cache_data(ttl=300)
 def analyze_sell_timing(ticker: str, name: str, avg_price: float, current_price: float, market: str = "KR", buy_reason: str = "") -> dict:
-    """평단가 기준 AI 매도 타이밍 분석. 최초 매수 사유가 있으면 논리 유효성도 함께 판단."""
+    """평단가 기준 AI 매도 타이밍 분석. 최초 매수 사유가 있으면 논리 유효성 + 그 사유 유형의 내 과거 승률도 반영."""
     pnl_pct = (current_price - avg_price) / avg_price * 100 if avg_price > 0 else 0
+
+    # 내 매수 사유 유형의 과거 성과(승률) — AI가 '이 유형은 내가 잘 못 맞춘다' 등을 고려하도록 주입
+    reason_perf_line = ""
+    if str(buy_reason).strip():
+        try:
+            from db import load_buy_reason_performance, _BUY_REASON_BUCKETS
+            bmap = {b["label"]: b for b in (load_buy_reason_performance().get("buckets") or [])}
+            rl = str(buy_reason).lower()
+            matched = []
+            for label, kws in _BUY_REASON_BUCKETS:
+                if any(k in rl for k in kws) and label in bmap:
+                    b = bmap[label]
+                    matched.append(f"'{label}' 유형 내 과거 승률 {b['win_rate']}%(평균 {b['avg_return']}%·{b['n']}건)")
+            if matched:
+                reason_perf_line = "[내 과거 성과 참고] " + " · ".join(matched)
+        except Exception:
+            pass
     sign = "+" if pnl_pct >= 0 else ""
     if market == "KR":
         avg_str = f"{int(avg_price):,}원"
@@ -1377,10 +1394,11 @@ def analyze_sell_timing(ticker: str, name: str, avg_price: float, current_price:
 현재가: {cp_str}
 현재 수익률: {sign}{pnl_pct:.2f}%
 {("최초 매수 선정이유(투자자 본인 작성): " + str(buy_reason).strip()) if str(buy_reason).strip() else "최초 매수 선정이유: (작성 안 됨)"}
+{reason_perf_line}
 
 구글 검색으로 {name}({ticker})의 최신 뉴스, 차트 흐름, 수급 동향, 거시경제 변수를 파악하세요.
 위 투자자가 보유 중인 포지션 기준으로, 지금 매도하는 것이 좋은지, 기다려야 하는지, 타이밍을 어떻게 잡아야 하는지 분석하세요.
-{("★ 위 '최초 매수 선정이유'가 지금도 유효한지 반드시 검증하세요. 그 이유(예: 돌파·실적·테마·수급)가 깨졌으면 매도/물타기 금지 쪽으로, 여전히 살아있으면 보유/추가매수 쪽으로 판단을 기울이고, thesis_check에 그 판정과 근거를 적으세요." if str(buy_reason).strip() else "")}
+{("★ 위 '최초 매수 선정이유'가 지금도 유효한지 반드시 검증하세요. 그 이유(예: 돌파·실적·테마·수급)가 깨졌으면 매도/물타기 금지 쪽으로, 여전히 살아있으면 보유/추가매수 쪽으로 판단을 기울이고, thesis_check에 그 판정과 근거를 적으세요. 또한 '[내 과거 성과 참고]'가 주어졌고 그 유형의 승률이 낮다면(예: 50% 미만) 더 보수적으로(빠른 청산 우선, 물타기 자제) 판단하고 reason에 그 점을 언급하세요." if str(buy_reason).strip() else "")}
 또한 **추가 매수(물타기)로 평단가를 낮추는 전략이 타당한지**, 타당하다면 어느 가격에·어느 평단까지 낮추고 그 평단 기준으로 언제 매도하면 좋은지도 함께 제시하세요.
 
 [추가 매수(물타기) 판단 원칙 — 매우 중요]
