@@ -1270,6 +1270,16 @@ async def get_holdings_risk(user: dict = Depends(get_current_user)):
     return await asyncio.to_thread(scan_holdings_risk, user["username"])
 
 
+@router.get("/ml-status")
+async def get_ml_status(user: dict = Depends(get_current_user)):
+    """자체 ML 모델 현황 — 기간별(단타 d3·스윙 d7·중장기 d20) 학습 표본 수·준비 여부."""
+    try:
+        from ml_model import ml_status
+        return await asyncio.to_thread(ml_status)
+    except Exception as e:
+        return {"error": str(e), "horizons": {}}
+
+
 @router.get("/market-log/dates")
 async def get_market_log_dates(kind: str = "", limit: int = 90, user: dict = Depends(get_current_user)):
     """보관된 시장 인사이트/시나리오 로그 날짜 목록(최신순)."""

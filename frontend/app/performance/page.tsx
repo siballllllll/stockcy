@@ -169,12 +169,59 @@ function MarketLogArchive() {
   );
 }
 
+// ── 자체 ML 모델 현황 ────────────────────────────────────────────────────────────
+function MlStatusPanel() {
+  const { data } = useSWR(`${B}/api/ai/ml-status`, fetcher, { refreshInterval: 0 });
+  const H = data?.horizons ?? {};
+  const min = data?.min_required ?? 80;
+  const ROWS = [
+    { key: "d3",  label: "단타", desc: "3거래일" },
+    { key: "d7",  label: "스윙", desc: "7거래일" },
+    { key: "d20", label: "중장기", desc: "약 1개월" },
+  ];
+  return (
+    <div className="stockcy-card" style={{ padding: "1rem 1.2rem" }}>
+      <div style={{ fontWeight: 800, fontSize: "1rem", marginBottom: "4px" }}>🤖 자체 ML 모델 현황 <span style={{ fontSize: "0.72rem", fontWeight: 600, color: "var(--color-muted)" }}>— 우리 데이터로 학습하는 예측 모델</span></div>
+      <div style={{ fontSize: "0.74rem", color: "var(--color-muted)", marginBottom: "10px" }}>추천을 쓸수록 자동으로 데이터가 쌓이고, 매일 새벽 결과가 채워집니다. {min}건 넘으면 학습 준비 완료.</div>
+      <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+        {ROWS.map((r) => {
+          const n = H[r.key]?.samples ?? 0;
+          const ready = H[r.key]?.ready_to_train;
+          const active = H[r.key]?.model_exists;
+          const pctv = Math.min(100, Math.round((n / min) * 100));
+          const c = active ? "#34d399" : ready ? "#34d399" : "#60a5fa";
+          return (
+            <div key={r.key}>
+              <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.82rem", marginBottom: "3px" }}>
+                <span><b>{r.label}</b> <span style={{ fontSize: "0.7rem", color: "var(--color-muted)" }}>({r.desc})</span></span>
+                <span style={{ color: "var(--color-subtle)" }}>
+                  <b style={{ color: c }}>{n}</b> / {min}건
+                  {active ? <span style={{ color: "#34d399", marginLeft: 6 }}>● 모델 활성</span>
+                    : ready ? <span style={{ color: "#34d399", marginLeft: 6 }}>학습 가능</span>
+                    : <span style={{ color: "var(--color-muted)", marginLeft: 6 }}>수집 중</span>}
+                </span>
+              </div>
+              <div style={{ height: "7px", background: "rgba(255,255,255,0.06)", borderRadius: "99px", overflow: "hidden" }}>
+                <div style={{ width: `${pctv}%`, height: "100%", background: c, borderRadius: "99px", transition: "width 0.3s" }} />
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      <div style={{ fontSize: "0.68rem", color: "var(--color-muted)", marginTop: "8px", lineHeight: 1.5 }}>
+        ※ 데이터가 가장 빨리 차는 단타(d3)부터 임계 도달 예정. 80건 넘으면 모델 학습 + 화면에 ‘ML 상승확률’ 표시 단계로.
+      </div>
+    </div>
+  );
+}
+
 export default function PerformancePage() {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "16px", maxWidth: "1100px" }}>
       <h1 style={{ fontSize: "1.5rem", fontWeight: 800, margin: 0 }}>📊 성과 · 기록</h1>
       <div style={{ fontSize: "0.82rem", color: "var(--color-muted)", marginTop: "-8px" }}>이 시스템이 실제로 맞고 있는지, 그때 시장을 어떻게 봤는지, 내 자산이 어떻게 변했는지를 한 곳에서.</div>
       <EngineScoreboard />
+      <MlStatusPanel />
       {/* 시나리오 적중률·추적 종목 상세 (시나리오 페이지에서 이동) */}
       <ScenarioTrackingPanel />
       <EquityCurve />
