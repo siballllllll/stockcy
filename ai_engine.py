@@ -1425,7 +1425,8 @@ def analyze_sell_timing(ticker: str, name: str, avg_price: float, current_price:
 }}"""
 
     try:
-        response = _call_gemini(prompt, use_search=True, temperature=0.4)
+        # 검색 그라운딩이라 느림 + 한적한 종목은 더 오래 → 90초 타임아웃으로 무한 대기 방지
+        response = _call_gemini(prompt, use_search=True, temperature=0.4, timeout_sec=90)
         res = _parse_json_response(response)
         # 평단 계산은 AI에 맡기지 않고 Python으로 정확히: 추가매수 비율별 평단·손익분기 표 생성
         if isinstance(res, dict) and "error" not in res:
