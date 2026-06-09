@@ -593,6 +593,7 @@ function CapitalRotationCard({ singleTicker, singleName, onClose }: { singleTick
   const decisionStyle = (d: string) => {
     if (d === "TAKE_PROFIT") return { bg: "rgba(239,68,68,0.1)", border: "rgba(239,68,68,0.35)", color: "#f87171" };
     if (d === "ROTATE")      return { bg: "rgba(168,85,247,0.1)", border: "rgba(168,85,247,0.35)", color: "#c084fc" };
+    if (d === "CUT_LOSS")    return { bg: "rgba(248,113,113,0.14)", border: "rgba(248,113,113,0.5)", color: "#f87171" };
     return { bg: "rgba(16,185,129,0.1)", border: "rgba(16,185,129,0.35)", color: "#34d399" };
   };
 
@@ -662,6 +663,9 @@ function CapitalRotationCard({ singleTicker, singleName, onClose }: { singleTick
                     </div>
                   )}
                   <div style={{ fontSize: "0.75rem", color: "var(--color-text)", lineHeight: 1.6 }}>{h.reason}</div>
+                  {h.stop_loss && (
+                    <div style={{ fontSize: "0.7rem", color: "#f87171", marginTop: "4px", fontWeight: 700 }}>🛑 손절: {h.stop_loss}</div>
+                  )}
                   {h.reentry_hint && (
                     <div style={{ fontSize: "0.7rem", color: "#fbbf24", marginTop: "4px" }}>⏰ 재진입: {h.reentry_hint}</div>
                   )}
@@ -1395,7 +1399,7 @@ function PortfolioTab({ gapBulkMap }: { gapBulkMap: Record<string, any> }) {
             if (parsed.error) return (
               <StatusBox type="danger">{parsed.error}</StatusBox>
             );
-            const hasAnyField = parsed.verdict || parsed.timing || parsed.target_exit || parsed.reason || parsed.risk || parsed.add_buy_verdict || parsed.thesis_check;
+            const hasAnyField = parsed.verdict || parsed.timing || parsed.target_exit || parsed.stop_loss || parsed.reason || parsed.risk || parsed.add_buy_verdict || parsed.thesis_check;
             const cur = sellTarget?.isUs ? "$" : "₩";
             const thesis = String(parsed.thesis_check || "").trim();
             const thesisBroken = thesis.includes("훼손") || thesis.includes("약화");
@@ -1425,6 +1429,12 @@ function PortfolioTab({ gapBulkMap }: { gapBulkMap: Record<string, any> }) {
                   <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
                     <div style={{ fontWeight: 600, fontSize: "0.73rem", color: "var(--color-muted)", textTransform: "uppercase", letterSpacing: "0.05em" }}>🎯 목표 매도가</div>
                     <div style={{ fontWeight: 600, color: "var(--color-text)" }}>{parsed.target_exit}</div>
+                  </div>
+                )}
+                {parsed.stop_loss && (
+                  <div style={{ display: "flex", flexDirection: "column", gap: "4px", padding: "8px 10px", background: "rgba(248,113,113,0.08)", border: "1px solid rgba(248,113,113,0.3)", borderRadius: "8px" }}>
+                    <div style={{ fontWeight: 700, fontSize: "0.73rem", color: "#f87171", textTransform: "uppercase", letterSpacing: "0.05em" }}>🛑 손절가</div>
+                    <div style={{ fontWeight: 600, color: "var(--color-text)" }}>{parsed.stop_loss}</div>
                   </div>
                 )}
                 {parsed.reason && (
