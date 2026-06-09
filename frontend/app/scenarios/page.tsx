@@ -1016,7 +1016,7 @@ function AiPerformanceCompare() {
 }
 
 // ── 시나리오 적중률 패널 ──────────────────────────────────────────────────────
-function ScenarioTrackingPanel() {
+export function ScenarioTrackingPanel() {
   const [running, setRunning] = useState(false);
   const [data, setData] = useState<any>(null);
   const [msg, setMsg] = useState("");
@@ -1919,8 +1919,10 @@ function ScenariosPageInner() {
           {/* 에이전트 오늘의 이슈 */}
           <AgentDailyIssuesPanel />
 
-          {/* 시나리오 적중률 통계 */}
-          <ScenarioTrackingPanel />
+          {/* 시나리오 적중률·추적은 '성과·기록' 페이지로 이동됨 */}
+          <div style={{ fontSize: "0.78rem", color: "var(--color-muted)", textAlign: "center", padding: "10px", border: "1px dashed var(--color-border)", borderRadius: "8px" }}>
+            📊 시나리오 적중률·추적 종목은 상단 <b>성과·기록</b> 탭에서 확인하세요.
+          </div>
 
         </div>
         )}

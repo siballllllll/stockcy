@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import useSWR from "swr";
 import { MarkdownLite } from "@/components/ui/MarkdownLite";
+import { ScenarioTrackingPanel } from "@/app/scenarios/page";
 
 const B = "/backend";
 const fetcher = (url: string) => fetch(url).then((r) => (r.ok ? r.json() : null));
@@ -30,7 +31,7 @@ function EngineScoreboard() {
 
   const engines = [
     { name: "🤖 AI추천", n: rec?.measured ?? 0, win: recH?.win_rate ?? null, avg: recH?.avg_return ?? null, note: "단타발굴·종목분석 추천의 7일 후 성과", href: "" },
-    { name: "📈 시나리오", n: scnN, win: scnWin, avg: scnAvg, note: "시나리오 등장 종목 7일 후 (방향 적중)", href: "/scenarios" },
+    { name: "📈 시나리오", n: scnN, win: scnWin, avg: scnAvg, note: "시나리오 등장 종목 7일 후 (방향 적중) — 아래 상세", href: "" },
     { name: "🔍 복합스크리너", n: scr?.total_picks_backtested ?? 0, win: scrO.win_rate_d7 ?? null, avg: scrO.avg_d7_return ?? null, note: "패턴 스크리너 픽 7일 후 백테스트", href: "" },
   ];
 
@@ -174,6 +175,8 @@ export default function PerformancePage() {
       <h1 style={{ fontSize: "1.5rem", fontWeight: 800, margin: 0 }}>📊 성과 · 기록</h1>
       <div style={{ fontSize: "0.82rem", color: "var(--color-muted)", marginTop: "-8px" }}>이 시스템이 실제로 맞고 있는지, 그때 시장을 어떻게 봤는지, 내 자산이 어떻게 변했는지를 한 곳에서.</div>
       <EngineScoreboard />
+      {/* 시나리오 적중률·추적 종목 상세 (시나리오 페이지에서 이동) */}
+      <ScenarioTrackingPanel />
       <EquityCurve />
       <MarketLogArchive />
     </div>
