@@ -1195,6 +1195,9 @@ function SearchPageInner() {
                     <div><div style={{ color: "var(--color-muted)", fontSize: "0.75rem" }}>PBR</div><div style={{ fontWeight: 700 }}>{stockData?.pbr || stockData?.PBR || "N/A"}</div></div>
                     <div><div style={{ color: "var(--color-muted)", fontSize: "0.75rem" }}>52주 최고</div><div style={{ fontWeight: 700, color: "var(--color-danger)" }}>₩{(stockData?.w52_high || stockData?.["52주최고가"] || 0).toLocaleString()}</div></div>
                     <div><div style={{ color: "var(--color-muted)", fontSize: "0.75rem" }}>52주 최저</div><div style={{ fontWeight: 700, color: "var(--color-primary)" }}>₩{(stockData?.w52_low  || stockData?.["52주최저가"] || 0).toLocaleString()}</div></div>
+                    <div><div style={{ color: "var(--color-muted)", fontSize: "0.75rem" }}>EPS</div><div style={{ fontWeight: 700 }}>{stockData?.eps ? `₩${Number(stockData.eps).toLocaleString()}` : "N/A"}</div></div>
+                    <div><div style={{ color: "var(--color-muted)", fontSize: "0.75rem" }}>배당수익률</div><div style={{ fontWeight: 700 }}>{stockData?.dividend_yield != null && stockData.dividend_yield > 0 ? `${stockData.dividend_yield}%` : "N/A"}</div></div>
+                    <div><div style={{ color: "var(--color-muted)", fontSize: "0.75rem" }}>시가총액</div><div style={{ fontWeight: 700 }}>{stockData?.market_cap || "N/A"}</div></div>
                   </>
                 ) : (
                   <>

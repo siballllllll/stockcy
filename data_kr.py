@@ -360,7 +360,7 @@ def _get_kr_per_pbr_naver(code: str) -> dict:
         except Exception:
             return None
 
-    # 1차: 데스크톱 종목 메인 — <em id="_per">11.49</em> / <em id="_pbr">1.08</em> (수년째 안정적)
+    # 1차: 데스크톱 종목 메인 — <em id="_per/_pbr/_eps/_dvr/_market_sum"> (수년째 안정적)
     try:
         r = requests.get(f"https://finance.naver.com/item/main.naver?code={code}", headers=headers, timeout=4)
         if r.ok:
@@ -368,11 +368,23 @@ def _get_kr_per_pbr_naver(code: str) -> dict:
             out = {}
             mp = _re.search(r'id="_per"[^>]*>\s*([\-\d.,]+)', html)
             mb = _re.search(r'id="_pbr"[^>]*>\s*([\-\d.,]+)', html)
+            me = _re.search(r'id="_eps"[^>]*>\s*([\-\d.,]+)', html)
+            md = _re.search(r'id="_dvr"[^>]*>\s*([\-\d.,]+)', html)
+            ms = _re.search(r'id="_market_sum"[^>]*>([\s\S]*?)</', html)
             if mp:
                 p = _num(mp.group(1));  out["per"] = round(p, 2) if p else None
             if mb:
                 b = _num(mb.group(1));  out["pbr"] = round(b, 2) if b else None
-            if out.get("per") or out.get("pbr"):
+            if me:
+                e = _num(me.group(1));  out["eps"] = int(e) if e else None
+            if md:
+                d = _num(md.group(1));  out["dividend_yield"] = round(d, 2) if d else None
+            if ms:
+                # "1,791조\n\t8,844" → "1,791조 8,844억"
+                raw = _re.sub(r"\s+", "", ms.group(1))
+                if raw:
+                    out["market_cap"] = (raw.replace("조", "조 ") + "억") if "조" in raw else (raw + "억")
+            if out.get("per") or out.get("pbr") or out.get("eps"):
                 return out
     except Exception:
         pass
@@ -415,15 +427,23 @@ def get_kr_stock_price(stock_code: str, with_fundamental: bool = False):
         # PER/PBR: KIS가 비워 주면(적자·일부 종목) 네이버 → pykrx 순으로 보강. ETF/적자는 원래 없음.
         # 단 with_fundamental=True(종목검색 상세)일 때만 — 대량 호출 경로의 네트워크 지연/튕김 방지.
         per_v, pbr_v = o.get("per", "-"), o.get("pbr", "-")
-        if with_fundamental and (_kr_val_missing(per_v) or _kr_val_missing(pbr_v)):
-            nv = _get_kr_per_pbr_naver(stock_code)   # 1차: 네이버 스크래핑(KRX 차단 환경에서도 동작)
+        eps_v = dvr_v = None
+        mcap_v = _format_market_cap(o.get("hts_avls", ""))
+        if with_fundamental:
+            nv = _get_kr_per_pbr_naver(stock_code)   # 네이버 스크래핑(KRX 차단 환경에서도 동작) — PER/PBR/EPS/배당/시총
             if nv:
                 if _kr_val_missing(per_v) and nv.get("per"):
                     per_v = nv["per"]
                 if _kr_val_missing(pbr_v) and nv.get("pbr"):
                     pbr_v = nv["pbr"]
+                if nv.get("eps") is not None:
+                    eps_v = nv["eps"]
+                if nv.get("dividend_yield") is not None:
+                    dvr_v = nv["dividend_yield"]
+                if nv.get("market_cap") and (not mcap_v or mcap_v in ("-", "0억")):
+                    mcap_v = nv["market_cap"]
             if _kr_val_missing(per_v) or _kr_val_missing(pbr_v):
-                fm = _get_kr_fundamental_map().get(stock_code)   # 2차: pykrx(가능한 환경에서만)
+                fm = _get_kr_fundamental_map().get(stock_code)   # 폴백: pykrx(가능한 환경에서만)
                 if fm:
                     if _kr_val_missing(per_v) and fm.get("per"):
                         per_v = round(fm["per"], 2)
@@ -445,7 +465,9 @@ def get_kr_stock_price(stock_code: str, with_fundamental: bool = False):
             "w52_low": int(o.get("w52_lwpr", 0) or 0),
             "per": per_v,
             "pbr": pbr_v,
-            "market_cap": _format_market_cap(o.get("hts_avls", "")),
+            "eps": eps_v,
+            "dividend_yield": dvr_v,
+            "market_cap": mcap_v,
             "status_code": o.get("iscd_stat_cls_code", "55"),
             "mrkt_warn": o.get("mrkt_warn_cls_code", "00"),
             "short_over": o.get("sltr_yn", "N"),
