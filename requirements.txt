@@ -15,3 +15,7 @@ feedparser>=6.0.11
 fastapi>=0.111.0
 uvicorn[standard]>=0.29.0
 python-dotenv>=1.0.0
+
+# 자체 ML 예측 모델 (로컬·무료) — v3.54.0
+scikit-learn
+joblib
