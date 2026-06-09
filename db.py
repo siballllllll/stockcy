@@ -434,8 +434,8 @@ def init_local_db():
             decided_at TEXT,          -- YYYY-MM-DD (추천일)
             entry_price REAL,
             rsi REAL, ma_aligned INTEGER, pos_52w REAL, vol_ratio REAL,
-            d1_return REAL, d3_return REAL, d7_return REAL,
-            label INTEGER,            -- 1 상승 / 0 하락 (d7 기준)
+            d1_return REAL, d3_return REAL, d7_return REAL, d20_return REAL,
+            label INTEGER,            -- 1 상승 / 0 하락 (d7 기준, 하위호환)
             outcome_checked_at TEXT,
             UNIQUE(source, ticker, decided_at)
         )
@@ -474,6 +474,7 @@ def init_local_db():
         "ALTER TABLE screener_picks ADD COLUMN market TEXT DEFAULT 'kr'",
         "ALTER TABLE screener_picks ADD COLUMN price REAL",  # 추천 당시가(교차검증용)
         "ALTER TABLE screener_picks ADD COLUMN hsh_label TEXT",  # 하승훈式 시그널 라벨(교차검증 표시용)
+        "ALTER TABLE ml_training_samples ADD COLUMN d20_return REAL",  # 중장기(약 1개월) 라벨용
         "ALTER TABLE screener_backtest_results ADD COLUMN market TEXT DEFAULT 'kr'",
         "ALTER TABLE scenario_stocks ADD COLUMN horizon TEXT",
         "ALTER TABLE portfolio ADD COLUMN buy_reason TEXT DEFAULT ''",

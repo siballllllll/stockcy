@@ -12,33 +12,39 @@
 import os
 from datetime import datetime
 
-_MODEL_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ml_win_model.joblib")
 # 공통 피처(엔진 무관) — 에이전트·패턴·시나리오·AI추천을 모두 같은 피처로 통일
 _FEATURES = ["rsi", "ma_aligned", "pos_52w", "vol_ratio"]
 MIN_SAMPLES = 80   # 이 미만이면 학습 보류 (신뢰 가능한 최소 표본)
+# 예측 기간(horizon): 단타 d3 / 스윙 d7 / 중장기 d20. 각각 별도 모델.
+HORIZONS = {"d3": "d3_return", "d7": "d7_return", "d20": "d20_return"}
 
 
-def build_training_set():
-    """라벨 달린 학습 데이터 통합 수집 → (X: list[dict], y: list[int]). y=1(상승)/0(하락).
-    소스: agent_decisions(에이전트) + ml_training_samples(패턴·시나리오·AI추천)."""
+def _model_path(horizon: str) -> str:
+    return os.path.join(os.path.dirname(os.path.abspath(__file__)), f"ml_win_model_{horizon}.joblib")
+
+
+def build_training_set(horizon: str = "d7"):
+    """기간별 라벨 학습 데이터 → (X: list[dict], y: list[int]). y=1(상승)/0(하락).
+    소스: ml_training_samples(패턴·시나리오·AI추천)의 해당 dN_return + (d7 한정) agent_decisions."""
+    col = HORIZONS.get(horizon, "d7_return")
     from db import get_db_conn
     conn = get_db_conn(); cur = conn.cursor()
     rows = []
     try:
-        # 1) 에이전트 — 판단 시점 지표가 라이브로 저장됨
         cur.execute(
-            """SELECT rsi, ma_aligned, pos_52w, vol_ratio, outcome_return AS ret
-               FROM agent_decisions
-               WHERE action='BUY' AND outcome_return IS NOT NULL AND rsi IS NOT NULL"""
+            f"""SELECT rsi, ma_aligned, pos_52w, vol_ratio, {col} AS ret
+                FROM ml_training_samples
+                WHERE {col} IS NOT NULL AND rsi IS NOT NULL"""
         )
         rows += [dict(r) for r in cur.fetchall()]
-        # 2) 통합 샘플 — 패턴/시나리오/AI추천 (추적 job이 피처·라벨을 채운 것만)
-        cur.execute(
-            """SELECT rsi, ma_aligned, pos_52w, vol_ratio, d7_return AS ret
-               FROM ml_training_samples
-               WHERE label IS NOT NULL AND rsi IS NOT NULL"""
-        )
-        rows += [dict(r) for r in cur.fetchall()]
+        # 에이전트 결과(단일 horizon)는 스윙(d7)에만 합류
+        if horizon == "d7":
+            cur.execute(
+                """SELECT rsi, ma_aligned, pos_52w, vol_ratio, outcome_return AS ret
+                   FROM agent_decisions
+                   WHERE action='BUY' AND outcome_return IS NOT NULL AND rsi IS NOT NULL"""
+            )
+            rows += [dict(r) for r in cur.fetchall()]
     finally:
         conn.close()
     X, y = [], []
@@ -68,9 +74,10 @@ def track_ml_sample_outcomes(limit: int = 250, max_age_days: int = 60) -> dict:
 
     conn = get_db_conn(); cur = conn.cursor()
     cutoff = (datetime.now() - timedelta(days=max_age_days)).strftime("%Y-%m-%d")
+    # d20(중장기)까지 다 채워질 때까지 재처리 (d7만 채워지고 멈추지 않도록)
     cur.execute(
         """SELECT id, ticker, decided_at FROM ml_training_samples
-           WHERE label IS NULL AND decided_at >= ? ORDER BY decided_at ASC LIMIT ?""",
+           WHERE d20_return IS NULL AND decided_at >= ? ORDER BY decided_at ASC LIMIT ?""",
         (cutoff, int(limit)))
     rows = [dict(r) for r in cur.fetchall()]
     today = datetime.now().date()
@@ -105,7 +112,7 @@ def track_ml_sample_outcomes(limit: int = 250, max_age_days: int = 60) -> dict:
         is_us = any(ch.isalpha() for ch in raw)
         tk = raw.upper() if is_us else raw.zfill(6)
         start = (decided - timedelta(days=400)).strftime("%Y-%m-%d")
-        end = (decided + timedelta(days=14)).strftime("%Y-%m-%d")
+        end = (decided + timedelta(days=45)).strftime("%Y-%m-%d")   # d20(약 1개월)까지 포함
         try:
             if is_us:
                 import pandas as pd
@@ -133,13 +140,12 @@ def track_ml_sample_outcomes(limit: int = 250, max_age_days: int = 60) -> dict:
             def _p(off):
                 k = base_i + off
                 return float(df["Close"].iloc[k]) if len(df) > k else None
-            d1, d3, d7 = _p(1), _p(3), _p(7)
             def _r(p): return round((p - entry) / entry * 100, 2) if (p and entry) else None
-            r1, r3, r7 = _r(d1), _r(d3), _r(d7)
+            r1, r3, r7, r20 = _r(_p(1)), _r(_p(3)), _r(_p(7)), _r(_p(20))
             label = (1 if r7 > 0 else 0) if r7 is not None else None
             now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             pending.append((f["rsi"], f["ma_aligned"], f["pos_52w"], f["vol_ratio"],
-                            round(entry, 2), r1, r3, r7, label, now, row["id"]))
+                            round(entry, 2), r1, r3, r7, r20, label, now, row["id"]))
         except Exception as e:
             print(f"[ml sample track] {tk} 실패: {e}")
             continue
@@ -150,7 +156,7 @@ def track_ml_sample_outcomes(limit: int = 250, max_age_days: int = 60) -> dict:
             cur.executemany(
                 """UPDATE ml_training_samples
                    SET rsi=?, ma_aligned=?, pos_52w=?, vol_ratio=?, entry_price=?,
-                       d1_return=?, d3_return=?, d7_return=?, label=?, outcome_checked_at=?
+                       d1_return=?, d3_return=?, d7_return=?, d20_return=?, label=?, outcome_checked_at=?
                    WHERE id=?""", pending)
             conn.commit(); updated = len(pending)
         except Exception as e:
@@ -164,15 +170,15 @@ def _to_matrix(X):
     return np.array([[row[c] for c in _FEATURES] for row in X], dtype=float)
 
 
-def train_model(force: bool = False) -> dict:
-    """학습 + 교차검증 후 모델 저장. 데이터 부족이면 보류(force=True면 데모로 강제)."""
-    X, y = build_training_set()
+def train_model(horizon: str = "d7", force: bool = False) -> dict:
+    """기간별 학습 + 교차검증 후 모델 저장. 데이터 부족이면 보류(force=True면 데모로 강제)."""
+    X, y = build_training_set(horizon)
     n = len(y)
     if n < MIN_SAMPLES and not force:
-        return {"trained": False, "samples": n, "min_required": MIN_SAMPLES,
-                "reason": f"학습 데이터 부족 ({n}/{MIN_SAMPLES}건). 추천·매매 결과가 쌓이면 자동 학습 가능."}
+        return {"horizon": horizon, "trained": False, "samples": n, "min_required": MIN_SAMPLES,
+                "reason": f"{horizon} 학습 데이터 부족 ({n}/{MIN_SAMPLES}건). 결과가 쌓이면 자동 학습 가능."}
     if len(set(y)) < 2:
-        return {"trained": False, "samples": n, "reason": "승/패 한쪽 결과만 있어 학습 불가."}
+        return {"horizon": horizon, "trained": False, "samples": n, "reason": "승/패 한쪽 결과만 있어 학습 불가."}
 
     import numpy as np
     from sklearn.ensemble import GradientBoostingClassifier
@@ -189,20 +195,26 @@ def train_model(force: bool = False) -> dict:
         pass
     clf.fit(Xm, ym)
     if not force:
-        joblib.dump({"model": clf, "features": _FEATURES,
-                     "trained_at": datetime.now().isoformat(), "samples": n}, _MODEL_PATH)
-    return {"trained": True, "saved": not force, "demo": force, "samples": n,
+        joblib.dump({"model": clf, "features": _FEATURES, "horizon": horizon,
+                     "trained_at": datetime.now().isoformat(), "samples": n}, _model_path(horizon))
+    return {"horizon": horizon, "trained": True, "saved": not force, "demo": force, "samples": n,
             "cv_auc": round(auc, 3) if auc is not None else None,
             "base_win_rate": round(float(ym.mean()) * 100, 1)}
 
 
-def predict_win_proba(features: dict):
-    """저장된 모델로 상승(승) 확률(%) 예측. 모델 미존재 시 None."""
-    if not os.path.exists(_MODEL_PATH):
+def train_all() -> dict:
+    """세 기간 모두 학습 시도(가능한 것만)."""
+    return {h: train_model(h) for h in HORIZONS}
+
+
+def predict_win_proba(features: dict, horizon: str = "d7"):
+    """저장된 기간별 모델로 상승 확률(%) 예측. 모델 미존재 시 None."""
+    path = _model_path(horizon)
+    if not os.path.exists(path):
         return None
     try:
         import joblib, numpy as np
-        bundle = joblib.load(_MODEL_PATH)
+        bundle = joblib.load(path)
         clf, cols = bundle["model"], bundle["features"]
         x = np.array([[float(features.get(c, 0) or 0) for c in cols]], dtype=float)
         return round(float(clf.predict_proba(x)[0][1]) * 100, 1)
@@ -211,11 +223,12 @@ def predict_win_proba(features: dict):
 
 
 def ml_status() -> dict:
-    X, y = build_training_set()
-    return {
-        "samples": len(y),
-        "min_required": MIN_SAMPLES,
-        "model_exists": os.path.exists(_MODEL_PATH),
-        "ready_to_train": len(y) >= MIN_SAMPLES,
-        "features": _FEATURES,
-    }
+    out = {"min_required": MIN_SAMPLES, "features": _FEATURES, "horizons": {}}
+    for h in HORIZONS:
+        n = len(build_training_set(h)[1])
+        out["horizons"][h] = {
+            "samples": n,
+            "ready_to_train": n >= MIN_SAMPLES,
+            "model_exists": os.path.exists(_model_path(h)),
+        }
+    return out
