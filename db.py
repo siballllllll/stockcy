@@ -2536,12 +2536,12 @@ def load_buy_reason_performance() -> dict:
     완료 거래(trade_history)만 사용. 결정론(무료). '이런 사유로 산 거래는 얼마나 맞았나'를 학습/표시."""
     try:
         conn = get_db_conn(); cur = conn.cursor()
-        cur.execute("SELECT profit, profit_pct, buy_reason FROM trade_history")
+        cur.execute("SELECT profit, profit_pct, buy_reason, trade_source FROM trade_history")
         rows = [dict(r) for r in cur.fetchall()]
         conn.close()
     except Exception as e:
         print(f"load_buy_reason_performance error: {e}")
-        return {"total": 0, "with_reason": {}, "without_reason": {}, "buckets": [], "error": str(e)}
+        return {"total": 0, "with_reason": {}, "without_reason": {}, "buckets": [], "by_source": [], "error": str(e)}
 
     def _win(r):
         try:
@@ -2574,11 +2574,23 @@ def load_buy_reason_performance() -> dict:
             buckets.append(st)
     buckets.sort(key=lambda x: (x["win_rate"] if x["win_rate"] is not None else -1), reverse=True)
 
+    # 출처별 성과 (개인/리딩방/AI추천/시나리오 등) — '프로그램 추천이 실제로 맞았나' 피드백
+    src_map: dict = {}
+    for r in rows:
+        s = str(r.get("trade_source") or "개인").strip() or "개인"
+        src_map.setdefault(s, []).append(r)
+    by_source = []
+    for s, subset in src_map.items():
+        st = _stat(subset); st["source"] = s
+        by_source.append(st)
+    by_source.sort(key=lambda x: (x["n"], x["win_rate"] if x["win_rate"] is not None else -1), reverse=True)
+
     return {
         "total": len(rows),
         "with_reason": _stat(with_r),
         "without_reason": _stat(without_r),
         "buckets": buckets,
+        "by_source": by_source,
     }
 
 

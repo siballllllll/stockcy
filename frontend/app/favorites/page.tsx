@@ -7,6 +7,13 @@ import type { Favorite, KrStock, UsStock } from "@/lib/types";
 import { Star, RefreshCw, Send, Trash2, Plus, Zap, BarChart2, Bell, TrendingUp, BookOpen, Loader2, Brain, Sparkles, AlertCircle, X, FileText } from "lucide-react";
 
 const BASE_URL = "/backend";
+// 거래 출처 — 리딩방 / 개인 / 프로그램추천(우리 AI 추천). 출처별 실거래 성과 귀속용.
+const SOURCE_OPTIONS = [
+  { label: "리딩방", value: "리딩방" },
+  { label: "개인", value: "개인" },
+  { label: "프로그램추천", value: "프로그램추천" },
+];
+const SOURCE_COLORS: Record<string, string> = { "리딩방": "#7c3aed", "개인": "#2563eb", "프로그램추천": "#0ea5e9" };
 import { Card } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
 import { StatusBox } from "@/components/ui/StatusBox";
@@ -367,7 +374,7 @@ function AddPortfolioForm({ onAdded }: { onAdded: () => void }) {
   const [name,        setName]        = useState("");
   const [price,       setPrice]       = useState("");
   const [qty,         setQty]         = useState("");
-  const [tradeSource, setTradeSource] = useState<"리딩방" | "개인">("개인");
+  const [tradeSource, setTradeSource] = useState<string>("개인");
   const [tradeType,   setTradeType]   = useState<"실매매" | "테스트">("실매매");
   const [buyReason,   setBuyReason]   = useState("");
   const [msg,         setMsg]         = useState<{ type: "success" | "danger"; text: string } | null>(null);
@@ -446,12 +453,7 @@ function AddPortfolioForm({ onAdded }: { onAdded: () => void }) {
       <div style={{ display: "flex", gap: "0.75rem", alignItems: "center", flexWrap: "wrap" }}>
         <div style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}>
           <span style={{ fontSize: "0.75rem", color: "var(--color-muted)" }}>출처</span>
-          <ToggleGroup
-            options={[{ label: "리딩방", value: "리딩방" as const }, { label: "개인", value: "개인" as const }]}
-            value={tradeSource}
-            onChange={setTradeSource}
-            colors={{ "리딩방": "#7c3aed", "개인": "#2563eb" }}
-          />
+          <ToggleGroup options={SOURCE_OPTIONS} value={tradeSource} onChange={setTradeSource} colors={SOURCE_COLORS} />
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}>
           <span style={{ fontSize: "0.75rem", color: "var(--color-muted)" }}>유형</span>
@@ -742,6 +744,20 @@ function BuyReasonStatsPanel() {
                   ))}
                 </div>
               )}
+
+              {/* 출처별 성과 — 프로그램(AI) 추천이 실제로 맞았나 */}
+              {Array.isArray(data.by_source) && data.by_source.length > 0 && (
+                <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
+                  <div style={{ fontSize: "0.74rem", fontWeight: 700, color: "var(--color-muted)", marginTop: "2px" }}>출처별 성과 (개인·리딩방·AI 엔진)</div>
+                  {data.by_source.map((b: any, i: number) => (
+                    <div key={i} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "8px", background: "rgba(255,255,255,0.02)", border: "1px solid var(--color-border)", borderRadius: "6px", padding: "5px 10px", fontSize: "0.8rem" }}>
+                      <span style={{ color: "var(--color-text)" }}>{b.source} <span style={{ fontSize: "0.7rem", color: "var(--color-muted)" }}>· {b.n}건</span></span>
+                      <span>승률 <b style={{ color: wrColor(b.win_rate) }}>{wr(b.win_rate)}</b> <span style={{ color: "var(--color-muted)", fontSize: "0.74rem" }}>(평균 {rt(b.avg_return)})</span></span>
+                    </div>
+                  ))}
+                </div>
+              )}
+
               <div style={{ fontSize: "0.68rem", color: "var(--color-muted)", lineHeight: 1.5 }}>
                 ※ 매도까지 끝난 거래만 집계. 자유 텍스트 사유를 키워드로 분류한 결정론 통계(AI 비용 없음). 한 거래가 여러 유형에 중복 집계될 수 있습니다.
               </div>
@@ -855,7 +871,7 @@ function PortfolioTab({ gapBulkMap }: { gapBulkMap: Record<string, any> }) {
   const [editTicker, setEditTicker] = useState<string | null>(null);
   const [editPrice,  setEditPrice]  = useState<string>("");
   const [editQty,    setEditQty]    = useState<string>("");
-  const [editSource, setEditSource] = useState<"리딩방" | "개인">("개인");
+  const [editSource, setEditSource] = useState<string>("개인");
   const [editType,   setEditType]   = useState<"실매매" | "테스트">("실매매");
   const [editBuyTime, setEditBuyTime] = useState<string>("");
   const [editReason,  setEditReason]  = useState<string>("");
@@ -1118,6 +1134,7 @@ function PortfolioTab({ gapBulkMap }: { gapBulkMap: Record<string, any> }) {
                         <span style={{ fontSize: "0.7rem", color: "var(--color-muted)", fontWeight: 400 }}>({p.normalTicker || p.ticker})</span>
                         {p.isUs && <span style={{ fontSize: "0.62rem", padding: "1px 5px", background: "rgba(50,200,100,0.15)", border: "1px solid rgba(50,200,100,0.3)", borderRadius: "3px", color: "var(--color-success)" }}>US</span>}
                         {p.trade_source === "리딩방" && <span style={{ fontSize: "0.6rem", padding: "1px 5px", background: "rgba(124,58,237,0.15)", border: "1px solid rgba(124,58,237,0.35)", borderRadius: "3px", color: "#a78bfa", fontWeight: 700 }}>리딩방</span>}
+                        {p.trade_source === "프로그램추천" && <span style={{ fontSize: "0.6rem", padding: "1px 5px", background: "rgba(14,165,233,0.15)", border: "1px solid rgba(14,165,233,0.4)", borderRadius: "3px", color: "#38bdf8", fontWeight: 700 }}>🤖프로그램</span>}
                         {p.trade_type === "테스트" && <span style={{ fontSize: "0.6rem", padding: "1px 5px", background: "rgba(217,119,6,0.15)", border: "1px solid rgba(217,119,6,0.35)", borderRadius: "3px", color: "#fbbf24", fontWeight: 700 }}>테스트</span>}
                         {p.buy_reason && <span title={p.buy_reason} style={{ fontSize: "0.6rem", padding: "1px 5px", background: "rgba(56,189,248,0.12)", border: "1px solid rgba(56,189,248,0.35)", borderRadius: "3px", color: "#38bdf8", fontWeight: 700 }}>💬</span>}
                       </div>
@@ -1152,6 +1169,9 @@ function PortfolioTab({ gapBulkMap }: { gapBulkMap: Record<string, any> }) {
                       {/* 출처 태그 */}
                       {p.trade_source === "리딩방" && (
                         <span style={{ fontSize: "0.62rem", padding: "1px 5px", background: "rgba(124,58,237,0.15)", border: "1px solid rgba(124,58,237,0.35)", borderRadius: "3px", color: "#a78bfa", fontWeight: 700 }}>리딩방</span>
+                      )}
+                      {p.trade_source === "프로그램추천" && (
+                        <span style={{ fontSize: "0.62rem", padding: "1px 5px", background: "rgba(14,165,233,0.15)", border: "1px solid rgba(14,165,233,0.4)", borderRadius: "3px", color: "#38bdf8", fontWeight: 700 }}>🤖프로그램</span>
                       )}
                       {/* 유형 태그 */}
                       {p.trade_type === "테스트" && (
@@ -1223,11 +1243,7 @@ function PortfolioTab({ gapBulkMap }: { gapBulkMap: Record<string, any> }) {
                       <div style={{ display: "flex", gap: "0.6rem", alignItems: "center", flexWrap: "wrap" }}>
                         {isAdmin && (<>
                         <span style={{ fontSize: "0.75rem", color: "var(--color-muted)" }}>출처</span>
-                        <ToggleGroup
-                          options={[{ label: "리딩방", value: "리딩방" as const }, { label: "개인", value: "개인" as const }]}
-                          value={editSource} onChange={setEditSource}
-                          colors={{ "리딩방": "#7c3aed", "개인": "#2563eb" }}
-                        />
+                        <ToggleGroup options={SOURCE_OPTIONS} value={editSource} onChange={setEditSource} colors={SOURCE_COLORS} />
                         <span style={{ fontSize: "0.75rem", color: "var(--color-muted)" }}>유형</span>
                         <ToggleGroup
                           options={[{ label: "실매매", value: "실매매" as const }, { label: "테스트", value: "테스트" as const }]}
@@ -1662,7 +1678,7 @@ function TradesTab() {
   const [filterType,   setFilterType]   = useState<"전체" | "실매매" | "테스트">("전체");
 
   const [editTradeKey,    setEditTradeKey]    = useState<string | null>(null);
-  const [editSrc,         setEditSrc]         = useState<"리딩방" | "개인">("개인");
+  const [editSrc,         setEditSrc]         = useState<string>("개인");
   const [editTyp,         setEditTyp]         = useState<"실매매" | "테스트">("실매매");
   const [editBuyDate,     setEditBuyDate]     = useState<string>("");
   const [editBuyReason,   setEditBuyReason]   = useState<string>("");
@@ -1888,7 +1904,7 @@ function TradesTab() {
           {isAdmin && (
           <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", flexWrap: "wrap" }}>
             <span style={{ fontSize: "0.75rem", color: "var(--color-muted)" }}>출처</span>
-            <ToggleGroup options={[{ label: "리딩방", value: "리딩방" as const }, { label: "개인", value: "개인" as const }]} value={form.trade_source as "리딩방" | "개인"} onChange={v => setForm(f => ({...f, trade_source: v}))} colors={{ "리딩방": "#7c3aed", "개인": "#2563eb" }} />
+            <ToggleGroup options={SOURCE_OPTIONS} value={form.trade_source} onChange={v => setForm(f => ({...f, trade_source: v}))} colors={SOURCE_COLORS} />
             <span style={{ fontSize: "0.75rem", color: "var(--color-muted)" }}>유형</span>
             <ToggleGroup options={[{ label: "실매매", value: "실매매" as const }, { label: "테스트", value: "테스트" as const }]} value={form.trade_type as "실매매" | "테스트"} onChange={v => setForm(f => ({...f, trade_type: v}))} colors={{ "실매매": "#059669", "테스트": "#d97706" }} />
           </div>
@@ -2044,7 +2060,7 @@ function TradesTab() {
                           title="출처/유형 편집"
                           onClick={() => {
                             if (isEditingTag) { setEditTradeKey(null); return; }
-                            setEditSrc((tradeSource as "리딩방" | "개인") || "개인");
+                            setEditSrc(String(tradeSource || "개인"));
                             setEditTyp((tradeType as "실매매" | "테스트") || "실매매");
                             setEditBuyDate(String(t["매수시간"] ?? t.buy_date ?? "").slice(0, 16).replace(" ", "T"));
                             setEditBuyReason(buyReason);
@@ -2063,11 +2079,7 @@ function TradesTab() {
                         <div style={{ display: "flex", alignItems: "center", gap: "0.6rem", flexWrap: "wrap" }}>
                           {isAdmin && (<>
                           <span style={{ fontSize: "0.75rem", color: "var(--color-muted)" }}>출처</span>
-                          <ToggleGroup
-                            options={[{ label: "리딩방", value: "리딩방" as const }, { label: "개인", value: "개인" as const }]}
-                            value={editSrc} onChange={setEditSrc}
-                            colors={{ "리딩방": "#7c3aed", "개인": "#2563eb" }}
-                          />
+                          <ToggleGroup options={SOURCE_OPTIONS} value={editSrc} onChange={setEditSrc} colors={SOURCE_COLORS} />
                           <span style={{ fontSize: "0.75rem", color: "var(--color-muted)", marginLeft: "0.25rem" }}>유형</span>
                           <ToggleGroup
                             options={[{ label: "실매매", value: "실매매" as const }, { label: "테스트", value: "테스트" as const }]}
