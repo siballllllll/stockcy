@@ -3764,6 +3764,7 @@ def _get_trade_indicators(ticker: str, buy_date_str: str) -> dict:
                 "current_price":   round(current, 2),
                 "today_change_pct": round(today_change_pct, 2),
                 "ma20":            round(ma20, 2),
+                "ma60":            round(ma60, 2),
             }
             # 하승훈式 결정론 신호 병합 (추가 다운로드 없이 동일 hist 사용)
             try:
@@ -4854,11 +4855,13 @@ def scan_holdings_risk(owner: str = "USER") -> dict:
         if not cur:
             continue
         loss = (cur - avg) / avg * 100
-        rsi = d.get("rsi"); ma20 = d.get("ma20"); p52 = d.get("pos_52w_pct")
+        rsi = d.get("rsi"); ma20 = d.get("ma20"); ma60 = d.get("ma60"); p52 = d.get("pos_52w_pct")
         tk6 = ticker.zfill(6) if ticker.isdigit() else ticker
 
         # ── 객관 신호들 ──
-        trend_break = bool(cur and ma20 and cur < ma20 and (rsi is not None and rsi < 45))  # 추세 붕괴
+        # 추세 붕괴: 코스닥 등 변동성 큰 종목은 20일선을 자주 들락거리므로, '20일선 + 60일선 동시 이탈'을
+        #           구조적 하락으로 본다(단순 20일선 터치로 과민 반응 방지) + RSI 약세.
+        trend_break = bool(cur and ma20 and ma60 and cur < ma20 and cur < ma60 and (rsi is not None and rsi < 45))
         overheated  = bool((p52 is not None and p52 >= 90) and (rsi is not None and rsi >= 75))
         supply_buy  = tk6 in buy_set      # 세력 매집(객관적 긍정)
         supply_sell = tk6 in sell_set     # 세력 이탈(객관적 부정)
