@@ -1252,6 +1252,13 @@ async def get_recommendation_stats(user: dict = Depends(get_current_user)):
     return await asyncio.to_thread(load_ai_recommendation_stats)
 
 
+@router.get("/buy-reason-stats")
+async def get_buy_reason_stats(user: dict = Depends(get_current_user)):
+    """매수 선정이유별 거래 성과 — 사유 유무·키워드 그룹별 승률/평균수익률(완료 거래 기준)."""
+    from db import load_buy_reason_performance
+    return await asyncio.to_thread(load_buy_reason_performance)
+
+
 @router.get("/market-log/dates")
 async def get_market_log_dates(kind: str = "", limit: int = 90, user: dict = Depends(get_current_user)):
     """보관된 시장 인사이트/시나리오 로그 날짜 목록(최신순)."""

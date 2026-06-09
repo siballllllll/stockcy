@@ -642,6 +642,86 @@ function CapitalRotationCard({ singleTicker, singleName, onClose }: { singleTick
   );
 }
 
+// ── 매수 사유별 성과 패널 (학습) ─────────────────────────────────────────────────
+function BuyReasonStatsPanel() {
+  const [open, setOpen]       = useState(false);
+  const [data, setData]       = useState<any>(null);
+  const [loaded, setLoaded]   = useState(false);
+  const [loading, setLoading] = useState(false);
+
+  const toggle = async () => {
+    const next = !open;
+    setOpen(next);
+    if (next && !loaded) {
+      setLoading(true);
+      try {
+        const res = await fetch(`${BASE_URL}/api/ai/buy-reason-stats`);
+        if (res.ok) { setData(await res.json()); setLoaded(true); }
+      } catch { /* 무시 */ }
+      finally { setLoading(false); }
+    }
+  };
+
+  const wr = (v: number | null | undefined) => (v == null ? "—" : `${v}%`);
+  const rt = (v: number | null | undefined) => (v == null ? "—" : `${v >= 0 ? "+" : ""}${v}%`);
+  const wrColor = (v: number | null | undefined) => (v == null ? "var(--color-muted)" : v >= 60 ? "#34d399" : v >= 40 ? "#fbbf24" : "#f87171");
+
+  const w  = data?.with_reason ?? {};
+  const wo = data?.without_reason ?? {};
+  const buckets: any[] = data?.buckets ?? [];
+
+  return (
+    <div style={{ background: "var(--color-card)", border: "1px solid var(--color-border)", borderRadius: "10px", marginBottom: "12px", overflow: "hidden" }}>
+      <button onClick={toggle} style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 14px", background: "transparent", border: "none", cursor: "pointer", color: "var(--color-text)", fontWeight: 800, fontSize: "0.88rem" }}>
+        <span>📒 매수 사유별 성과 <span style={{ fontSize: "0.72rem", fontWeight: 600, color: "var(--color-muted)" }}>— 어떤 사유로 산 거래가 잘 맞았나 (완료 거래 학습)</span></span>
+        <span style={{ color: "var(--color-muted)" }}>{open ? "▲" : "▼"}</span>
+      </button>
+      {open && (
+        <div style={{ padding: "4px 14px 14px" }}>
+          {loading ? (
+            <div style={{ color: "var(--color-muted)", fontSize: "0.82rem", padding: "8px 0" }}>불러오는 중...</div>
+          ) : !data || data.total === 0 ? (
+            <div style={{ color: "var(--color-muted)", fontSize: "0.82rem", padding: "8px 0" }}>완료된 거래가 아직 없습니다. 매도가 기록되면 사유별 승률이 쌓입니다.</div>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+              {/* 사유 유무 비교 */}
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px" }}>
+                <div style={{ background: "rgba(52,211,153,0.06)", border: "1px solid rgba(52,211,153,0.25)", borderRadius: "8px", padding: "8px 10px" }}>
+                  <div style={{ fontSize: "0.72rem", color: "var(--color-muted)" }}>매수 사유 작성 거래</div>
+                  <div style={{ fontWeight: 800 }}>{w.n ?? 0}건 · 승률 <span style={{ color: wrColor(w.win_rate) }}>{wr(w.win_rate)}</span></div>
+                  <div style={{ fontSize: "0.74rem", color: "var(--color-subtle)" }}>평균 {rt(w.avg_return)}</div>
+                </div>
+                <div style={{ background: "rgba(255,255,255,0.03)", border: "1px solid var(--color-border)", borderRadius: "8px", padding: "8px 10px" }}>
+                  <div style={{ fontSize: "0.72rem", color: "var(--color-muted)" }}>사유 없는 거래</div>
+                  <div style={{ fontWeight: 800 }}>{wo.n ?? 0}건 · 승률 <span style={{ color: wrColor(wo.win_rate) }}>{wr(wo.win_rate)}</span></div>
+                  <div style={{ fontSize: "0.74rem", color: "var(--color-subtle)" }}>평균 {rt(wo.avg_return)}</div>
+                </div>
+              </div>
+
+              {/* 키워드 그룹별 승률 */}
+              {buckets.length > 0 && (
+                <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
+                  <div style={{ fontSize: "0.74rem", fontWeight: 700, color: "var(--color-muted)", marginTop: "2px" }}>사유 유형별 (승률 높은 순)</div>
+                  {buckets.map((b, i) => (
+                    <div key={i} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "8px", background: "rgba(255,255,255,0.02)", border: "1px solid var(--color-border)", borderRadius: "6px", padding: "5px 10px", fontSize: "0.8rem" }}>
+                      <span style={{ color: "var(--color-text)" }}>{b.label} <span style={{ fontSize: "0.7rem", color: "var(--color-muted)" }}>· {b.n}건</span></span>
+                      <span>승률 <b style={{ color: wrColor(b.win_rate) }}>{wr(b.win_rate)}</b> <span style={{ color: "var(--color-muted)", fontSize: "0.74rem" }}>(평균 {rt(b.avg_return)})</span></span>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <div style={{ fontSize: "0.68rem", color: "var(--color-muted)", lineHeight: 1.5 }}>
+                ※ 매도까지 끝난 거래만 집계. 자유 텍스트 사유를 키워드로 분류한 결정론 통계(AI 비용 없음). 한 거래가 여러 유형에 중복 집계될 수 있습니다.
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+
 // ── 보유 종목 탭 ──────────────────────────────────────────────────────────────
 function PortfolioTab({ gapBulkMap }: { gapBulkMap: Record<string, any> }) {
   const { user } = useAuth();
@@ -933,6 +1013,9 @@ function PortfolioTab({ gapBulkMap }: { gapBulkMap: Record<string, any> }) {
 
       {/* 자금 회전 분석 — 전체 */}
       {portfolio && portfolio.length > 0 && <CapitalRotationCard />}
+
+      {/* 매수 사유별 성과 (학습) */}
+      <BuyReasonStatsPanel />
 
       {!portfolio || portfolio.length === 0 ? (
         <StatusBox type="info">보유 종목이 없습니다.</StatusBox>

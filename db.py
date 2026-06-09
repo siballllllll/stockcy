@@ -2488,6 +2488,69 @@ def load_ai_recommendation_stats() -> dict:
         return {"measured": 0, "total": 0, "horizons": [], "error": str(e)}
 
 
+# 매수 사유 키워드 버킷 (자유 텍스트를 의미 그룹으로 분류 → 그룹별 승률 학습)
+_BUY_REASON_BUCKETS = [
+    ("돌파/신고가",    ["돌파", "신고가", "전고점", "박스권"]),
+    ("눌림목/반등",    ["눌림", "조정", "지지", "반등", "낙폭", "저점"]),
+    ("실적/밸류",      ["실적", "어닝", "흑자", "펀더", "밸류", "저평가", "per", "pbr", "배당"]),
+    ("수급/세력",      ["수급", "외국인", "기관", "세력", "매집", "거래량", "거래대금"]),
+    ("테마/모멘텀",    ["테마", "모멘텀", "이슈", "재료", "급등", "순환매"]),
+    ("리딩방/추천",    ["리딩", "추천", "방장", "콜"]),
+    ("기술적시그널",   ["골든크로스", "macd", "rsi", "정배열", "이평", "차트", "캔들"]),
+]
+
+
+def load_buy_reason_performance() -> dict:
+    """매수 선정이유(buy_reason)별 거래 성과 — 사유 유무·키워드 그룹별 승률/평균수익률.
+    완료 거래(trade_history)만 사용. 결정론(무료). '이런 사유로 산 거래는 얼마나 맞았나'를 학습/표시."""
+    try:
+        conn = get_db_conn(); cur = conn.cursor()
+        cur.execute("SELECT profit, profit_pct, buy_reason FROM trade_history")
+        rows = [dict(r) for r in cur.fetchall()]
+        conn.close()
+    except Exception as e:
+        print(f"load_buy_reason_performance error: {e}")
+        return {"total": 0, "with_reason": {}, "without_reason": {}, "buckets": [], "error": str(e)}
+
+    def _win(r):
+        try:
+            return float(r.get("profit") or 0) > 0
+        except Exception:
+            return False
+
+    def _ret(r):
+        try:
+            return float(r.get("profit_pct") or 0)
+        except Exception:
+            return 0.0
+
+    def _stat(subset):
+        n = len(subset)
+        if n == 0:
+            return {"n": 0, "win_rate": None, "avg_return": None}
+        wins = sum(1 for r in subset if _win(r))
+        return {"n": n, "win_rate": round(wins / n * 100, 1),
+                "avg_return": round(sum(_ret(r) for r in subset) / n, 2)}
+
+    with_r = [r for r in rows if str(r.get("buy_reason") or "").strip()]
+    without_r = [r for r in rows if not str(r.get("buy_reason") or "").strip()]
+
+    buckets = []
+    for label, kws in _BUY_REASON_BUCKETS:
+        subset = [r for r in with_r if any(k in str(r.get("buy_reason") or "").lower() for k in kws)]
+        if subset:
+            st = _stat(subset); st["label"] = label
+            buckets.append(st)
+    buckets.sort(key=lambda x: (x["win_rate"] if x["win_rate"] is not None else -1), reverse=True)
+
+    return {
+        "total": len(rows),
+        "with_reason": _stat(with_r),
+        "without_reason": _stat(without_r),
+        "buckets": buckets,
+    }
+
+
 def _gsheet_backup_delete_ai_cache(cache_key: str):
     """[구글 시트 백업 전용] 'AI캐시' 탭에서 특정 캐시를 삭제합니다."""
     sh, msg = _get_spreadsheet()
