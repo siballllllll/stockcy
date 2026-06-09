@@ -4827,6 +4827,19 @@ def scan_holdings_risk(owner: str = "USER") -> dict:
     from db import load_portfolio_from_gsheet
     portfolio = [p for p in (load_portfolio_from_gsheet(owner) or [])
                  if str(p.get("trade_type", "실매매")) != "테스트"]
+
+    # 객관적 수급 신호(외국인·기관) — 가격·지표 외에 '세력이 사고 있나/팔고 있나'를 함께 본다.
+    buy_set, sell_set = set(), set()
+    try:
+        from data_kr import get_kr_frgn_inst_rank
+        for mkt in ["J", "Q"]:
+            for s in get_kr_frgn_inst_rank(mkt, top_n=30, sort="buy") or []:
+                buy_set.add(str(s.get("종목코드", "")).zfill(6))
+            for s in get_kr_frgn_inst_rank(mkt, top_n=30, sort="sell") or []:
+                sell_set.add(str(s.get("종목코드", "")).zfill(6))
+    except Exception:
+        pass
+
     flagged = []
     for p in portfolio:
         ticker = str(p.get("ticker", "")).strip()
@@ -4842,31 +4855,51 @@ def scan_holdings_risk(owner: str = "USER") -> dict:
             continue
         loss = (cur - avg) / avg * 100
         rsi = d.get("rsi"); ma20 = d.get("ma20"); p52 = d.get("pos_52w_pct")
-        flags, sev = [], 0
-        if loss <= -15:
-            flags.append(f"손실 확대 {loss:.1f}%"); sev = max(sev, 3)
-        elif loss <= -7:
-            flags.append(f"손절선 근접 {loss:.1f}%"); sev = max(sev, 2)
-        if cur and ma20 and cur < ma20 and (rsi is not None and rsi < 45):
-            flags.append("추세 약화(20일선 이탈+RSI 약세)"); sev = max(sev, 2)
-        if (p52 is not None and p52 >= 90) and (rsi is not None and rsi >= 75):
-            flags.append("과열(52주 고점권+과매수)"); sev = max(sev, 1)
-        if flags:
-            # 긴급도: 손실 -15%↓ 또는 (손실 -7%↓ + 추세 약화) → '당장 손절 검토'
-            trend_break = any("추세 약화" in f for f in flags)
-            urgent = (loss <= -15) or (loss <= -7 and trend_break)
-            # '손절 명령'이 아니라 '점검 필요' 신호 — 손절/물타기/보유는 펀더멘털·논리 보고 AI가 판단
-            action = ("🚨 즉시 점검 필요" if urgent
-                      else "⚠️ 점검 권장" if loss <= -7
-                      else "👀 주시")
-            flagged.append({
-                "ticker": ticker, "name": p.get("name", ticker),
-                "buy_price": avg, "current_price": round(cur, 2),
-                "loss_pct": round(loss, 2), "rsi": rsi, "pos_52w": p52,
-                "flags": flags, "severity": sev,
-                "urgent": urgent, "action": action,
-                "has_reason": bool(str(p.get("buy_reason", "")).strip()),
-            })
+        tk6 = ticker.zfill(6) if ticker.isdigit() else ticker
+
+        # ── 객관 신호들 ──
+        trend_break = bool(cur and ma20 and cur < ma20 and (rsi is not None and rsi < 45))  # 추세 붕괴
+        overheated  = bool((p52 is not None and p52 >= 90) and (rsi is not None and rsi >= 75))
+        supply_buy  = tk6 in buy_set      # 세력 매집(객관적 긍정)
+        supply_sell = tk6 in sell_set     # 세력 이탈(객관적 부정)
+
+        # 신호 수집 (요즘 -15~-25%가 흔한 장 → 하락폭 임계는 보수적으로)
+        flags = []
+        if loss <= -20:   flags.append(f"큰 손실 {loss:.1f}%")
+        elif loss <= -10: flags.append(f"손실 {loss:.1f}%")
+        if trend_break:  flags.append("추세 붕괴(20일선 이탈+RSI 약세)")
+        if overheated:   flags.append("과열(고점권+과매수)")
+        if supply_sell:  flags.append("외국인·기관 순매도(세력 이탈)")
+
+        # ── 손절 / 점검 / 관찰 판정 (하락폭이 아니라 '객관적 악재 결합'으로) ──
+        # 진짜 손절감 = 추세 붕괴 + (세력 이탈 또는 큰 손실). 단 세력 매집 중이면 손절 아님.
+        cut    = (not supply_buy) and trend_break and (supply_sell or loss <= -20)
+        review = (not cut) and (not supply_buy) and (trend_break or supply_sell or loss <= -15)
+
+        if supply_buy and (loss <= -10 or trend_break):
+            # 급락·추세 흔들려도 세력이 사고 있으면 = 시장 하락일 가능성, 손절 아닌 관찰
+            objective = "🏦 외국인·기관 순매수 중 (세력 매집 — 시장 하락일 수 있음, 단순 손절 주의)"
+            action, urgent, sev = "👀 관찰 (보유 무방)", False, 1
+        elif cut:
+            objective = "🏦 외국인·기관 순매도(세력 이탈)" if supply_sell else "추세 붕괴 + 손실 확대"
+            action, urgent, sev = "🛑 손절 검토", True, 3
+        elif review:
+            objective = "🏦 외국인·기관 순매도(세력 이탈)" if supply_sell else ""
+            action, urgent, sev = "⚠️ 점검 필요", False, 2
+        elif overheated or loss <= -10:
+            objective = ""
+            action, urgent, sev = "👀 관찰", False, 1
+        else:
+            continue   # 신호 약하면 배너에서 제외 (노이즈 감소)
+
+        flagged.append({
+            "ticker": ticker, "name": p.get("name", ticker),
+            "buy_price": avg, "current_price": round(cur, 2),
+            "loss_pct": round(loss, 2), "rsi": rsi, "pos_52w": p52,
+            "flags": flags, "severity": sev,
+            "urgent": urgent, "action": action, "objective": objective,
+            "has_reason": bool(str(p.get("buy_reason", "")).strip()),
+        })
     flagged.sort(key=lambda x: (x.get("urgent", False) is False, -x["severity"], x["loss_pct"]))
     return {"checked": len(portfolio), "flagged": flagged}
 

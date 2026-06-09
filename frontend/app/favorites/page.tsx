@@ -702,20 +702,23 @@ function HoldingsRiskBanner() {
   return (
     <div style={{ background: "rgba(248,113,113,0.07)", border: "1px solid rgba(248,113,113,0.35)", borderRadius: "10px", padding: "10px 14px", marginBottom: "12px" }}>
       <div style={{ fontWeight: 800, fontSize: "0.88rem", color: "#f87171", marginBottom: "6px" }}>
-        {urgentCount > 0 ? `🚨 즉시 점검 필요 ${urgentCount}건` : `⚠️ 점검 필요 보유종목 ${flagged.length}건`}
-        <span style={{ fontSize: "0.72rem", fontWeight: 600, color: "var(--color-muted)" }}> — 손절 근접·추세 약화·과열 (기술적 신호, 자동 감지)</span>
+        {urgentCount > 0 ? `🛑 손절 검토 ${urgentCount}건` : `⚠️ 점검 필요 보유종목 ${flagged.length}건`}
+        <span style={{ fontSize: "0.72rem", fontWeight: 600, color: "var(--color-muted)" }}> — 추세·수급·손실 종합 (자동 감지)</span>
       </div>
       <div style={{ fontSize: "0.68rem", color: "var(--color-muted)", marginBottom: "6px", lineHeight: 1.5 }}>
-        ※ 가격·지표만 본 <b>기술적 위험 신호</b>입니다. <b>펀더멘털·미래 전망이 양호하면 오히려 분할매수 기회</b>일 수 있어요 — 손절할지·물탈지·보유할지는 행의 <b>AI 매도 타이밍</b>으로 논리(유효/훼손)를 꼭 확인하세요.
+        ※ <b>🛑 손절</b>=추세 붕괴+세력 이탈 등 객관적 악재가 겹친 경우 · <b>⚠️ 점검</b>=확인 권장 · <b>👀 관찰(보유 무방)</b>=세력 매집 중이라 시장 하락일 가능성. 하락폭만으로 손절하지 않습니다 — 최종 판단은 <b>AI 매도 타이밍</b>으로.
       </div>
       <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
         {flagged.map((f, i) => (
           <div key={i} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "8px", fontSize: "0.8rem", background: f.urgent ? "rgba(248,113,113,0.12)" : "rgba(0,0,0,0.15)", borderLeft: `3px solid ${f.urgent ? "#f87171" : sevColor(f.severity)}`, borderRadius: "4px", padding: "5px 10px" }}>
             <span>
-              {f.action && <b style={{ color: f.urgent ? "#f87171" : "#fbbf24", marginRight: "6px" }}>{f.action}</b>}
+              {f.action && <b style={{ color: String(f.action).includes("손절") ? "#f87171" : String(f.action).includes("점검") ? "#fbbf24" : "#34d399", marginRight: "6px" }}>{f.action}</b>}
               <b style={{ color: "var(--color-text)" }}>{f.name}</b> <span style={{ color: "var(--color-muted)", fontSize: "0.72rem" }}>{f.ticker}</span> <span style={{ color: f.loss_pct < 0 ? "#60a5fa" : "#f87171", fontWeight: 700 }}>{f.loss_pct >= 0 ? "+" : ""}{f.loss_pct}%</span>
             </span>
-            <span style={{ color: "var(--color-subtle)", fontSize: "0.74rem", textAlign: "right" }}>{(f.flags ?? []).join(" · ")}{!f.has_reason && " · 매수사유 미작성"}</span>
+            <span style={{ color: "var(--color-subtle)", fontSize: "0.74rem", textAlign: "right" }}>
+              {(f.flags ?? []).join(" · ")}{!f.has_reason && " · 매수사유 미작성"}
+              {f.objective && <div style={{ color: f.objective.includes("매수") ? "#34d399" : "#f87171", fontSize: "0.72rem", marginTop: "2px" }}>{f.objective}</div>}
+            </span>
           </div>
         ))}
       </div>
