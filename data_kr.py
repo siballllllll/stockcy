@@ -398,8 +398,10 @@ def _get_kr_per_pbr_naver(code: str) -> dict:
 
 
 @st.cache_data(ttl=60)
-def get_kr_stock_price(stock_code: str):
-    """국내 주식 현재가 및 기본 정보 조회 (KIS API → yfinance 폴백, 1분 캐싱)"""
+def get_kr_stock_price(stock_code: str, with_fundamental: bool = False):
+    """국내 주식 현재가 및 기본 정보 조회 (KIS API → yfinance 폴백, 1분 캐싱).
+    with_fundamental=True일 때만 KIS가 비운 PER/PBR을 네이버/pykrx로 보강(느린 네트워크 호출).
+    → 종목검색 상세에서만 True, 픽·시나리오 등 대량 반복 호출 경로는 False(지연 방지)."""
     stock_code = str(stock_code) if stock_code else ""
     if stock_code.isdigit():
         stock_code = stock_code.zfill(6)  # 5자리 코드 앞에 0 채움 (e.g. 48770 → 048770)
@@ -411,21 +413,22 @@ def get_kr_stock_price(stock_code: str):
     if data:
         o = data["output"]
         # PER/PBR: KIS가 비워 주면(적자·일부 종목) 네이버 → pykrx 순으로 보강. ETF/적자는 원래 없음.
+        # 단 with_fundamental=True(종목검색 상세)일 때만 — 대량 호출 경로의 네트워크 지연/튕김 방지.
         per_v, pbr_v = o.get("per", "-"), o.get("pbr", "-")
-        if _kr_val_missing(per_v) or _kr_val_missing(pbr_v):
+        if with_fundamental and (_kr_val_missing(per_v) or _kr_val_missing(pbr_v)):
             nv = _get_kr_per_pbr_naver(stock_code)   # 1차: 네이버 스크래핑(KRX 차단 환경에서도 동작)
             if nv:
                 if _kr_val_missing(per_v) and nv.get("per"):
                     per_v = nv["per"]
                 if _kr_val_missing(pbr_v) and nv.get("pbr"):
                     pbr_v = nv["pbr"]
-        if _kr_val_missing(per_v) or _kr_val_missing(pbr_v):
-            fm = _get_kr_fundamental_map().get(stock_code)   # 2차: pykrx(가능한 환경에서만)
-            if fm:
-                if _kr_val_missing(per_v) and fm.get("per"):
-                    per_v = round(fm["per"], 2)
-                if _kr_val_missing(pbr_v) and fm.get("pbr"):
-                    pbr_v = round(fm["pbr"], 2)
+            if _kr_val_missing(per_v) or _kr_val_missing(pbr_v):
+                fm = _get_kr_fundamental_map().get(stock_code)   # 2차: pykrx(가능한 환경에서만)
+                if fm:
+                    if _kr_val_missing(per_v) and fm.get("per"):
+                        per_v = round(fm["per"], 2)
+                    if _kr_val_missing(pbr_v) and fm.get("pbr"):
+                        pbr_v = round(fm["pbr"], 2)
         return {
             "code": stock_code,
             "name": o.get("hts_kor_isnm") or stock_code,

@@ -124,9 +124,9 @@ def kr_stocks_all():
 
 @router.get("/stocks/{code}")
 def kr_stock_price(code: str):
-    """국내 종목 현재가 + 재무 지표 (KIS API)."""
-    fns = _kr()
-    result = fns["price"](code)
+    """국내 종목 현재가 + 재무 지표 (KIS API). 검색 상세이므로 PER/PBR 보강(네이버) 활성화."""
+    from data_kr import get_kr_stock_price
+    result = get_kr_stock_price(code, with_fundamental=True)
     return result or {"error": "데이터 없음"}
 
 
