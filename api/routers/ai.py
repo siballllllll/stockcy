@@ -43,6 +43,7 @@ class SellTimingRequest(BaseModel):
     avg_price:     float
     current_price: float
     market:        str = "KR"
+    buy_reason:    str = ""   # 최초 매수 선정이유 (있으면 AI가 논리 유효성 코멘트)
 
 
 class CustomIssueRequest(BaseModel):
@@ -475,6 +476,7 @@ async def sell_timing(req: SellTimingRequest, _credit: dict = Depends(consume_ai
                 req.avg_price,
                 req.current_price,
                 req.market,
+                req.buy_reason,
             )
             yield _sse({"status": "done", "result": result})
         except Exception as e:
@@ -799,6 +801,7 @@ class PostmortemRequest(BaseModel):
     sell_date: str
     profit_pct: float
     owner: str = "USER"
+    buy_reason: str = ""   # 최초 매수 선정이유 (있으면 복기 AI가 사유 적중 여부 평가)
 
 @router.post("/postmortem")
 async def postmortem_analysis(req: PostmortemRequest, user: dict = Depends(consume_ai_credit)):
@@ -819,7 +822,8 @@ async def postmortem_analysis(req: PostmortemRequest, user: dict = Depends(consu
                 req.buy_date,
                 req.sell_date,
                 req.profit_pct,
-                owner
+                owner,
+                req.buy_reason,
             )
             # 성공적으로 분석이 완료되면 DB의 학습포인트도 업데이트 (본인 거래만)
             if result and result.get("learning_point") and result.get("learning_point") != "-":

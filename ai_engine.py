@@ -1358,8 +1358,8 @@ def analyze_autonomous_trading(ticker: str, name: str, current_price: float, mar
 
 
 @st.cache_data(ttl=300)
-def analyze_sell_timing(ticker: str, name: str, avg_price: float, current_price: float, market: str = "KR") -> dict:
-    """평단가 기준 AI 매도 타이밍 분석. 결과를 5분간 캐싱."""
+def analyze_sell_timing(ticker: str, name: str, avg_price: float, current_price: float, market: str = "KR", buy_reason: str = "") -> dict:
+    """평단가 기준 AI 매도 타이밍 분석. 최초 매수 사유가 있으면 논리 유효성도 함께 판단."""
     pnl_pct = (current_price - avg_price) / avg_price * 100 if avg_price > 0 else 0
     sign = "+" if pnl_pct >= 0 else ""
     if market == "KR":
@@ -1376,9 +1376,11 @@ def analyze_sell_timing(ticker: str, name: str, avg_price: float, current_price:
 평단가: {avg_str}
 현재가: {cp_str}
 현재 수익률: {sign}{pnl_pct:.2f}%
+{("최초 매수 선정이유(투자자 본인 작성): " + str(buy_reason).strip()) if str(buy_reason).strip() else "최초 매수 선정이유: (작성 안 됨)"}
 
 구글 검색으로 {name}({ticker})의 최신 뉴스, 차트 흐름, 수급 동향, 거시경제 변수를 파악하세요.
 위 투자자가 보유 중인 포지션 기준으로, 지금 매도하는 것이 좋은지, 기다려야 하는지, 타이밍을 어떻게 잡아야 하는지 분석하세요.
+{("★ 위 '최초 매수 선정이유'가 지금도 유효한지 반드시 검증하세요. 그 이유(예: 돌파·실적·테마·수급)가 깨졌으면 매도/물타기 금지 쪽으로, 여전히 살아있으면 보유/추가매수 쪽으로 판단을 기울이고, thesis_check에 그 판정과 근거를 적으세요." if str(buy_reason).strip() else "")}
 또한 **추가 매수(물타기)로 평단가를 낮추는 전략이 타당한지**, 타당하다면 어느 가격에·어느 평단까지 낮추고 그 평단 기준으로 언제 매도하면 좋은지도 함께 제시하세요.
 
 [추가 매수(물타기) 판단 원칙 — 매우 중요]
@@ -1388,6 +1390,7 @@ def analyze_sell_timing(ticker: str, name: str, avg_price: float, current_price:
 반드시 아래 JSON 형식으로만 응답하세요 (마크다운 백틱 없이):
 {{
   "verdict": "즉시 매도 | 분할 매도 | 보유 유지 | 추가 매수 고려",
+  "thesis_check": "최초 매수 선정이유가 지금도 유효한지 판정 — '유효/약화/훼손' 중 하나로 시작하고, 그 이유(예: 돌파가 실패함, 실적이 꺾임, 테마가 식음 등)를 1~2문장으로. 매수 사유가 없으면 빈 문자열",
   "timing": "구체적인 매도 타이밍 — 오늘 장 마감 전 / 다음 저항선 도달 시 / 실적 발표 전 등 구체 조건",
   "reason": "판단 근거 — 현재 수익률 상황, 차트 기술적 위치, 최신 뉴스·이슈, 수급 흐름을 종합 (마크다운 불릿 3~4줄)",
   "target_exit": "권장 매도 목표가 또는 청산 트리거 조건 (구체적 가격 또는 이벤트)",
@@ -3332,10 +3335,15 @@ def recommend_entry_price(ticker: str, name: str, market: str, current_price: fl
         return {"error": str(e), "recommended_price": current_price, "reason": "AI 타점 추천에 실패했습니다. 현재가를 기준으로 분석을 보완합니다."}
 
 
-def analyze_trade_postmortem(ticker: str, name: str, market: str, buy_price: float, sell_price: float, buy_date: str, sell_date: str, profit_pct: float, owner: str = "USER") -> dict:
-    """거래 결과(Postmortem) 분석 리포트 생성"""
+def analyze_trade_postmortem(ticker: str, name: str, market: str, buy_price: float, sell_price: float, buy_date: str, sell_date: str, profit_pct: float, owner: str = "USER", buy_reason: str = "") -> dict:
+    """거래 결과(Postmortem) 분석 리포트 생성. 최초 매수 사유가 있으면 '사유 적중 여부'도 평가."""
     curr = "₩" if market == "국내" else "$"
     result_label = "수익" if profit_pct >= 0 else "손실"
+    _reason_line = (f"- 최초 매수 선정이유(본인 작성): {str(buy_reason).strip()}\n"
+                    if str(buy_reason).strip() else "- 최초 매수 선정이유: (작성 안 됨)\n")
+    _reason_task = ("- 위 '최초 매수 선정이유'가 실제 결과로 맞았는지/빗나갔는지 reason_hit에 평가하세요. "
+                    "(예: '돌파 노렸는데 돌파 실패로 손실' / '실적 기대가 적중해 수익') 사유가 없으면 reason_hit은 빈 문자열.\n"
+                    if str(buy_reason).strip() else "")
     prompt = (
         f"당신은 월스트리트 출신 탑티어 트레이딩 코치이자 퀀트 분석가입니다.\n절대로 한자(漢字)를 사용하지 마세요. 모든 출력은 한글과 영문만 사용하세요.\n"
         f"다음 거래에 대한 냉철한 사후 분석(Postmortem)을 수행하세요.\n\n"
@@ -3344,11 +3352,14 @@ def analyze_trade_postmortem(ticker: str, name: str, market: str, buy_price: flo
         f"- 매수가: {curr}{buy_price:,}  매수일: {buy_date}\n"
         f"- 매도가: {curr}{sell_price:,}  매도일: {sell_date}\n"
         f"- 손익률: {profit_pct:.2f}% ({result_label})\n"
-        f"- 거래 주체: {'AI 에이전트' if owner == 'AI' else '사용자'}\n\n"
+        f"- 거래 주체: {'AI 에이전트' if owner == 'AI' else '사용자'}\n"
+        f"{_reason_line}\n"
         "위 데이터를 바탕으로 매수/매도 타이밍, 수익/손실 원인, 교훈을 분석하세요.\n"
+        f"{_reason_task}"
         "반드시 아래 JSON 형식으로만 응답하세요 (추가 텍스트 없이):\n"
         "{\n"
         '  "evaluation": "종합 평가 (3~4문장. 매수/매도 타이밍의 적절성 평가)",\n'
+        '  "reason_hit": "최초 매수 사유의 적중 여부 평가 (1~2문장). 사유가 없으면 빈 문자열",\n'
         '  "cause": "수익 또는 손실의 핵심 원인 (2~3문장. 가격 움직임, 보유 기간, 시장 환경 등)",\n'
         '  "learning_point": "이 거래에서 얻을 수 있는 핵심 교훈 (1~2문장. 향후 거래의 가이드라인)"\n'
         "}"

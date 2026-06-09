@@ -852,6 +852,7 @@ function PortfolioTab({ gapBulkMap }: { gapBulkMap: Record<string, any> }) {
           ticker: p.ticker, name: p.name,
           avg_price: p.buy_price, current_price: p.currentPrice,
           market: p.isUs ? "US" : "KR",
+          buy_reason: p.buy_reason ?? "",   // 최초 매수 사유 → AI가 논리 유효성 코멘트
         }),
       });
       if (!res.body) throw new Error("no body");
@@ -1270,8 +1271,10 @@ function PortfolioTab({ gapBulkMap }: { gapBulkMap: Record<string, any> }) {
             if (parsed.error) return (
               <StatusBox type="danger">{parsed.error}</StatusBox>
             );
-            const hasAnyField = parsed.verdict || parsed.timing || parsed.target_exit || parsed.reason || parsed.risk || parsed.add_buy_verdict;
+            const hasAnyField = parsed.verdict || parsed.timing || parsed.target_exit || parsed.reason || parsed.risk || parsed.add_buy_verdict || parsed.thesis_check;
             const cur = sellTarget?.isUs ? "$" : "₩";
+            const thesis = String(parsed.thesis_check || "").trim();
+            const thesisBroken = thesis.includes("훼손") || thesis.includes("약화");
             if (!hasAnyField) return (
               <MarkdownLite text={sellResult} style={{ fontSize: "0.8rem", color: "var(--color-subtle)", wordBreak: "break-word", background: "rgba(0,0,0,0.2)", padding: "12px", borderRadius: "6px" }} />
             );
@@ -1280,6 +1283,12 @@ function PortfolioTab({ gapBulkMap }: { gapBulkMap: Record<string, any> }) {
                 {parsed.verdict && (
                   <div style={{ padding: "8px 14px", background: "rgba(99,102,241,0.12)", border: "1px solid rgba(99,102,241,0.3)", borderRadius: "8px", fontWeight: 700, fontSize: "0.97rem" }}>
                     📋 판단: {parsed.verdict}
+                  </div>
+                )}
+                {thesis && (
+                  <div style={{ padding: "8px 12px", background: thesisBroken ? "rgba(248,113,113,0.08)" : "rgba(52,211,153,0.08)", border: `1px solid ${thesisBroken ? "rgba(248,113,113,0.3)" : "rgba(52,211,153,0.3)"}`, borderRadius: "8px" }}>
+                    <div style={{ fontWeight: 700, fontSize: "0.78rem", color: thesisBroken ? "#f87171" : "#34d399", marginBottom: "2px" }}>🧭 최초 매수 논리 점검</div>
+                    <div style={{ lineHeight: 1.6, color: "var(--color-text)" }}>{thesis}</div>
                   </div>
                 )}
                 {parsed.timing && (
@@ -1425,6 +1434,7 @@ function PostmortemModal({ trade, onClose, onRefresh }: { trade: any; onClose: (
           sell_date:  trade["매도시간"] ?? trade.sell_date ?? "알 수 없음",
           profit_pct: parseNum(trade["수익률(%)"] ?? trade.profit_pct),
           owner:      trade["소유자"]  ?? trade.owner ?? "USER",
+          buy_reason: String(trade["매수사유"] ?? trade.buy_reason ?? ""),   // 최초 매수 사유 → 복기 AI 평가
         }),
       });
       if (!res.ok) {
@@ -1492,6 +1502,12 @@ function PostmortemModal({ trade, onClose, onRefresh }: { trade: any; onClose: (
               <div style={{ fontSize: "0.85rem", color: "var(--color-muted)", marginBottom: "0.5rem" }}>📝 종합 평가</div>
               <MarkdownLite text={pmResult?.evaluation} style={{ lineHeight: 1.6 }} />
             </div>
+            {pmResult?.reason_hit && String(pmResult.reason_hit).trim() && (
+              <div style={{ background: "rgba(56,189,248,0.08)", border: "1px solid rgba(56,189,248,0.3)", padding: "1rem", borderRadius: "8px" }}>
+                <div style={{ fontSize: "0.85rem", color: "#38bdf8", fontWeight: 700, marginBottom: "0.5rem" }}>🧭 최초 매수 사유 적중 여부</div>
+                <MarkdownLite text={pmResult.reason_hit} style={{ lineHeight: 1.6 }} />
+              </div>
+            )}
             <div style={{ background: "rgba(255,255,255,0.03)", padding: "1rem", borderRadius: "8px" }}>
               <div style={{ fontSize: "0.85rem", color: "var(--color-muted)", marginBottom: "0.5rem" }}>🔍 핵심 원인</div>
               <MarkdownLite text={pmResult?.cause} style={{ lineHeight: 1.6 }} />
