@@ -2577,6 +2577,38 @@ def log_ml_sample(source: str, ticker: str, name: str = "", market: str = "", en
         print(f"log_ml_sample error: {e}")
 
 
+def backfill_ml_samples_from_history() -> dict:
+    """기존 과거 추천(시나리오·스크리너)을 ML 통합 학습테이블로 소급 등록.
+    피처/라벨은 track_ml_sample_outcomes가 과거 데이터로 사후 채움. (티커,날짜) 중복 무시."""
+    try:
+        conn = get_db_conn(); cur = conn.cursor()
+        # 1) 시나리오 등장 종목(피해=하락기대 제외) — (티커, 등장일) 단위
+        cur.execute(
+            """INSERT OR IGNORE INTO ml_training_samples (source, ticker, name, market, decided_at)
+               SELECT 'scenario', ticker, MAX(name), MAX(market), substr(captured_at,1,10)
+               FROM scenario_stocks
+               WHERE COALESCE(role,'') != '피해' AND ticker IS NOT NULL AND TRIM(ticker) != ''
+               GROUP BY ticker, substr(captured_at,1,10)"""
+        )
+        n_scn = cur.rowcount
+        # 2) 패턴 스크리너 픽
+        cur.execute(
+            """INSERT OR IGNORE INTO ml_training_samples (source, ticker, name, market, decided_at)
+               SELECT 'pattern', ticker, MAX(name), 'kr', picked_date
+               FROM screener_picks
+               WHERE ticker IS NOT NULL AND TRIM(ticker) != ''
+               GROUP BY ticker, picked_date"""
+        )
+        n_scr = cur.rowcount
+        conn.commit()
+        total = cur.execute("SELECT COUNT(*) FROM ml_training_samples").fetchone()[0]
+        conn.close()
+        return {"scenario_added": n_scn, "screener_added": n_scr, "total_samples": total}
+    except Exception as e:
+        print(f"backfill_ml_samples_from_history error: {e}")
+        return {"error": str(e)}
+
+
 def load_buy_reason_performance() -> dict:
     """매수 선정이유(buy_reason)별 거래 성과 — 사유 유무·키워드 그룹별 승률/평균수익률.
     완료 거래(trade_history)만 사용. 결정론(무료). '이런 사유로 산 거래는 얼마나 맞았나'를 학습/표시."""

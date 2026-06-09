@@ -56,20 +56,22 @@ def build_training_set():
     return X, y
 
 
-def track_ml_sample_outcomes() -> dict:
+def track_ml_sample_outcomes(limit: int = 250, max_age_days: int = 60) -> dict:
     """통합 샘플(ml_training_samples)의 미완성 행에 대해, 과거 데이터로 판단시점 지표(피처) +
     d1/d3/d7 수익률 + 라벨을 한꺼번에 채운다. (추천 시점엔 종목만 기록 → 여기서 사후 보강)
-    추가 다운로드는 이 일일 job에서만 — 사용자 요청 경로엔 부담 0."""
+    추가 다운로드는 이 일일 job에서만 — 사용자 요청 경로엔 부담 0.
+    limit: 한 번에 처리할 최대 건수(대량 백필 시 분할 처리). 오래된(라벨 가능성 높은) 것부터."""
     from db import get_db_conn
     from datetime import datetime, timedelta
     import FinanceDataReader as fdr
     import yfinance as yf
 
     conn = get_db_conn(); cur = conn.cursor()
-    cutoff = (datetime.now() - timedelta(days=40)).strftime("%Y-%m-%d")
+    cutoff = (datetime.now() - timedelta(days=max_age_days)).strftime("%Y-%m-%d")
     cur.execute(
         """SELECT id, ticker, decided_at FROM ml_training_samples
-           WHERE label IS NULL AND decided_at >= ? ORDER BY decided_at ASC""", (cutoff,))
+           WHERE label IS NULL AND decided_at >= ? ORDER BY decided_at ASC LIMIT ?""",
+        (cutoff, int(limit)))
     rows = [dict(r) for r in cur.fetchall()]
     today = datetime.now().date()
     pending = []
@@ -105,7 +107,13 @@ def track_ml_sample_outcomes() -> dict:
         start = (decided - timedelta(days=400)).strftime("%Y-%m-%d")
         end = (decided + timedelta(days=14)).strftime("%Y-%m-%d")
         try:
-            df = yf.download(tk, start=start, end=end, progress=False, timeout=10) if is_us else fdr.DataReader(tk, start, end)
+            if is_us:
+                import pandas as pd
+                df = yf.download(tk, start=start, end=end, progress=False, timeout=10, auto_adjust=True)
+                if df is not None and isinstance(df.columns, pd.MultiIndex):
+                    df.columns = df.columns.get_level_values(0)   # 단일 티커 MultiIndex 평탄화
+            else:
+                df = fdr.DataReader(tk, start, end)
             if df is None or df.empty:
                 continue
             base_i = None
