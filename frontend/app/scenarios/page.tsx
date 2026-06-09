@@ -1219,8 +1219,8 @@ function ScenarioTrackingPanel() {
             </div>
 
             <div style={{ padding: "10px 20px 4px", fontSize: "0.7rem", color: "var(--color-muted)", lineHeight: 1.6 }}>
-              📅 <b>등장 날짜별</b>로 묶여 표시됩니다(최신순). · <b>등장가</b>=시나리오 등장 시점 가격 · <b>현재</b>=등장가 대비 현재 수익률 · <b>1/3/7일</b>=등장 후 거래일별 수익률(매일 새벽 자동 채워짐, D+1부터)<br/>
-              · <span style={{ color: "#fbbf24" }}>집계 대기</span>=다음 새벽 추적 때 등장가 확정 · <span style={{ color: "#fbbf24" }}>D+1 대기</span>=등장 후 1거래일 미경과(아직 성과 없음)
+              📅 <b>등장 날짜별</b>로 묶임(최신순). 왼쪽 배지 = 시나리오가 맞았는지: <span style={{ color: "#34d399" }}>✅적중</span>(예상대로 움직임) · <span style={{ color: "#f87171" }}>❌빗나감</span>(반대로 움직임) · <span style={{ color: "#fbbf24" }}>⏳진행중</span>(보합) · <span style={{ color: "#fbbf24" }}>추적중</span>(등장가/가격 집계 전)<br/>
+              · <b>📈상승기대</b>(수혜)는 오르면 적중, <b>📉하락기대</b>(피해)는 내리면 적중 · 오른쪽 숫자 = <b>등장가 대비 현재 수익률</b> · <b>7일확정</b>=등장 후 7거래일 성과
             </div>
 
             {/* 본문 (날짜 그룹별, 스크롤) */}
@@ -1239,56 +1239,55 @@ function ScenarioTrackingPanel() {
                       const isUs = /[A-Za-z]/.test(String(s.ticker));
                       const cr = s.current_return;
                       const crColor = cr == null ? "var(--color-muted)" : cr >= 0 ? "#34d399" : "#f87171";
-                      const roleColor = s.role === "피해" ? "#f87171" : s.role === "수혜" ? "#34d399" : "#a78bfa";
-                      const hasD = s.d1_return != null || s.d3_return != null || s.d7_return != null;
                       const sceneText = String(s.scenario_title || s.scenario_keyword || "").trim();
+                      // 적중 판정: 수혜/테마=상승 기대, 피해=하락 기대. 결과는 현재수익률(없으면 7일).
+                      const outcome = cr != null ? cr : (s.d7_return ?? null);
+                      const expectUp = s.role !== "피해";
+                      let vt: { t: string; c: string; bg: string };
+                      if (outcome == null) vt = { t: "추적중", c: "#fbbf24", bg: "rgba(251,191,36,0.12)" };
+                      else {
+                        const hit  = expectUp ? outcome > 1 : outcome < -1;
+                        const miss = expectUp ? outcome < -1 : outcome > 1;
+                        vt = hit  ? { t: "✅ 적중",   c: "#34d399", bg: "rgba(52,211,153,0.15)" }
+                           : miss ? { t: "❌ 빗나감", c: "#f87171", bg: "rgba(248,113,113,0.15)" }
+                           :        { t: "⏳ 진행중", c: "#fbbf24", bg: "rgba(251,191,36,0.12)" };
+                      }
+                      const roleLabel = s.role === "피해" ? "📉 하락기대" : s.role === "수혜" ? "📈 상승기대" : s.role === "테마" ? "테마" : s.role;
                       return (
-                        <div key={i} style={{ display: "flex", alignItems: "center", gap: "14px", background: "rgba(255,255,255,0.03)", border: "1px solid var(--color-border)", borderRadius: "8px", padding: "10px 14px" }}>
-                          {/* 좌측: 종목 정보 */}
+                        <div key={i} style={{ display: "flex", alignItems: "center", gap: "12px", background: "rgba(255,255,255,0.03)", border: "1px solid var(--color-border)", borderLeft: `4px solid ${vt.c}`, borderRadius: "8px", padding: "10px 14px" }}>
+                          {/* 적중 상태 배지 */}
+                          <div style={{ flexShrink: 0, minWidth: "70px", textAlign: "center", background: vt.bg, border: `1px solid ${vt.c}55`, borderRadius: "8px", padding: "6px 4px" }}>
+                            <div style={{ fontSize: "0.78rem", fontWeight: 800, color: vt.c, whiteSpace: "nowrap" }}>{vt.t}</div>
+                          </div>
+                          {/* 종목 정보 */}
                           <div style={{ flex: 1, minWidth: 0 }}>
-                            <div style={{ display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap", marginBottom: "3px" }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap", marginBottom: "2px" }}>
                               <span style={{ fontWeight: 800, color: "var(--color-text)", fontSize: "0.95rem" }}>{s.name}</span>
                               <span style={{ color: "var(--color-muted)", fontSize: "0.74rem" }}>{s.ticker}</span>
                               {isUs && <span style={{ fontSize: "0.62rem", padding: "1px 5px", borderRadius: "3px", background: "rgba(50,200,100,0.15)", color: "#34d399", border: "1px solid rgba(50,200,100,0.3)" }}>US</span>}
-                              {s.role && <span style={{ fontSize: "0.62rem", padding: "1px 5px", borderRadius: "3px", color: roleColor, border: `1px solid ${roleColor}55` }}>{s.role}</span>}
+                              {s.role && <span style={{ fontSize: "0.62rem", padding: "1px 5px", borderRadius: "3px", color: expectUp ? "#34d399" : "#f87171", border: `1px solid ${(expectUp ? "#34d399" : "#f87171")}55` }}>{roleLabel}</span>}
                               {s.horizon && <span style={{ fontSize: "0.62rem", padding: "1px 5px", borderRadius: "3px", color: "var(--color-muted)", border: "1px solid var(--color-border)" }}>{s.horizon}</span>}
                             </div>
-                            {/* 어떤 시나리오로 등장했는지 (실제 시나리오 제목) */}
                             {sceneText && (
-                              <div title={sceneText} style={{ fontSize: "0.76rem", color: "var(--color-subtle)", display: "-webkit-box", WebkitBoxOrient: "vertical", WebkitLineClamp: 2, overflow: "hidden", wordBreak: "keep-all", lineHeight: 1.35, marginBottom: "2px" }}>
+                              <div title={sceneText} style={{ fontSize: "0.74rem", color: "var(--color-subtle)", display: "-webkit-box", WebkitBoxOrient: "vertical", WebkitLineClamp: 1, overflow: "hidden", wordBreak: "keep-all", lineHeight: 1.3 }}>
                                 🧩 {sceneText}
                               </div>
                             )}
-                            <div style={{ fontSize: "0.72rem", color: "var(--color-muted)" }}>
+                            <div style={{ fontSize: "0.7rem", color: "var(--color-muted)" }}>
                               {s.captured_price
-                                ? `등장가 ${isUs ? "$" : "₩"}${Number(s.captured_price).toLocaleString()}`
-                                : <span style={{ color: "#fbbf24" }}>등장가 집계 대기</span>}
+                                ? <>등장가 {isUs ? "$" : "₩"}{Number(s.captured_price).toLocaleString()}{s.current_price != null && <> → 현재 {isUs ? "$" : "₩"}{Number(s.current_price).toLocaleString()}</>}</>
+                                : <span style={{ color: "#fbbf24" }}>등장가 집계 대기 (다음 새벽 확정)</span>}
                             </div>
                           </div>
-
-                          {/* 우측: d수익률 + 현재 수익률 */}
-                          <div style={{ display: "flex", alignItems: "center", gap: "16px", flexShrink: 0 }}>
-                            {hasD ? (
-                              <div style={{ display: "flex", gap: "10px", fontSize: "0.72rem", color: "var(--color-muted)" }}>
-                                {s.d1_return != null && <span>1일 {s.d1_return >= 0 ? "+" : ""}{s.d1_return}%</span>}
-                                {s.d3_return != null && <span>3일 {s.d3_return >= 0 ? "+" : ""}{s.d3_return}%</span>}
-                                {s.d7_return != null && <span>7일 {s.d7_return >= 0 ? "+" : ""}{s.d7_return}%</span>}
-                              </div>
-                            ) : (
-                              <span style={{ fontSize: "0.66rem", color: "#fbbf24", whiteSpace: "nowrap" }}>D+1 대기</span>
-                            )}
-                            <div style={{ textAlign: "right", minWidth: "92px" }}>
-                              <div style={{ color: crColor, fontWeight: 800, fontSize: "1.05rem", whiteSpace: "nowrap" }}>
-                                {cr != null
-                                  ? `${cr >= 0 ? "+" : ""}${cr}%`
-                                  : s.current_price != null
-                                    ? `${isUs ? "$" : "₩"}${Number(s.current_price).toLocaleString()}`
-                                    : "조회 실패"}
-                              </div>
-                              <div style={{ fontSize: "0.62rem", color: "var(--color-muted)" }}>
-                                {cr != null ? "등장가 대비 현재" : s.current_price != null ? "현재가(등장가 대기)" : "현재가 미조회"}
-                              </div>
+                          {/* 등장 후 수익률 (대표 숫자) + 7일 확정 */}
+                          <div style={{ textAlign: "right", flexShrink: 0, minWidth: "84px" }}>
+                            <div style={{ color: crColor, fontWeight: 900, fontSize: "1.15rem", whiteSpace: "nowrap" }}>
+                              {cr != null ? `${cr >= 0 ? "+" : ""}${cr}%` : "—"}
                             </div>
+                            <div style={{ fontSize: "0.6rem", color: "var(--color-muted)" }}>등장 후</div>
+                            {s.d7_return != null && (
+                              <div style={{ fontSize: "0.64rem", color: "var(--color-subtle)", marginTop: "1px" }}>7일확정 {s.d7_return >= 0 ? "+" : ""}{s.d7_return}%</div>
+                            )}
                           </div>
                         </div>
                       );

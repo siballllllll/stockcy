@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import useSWR from "swr";
 import { MarkdownLite } from "@/components/ui/MarkdownLite";
 
@@ -13,6 +14,7 @@ const ret = (v: number | null | undefined) => (v == null ? "—" : `${v >= 0 ? "
 
 // ── 엔진별 성과 + AI추천 적중률 ─────────────────────────────────────────────────
 function EngineScoreboard() {
+  const router = useRouter();
   const { data: rec } = useSWR(`${B}/api/ai/recommendation-stats`, fetcher);
   const { data: scn } = useSWR(`${B}/api/ai/scenario-tracking/stats`, fetcher);
   const { data: scr } = useSWR(`${B}/api/ai/screener-backtest/stats`, fetcher);
@@ -27,9 +29,9 @@ function EngineScoreboard() {
   const scrO = scr?.overall ?? {};
 
   const engines = [
-    { name: "🤖 AI추천", n: rec?.measured ?? 0, win: recH?.win_rate ?? null, avg: recH?.avg_return ?? null, note: "단타발굴·종목분석 추천의 7일 후 성과" },
-    { name: "📈 시나리오", n: scnN, win: scnWin, avg: scnAvg, note: "시나리오 등장 종목 7일 후 (방향 적중)" },
-    { name: "🔍 복합스크리너", n: scr?.total_picks_backtested ?? 0, win: scrO.win_rate_d7 ?? null, avg: scrO.avg_d7_return ?? null, note: "패턴 스크리너 픽 7일 후 백테스트" },
+    { name: "🤖 AI추천", n: rec?.measured ?? 0, win: recH?.win_rate ?? null, avg: recH?.avg_return ?? null, note: "단타발굴·종목분석 추천의 7일 후 성과", href: "" },
+    { name: "📈 시나리오", n: scnN, win: scnWin, avg: scnAvg, note: "시나리오 등장 종목 7일 후 (방향 적중)", href: "/scenarios" },
+    { name: "🔍 복합스크리너", n: scr?.total_picks_backtested ?? 0, win: scrO.win_rate_d7 ?? null, avg: scrO.avg_d7_return ?? null, note: "패턴 스크리너 픽 7일 후 백테스트", href: "" },
   ];
 
   return (
@@ -38,8 +40,14 @@ function EngineScoreboard() {
       <div style={{ fontSize: "0.74rem", color: "var(--color-muted)", marginBottom: "12px" }}>각 AI 엔진이 추천한 종목이 실제로 며칠 뒤 맞았나 — 표본이 쌓일수록 정확해집니다.</div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "10px" }}>
         {engines.map((e, i) => (
-          <div key={i} style={{ background: "rgba(255,255,255,0.03)", border: "1px solid var(--color-border)", borderRadius: "10px", padding: "12px 14px" }}>
-            <div style={{ fontWeight: 800, fontSize: "0.9rem", marginBottom: "6px" }}>{e.name}</div>
+          <div key={i} onClick={e.href ? () => router.push(e.href) : undefined}
+            style={{ background: "rgba(255,255,255,0.03)", border: "1px solid var(--color-border)", borderRadius: "10px", padding: "12px 14px", cursor: e.href ? "pointer" : "default", transition: "border-color 0.15s" }}
+            onMouseEnter={e.href ? (ev) => { ev.currentTarget.style.borderColor = "var(--color-accent)"; } : undefined}
+            onMouseLeave={e.href ? (ev) => { ev.currentTarget.style.borderColor = "var(--color-border)"; } : undefined}>
+            <div style={{ fontWeight: 800, fontSize: "0.9rem", marginBottom: "6px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <span>{e.name}</span>
+              {e.href && <span style={{ fontSize: "0.68rem", color: "var(--color-accent)", fontWeight: 600 }}>상세 →</span>}
+            </div>
             <div style={{ display: "flex", alignItems: "baseline", gap: "8px" }}>
               <span style={{ fontSize: "1.5rem", fontWeight: 900, color: wrColor(e.win) }}>{pct(e.win)}</span>
               <span style={{ fontSize: "0.78rem", color: "var(--color-muted)" }}>승률</span>
