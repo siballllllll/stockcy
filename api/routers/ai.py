@@ -1263,6 +1263,13 @@ async def get_buy_reason_stats(user: dict = Depends(get_current_user)):
     return await asyncio.to_thread(load_buy_reason_performance)
 
 
+@router.get("/holdings-risk")
+async def get_holdings_risk(user: dict = Depends(get_current_user)):
+    """보유 종목 자동 위험 점검(결정론, AI 없음) — 손절 근접·추세 약화·과열 감지."""
+    from ai_engine import scan_holdings_risk
+    return await asyncio.to_thread(scan_holdings_risk, user["username"])
+
+
 @router.get("/market-log/dates")
 async def get_market_log_dates(kind: str = "", limit: int = 90, user: dict = Depends(get_current_user)):
     """보관된 시장 인사이트/시나리오 로그 날짜 목록(최신순)."""

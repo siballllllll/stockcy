@@ -4790,6 +4790,48 @@ def analyze_agent_daily_issues() -> dict:
 
 # ── 자금 회전(Capital Rotation) 어드바이저 ───────────────────────────────────
 
+def scan_holdings_risk(owner: str = "USER") -> dict:
+    """보유 종목 자동 위험 점검 — 손절 근접·추세 약화·과열을 결정론으로 감지(AI 호출 없음).
+    매일/탭 진입 시 호출해 '점검 필요 보유종목'을 띄우는 용도. 테스트 종목 제외."""
+    from db import load_portfolio_from_gsheet
+    portfolio = [p for p in (load_portfolio_from_gsheet(owner) or [])
+                 if str(p.get("trade_type", "실매매")) != "테스트"]
+    flagged = []
+    for p in portfolio:
+        ticker = str(p.get("ticker", "")).strip()
+        avg = float(p.get("buy_price") or 0)
+        if not ticker or avg <= 0:
+            continue
+        try:
+            d = _get_trade_indicators(ticker, "").get("daily", {})
+        except Exception:
+            continue
+        cur = d.get("current_price")
+        if not cur:
+            continue
+        loss = (cur - avg) / avg * 100
+        rsi = d.get("rsi"); ma20 = d.get("ma20"); p52 = d.get("pos_52w_pct")
+        flags, sev = [], 0
+        if loss <= -15:
+            flags.append(f"손실 확대 {loss:.1f}%"); sev = max(sev, 3)
+        elif loss <= -7:
+            flags.append(f"손절선 근접 {loss:.1f}%"); sev = max(sev, 2)
+        if cur and ma20 and cur < ma20 and (rsi is not None and rsi < 45):
+            flags.append("추세 약화(20일선 이탈+RSI 약세)"); sev = max(sev, 2)
+        if (p52 is not None and p52 >= 90) and (rsi is not None and rsi >= 75):
+            flags.append("과열(52주 고점권+과매수)"); sev = max(sev, 1)
+        if flags:
+            flagged.append({
+                "ticker": ticker, "name": p.get("name", ticker),
+                "buy_price": avg, "current_price": round(cur, 2),
+                "loss_pct": round(loss, 2), "rsi": rsi, "pos_52w": p52,
+                "flags": flags, "severity": sev,
+                "has_reason": bool(str(p.get("buy_reason", "")).strip()),
+            })
+    flagged.sort(key=lambda x: (-x["severity"], x["loss_pct"]))
+    return {"checked": len(portfolio), "flagged": flagged}
+
+
 def analyze_capital_rotation(owner: str = "USER", target_ticker: str = "") -> dict:
     """보유 종목별로 '홀딩 / 차익실현+재진입 / 다른 섹터 로테이션' 판단.
     보유 종목 지표 + 패턴 프로파일(성공 RSI 구간) + 수급 유입 후보를 종합해 Gemini가 판단.
