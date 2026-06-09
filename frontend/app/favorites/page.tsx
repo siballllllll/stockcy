@@ -698,13 +698,20 @@ function HoldingsRiskBanner() {
   }, []);
   if (!loaded || flagged.length === 0) return null;
   const sevColor = (s: number) => (s >= 3 ? "#f87171" : s >= 2 ? "#fbbf24" : "#fb923c");
+  const urgentCount = flagged.filter((f) => f.urgent).length;
   return (
     <div style={{ background: "rgba(248,113,113,0.07)", border: "1px solid rgba(248,113,113,0.35)", borderRadius: "10px", padding: "10px 14px", marginBottom: "12px" }}>
-      <div style={{ fontWeight: 800, fontSize: "0.88rem", color: "#f87171", marginBottom: "6px" }}>⚠️ 점검 필요 보유종목 {flagged.length}건 <span style={{ fontSize: "0.72rem", fontWeight: 600, color: "var(--color-muted)" }}>— 손절 근접·추세 약화·과열 신호 (자동 감지, 참고용)</span></div>
+      <div style={{ fontWeight: 800, fontSize: "0.88rem", color: "#f87171", marginBottom: "6px" }}>
+        {urgentCount > 0 ? `🚨 즉시 손절 검토 ${urgentCount}건` : `⚠️ 점검 필요 보유종목 ${flagged.length}건`}
+        <span style={{ fontSize: "0.72rem", fontWeight: 600, color: "var(--color-muted)" }}> — 손절 근접·추세 약화·과열 신호 (자동 감지, 참고용)</span>
+      </div>
       <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
         {flagged.map((f, i) => (
-          <div key={i} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "8px", fontSize: "0.8rem", background: "rgba(0,0,0,0.15)", borderLeft: `3px solid ${sevColor(f.severity)}`, borderRadius: "4px", padding: "5px 10px" }}>
-            <span><b style={{ color: "var(--color-text)" }}>{f.name}</b> <span style={{ color: "var(--color-muted)", fontSize: "0.72rem" }}>{f.ticker}</span> <span style={{ color: f.loss_pct < 0 ? "#60a5fa" : "#f87171", fontWeight: 700 }}>{f.loss_pct >= 0 ? "+" : ""}{f.loss_pct}%</span></span>
+          <div key={i} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "8px", fontSize: "0.8rem", background: f.urgent ? "rgba(248,113,113,0.12)" : "rgba(0,0,0,0.15)", borderLeft: `3px solid ${f.urgent ? "#f87171" : sevColor(f.severity)}`, borderRadius: "4px", padding: "5px 10px" }}>
+            <span>
+              {f.action && <b style={{ color: f.urgent ? "#f87171" : "#fbbf24", marginRight: "6px" }}>{f.action}</b>}
+              <b style={{ color: "var(--color-text)" }}>{f.name}</b> <span style={{ color: "var(--color-muted)", fontSize: "0.72rem" }}>{f.ticker}</span> <span style={{ color: f.loss_pct < 0 ? "#60a5fa" : "#f87171", fontWeight: 700 }}>{f.loss_pct >= 0 ? "+" : ""}{f.loss_pct}%</span>
+            </span>
             <span style={{ color: "var(--color-subtle)", fontSize: "0.74rem", textAlign: "right" }}>{(f.flags ?? []).join(" · ")}{!f.has_reason && " · 매수사유 미작성"}</span>
           </div>
         ))}

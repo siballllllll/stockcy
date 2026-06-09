@@ -4851,14 +4851,21 @@ def scan_holdings_risk(owner: str = "USER") -> dict:
         if (p52 is not None and p52 >= 90) and (rsi is not None and rsi >= 75):
             flags.append("과열(52주 고점권+과매수)"); sev = max(sev, 1)
         if flags:
+            # 긴급도: 손실 -15%↓ 또는 (손실 -7%↓ + 추세 약화) → '당장 손절 검토'
+            trend_break = any("추세 약화" in f for f in flags)
+            urgent = (loss <= -15) or (loss <= -7 and trend_break)
+            action = ("🚨 즉시 손절 검토" if urgent
+                      else "⚠️ 매도·손절 검토" if loss <= -7
+                      else "👀 주시")
             flagged.append({
                 "ticker": ticker, "name": p.get("name", ticker),
                 "buy_price": avg, "current_price": round(cur, 2),
                 "loss_pct": round(loss, 2), "rsi": rsi, "pos_52w": p52,
                 "flags": flags, "severity": sev,
+                "urgent": urgent, "action": action,
                 "has_reason": bool(str(p.get("buy_reason", "")).strip()),
             })
-    flagged.sort(key=lambda x: (-x["severity"], x["loss_pct"]))
+    flagged.sort(key=lambda x: (x.get("urgent", False) is False, -x["severity"], x["loss_pct"]))
     return {"checked": len(portfolio), "flagged": flagged}
 
 
