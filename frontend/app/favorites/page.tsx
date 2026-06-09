@@ -14,6 +14,16 @@ const SOURCE_OPTIONS = [
   { label: "프로그램추천", value: "프로그램추천" },
 ];
 const SOURCE_COLORS: Record<string, string> = { "리딩방": "#7c3aed", "개인": "#2563eb", "프로그램추천": "#0ea5e9" };
+// 프로그램추천 시 '어느 엔진에서 봤나' (다중 선택 가능 — 2곳 이상에서 추천받았을 수 있음)
+const PROGRAM_ENGINES = ["시나리오", "AI추천", "AI타점포착", "패턴스크리너", "교차검증", "AI에이전트"];
+// trade_source 인코딩: 프로그램추천+엔진 → "프로그램추천:시나리오,교차검증"
+function encodeSource(base: string, engines: string[]): string {
+  return base === "프로그램추천" && engines.length ? `프로그램추천:${engines.join(",")}` : base;
+}
+function decodeSource(raw: string): { base: string; engines: string[] } {
+  const [base, eng] = String(raw || "개인").split(":");
+  return { base: base || "개인", engines: eng ? eng.split(",").filter(Boolean) : [] };
+}
 import { Card } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
 import { StatusBox } from "@/components/ui/StatusBox";
@@ -365,6 +375,28 @@ function ToggleGroup<T extends string>({ options, value, onChange, colors }: {
   );
 }
 
+// ── 프로그램추천 엔진 다중 선택 ────────────────────────────────────────────────
+function ProgramEnginePicker({ value, onChange }: { value: string[]; onChange: (v: string[]) => void }) {
+  const toggle = (e: string) => onChange(value.includes(e) ? value.filter((x) => x !== e) : [...value, e]);
+  return (
+    <div style={{ display: "flex", gap: "4px", flexWrap: "wrap", alignItems: "center", marginTop: "2px" }}>
+      <span style={{ fontSize: "0.72rem", color: "var(--color-muted)" }}>어디서 추천? (복수 선택)</span>
+      {PROGRAM_ENGINES.map((e) => {
+        const on = value.includes(e);
+        return (
+          <button key={e} type="button" onClick={() => toggle(e)}
+            style={{ fontSize: "0.7rem", padding: "2px 8px", borderRadius: "6px", cursor: "pointer",
+              border: `1px solid ${on ? "#0ea5e9" : "var(--color-border)"}`,
+              background: on ? "rgba(14,165,233,0.18)" : "transparent",
+              color: on ? "#38bdf8" : "var(--color-muted)", fontWeight: on ? 700 : 500 }}>
+            {on ? "✓ " : ""}{e}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 // ── 보유 종목 추가 폼 ─────────────────────────────────────────────────────────
 function AddPortfolioForm({ onAdded }: { onAdded: () => void }) {
   const { user } = useAuth();
@@ -375,6 +407,7 @@ function AddPortfolioForm({ onAdded }: { onAdded: () => void }) {
   const [price,       setPrice]       = useState("");
   const [qty,         setQty]         = useState("");
   const [tradeSource, setTradeSource] = useState<string>("개인");
+  const [programEngines, setProgramEngines] = useState<string[]>([]);
   const [tradeType,   setTradeType]   = useState<"실매매" | "테스트">("실매매");
   const [buyReason,   setBuyReason]   = useState("");
   const [msg,         setMsg]         = useState<{ type: "success" | "danger"; text: string } | null>(null);
@@ -421,11 +454,11 @@ function AddPortfolioForm({ onAdded }: { onAdded: () => void }) {
           buy_price:    addPrice,
           quantity:     addQty,
           rating:       "-",
-          trade_source: tradeSource,
+          trade_source: encodeSource(tradeSource, programEngines),
           trade_type:   tradeType,
           buy_reason:   buyReason,
         }];
-        resultMsg = `${name.trim()} (${tk}) 추가 완료 [${tradeSource} · ${tradeType}]`;
+        resultMsg = `${name.trim()} (${tk}) 추가 완료 [${tradeSource}${tradeSource === "프로그램추천" && programEngines.length ? `(${programEngines.join("·")})` : ""} · ${tradeType}]`;
       }
 
       const res = await fetch(`${BASE_URL}/api/portfolio`, {
@@ -435,7 +468,7 @@ function AddPortfolioForm({ onAdded }: { onAdded: () => void }) {
       });
       if (!res.ok) throw new Error(`서버 오류: ${res.status}`);
       setMsg({ type: "success", text: resultMsg });
-      setTicker(""); setName(""); setPrice(""); setQty(""); setBuyReason("");
+      setTicker(""); setName(""); setPrice(""); setQty(""); setBuyReason(""); setProgramEngines([]);
       onAdded();
     } catch (e) {
       setMsg({ type: "danger", text: String(e) });
@@ -455,6 +488,7 @@ function AddPortfolioForm({ onAdded }: { onAdded: () => void }) {
           <span style={{ fontSize: "0.75rem", color: "var(--color-muted)" }}>출처</span>
           <ToggleGroup options={SOURCE_OPTIONS} value={tradeSource} onChange={setTradeSource} colors={SOURCE_COLORS} />
         </div>
+        {tradeSource === "프로그램추천" && <ProgramEnginePicker value={programEngines} onChange={setProgramEngines} />}
         <div style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}>
           <span style={{ fontSize: "0.75rem", color: "var(--color-muted)" }}>유형</span>
           <ToggleGroup
@@ -752,6 +786,19 @@ function BuyReasonStatsPanel() {
                   {data.by_source.map((b: any, i: number) => (
                     <div key={i} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "8px", background: "rgba(255,255,255,0.02)", border: "1px solid var(--color-border)", borderRadius: "6px", padding: "5px 10px", fontSize: "0.8rem" }}>
                       <span style={{ color: "var(--color-text)" }}>{b.source} <span style={{ fontSize: "0.7rem", color: "var(--color-muted)" }}>· {b.n}건</span></span>
+                      <span>승률 <b style={{ color: wrColor(b.win_rate) }}>{wr(b.win_rate)}</b> <span style={{ color: "var(--color-muted)", fontSize: "0.74rem" }}>(평균 {rt(b.avg_return)})</span></span>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* 프로그램추천 엔진별 성과 (다중 선택 시 중복 집계) */}
+              {Array.isArray(data.by_engine) && data.by_engine.length > 0 && (
+                <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
+                  <div style={{ fontSize: "0.74rem", fontWeight: 700, color: "#38bdf8", marginTop: "2px" }}>🤖 프로그램 엔진별 성과 (어느 추천이 잘 맞았나)</div>
+                  {data.by_engine.map((b: any, i: number) => (
+                    <div key={i} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "8px", background: "rgba(14,165,233,0.06)", border: "1px solid rgba(14,165,233,0.22)", borderRadius: "6px", padding: "5px 10px", fontSize: "0.8rem" }}>
+                      <span style={{ color: "var(--color-text)" }}>{b.engine} <span style={{ fontSize: "0.7rem", color: "var(--color-muted)" }}>· {b.n}건</span></span>
                       <span>승률 <b style={{ color: wrColor(b.win_rate) }}>{wr(b.win_rate)}</b> <span style={{ color: "var(--color-muted)", fontSize: "0.74rem" }}>(평균 {rt(b.avg_return)})</span></span>
                     </div>
                   ))}
@@ -1134,7 +1181,7 @@ function PortfolioTab({ gapBulkMap }: { gapBulkMap: Record<string, any> }) {
                         <span style={{ fontSize: "0.7rem", color: "var(--color-muted)", fontWeight: 400 }}>({p.normalTicker || p.ticker})</span>
                         {p.isUs && <span style={{ fontSize: "0.62rem", padding: "1px 5px", background: "rgba(50,200,100,0.15)", border: "1px solid rgba(50,200,100,0.3)", borderRadius: "3px", color: "var(--color-success)" }}>US</span>}
                         {p.trade_source === "리딩방" && <span style={{ fontSize: "0.6rem", padding: "1px 5px", background: "rgba(124,58,237,0.15)", border: "1px solid rgba(124,58,237,0.35)", borderRadius: "3px", color: "#a78bfa", fontWeight: 700 }}>리딩방</span>}
-                        {p.trade_source === "프로그램추천" && <span style={{ fontSize: "0.6rem", padding: "1px 5px", background: "rgba(14,165,233,0.15)", border: "1px solid rgba(14,165,233,0.4)", borderRadius: "3px", color: "#38bdf8", fontWeight: 700 }}>🤖프로그램</span>}
+                        {String(p.trade_source || "").startsWith("프로그램추천") && <span title={decodeSource(p.trade_source).engines.join(" · ")} style={{ fontSize: "0.6rem", padding: "1px 5px", background: "rgba(14,165,233,0.15)", border: "1px solid rgba(14,165,233,0.4)", borderRadius: "3px", color: "#38bdf8", fontWeight: 700 }}>🤖{decodeSource(p.trade_source).engines.length ? decodeSource(p.trade_source).engines.join("·") : "프로그램"}</span>}
                         {p.trade_type === "테스트" && <span style={{ fontSize: "0.6rem", padding: "1px 5px", background: "rgba(217,119,6,0.15)", border: "1px solid rgba(217,119,6,0.35)", borderRadius: "3px", color: "#fbbf24", fontWeight: 700 }}>테스트</span>}
                         {p.buy_reason && <span title={p.buy_reason} style={{ fontSize: "0.6rem", padding: "1px 5px", background: "rgba(56,189,248,0.12)", border: "1px solid rgba(56,189,248,0.35)", borderRadius: "3px", color: "#38bdf8", fontWeight: 700 }}>💬</span>}
                       </div>
@@ -1170,8 +1217,8 @@ function PortfolioTab({ gapBulkMap }: { gapBulkMap: Record<string, any> }) {
                       {p.trade_source === "리딩방" && (
                         <span style={{ fontSize: "0.62rem", padding: "1px 5px", background: "rgba(124,58,237,0.15)", border: "1px solid rgba(124,58,237,0.35)", borderRadius: "3px", color: "#a78bfa", fontWeight: 700 }}>리딩방</span>
                       )}
-                      {p.trade_source === "프로그램추천" && (
-                        <span style={{ fontSize: "0.62rem", padding: "1px 5px", background: "rgba(14,165,233,0.15)", border: "1px solid rgba(14,165,233,0.4)", borderRadius: "3px", color: "#38bdf8", fontWeight: 700 }}>🤖프로그램</span>
+                      {String(p.trade_source || "").startsWith("프로그램추천") && (
+                        <span title={decodeSource(p.trade_source).engines.join(" · ")} style={{ fontSize: "0.62rem", padding: "1px 5px", background: "rgba(14,165,233,0.15)", border: "1px solid rgba(14,165,233,0.4)", borderRadius: "3px", color: "#38bdf8", fontWeight: 700 }}>🤖{decodeSource(p.trade_source).engines.length ? decodeSource(p.trade_source).engines.join("·") : "프로그램"}</span>
                       )}
                       {/* 유형 태그 */}
                       {p.trade_type === "테스트" && (
@@ -1669,6 +1716,7 @@ function TradesTab() {
   const nowLocal = () => new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16);
   const [formMarket, setFormMarket] = useState<"국내" | "미국">("국내");
   const [form, setForm] = useState({ ticker: "", name: "", buy_price: "", sell_price: "", quantity: "", trade_source: "개인", trade_type: "실매매", buy_date: nowLocal(), sell_date: nowLocal(), buy_reason: "" });
+  const [progEng, setProgEng] = useState<string[]>([]);
   const [addMsg, setAddMsg] = useState<{ type: "success" | "danger"; text: string } | null>(null);
   const [adding, setAdding] = useState(false);
   const [showForm, setShowForm] = useState(false);
@@ -1787,13 +1835,13 @@ function TradesTab() {
         result: profit > 0 ? "수익" : profit < 0 ? "손실" : "손익분기",
         buy_date:  form.buy_date  ? form.buy_date  + ":00" : "",
         sell_date: form.sell_date ? form.sell_date + ":00" : new Date().toISOString().slice(0, 19),
-        trade_source: form.trade_source,
+        trade_source: encodeSource(form.trade_source, progEng),
         trade_type: form.trade_type,
         buy_reason: form.buy_reason || "",
       };
       const res = await api.portfolio.saveTrade(trade) as { success: boolean; message: string };
       setAddMsg({ type: res.success ? "success" : "danger", text: res.message });
-      if (res.success) { setForm({ ticker: "", name: "", buy_price: "", sell_price: "", quantity: "", trade_source: "개인", trade_type: "실매매", buy_date: nowLocal(), sell_date: nowLocal(), buy_reason: "" }); mutate(); setShowForm(false); }
+      if (res.success) { setForm({ ticker: "", name: "", buy_price: "", sell_price: "", quantity: "", trade_source: "개인", trade_type: "실매매", buy_date: nowLocal(), sell_date: nowLocal(), buy_reason: "" }); setProgEng([]); mutate(); setShowForm(false); }
     } catch (e) { setAddMsg({ type: "danger", text: String(e) }); }
     finally { setAdding(false); }
   };
@@ -1905,6 +1953,7 @@ function TradesTab() {
           <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", flexWrap: "wrap" }}>
             <span style={{ fontSize: "0.75rem", color: "var(--color-muted)" }}>출처</span>
             <ToggleGroup options={SOURCE_OPTIONS} value={form.trade_source} onChange={v => setForm(f => ({...f, trade_source: v}))} colors={SOURCE_COLORS} />
+            {form.trade_source === "프로그램추천" && <ProgramEnginePicker value={progEng} onChange={setProgEng} />}
             <span style={{ fontSize: "0.75rem", color: "var(--color-muted)" }}>유형</span>
             <ToggleGroup options={[{ label: "실매매", value: "실매매" as const }, { label: "테스트", value: "테스트" as const }]} value={form.trade_type as "실매매" | "테스트"} onChange={v => setForm(f => ({...f, trade_type: v}))} colors={{ "실매매": "#059669", "테스트": "#d97706" }} />
           </div>

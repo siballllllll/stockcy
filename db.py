@@ -2574,16 +2574,29 @@ def load_buy_reason_performance() -> dict:
             buckets.append(st)
     buckets.sort(key=lambda x: (x["win_rate"] if x["win_rate"] is not None else -1), reverse=True)
 
-    # 출처별 성과 (개인/리딩방/AI추천/시나리오 등) — '프로그램 추천이 실제로 맞았나' 피드백
-    src_map: dict = {}
+    # 출처별 성과 — '프로그램 추천이 실제로 맞았나' 피드백.
+    # trade_source는 "리딩방"/"개인"/"프로그램추천" 또는 "프로그램추천:시나리오,교차검증"(다중 엔진) 형태.
+    src_map: dict = {}   # base 출처별
+    eng_map: dict = {}   # 프로그램추천 내 엔진별 (다중 선택 시 거래가 여러 엔진에 중복 집계)
     for r in rows:
-        s = str(r.get("trade_source") or "개인").strip() or "개인"
-        src_map.setdefault(s, []).append(r)
+        raw = str(r.get("trade_source") or "개인").strip() or "개인"
+        base = raw.split(":", 1)[0]
+        src_map.setdefault(base, []).append(r)
+        if base == "프로그램추천" and ":" in raw:
+            for e in raw.split(":", 1)[1].split(","):
+                e = e.strip()
+                if e:
+                    eng_map.setdefault(e, []).append(r)
     by_source = []
     for s, subset in src_map.items():
         st = _stat(subset); st["source"] = s
         by_source.append(st)
     by_source.sort(key=lambda x: (x["n"], x["win_rate"] if x["win_rate"] is not None else -1), reverse=True)
+    by_engine = []
+    for e, subset in eng_map.items():
+        st = _stat(subset); st["engine"] = e
+        by_engine.append(st)
+    by_engine.sort(key=lambda x: (x["win_rate"] if x["win_rate"] is not None else -1, x["n"]), reverse=True)
 
     return {
         "total": len(rows),
@@ -2591,6 +2604,7 @@ def load_buy_reason_performance() -> dict:
         "without_reason": _stat(without_r),
         "buckets": buckets,
         "by_source": by_source,
+        "by_engine": by_engine,
     }
 
 
