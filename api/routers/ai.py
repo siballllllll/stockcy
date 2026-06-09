@@ -462,9 +462,11 @@ async def kr_stock_report(req: KrStockReportRequest, _credit: dict = Depends(con
 # ── 매도 타이밍 분석 ─────────────────────────────────────────────────────────
 
 @router.post("/sell-timing")
-async def sell_timing(req: SellTimingRequest, _credit: dict = Depends(consume_ai_credit)):
+async def sell_timing(req: SellTimingRequest, user: dict = Depends(get_current_user),
+                      _credit: dict = Depends(consume_ai_credit)):
     """보유 종목 AI 매도 타이밍 분석 (SSE)."""
     from ai_engine import analyze_sell_timing
+    owner = user["username"]   # '내 과거 성과 참고'는 본인 거래만
 
     async def _gen():
         yield _sse({"status": "running", "message": f"📈 {req.name} 매도 타이밍 분석 중..."})
@@ -477,6 +479,7 @@ async def sell_timing(req: SellTimingRequest, _credit: dict = Depends(consume_ai
                 req.current_price,
                 req.market,
                 req.buy_reason,
+                owner,
             )
             yield _sse({"status": "done", "result": result})
         except Exception as e:
@@ -1258,9 +1261,9 @@ async def get_recommendation_stats(user: dict = Depends(get_current_user)):
 
 @router.get("/buy-reason-stats")
 async def get_buy_reason_stats(user: dict = Depends(get_current_user)):
-    """매수 선정이유별 거래 성과 — 사유 유무·키워드 그룹별 승률/평균수익률(완료 거래 기준)."""
+    """매수 선정이유별 거래 성과 — 본인 거래만(개인 성과). 사유 유무·키워드·출처별 승률/평균수익률."""
     from db import load_buy_reason_performance
-    return await asyncio.to_thread(load_buy_reason_performance)
+    return await asyncio.to_thread(load_buy_reason_performance, user["username"])
 
 
 @router.get("/holdings-risk")

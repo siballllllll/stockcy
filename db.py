@@ -2610,17 +2610,20 @@ def backfill_ml_samples_from_history() -> dict:
         return {"error": str(e)}
 
 
-def load_buy_reason_performance() -> dict:
+def load_buy_reason_performance(owner: str | None = None) -> dict:
     """매수 선정이유(buy_reason)별 거래 성과 — 사유 유무·키워드 그룹별 승률/평균수익률.
-    완료 거래(trade_history)만 사용. 결정론(무료). '이런 사유로 산 거래는 얼마나 맞았나'를 학습/표시."""
+    완료 거래(trade_history)만 사용. owner 지정 시 해당 유저 거래만(개인 성과). 결정론(무료)."""
     try:
         conn = get_db_conn(); cur = conn.cursor()
-        cur.execute("SELECT profit, profit_pct, buy_reason, trade_source FROM trade_history")
+        if owner:
+            cur.execute("SELECT profit, profit_pct, buy_reason, trade_source FROM trade_history WHERE UPPER(owner) = ?", (owner.upper(),))
+        else:
+            cur.execute("SELECT profit, profit_pct, buy_reason, trade_source FROM trade_history")
         rows = [dict(r) for r in cur.fetchall()]
         conn.close()
     except Exception as e:
         print(f"load_buy_reason_performance error: {e}")
-        return {"total": 0, "with_reason": {}, "without_reason": {}, "buckets": [], "by_source": [], "error": str(e)}
+        return {"total": 0, "with_reason": {}, "without_reason": {}, "buckets": [], "by_source": [], "by_engine": [], "error": str(e)}
 
     def _win(r):
         try:

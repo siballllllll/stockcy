@@ -1362,7 +1362,7 @@ def analyze_autonomous_trading(ticker: str, name: str, current_price: float, mar
 
 
 @st.cache_data(ttl=300)
-def analyze_sell_timing(ticker: str, name: str, avg_price: float, current_price: float, market: str = "KR", buy_reason: str = "") -> dict:
+def analyze_sell_timing(ticker: str, name: str, avg_price: float, current_price: float, market: str = "KR", buy_reason: str = "", owner: str = "") -> dict:
     """평단가 기준 AI 매도 타이밍 분석. 최초 매수 사유가 있으면 논리 유효성 + 그 사유 유형의 내 과거 승률도 반영."""
     pnl_pct = (current_price - avg_price) / avg_price * 100 if avg_price > 0 else 0
 
@@ -1371,7 +1371,7 @@ def analyze_sell_timing(ticker: str, name: str, avg_price: float, current_price:
     if str(buy_reason).strip():
         try:
             from db import load_buy_reason_performance, _BUY_REASON_BUCKETS
-            bmap = {b["label"]: b for b in (load_buy_reason_performance().get("buckets") or [])}
+            bmap = {b["label"]: b for b in (load_buy_reason_performance(owner or None).get("buckets") or [])}
             rl = str(buy_reason).lower()
             matched = []
             for label, kws in _BUY_REASON_BUCKETS:
