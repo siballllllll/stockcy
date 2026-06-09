@@ -1159,6 +1159,10 @@ def analyze_autonomous_trading(ticker: str, name: str, current_price: float, mar
                 f"거래량비율(20일평균대비)={daily.get('volume_ratio','N/A')}배, "
                 f"당일갭={daily.get('gap_pct','N/A')}%"
             )
+            # 하승훈式 결정론 시그널(돌파눌림목·볼린저상단돌파·MACD히스토전환) — BUY 판단 가점 신호
+            _hsh = daily.get("hsh") or {}
+            if _hsh.get("hsh_label"):
+                tech_info += f"\n[하승훈式 시그널 ★] {_hsh.get('hsh_label')} (점수 {_hsh.get('hsh_score')}/5) — 강한 진입 신호이므로 BUY 판단에 가점 요인"
         except Exception:
             pass
 
