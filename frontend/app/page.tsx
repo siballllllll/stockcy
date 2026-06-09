@@ -774,6 +774,17 @@ export default function Dashboard() {
                             )}
                           </div>
 
+                          {/* 모멘텀 진단 — 왜 지금 올라와 있나 / 남은 상승 여력 근거 */}
+                          {p.momentum_note && (() => {
+                            const st = p.momentum_stage;
+                            const c = st === "prebreak" ? "#34d399" : st === "runner" ? "#fbbf24" : st === "exhausted" ? "#f87171" : "var(--color-muted)";
+                            return (
+                              <div style={{ fontSize: "0.74rem", lineHeight: 1.5, color: "var(--color-subtle)", background: "rgba(0,0,0,0.18)", borderLeft: `3px solid ${c}`, borderRadius: "0 6px 6px 0", padding: "6px 9px" }}>
+                                {p.momentum_note}
+                              </div>
+                            );
+                          })()}
+
                           {/* 지표 뱃지 */}
                           <div style={{ display: "flex", gap: "0.4rem", flexWrap: "wrap" }}>
                             {p.rsi != null && (

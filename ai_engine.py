@@ -4463,11 +4463,27 @@ def screen_by_my_pattern() -> dict:
 
         match_score = round(match_score, 1)   # 누적 보정으로 생긴 부동소수점 오차 정리
 
+        # ── 모멘텀 진단 한 줄(결정론) — '왜 지금 올라와 있나 / 남은 여력 근거'를 카드에 직접 표시 ──
+        _vr = ind["daily"].get("volume_ratio"); _ma = ind["daily"].get("ma_aligned")
+        def _f(v): return v if v is not None else "?"
+        _chg_s = f"{'+' if (chg or 0) >= 0 else ''}{_f(chg)}%"
+        if momentum_stage == "prebreak":
+            momentum_note = f"🚀 돌파 직전 — 아직 본격 상승 전. {pb_label or '돌파 시그널'} 포착 (RSI {_f(rsi_v)}·거래량 {_f(_vr)}배). 오르기 전 선진입 자리"
+        elif momentum_stage == "runner":
+            momentum_note = f"🔥 강한 추세 지속 — {'정배열·' if _ma else ''}거래량 {_f(_vr)}배·52주 {_f(p52)}%. 당일 {_chg_s}이지만 추세 살아있어 추가 여력 (눌림목 분할 진입)"
+        elif momentum_stage == "exhausted":
+            momentum_note = f"⚠️ 과열 — 당일 {_chg_s}·RSI {_f(rsi_v)}·52주 {_f(p52)}%. 이미 상승분 반영, 추격 위험. 눌림목 대기 권장"
+        elif momentum_stage == "extended":
+            momentum_note = f"➖ 이미 {_chg_s} 상승 — 추세 애매(중립). 추가 재료·수급 근거 없으면 관망"
+        else:
+            momentum_note = f"52주 {_f(p52)}%·RSI {_f(rsi_v)}·거래량 {_f(_vr)}배"
+
         scored.append({
             "code":           code,
             "name":           meta["name"],
             "signal":         meta["signal"],
             "match_score":    match_score,
+            "momentum_note":  momentum_note,
             "personal_score": p_score,
             "leading_score":  l_score,
             "scenario_count": scenario_count,
@@ -4557,15 +4573,18 @@ def screen_by_my_pattern() -> dict:
 {candidates_text}
 
 위 데이터를 바탕으로:
-1. TOP 3 종목을 선정하고 이유를 설명하세요 (매칭점수 + 차트 신호 종합).
-   핵심 원칙: ① '돌파직전' 종목(오르기 전 선진입)을 1순위로 고려하되,
-   ② '강한 추세 지속(대시세 후보)' 종목은 오늘 올랐더라도 추가 상승 여력이 크면 유효한 선택입니다.
-   ③ 단, '과열(파라볼릭/과매수) — 추격주의' 종목은 신중히 판단하거나 제외하세요.
-   사용자는 오르기 전 선진입을 선호하지만, 더 크게 갈 대시세라면 진행 중인 종목도 받아들입니다.
-2. 각 종목의 예상 단기 진입 가격대와 손절 기준을 제시하세요 (돌파직전은 돌파 확인 후/눌림목 분할, 추세지속은 눌림목 대기).
-3. 주의해야 할 리스크 1가지씩 언급하세요
+1. TOP 3 종목을 선정하고, 각 종목마다 아래 3가지를 반드시 포함해 설명하세요:
+   (a) 현재 모멘텀 단계 명시: 돌파직전 / 강한추세지속 / 과열 / 이미상승.
+   (b) ★ 가장 중요 — '이미 오른 종목'(당일 급등·52주 고점권)이면 "왜 지금도 진입 가치가 있는가"를 반드시 구체 근거로 판단하세요:
+       · 남은 상승 여력의 근거(목표가까지 거리, 외국인·기관 수급 지속, 재료/테마 유효성, 거래량 동반)가 있으면 그 근거를 제시.
+       · 근거가 약하면 솔직하게 "이미 상승분 반영 — 추격 위험, 눌림목 대기/제외"라고 경고. '올랐으니 더 오른다'는 식의 근거 없는 추천은 절대 금지.
+       · '돌파직전'이면 "아직 안 올랐고 어떤 시그널(거래량가속·박스권돌파 등)로 곧 갈 것인지" 근거.
+   (c) 따라서 지금 진입이 타당한지 한 줄 결론.
+   선정 우선순위: ① 돌파직전(선진입) 1순위, ② 강한추세지속은 '추가 여력 근거가 분명할 때만' 유효, ③ 과열은 신중/제외.
+2. 각 종목의 예상 단기 진입 가격대와 손절 기준 (돌파직전은 돌파 확인 후/눌림목 분할, 추세지속은 눌림목 대기).
+3. 주의 리스크 1가지씩.
 
-단기 모멘텀 트레이딩 관점에서 구체적이고 실전적으로 답해주세요."""
+단기 모멘텀 트레이딩 관점에서 구체적이고 실전적으로, 특히 '이미 오른 종목의 남은 여력 근거'를 분명히 답해주세요."""
 
     try:
         response = _call_gemini(prompt, use_search=True, temperature=0.4, timeout_sec=60)
