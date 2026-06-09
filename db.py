@@ -422,6 +422,25 @@ def init_local_db():
         )
     """)
 
+    # 30. ml_training_samples — 자체 ML 학습용 통합 샘플(모든 엔진 추천을 피처+결과로 누적)
+    #     추천 시점엔 종목만 기록 → 매일 새벽 추적 job이 과거 데이터로 판단시점 지표+d1/d3/d7+라벨 채움.
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS ml_training_samples (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            source TEXT,              -- 'pattern' | 'scenario' | 'ai_rec'
+            ticker TEXT,
+            name TEXT,
+            market TEXT,
+            decided_at TEXT,          -- YYYY-MM-DD (추천일)
+            entry_price REAL,
+            rsi REAL, ma_aligned INTEGER, pos_52w REAL, vol_ratio REAL,
+            d1_return REAL, d3_return REAL, d7_return REAL,
+            label INTEGER,            -- 1 상승 / 0 하락 (d7 기준)
+            outcome_checked_at TEXT,
+            UNIQUE(source, ticker, decided_at)
+        )
+    """)
+
     # 29. portfolio_snapshots — 보유 종목 일별 스냅샷(특정일 보유 상태 복원용)
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS portfolio_snapshots (
@@ -1295,7 +1314,15 @@ def log_ai_recommendation(rec_type: str, ticker: str, name: str, rating: str,
         )
         conn.commit()
         conn.close()
-        
+
+        # 자체 ML 학습 샘플로도 기록 (비추천 등급은 제외 — 매수 관점만)
+        if "비추천" not in str(rating or ""):
+            try:
+                _mkt = "us" if any(c.isalpha() for c in str(ticker)) else "kr"
+                log_ml_sample("ai_rec", ticker, name, _mkt, None)
+            except Exception:
+                pass
+
         run_background_backup(_gsheet_backup_log_recommendation, rec_type, ticker, name, rating, buy_target, sell_target, stop_loss)
         return True, "AI 추천 로그가 기록되었습니다."
     except Exception as e:
@@ -2531,6 +2558,25 @@ _BUY_REASON_BUCKETS = [
 ]
 
 
+def log_ml_sample(source: str, ticker: str, name: str = "", market: str = "", entry_price=None):
+    """자체 ML 학습 샘플 기록(추천 시점) — 종목·날짜만. 피처/결과는 추적 job이 사후에 채움.
+    (source, ticker, 날짜) 중복은 무시. 어느 엔진이든 추천할 때 호출."""
+    try:
+        tk = str(ticker or "").strip()
+        if not tk:
+            return
+        today = datetime.now().strftime("%Y-%m-%d")
+        conn = get_db_conn(); cur = conn.cursor()
+        cur.execute(
+            "INSERT OR IGNORE INTO ml_training_samples (source, ticker, name, market, decided_at, entry_price) VALUES (?, ?, ?, ?, ?, ?)",
+            (str(source), tk, str(name or ""), str(market or ""), today,
+             float(entry_price) if entry_price else None)
+        )
+        conn.commit(); conn.close()
+    except Exception as e:
+        print(f"log_ml_sample error: {e}")
+
+
 def load_buy_reason_performance() -> dict:
     """매수 선정이유(buy_reason)별 거래 성과 — 사유 유무·키워드 그룹별 승률/평균수익률.
     완료 거래(trade_history)만 사용. 결정론(무료). '이런 사유로 산 거래는 얼마나 맞았나'를 학습/표시."""
@@ -3470,6 +3516,12 @@ def save_scenario_stocks(scenario_keyword: str, scenario_title: str, stocks: lis
                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (scenario_keyword, scenario_title, ticker, name, market, role, horizon, now, now)
             )
+            # 자체 ML 학습 샘플로도 기록 (피해=하락기대는 제외, 상승 기대 종목만)
+            if role != "피해":
+                try:
+                    log_ml_sample("scenario", ticker, name, market, None)
+                except Exception:
+                    pass
         conn.commit()
         conn.close()
     except Exception as e:

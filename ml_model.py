@@ -13,21 +13,32 @@ import os
 from datetime import datetime
 
 _MODEL_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ml_win_model.joblib")
-_FEATURES = ["rsi", "ma_aligned", "pos_52w", "vol_ratio", "confidence"]
+# 공통 피처(엔진 무관) — 에이전트·패턴·시나리오·AI추천을 모두 같은 피처로 통일
+_FEATURES = ["rsi", "ma_aligned", "pos_52w", "vol_ratio"]
 MIN_SAMPLES = 80   # 이 미만이면 학습 보류 (신뢰 가능한 최소 표본)
 
 
 def build_training_set():
-    """라벨 달린 학습 데이터 수집 → (X: list[dict], y: list[int]). y=1(상승)/0(하락)."""
+    """라벨 달린 학습 데이터 통합 수집 → (X: list[dict], y: list[int]). y=1(상승)/0(하락).
+    소스: agent_decisions(에이전트) + ml_training_samples(패턴·시나리오·AI추천)."""
     from db import get_db_conn
     conn = get_db_conn(); cur = conn.cursor()
+    rows = []
     try:
+        # 1) 에이전트 — 판단 시점 지표가 라이브로 저장됨
         cur.execute(
-            """SELECT rsi, ma_aligned, pos_52w, vol_ratio, confidence, outcome_return
+            """SELECT rsi, ma_aligned, pos_52w, vol_ratio, outcome_return AS ret
                FROM agent_decisions
                WHERE action='BUY' AND outcome_return IS NOT NULL AND rsi IS NOT NULL"""
         )
-        rows = [dict(r) for r in cur.fetchall()]
+        rows += [dict(r) for r in cur.fetchall()]
+        # 2) 통합 샘플 — 패턴/시나리오/AI추천 (추적 job이 피처·라벨을 채운 것만)
+        cur.execute(
+            """SELECT rsi, ma_aligned, pos_52w, vol_ratio, d7_return AS ret
+               FROM ml_training_samples
+               WHERE label IS NOT NULL AND rsi IS NOT NULL"""
+        )
+        rows += [dict(r) for r in cur.fetchall()]
     finally:
         conn.close()
     X, y = [], []
@@ -38,12 +49,106 @@ def build_training_set():
                 "ma_aligned": 1.0 if d["ma_aligned"] else 0.0,
                 "pos_52w":    float(d["pos_52w"] or 0),
                 "vol_ratio":  float(d["vol_ratio"] or 0),
-                "confidence": float(d["confidence"] or 0),
             })
-            y.append(1 if float(d["outcome_return"] or 0) > 0 else 0)
+            y.append(1 if float(d["ret"] or 0) > 0 else 0)
         except Exception:
             continue
     return X, y
+
+
+def track_ml_sample_outcomes() -> dict:
+    """통합 샘플(ml_training_samples)의 미완성 행에 대해, 과거 데이터로 판단시점 지표(피처) +
+    d1/d3/d7 수익률 + 라벨을 한꺼번에 채운다. (추천 시점엔 종목만 기록 → 여기서 사후 보강)
+    추가 다운로드는 이 일일 job에서만 — 사용자 요청 경로엔 부담 0."""
+    from db import get_db_conn
+    from datetime import datetime, timedelta
+    import FinanceDataReader as fdr
+    import yfinance as yf
+
+    conn = get_db_conn(); cur = conn.cursor()
+    cutoff = (datetime.now() - timedelta(days=40)).strftime("%Y-%m-%d")
+    cur.execute(
+        """SELECT id, ticker, decided_at FROM ml_training_samples
+           WHERE label IS NULL AND decided_at >= ? ORDER BY decided_at ASC""", (cutoff,))
+    rows = [dict(r) for r in cur.fetchall()]
+    today = datetime.now().date()
+    pending = []
+
+    def _feat_at(closes, vols, highs, lows, opens, bi):
+        # bi = 판단일 인덱스. 그 시점까지의 데이터로 지표 계산.
+        if bi < 20:
+            return None
+        c = [float(x) for x in closes[:bi + 1]]; v = [float(x) for x in vols[:bi + 1]]
+        h = [float(x) for x in highs[:bi + 1]]; l = [float(x) for x in lows[:bi + 1]]
+        deltas = [c[i] - c[i - 1] for i in range(1, len(c))]
+        gains = [d if d > 0 else 0.0 for d in deltas]; losses = [-d if d < 0 else 0.0 for d in deltas]
+        ag = sum(gains[-14:]) / 14; al = sum(losses[-14:]) / 14
+        rsi = 100 - (100 / (1 + ag / al)) if al > 0 else 100.0
+        v20 = sum(v[-20:]) / 20; vr = (v[-1] / v20) if v20 > 0 else 1.0
+        n52 = min(len(c), 252); hi = max(h[-n52:]); lo = min(l[-n52:]); cur_p = c[-1]
+        pos = (cur_p - lo) / (hi - lo) * 100 if hi > lo else 50.0
+        ma5 = sum(c[-5:]) / 5; ma20 = sum(c[-20:]) / 20; ma60 = sum(c[-60:]) / 60 if len(c) >= 60 else ma20
+        ma_al = 1 if (cur_p > ma5 > ma20 > ma60) else 0
+        return {"rsi": round(rsi, 1), "vol_ratio": round(vr, 2), "pos_52w": round(pos, 1),
+                "ma_aligned": ma_al, "entry": cur_p}
+
+    for row in rows:
+        try:
+            decided = datetime.strptime(str(row["decided_at"])[:10], "%Y-%m-%d").date()
+        except Exception:
+            continue
+        if (today - decided).days < 1:
+            continue
+        raw = str(row["ticker"]).strip()
+        is_us = any(ch.isalpha() for ch in raw)
+        tk = raw.upper() if is_us else raw.zfill(6)
+        start = (decided - timedelta(days=400)).strftime("%Y-%m-%d")
+        end = (decided + timedelta(days=14)).strftime("%Y-%m-%d")
+        try:
+            df = yf.download(tk, start=start, end=end, progress=False, timeout=10) if is_us else fdr.DataReader(tk, start, end)
+            if df is None or df.empty:
+                continue
+            base_i = None
+            for j, dt in enumerate(df.index):
+                d = dt.date() if hasattr(dt, "date") else dt
+                if d <= decided:
+                    base_i = j
+                else:
+                    break
+            if base_i is None or base_i < 20:
+                continue
+            f = _feat_at(df["Close"].values, df["Volume"].values, df["High"].values,
+                         df["Low"].values, df["Open"].values, base_i)
+            if not f:
+                continue
+            entry = f["entry"]
+            def _p(off):
+                k = base_i + off
+                return float(df["Close"].iloc[k]) if len(df) > k else None
+            d1, d3, d7 = _p(1), _p(3), _p(7)
+            def _r(p): return round((p - entry) / entry * 100, 2) if (p and entry) else None
+            r1, r3, r7 = _r(d1), _r(d3), _r(d7)
+            label = (1 if r7 > 0 else 0) if r7 is not None else None
+            now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            pending.append((f["rsi"], f["ma_aligned"], f["pos_52w"], f["vol_ratio"],
+                            round(entry, 2), r1, r3, r7, label, now, row["id"]))
+        except Exception as e:
+            print(f"[ml sample track] {tk} 실패: {e}")
+            continue
+
+    updated = 0
+    if pending:
+        try:
+            cur.executemany(
+                """UPDATE ml_training_samples
+                   SET rsi=?, ma_aligned=?, pos_52w=?, vol_ratio=?, entry_price=?,
+                       d1_return=?, d3_return=?, d7_return=?, label=?, outcome_checked_at=?
+                   WHERE id=?""", pending)
+            conn.commit(); updated = len(pending)
+        except Exception as e:
+            print(f"[ml sample track] 저장 실패: {e}")
+    conn.close()
+    return {"updated_now": updated, "scanned": len(rows)}
 
 
 def _to_matrix(X):

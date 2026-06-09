@@ -354,6 +354,13 @@ def _scenario_tracking_loop():
                     print(f"[ai-rec track] AI추천 성과 측정: {ar.get('updated_now', 0)}건 갱신 ({today})")
                 except Exception as e:
                     print(f"[ai-rec track] 오류: {e}")
+                # 자체 ML 통합 학습샘플 보강 — 추천 종목의 판단시점 지표+결과를 과거 데이터로 채움
+                try:
+                    from ml_model import track_ml_sample_outcomes
+                    ms = track_ml_sample_outcomes()
+                    print(f"[ml sample] 학습샘플 보강: {ms.get('updated_now', 0)}건 ({today})")
+                except Exception as e:
+                    print(f"[ml sample] 오류: {e}")
                 # 보유 종목 일별 스냅샷 (특정일 보유 복원용) — KR 현재가로 평가손익 기록
                 try:
                     from db import save_portfolio_snapshot

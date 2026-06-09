@@ -4518,6 +4518,15 @@ def screen_by_my_pattern() -> dict:
     if not top:
         return {"error": "매칭 종목 없음"}
 
+    # 자체 ML 학습 샘플로 기록 (추천 시점 — 피처·결과는 새벽 추적 job이 사후 보강)
+    try:
+        from db import log_ml_sample
+        for p in top[:5]:
+            _c = str(p.get("code", ""))
+            log_ml_sample("pattern", _c, p.get("name", ""), "kr" if _c.isdigit() else "us", p.get("current_price"))
+    except Exception:
+        pass
+
     # 4. Gemini 최종 판단
     if dual_mode:
         profile_summary = (
