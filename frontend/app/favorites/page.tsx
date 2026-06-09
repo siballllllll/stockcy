@@ -909,10 +909,19 @@ function PortfolioTab({ gapBulkMap }: { gapBulkMap: Record<string, any> }) {
     });
   }, [portfolio, krPrices, usPrices, usdKrw]);
 
-  const totalCostKrw   = enriched.reduce((s, p) => s + (p.hasPrice ? p.costKrw : 0), 0);
-  const totalValueKrw  = enriched.reduce((s, p) => s + (p.hasPrice ? p.valueKrw : 0), 0);
+  // 실거래/테스트 구분 — 테스트가 합산되면 실제 투자금·손익 파악이 어려우므로 분리(기본 실거래)
+  const [holdingFilter, setHoldingFilter] = useState<"실거래" | "테스트" | "전체">("실거래");
+  const hasTest  = enriched.some(p => p.trade_type === "테스트");
+  const viewList = useMemo(() => enriched.filter(p =>
+    holdingFilter === "전체" ? true
+      : holdingFilter === "테스트" ? p.trade_type === "테스트"
+      : p.trade_type !== "테스트"
+  ), [enriched, holdingFilter]);
+
+  const totalCostKrw   = viewList.reduce((s, p) => s + (p.hasPrice ? p.costKrw : 0), 0);
+  const totalValueKrw  = viewList.reduce((s, p) => s + (p.hasPrice ? p.valueKrw : 0), 0);
   const totalProfitKrw = totalValueKrw - totalCostKrw;
-  const hasUsItems     = enriched.some(p => p.isUs);
+  const hasUsItems     = viewList.some(p => p.isUs);
 
   // 편집 상태
   const [editTicker, setEditTicker] = useState<string | null>(null);
@@ -1075,8 +1084,23 @@ function PortfolioTab({ gapBulkMap }: { gapBulkMap: Record<string, any> }) {
       {/* 종목 추가 폼 */}
       <AddPortfolioForm onAdded={() => mutate()} />
 
+      {/* 실거래 / 테스트 구분 토글 (테스트 보유가 있을 때만) */}
+      {hasTest && (
+        <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+          <span style={{ fontSize: "0.74rem", color: "var(--color-muted)" }}>구분</span>
+          {(["실거래", "테스트", "전체"] as const).map((f) => (
+            <button key={f} onClick={() => setHoldingFilter(f)}
+              style={{ fontSize: "0.74rem", padding: "3px 12px", borderRadius: "6px", cursor: "pointer", fontWeight: 700,
+                border: `1px solid ${holdingFilter === f ? "var(--color-accent)" : "var(--color-border)"}`,
+                background: holdingFilter === f ? "rgba(99,102,241,0.15)" : "transparent",
+                color: holdingFilter === f ? "var(--color-text)" : "var(--color-muted)" }}>{f}</button>
+          ))}
+          <span style={{ fontSize: "0.68rem", color: "var(--color-muted)" }}>※ 합계(매수금액·평가금액·손익)는 위 구분 기준</span>
+        </div>
+      )}
+
       {/* 총 손익 요약 */}
-      {enriched.length > 0 && (
+      {viewList.length > 0 && (
         <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
           {hasUsItems && (
             <div style={{ fontSize: "0.72rem", color: "var(--color-muted)", textAlign: "right" }}>
@@ -1135,7 +1159,7 @@ function PortfolioTab({ gapBulkMap }: { gapBulkMap: Record<string, any> }) {
           </div>
           )}
 
-          {enriched.map((p, i) => {
+          {viewList.map((p, i) => {
             const isEditing = editTicker === p.ticker;
             const color = p.profitPct >= 0 ? "var(--color-danger)" : "var(--color-primary)";
             const priceStr = p.isUs
