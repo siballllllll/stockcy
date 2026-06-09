@@ -702,8 +702,11 @@ function HoldingsRiskBanner() {
   return (
     <div style={{ background: "rgba(248,113,113,0.07)", border: "1px solid rgba(248,113,113,0.35)", borderRadius: "10px", padding: "10px 14px", marginBottom: "12px" }}>
       <div style={{ fontWeight: 800, fontSize: "0.88rem", color: "#f87171", marginBottom: "6px" }}>
-        {urgentCount > 0 ? `🚨 즉시 손절 검토 ${urgentCount}건` : `⚠️ 점검 필요 보유종목 ${flagged.length}건`}
-        <span style={{ fontSize: "0.72rem", fontWeight: 600, color: "var(--color-muted)" }}> — 손절 근접·추세 약화·과열 신호 (자동 감지, 참고용)</span>
+        {urgentCount > 0 ? `🚨 즉시 점검 필요 ${urgentCount}건` : `⚠️ 점검 필요 보유종목 ${flagged.length}건`}
+        <span style={{ fontSize: "0.72rem", fontWeight: 600, color: "var(--color-muted)" }}> — 손절 근접·추세 약화·과열 (기술적 신호, 자동 감지)</span>
+      </div>
+      <div style={{ fontSize: "0.68rem", color: "var(--color-muted)", marginBottom: "6px", lineHeight: 1.5 }}>
+        ※ 가격·지표만 본 <b>기술적 위험 신호</b>입니다. <b>펀더멘털·미래 전망이 양호하면 오히려 분할매수 기회</b>일 수 있어요 — 손절할지·물탈지·보유할지는 행의 <b>AI 매도 타이밍</b>으로 논리(유효/훼손)를 꼭 확인하세요.
       </div>
       <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
         {flagged.map((f, i) => (
