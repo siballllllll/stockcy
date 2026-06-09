@@ -166,6 +166,7 @@ const TABS = [
   { href: "/favorites", label: "💼 포트폴리오 관리", exact: false, icon: <Star size={15} />,       readyKey: null },
   { href: "/agent",     label: "🤖 AI 에이전트",      exact: false, icon: <Brain size={15} />,      readyKey: null },
   { href: "/scenarios", label: "📈 시나리오",        exact: false, icon: <Layers size={15} />,     readyKey: "scenarios" as const },
+  { href: "/performance", label: "📊 성과·기록",     exact: false, icon: <BarChart2 size={15} />,  readyKey: null },
 ];
 
 export function TopNav() {

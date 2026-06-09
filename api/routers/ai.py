@@ -1293,6 +1293,13 @@ async def get_portfolio_snapshot(date: str, user: dict = Depends(get_current_use
     return {"date": date, "owner": user["username"], "holdings": rows}
 
 
+@router.get("/portfolio-series")
+async def get_portfolio_series(days: int = 90, user: dict = Depends(get_current_user)):
+    """일별 보유 평가액·평가손익률 추이 (에쿼티 커브)."""
+    from db import load_portfolio_snapshot_series
+    return {"series": await asyncio.to_thread(load_portfolio_snapshot_series, user["username"], days)}
+
+
 @router.get("/performance-summary")
 async def get_ai_performance_summary():
     """AI 기능별(시나리오/패턴스크리너/에이전트) 사후 실적 통합 리포트."""

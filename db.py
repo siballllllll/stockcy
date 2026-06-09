@@ -2456,6 +2456,36 @@ def load_portfolio_snapshot(snapshot_date: str, owner: str | None = None) -> lis
         return []
 
 
+def load_portfolio_snapshot_series(owner: str, days: int = 90) -> list:
+    """일별 보유 평가액·원금·평가손익률 추이 (owner). portfolio_snapshots 일자별 집계.
+    (US 종목은 스냅샷 시 현재가 미집계라 평가액에서 빠질 수 있음 — KR 중심.)"""
+    try:
+        conn = get_db_conn(); cur = conn.cursor()
+        cur.execute(
+            """SELECT snapshot_date,
+                      SUM(COALESCE(price,0)      * COALESCE(quantity,0)) AS eval_amt,
+                      SUM(COALESCE(buy_price,0)  * COALESCE(quantity,0)) AS cost_amt,
+                      COUNT(*) AS n
+               FROM portfolio_snapshots
+               WHERE UPPER(owner)=?
+               GROUP BY snapshot_date
+               ORDER BY snapshot_date DESC LIMIT ?""",
+            (owner.upper(), int(days))
+        )
+        rows = [dict(r) for r in cur.fetchall()]; conn.close()
+        out = []
+        for r in rows:
+            ev = float(r.get("eval_amt") or 0); co = float(r.get("cost_amt") or 0)
+            out.append({"date": r["snapshot_date"], "n": r.get("n", 0),
+                        "eval_amt": round(ev), "cost_amt": round(co),
+                        "eval_pct": round((ev - co) / co * 100, 2) if co > 0 else None})
+        out.reverse()  # 오래된→최신
+        return out
+    except Exception as e:
+        print(f"load_portfolio_snapshot_series error: {e}")
+        return []
+
+
 def load_ai_recommendation_stats() -> dict:
     """AI추천(ai_recommendations) 사후 성과 집계 — 적중률/평균수익률(d1/d3/d7).
     '비추천' 등급은 하락 적중(수익률<0)을 성공으로 간주(방향성 기준)."""
