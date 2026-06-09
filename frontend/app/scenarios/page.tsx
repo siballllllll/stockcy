@@ -1518,17 +1518,18 @@ function ScenariosPageInner() {
           }
         } catch { /* 이관 실패는 무시 */ }
 
-        // (2) 서버에서 로드
-        const [custom, recent] = await Promise.all([
+        // (2) 서버에서 로드 — 부분 실패 허용(한쪽 타임아웃/524여도 다른쪽은 반영). 비치명적이라 조용히 경고만.
+        const [custom, recent] = await Promise.allSettled([
           api.scenarios.loadCustom(),
           api.scenarios.loadRecent(),
         ]);
         if (!cancelled) {
-          setCustomIssues(custom as any);
-          setRecentSearches(recent);
+          if (custom.status === "fulfilled") setCustomIssues(custom.value as any);
+          else console.warn("[Scenarios] 커스텀 시나리오 로드 건너뜀:", custom.reason?.message ?? custom.reason);
+          if (recent.status === "fulfilled") setRecentSearches(recent.value);
         }
       } catch (e) {
-        console.error("[Scenarios] 서버 유저데이터 로드 실패:", e);
+        console.warn("[Scenarios] 서버 유저데이터 로드 실패(무시):", e);
       }
     })();
     return () => { cancelled = true; };

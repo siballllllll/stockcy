@@ -17,13 +17,22 @@ async function req<T>(path: string, opts?: RequestInit): Promise<T> {
   const token = getToken();
   if (token) headers.set("Authorization", `Bearer ${token}`);
 
-  const res = await fetch(`${BASE}${path}`, {
-    ...opts,
-    headers: headers,
-    cache: "no-store", // Next.js 서버 사이드 캐싱 강력 차단
-  });
-  if (!res.ok) throw new Error(`API ${path} → ${res.status}`);
-  return res.json() as Promise<T>;
+  // 30초 타임아웃 — 백엔드가 일시적으로 응답 불능(524 등)일 때 100초씩 매달리지 않도록.
+  // (AI 생성은 SSE(connectSSE)를 쓰므로 이 경로는 빠른 JSON 조회만 해당.)
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 30000);
+  try {
+    const res = await fetch(`${BASE}${path}`, {
+      ...opts,
+      headers: headers,
+      cache: "no-store", // Next.js 서버 사이드 캐싱 강력 차단
+      signal: opts?.signal ?? ctrl.signal,
+    });
+    if (!res.ok) throw new Error(`API ${path} → ${res.status}`);
+    return res.json() as Promise<T>;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 // ── 미국 시장 ─────────────────────────────────────────────────────────────────
