@@ -919,6 +919,7 @@ function PortfolioTab({ gapBulkMap }: { gapBulkMap: Record<string, any> }) {
   const [editPrice,  setEditPrice]  = useState<string>("");
   const [editQty,    setEditQty]    = useState<string>("");
   const [editSource, setEditSource] = useState<string>("개인");
+  const [editEngines, setEditEngines] = useState<string[]>([]);
   const [editType,   setEditType]   = useState<"실매매" | "테스트">("실매매");
   const [editBuyTime, setEditBuyTime] = useState<string>("");
   const [editReason,  setEditReason]  = useState<string>("");
@@ -1015,7 +1016,7 @@ function PortfolioTab({ gapBulkMap }: { gapBulkMap: Record<string, any> }) {
     const newBuyTime = editBuyTime ? editBuyTime + ":00" : (p.buy_date || "");
     const updated = (portfolio ?? []).map((item: any) =>
       item.ticker === p.ticker
-        ? { ...item, buy_price: newBuy, quantity: newQty, trade_source: editSource, trade_type: editType, buy_date: newBuyTime, buy_reason: editReason }
+        ? { ...item, buy_price: newBuy, quantity: newQty, trade_source: encodeSource(editSource, editEngines), trade_type: editType, buy_date: newBuyTime, buy_reason: editReason }
         : { ...item, buy_date: item.buy_date, buy_reason: item.buy_reason }   // 다른 종목도 기존 매수시각·근거 보존
     );
     await fetch(`${BASE_URL}/api/portfolio`, {
@@ -1165,7 +1166,7 @@ function PortfolioTab({ gapBulkMap }: { gapBulkMap: Record<string, any> }) {
                 ) : (
                   <button className="stockcy-btn stockcy-btn-secondary" aria-hidden tabIndex={-1} disabled style={{ padding: "2px 6px", fontSize: "0.7rem", visibility: "hidden" }}>🔄</button>
                 )}
-                <button className="stockcy-btn stockcy-btn-secondary" style={{ padding: "2px 6px", fontSize: "0.7rem" }} title="수정 / 추가매수" onClick={() => { setEditTicker(isEditing ? null : p.ticker); setEditMode("edit"); setAddPrice(""); setAddQty(""); setEditPrice(String(p.buy_price)); setEditQty(String(p.quantity)); setEditSource((p.trade_source as "리딩방" | "개인") || "개인"); setEditType((p.trade_type as "실매매" | "테스트") || "실매매"); setEditBuyTime(String(p.buy_date ?? "").slice(0, 16).replace(" ", "T")); setEditReason(String(p.buy_reason ?? "")); }}>✏️</button>
+                <button className="stockcy-btn stockcy-btn-secondary" style={{ padding: "2px 6px", fontSize: "0.7rem" }} title="수정 / 추가매수" onClick={() => { setEditTicker(isEditing ? null : p.ticker); setEditMode("edit"); setAddPrice(""); setAddQty(""); setEditPrice(String(p.buy_price)); setEditQty(String(p.quantity)); { const _d = decodeSource(String(p.trade_source ?? "개인")); setEditSource(_d.base); setEditEngines(_d.engines); } setEditType((p.trade_type as "실매매" | "테스트") || "실매매"); setEditBuyTime(String(p.buy_date ?? "").slice(0, 16).replace(" ", "T")); setEditReason(String(p.buy_reason ?? "")); }}>✏️</button>
                 <button className="stockcy-btn" style={{ padding: "2px 6px", fontSize: "0.7rem", border: "1px solid rgba(255,60,60,0.35)", color: "var(--color-danger)", background: "rgba(255,60,60,0.06)" }} title="삭제" onClick={() => { if (window.confirm(`${p.name || p.ticker} 보유종목에서 삭제할까요?`)) handleDeleteEntry(p.ticker); }}><Trash2 size={11} /></button>
               </>
             );
@@ -1291,6 +1292,7 @@ function PortfolioTab({ gapBulkMap }: { gapBulkMap: Record<string, any> }) {
                         {isAdmin && (<>
                         <span style={{ fontSize: "0.75rem", color: "var(--color-muted)" }}>출처</span>
                         <ToggleGroup options={SOURCE_OPTIONS} value={editSource} onChange={setEditSource} colors={SOURCE_COLORS} />
+                        {editSource === "프로그램추천" && <ProgramEnginePicker value={editEngines} onChange={setEditEngines} />}
                         <span style={{ fontSize: "0.75rem", color: "var(--color-muted)" }}>유형</span>
                         <ToggleGroup
                           options={[{ label: "실매매", value: "실매매" as const }, { label: "테스트", value: "테스트" as const }]}
@@ -1727,6 +1729,7 @@ function TradesTab() {
 
   const [editTradeKey,    setEditTradeKey]    = useState<string | null>(null);
   const [editSrc,         setEditSrc]         = useState<string>("개인");
+  const [editSrcEngines,  setEditSrcEngines]  = useState<string[]>([]);
   const [editTyp,         setEditTyp]         = useState<"실매매" | "테스트">("실매매");
   const [editBuyDate,     setEditBuyDate]     = useState<string>("");
   const [editBuyReason,   setEditBuyReason]   = useState<string>("");
@@ -1849,7 +1852,7 @@ function TradesTab() {
   const handleUpdateTag = async (ticker: string, sellDate: string, origBuyDate: string, origBuyReason: string) => {
     setSavingTag(true);
     try {
-      await (api.portfolio as any).updateTradeTag(ticker, sellDate, editSrc, editTyp);
+      await (api.portfolio as any).updateTradeTag(ticker, sellDate, encodeSource(editSrc, editSrcEngines), editTyp);
       // 매수 시각이 변경됐으면 함께 저장 (분 단위 비교)
       const origNorm = String(origBuyDate || "").slice(0, 16).replace(" ", "T");
       if (editBuyDate && editBuyDate !== origNorm) {
@@ -2109,7 +2112,7 @@ function TradesTab() {
                           title="출처/유형 편집"
                           onClick={() => {
                             if (isEditingTag) { setEditTradeKey(null); return; }
-                            setEditSrc(String(tradeSource || "개인"));
+                            { const _d = decodeSource(String(tradeSource || "개인")); setEditSrc(_d.base); setEditSrcEngines(_d.engines); }
                             setEditTyp((tradeType as "실매매" | "테스트") || "실매매");
                             setEditBuyDate(String(t["매수시간"] ?? t.buy_date ?? "").slice(0, 16).replace(" ", "T"));
                             setEditBuyReason(buyReason);
@@ -2129,6 +2132,7 @@ function TradesTab() {
                           {isAdmin && (<>
                           <span style={{ fontSize: "0.75rem", color: "var(--color-muted)" }}>출처</span>
                           <ToggleGroup options={SOURCE_OPTIONS} value={editSrc} onChange={setEditSrc} colors={SOURCE_COLORS} />
+                          {editSrc === "프로그램추천" && <ProgramEnginePicker value={editSrcEngines} onChange={setEditSrcEngines} />}
                           <span style={{ fontSize: "0.75rem", color: "var(--color-muted)", marginLeft: "0.25rem" }}>유형</span>
                           <ToggleGroup
                             options={[{ label: "실매매", value: "실매매" as const }, { label: "테스트", value: "테스트" as const }]}
