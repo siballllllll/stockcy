@@ -186,7 +186,7 @@ export default function MindMapExplorer({
         const p = ns.find(n => n.id === a.parentId);
         if (p) {
           const pe = ensureDims(p);
-          const rest = a.r + pe.r + (a.depth <= 1 ? 96 : 58);
+          const rest = a.r + pe.r + (a.depth <= 1 ? 112 : 70);
           const dx = pe.x - a.x, dy = pe.y - a.y;
           const d = Math.sqrt(dx * dx + dy * dy) || 1;
           const k = 0.010 * (d - rest);
@@ -213,9 +213,10 @@ export default function MindMapExplorer({
     }
 
     // ── 하드 분리: 사각형 겹침을 위치로 직접 밀어내 '절대 안 겹치게' 보장(항상 실행) ──
+    // 힘 시뮬은 새 자식(free)만 움직이지만, 겹침 해소는 '루트 빼고 전부' 대상 → 다른 가지와도 안 겹침.
     let movedSep = false;
-    const GAP = 14;
-    const movable = (n: MNode) => n.parentId !== null && dragRef.current.id !== n.id && isFree(n.id);
+    const GAP = 22;
+    const movable = (n: MNode) => n.parentId !== null && dragRef.current.id !== n.id;
     for (let iter = 0; iter < 3; iter++) {
       for (let i = 0; i < ns.length; i++) {
         const a = ensureDims(ns[i]);
@@ -310,7 +311,7 @@ export default function MindMapExplorer({
         const arc = par ? Math.PI * 0.85 : Math.PI * 2;   // 부모 반대쪽 부채꼴(루트만 전방위)
         // 클릭한 노드를 바깥으로 살짝 튀어나오게(앞으로) → 새 자식이 그 근처에서 자람.
         if (par) { cur.x += Math.cos(baseAng) * 34; cur.y += Math.sin(baseAng) * 34; cur.ax = cur.x; cur.ay = cur.y; }
-        const dist = cur.r + 70;
+        const dist = cur.r + 92;
         kws.forEach((k, i) => {
           const off = par ? (n === 1 ? 0 : (i / (n - 1) - 0.5)) * arc : (i / n) * arc;
           const ang = baseAng + off + (Math.random() - 0.5) * 0.1;
@@ -559,7 +560,7 @@ export default function MindMapExplorer({
               <feDropShadow dx="0" dy="3" stdDeviation="4" floodColor="#000" floodOpacity="0.5" />
             </filter>
             {/* 미세한 '숨쉬기' 동적 효과 — CSS라 JS 루프 없이도 생기만 살림(자리·겹침엔 영향 없음) */}
-            <style>{`@keyframes mm-bob{0%,100%{transform:translateY(0)}50%{transform:translateY(-2.5px)}}`}</style>
+            <style>{`@keyframes mm-bob{0%,100%{transform:translate(0,0)}50%{transform:translate(1.5px,-3.5px)}}`}</style>
           </defs>
 
           <g transform={`translate(${v.tx},${v.ty}) scale(${v.scale})`}>
