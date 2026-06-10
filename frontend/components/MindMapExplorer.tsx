@@ -469,6 +469,36 @@ export default function MindMapExplorer({
   const nodes = nodesRef.current;
   const panelOpen = gen.status !== "idle";
 
+  // ── 가지(branch)별 색 — 1단계 자식마다 고유 색, 자손은 같은 색을 물려받아 소속을 구분 ──
+  const PALETTE = [265, 210, 150, 35, 330, 188, 95, 18, 290, 130];   // 서로 잘 구분되는 hue들
+  const branchIdx = new Map<number, number>();
+  nodes.filter(n => n.depth === 1).sort((a, b) => a.id - b.id).forEach((n, i) => branchIdx.set(n.id, i));
+  const branchRootId = (n: MNode): number | null => {
+    let cur: MNode | undefined = n;
+    while (cur && cur.depth > 1) cur = nodes.find(x => x.id === cur!.parentId);
+    return cur && cur.depth === 1 ? cur.id : null;
+  };
+  const hueOf = (n: MNode): number | null => {
+    if (n.depth === 0) return null;
+    const br = branchRootId(n);
+    return br == null ? null : PALETTE[(branchIdx.get(br) ?? 0) % PALETTE.length];
+  };
+  const nodeFill = (n: MNode, sel: boolean) => {
+    const hue = hueOf(n);
+    if (hue == null) return `url(#${gradId(0, sel)})`;          // 루트(주제)는 기존 그라데이션
+    const light = Math.min(70, 48 + (n.depth - 1) * 8);          // 깊을수록 밝게
+    return `hsl(${hue} 58% ${light}%)`;
+  };
+  const nodeStroke = (n: MNode, sel: boolean) => {
+    if (sel) return "#ffffff";
+    const hue = hueOf(n);
+    return hue == null ? "#f472b6" : `hsl(${hue} 72% 80%)`;
+  };
+  const linkStroke = (n: MNode) => {
+    const hue = hueOf(n);
+    return hue == null ? "rgba(148,163,184,0.4)" : `hsl(${hue} 60% 62% / 0.6)`;
+  };
+
   return (
     <div style={{
       position: "fixed", inset: 0, zIndex: 1000,
@@ -539,7 +569,7 @@ export default function MindMapExplorer({
               const p = nodes.find(x => x.id === n.parentId);
               if (!p) return null;
               return <line key={`l${n.id}`} x1={p.x} y1={p.y} x2={n.x} y2={n.y}
-                stroke="rgba(148,163,184,0.4)" strokeWidth={1.4} />;
+                stroke={linkStroke(n)} strokeWidth={n.depth === 1 ? 2.2 : 1.6} />;
             })}
             {/* 노드 (가변폭 알약 + 그라데이션 + 그림자 = 입체) */}
             {nodes.map(n0 => {
@@ -555,8 +585,8 @@ export default function MindMapExplorer({
                     animationDelay: `${-((n.phase ?? 0) / (Math.PI * 2)) * 4}s`,
                   }}>
                     <rect x={-n.w / 2} y={-n.h / 2} width={n.w} height={n.h} rx={n.h / 2}
-                      fill={`url(#${gradId(n.depth, sel)})`} stroke={strokeOf(n.depth, sel)}
-                      strokeWidth={sel ? 3 : 1.4} filter="url(#mm-shadow)" />
+                      fill={nodeFill(n, sel)} stroke={nodeStroke(n, sel)}
+                      strokeWidth={sel ? 3.5 : 1.6} filter="url(#mm-shadow)" />
                     {/* 상단 하이라이트(유광 입체감) */}
                     <rect x={-n.w / 2 + 5} y={-n.h / 2 + 4} width={n.w - 10} height={n.h * 0.36} rx={n.h * 0.2}
                       fill="rgba(255,255,255,0.18)" style={{ pointerEvents: "none" }} />
@@ -569,7 +599,7 @@ export default function MindMapExplorer({
                       <text textAnchor="middle" dy={n.h / 2 + 15} fontSize={11} fill="#cbd5e1" style={{ pointerEvents: "none" }}>펼치는 중…</text>
                     )}
                     {!n.loading && !n.expanded && n.depth > 0 && (
-                      <circle cx={0} cy={n.h / 2 + 9} r={7} fill="#1e2330" stroke={strokeOf(n.depth, sel)} strokeWidth={1}
+                      <circle cx={0} cy={n.h / 2 + 9} r={7} fill="#1e2330" stroke={nodeStroke(n, sel)} strokeWidth={1}
                         style={{ pointerEvents: "none" }} />
                     )}
                     {!n.loading && !n.expanded && n.depth > 0 && (
