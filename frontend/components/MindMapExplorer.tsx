@@ -85,6 +85,7 @@ export default function MindMapExplorer({
   const lastPtr = useRef({ x: 0, y: 0 });
   const alphaRef = useRef(0);                         // 시뮬레이션 에너지(쿨링) — 0이면 정지
   const stepRef = useRef<(() => void) | null>(null);  // 최신 step 클로저
+  const freeRef = useRef<Set<number> | null>(null);   // 이번 레이아웃에서 움직일 노드(null=전체). 펼침 시 새 자식만.
 
   const [, setTick] = useState(0);
   const [selectedId, setSelectedId] = useState<number | null>(null);
@@ -109,6 +110,7 @@ export default function MindMapExplorer({
     setSelectedId(null);
     setGen({ status: "idle", keyword: "", result: null, index: -1, msg: "" });
     viewRef.current = { tx: 0, ty: 0, scale: 1 };
+    freeRef.current = null;   // 열 때는 전체 레이아웃
 
     let restored = false;
     try {
@@ -161,11 +163,14 @@ export default function MindMapExplorer({
     const cy = (typeof window !== "undefined" ? window.innerHeight : 600) / 2;
     const alpha = alphaRef.current;
 
+    const free = freeRef.current;                       // null=전체 / Set=그 노드만 움직임(나머지 고정)
+    const isFree = (id: number) => free === null || free.has(id);
+
     if (alpha > 0.02) {
-      // (1) 레이아웃 — 힘 적용 후 쿨링
+      // (1) 레이아웃 — '움직이는 노드'만 힘 적용. 고정 노드는 장애물로만 작용(안 움직임).
       for (let i = 0; i < ns.length; i++) {
         const a = ensureDims(ns[i]);
-        if (dragRef.current.id === a.id) continue;
+        if (dragRef.current.id === a.id || !isFree(a.id)) continue;
         let fx = 0, fy = 0;
         for (let j = 0; j < ns.length; j++) {
           if (i === j) continue;
@@ -200,19 +205,22 @@ export default function MindMapExplorer({
         const sp = Math.hypot(a.vx, a.vy);
         if (sp > 7) { a.vx = a.vx / sp * 7; a.vy = a.vy / sp * 7; }
       }
-      // 전체 표류(평균 속도) 제거 → 무리가 통째로 흐르지 않음
-      let mvx = 0, mvy = 0, c = 0;
-      for (const a of ns) { if (dragRef.current.id === a.id) continue; mvx += a.vx; mvy += a.vy; c++; }
-      if (c) { mvx /= c; mvy /= c; }
+      // 전체 표류(평균 속도) 제거 — '전체 레이아웃'일 때만(부분 펼침은 부모가 고정이라 불필요).
+      if (free === null) {
+        let mvx = 0, mvy = 0, c = 0;
+        for (const a of ns) { if (dragRef.current.id === a.id) continue; mvx += a.vx; mvy += a.vy; c++; }
+        if (c) { mvx /= c; mvy /= c; }
+        for (const a of ns) { if (dragRef.current.id === a.id) continue; a.vx -= mvx; a.vy -= mvy; }
+      }
       for (const a of ns) {
-        if (dragRef.current.id === a.id) continue;
-        a.vx -= mvx; a.vy -= mvy;
+        if (dragRef.current.id === a.id || !isFree(a.id)) continue;
         a.x += a.vx; a.y += a.vy;
         a.ax = a.x; a.ay = a.y;   // 앵커 = 자리잡는 위치 추적
       }
       alphaRef.current = alpha * 0.95;   // 쿨링(빠르게 가라앉음)
     } else {
-      // (2) idle — 앵커 주변 미세 bob (국소·비표류)
+      // (2) idle — 앵커 주변 미세 bob (국소·비표류). 부분 레이아웃 종료 → 다음을 위해 free 해제.
+      freeRef.current = null;
       const t = (typeof performance !== "undefined" ? performance.now() : Date.now()) / 1000;
       for (const a0 of ns) {
         const a = ensureDims(a0);
@@ -278,17 +286,28 @@ export default function MindMapExplorer({
       const cur = nodesRef.current.find(n => n.id === id);
       if (cur) {
         const n = kws.length;
+        const newIds: number[] = [];
         kws.forEach((k, i) => {
           const ang = (Math.PI * 2 * i) / Math.max(1, n) + Math.random() * 0.25;
-          const rr = 190 + Math.random() * 60;
+          const rr = 170 + Math.random() * 50;
+          const nid = idRef.current++;
+          newIds.push(nid);
           nodesRef.current.push(ensureDims({
-            id: idRef.current++,
+            id: nid,
             label: k.label, desc: k.desc, parentId: id, depth: cur.depth + 1,
             x: cur.x + Math.cos(ang) * rr, y: cur.y + Math.sin(ang) * rr,
             vx: 0, vy: 0, expanded: false, loading: false,
           }));
         });
         cur.expanded = true;
+        // 기존 노드는 전부 '고정'(속도0 + 앵커로 스냅) → 부모가 비행기처럼 날아다니지 않게.
+        // 새 자식만 free-set으로 자리잡는다.
+        for (const nd of nodesRef.current) {
+          if (newIds.includes(nd.id)) continue;
+          nd.vx = 0; nd.vy = 0;
+          if (nd.ax != null && nd.ay != null) { nd.x = nd.ax; nd.y = nd.ay; }
+        }
+        freeRef.current = new Set(newIds);
       }
     } catch { /* 펼치기 실패 — 조용히 무시(다시 클릭하면 재시도) */ }
     finally {
@@ -342,7 +361,6 @@ export default function MindMapExplorer({
     (e.target as Element).setPointerCapture?.(e.pointerId);
     dragRef.current = { id, panning: false, moved: false, downId: id };
     lastPtr.current = { x: e.clientX, y: e.clientY };
-    reheat(0.3);   // 옮기는 동안 주변 노드가 자연스럽게 비켜남
   };
   const onPointerDownBg = (e: React.PointerEvent) => {
     dragRef.current = { id: null, panning: true, moved: false, downId: null };
@@ -372,10 +390,9 @@ export default function MindMapExplorer({
       setSelectedId(id);
       doExpand(id, false);
     } else if (dr.id !== null && dr.moved) {
-      // 드래그 종료 → 놓은 자리를 앵커로(거기서 살짝살짝) + 주변 재정렬
+      // 드래그 종료 → 놓은 자리를 앵커로(거기서 살짝살짝만). 주변은 건드리지 않아 차분함.
       const node = nodesRef.current.find(n => n.id === dr.id);
       if (node) { node.ax = node.x; node.ay = node.y; }
-      reheat(0.3);
     }
     dragRef.current = { id: null, panning: false, moved: false, downId: null };
   };
