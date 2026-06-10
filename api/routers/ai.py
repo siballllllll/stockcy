@@ -58,6 +58,12 @@ class ScenarioDetailRequest(BaseModel):
     falling:           list = []
 
 
+class MindmapExpandRequest(BaseModel):
+    topic:   str
+    context: str = ""        # 지금까지 파고든 경로(상위 노드 라벨들을 ' > '로 연결)
+    refresh: bool = False     # True면 캐시 무시하고 최신 이슈 반영해 재생성
+
+
 class HotStockRequest(BaseModel):
     context: str = ""
 
@@ -330,6 +336,30 @@ async def custom_issue_scenario(req: CustomIssueRequest, _credit: dict = Depends
             yield _sse({"status": "error", "message": str(e)})
 
     return _sse_response(_gen())
+
+
+# ── 마인드맵 탐색: 노드 펼치기 (가벼움·무크레딧·캐시) ──────────────────────────
+
+@router.post("/scenarios/mindmap/expand")
+async def mindmap_expand(req: MindmapExpandRequest, user: dict = Depends(get_current_user)):
+    """[마인드맵 탐색] 주제 → 연관 세부 키워드. 검색X·thinking0이라 거의 무과금이고,
+    크레딧을 차감하지 않는다(펼치기는 '탐색', 과금은 시나리오 본생성에서만).
+    캐시(기본 72h)로 같은 주제 재클릭은 호출 없이 즉시 응답 → 비용 0."""
+    from ai_engine import expand_mindmap_keywords
+    from db import load_ai_cache, save_ai_cache
+
+    key = f"mm_{(req.context + '>' + req.topic)[:80]}"
+    if not req.refresh:
+        cached = await asyncio.to_thread(load_ai_cache, key)
+        if cached:
+            res = dict(cached.get("result", cached))
+            res["from_cache"] = True
+            return res
+
+    res = await asyncio.to_thread(expand_mindmap_keywords, req.topic, req.context)
+    if res.get("keywords"):
+        await asyncio.to_thread(save_ai_cache, key, {"result": res}, 72)
+    return res
 
 
 # ── 시나리오 심층 분석 ────────────────────────────────────────────────────────

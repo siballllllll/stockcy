@@ -18,6 +18,9 @@ import { useIsMobile } from "@/lib/use-is-mobile";
 // Next.js 프록시 우회 — 프록시가 큰 done JSON을 버퍼링해서 결과가 안 뜨는 문제 방지
 const BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8000";
 
+// 마인드맵 탐색 오버레이 — window/localStorage/rAF 사용 → SSR 비활성
+const MindMapExplorer = dynamic(() => import("@/components/MindMapExplorer"), { ssr: false });
+
 // 시나리오 상세분석은 글로벌 AI 태스크 시스템(useSSE+globalId)으로 실행 →
 // 페이지 이동해도 백그라운드 유지 + 완료 시 상단 벨 알림 + 새로고침 복원(컨텍스트가 자체 보관).
 
@@ -1692,6 +1695,44 @@ function ScenariosPageInner() {
     }
   };
 
+  // ── 마인드맵 탐색 (커스텀 시나리오 보조) ────────────────────────────────────
+  const [mindmapOpen, setMindmapOpen] = useState(false);
+  const [mindmapTopic, setMindmapTopic] = useState("");
+
+  // 노드 펼치기 — 가벼운 연관 키워드(무크레딧·캐시)
+  const handleMindmapExpand = useCallback(async (topic: string, context: string, refresh: boolean) => {
+    const r = await api.scenarios.mindmapExpand(topic, context, refresh);
+    return (r.keywords ?? []).map(k => ({ label: k.label, desc: k.desc }));
+  }, []);
+
+  // 선택 노드로 시나리오 생성 — 기존 커스텀 시나리오 SSE 재사용(과금). 생성 결과+인덱스 반환.
+  const handleMindmapGenerate = useCallback(async (keyword: string): Promise<{ issue: any; index: number } | null> => {
+    const result = await readSSE("/api/ai/scenarios/custom", "POST", { keyword }, () => {});
+    const r = result as Issue | null;
+    if (!r || (!r.title && !(Array.isArray(r.scenarios) && r.scenarios.length > 0))) {
+      throw new Error("분석 결과를 받지 못했습니다. 잠시 후 다시 시도해주세요.");
+    }
+    const searchedAt = new Date().toLocaleString("ko-KR", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false });
+    let newId: number | undefined;
+    try {
+      const saved = await api.scenarios.saveCustom(keyword, r.title || keyword, r, searchedAt);
+      newId = saved?.id ?? undefined;
+    } catch { /* 저장 실패해도 화면 표시는 가능 */ }
+    const newIssue = { ...r, id: newId, title: r.title || keyword, isCustom: true as const, keyword, searchedAt };
+    let idx = 0;
+    setCustomIssues(prev => {
+      const next = [...prev, newIssue].slice(-10);
+      idx = next.length - 1;
+      return next;
+    });
+    return { issue: newIssue, index: idx };
+  }, []);
+
+  const handleMindmapOpenIssue = useCallback((index: number) => {
+    setRegionFilter("커스텀");
+    setIssueIdx(index);
+  }, []);
+
   const handleDeleteCustomIssue = (issue: Issue & { id?: number }) => {
     const idx = customIssues.findIndex(ci => ci === issue);
     setCustomIssues(prev => prev.filter(ci => ci !== issue));
@@ -1878,6 +1919,20 @@ function ScenariosPageInner() {
             >
               {customLoading ? <><Loader2 className="animate-spin" size={14} /> 분석중...</> : "분석하기"}
             </button>
+            {/* 마인드맵 탐색 — 주제를 보골보골 노드로 펼쳐 원하는 줄기를 골라 시나리오 생성 */}
+            <button
+              onClick={() => { const t = customKeyword.trim(); if (!t) return; setMindmapTopic(t); setMindmapOpen(true); }}
+              disabled={!customKeyword.trim()}
+              style={{
+                width: "100%", padding: "8px", fontWeight: 700, fontSize: "0.8rem",
+                borderRadius: "6px", border: "1px solid #6366f1", cursor: customKeyword.trim() ? "pointer" : "not-allowed",
+                background: "transparent", color: "#818cf8", display: "flex", alignItems: "center", justifyContent: "center", gap: "6px",
+                opacity: customKeyword.trim() ? 1 : 0.5,
+              }}
+              title="주제를 마인드맵으로 펼쳐 탐색합니다"
+            >
+              🧠 마인드맵으로 탐색
+            </button>
             {customError && <div style={{ fontSize: "0.75rem", color: "var(--color-danger)" }}>{customError}</div>}
 
             {/* 저장된 커스텀 이슈 목록 */}
@@ -1916,6 +1971,18 @@ function ScenariosPageInner() {
               </div>
             )}
           </div>
+
+          {/* 마인드맵 탐색 오버레이 */}
+          {mindmapOpen && (
+            <MindMapExplorer
+              open={mindmapOpen}
+              initialTopic={mindmapTopic}
+              onClose={() => setMindmapOpen(false)}
+              onExpand={handleMindmapExpand}
+              onGenerate={handleMindmapGenerate}
+              onOpenIssue={handleMindmapOpenIssue}
+            />
+          )}
 
           {/* 에이전트 오늘의 이슈 */}
           <AgentDailyIssuesPanel />
@@ -2064,6 +2131,14 @@ function ScenariosPageInner() {
                     style={{ padding: "8px 16px", fontWeight: 700, fontSize: "0.82rem", flexShrink: 0, display: "flex", alignItems: "center", gap: "6px" }}
                   >
                     {customLoading ? <><Loader2 className="animate-spin" size={14} /> 분석중...</> : "분석하기"}
+                  </button>
+                  <button
+                    onClick={() => { const t = customKeyword.trim(); if (!t) return; setMindmapTopic(t); setMindmapOpen(true); }}
+                    disabled={!customKeyword.trim()}
+                    title="주제를 마인드맵으로 펼쳐 탐색"
+                    style={{ padding: "8px 14px", fontWeight: 700, fontSize: "0.82rem", flexShrink: 0, borderRadius: "6px", border: "1px solid #6366f1", background: "transparent", color: "#818cf8", cursor: customKeyword.trim() ? "pointer" : "not-allowed", opacity: customKeyword.trim() ? 1 : 0.5 }}
+                  >
+                    🧠 탐색
                   </button>
                   {customError && <div style={{ fontSize: "0.75rem", color: "var(--color-danger)", flexShrink: 0 }}>{customError}</div>}
                 </div>

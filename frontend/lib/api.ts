@@ -205,6 +205,12 @@ export const api = {
     },
     saveRecent: (keyword: string) =>
       req("/api/recent-searches", { method: "POST", body: JSON.stringify({ keyword }) }),
+    // [마인드맵 탐색] 노드 펼치기 — 가벼운 연관 키워드(검색X·무크레딧·캐시). refresh=true면 최신 갱신.
+    mindmapExpand: (topic: string, context = "", refresh = false) =>
+      req<{ topic: string; keywords: { label: string; desc: string }[]; from_cache?: boolean; error?: string }>(
+        "/api/ai/scenarios/mindmap/expand",
+        { method: "POST", body: JSON.stringify({ topic, context, refresh }) },
+      ),
   },
 
   // ── 트레이딩 ──────────────────────────────────────────────────────────────

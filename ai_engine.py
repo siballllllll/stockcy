@@ -912,6 +912,50 @@ def analyze_custom_issue(keyword: str) -> dict:
         return {"error": _friendly_error(e), "title": keyword, "scenarios": []}
 
 
+def expand_mindmap_keywords(topic: str, context: str = "") -> dict:
+    """[마인드맵 탐색] 주제 하나에 대한 연관 세부 키워드 5~7개를 가볍게 생성.
+    구글 검색 미사용 + thinking=0 + 짧은 출력 → 거의 무과금. 시나리오 '본생성' 전의
+    탐색(노드 펼치기) 단계 전용. 시나리오 생성 자체는 analyze_custom_issue가 담당한다."""
+    ctx_line = f"지금까지 파고든 경로(상위 맥락): {context}\n" if context else ""
+    prompt = (
+        "당신은 한국 주식시장에 정통한 매크로 전략가입니다.\n"
+        "반드시 모든 출력을 한국어(한글)로 작성하세요. 영문은 종목 티커에만 허용하고, 한자(漢字)는 금지합니다.\n"
+        f"{ctx_line}"
+        f"핵심 주제: [{topic}]\n\n"
+        "이 주제에서 '한 단계 더 구체적으로' 파고들 수 있는 연관 세부 키워드 5~7개를 제시하세요.\n"
+        "- 투자/시장 관점에서 의미 있는 하위 갈래여야 합니다(세부 테마, 수혜·피해 축, 정책·금리·환율·수급 변수, 관련 산업 등).\n"
+        "- label은 12자 이내의 짧은 명사구(마인드맵 노드에 표시됨). desc는 한 줄로 왜 이 갈래로 갈라지는지.\n"
+        "- 상위 주제와 단순 동어반복 금지. 키워드끼리도 서로 겹치지 않게 서로 다른 각도로.\n\n"
+        "아래 JSON 형식으로만 응답하세요 (백틱·주석 절대 금지):\n"
+        '{"keywords": [{"label": "짧은키워드", "desc": "한 줄 설명"}]}'
+    )
+    try:
+        response = _call_gemini(
+            prompt, use_search=False, temperature=0.85,
+            response_mime_type="application/json",
+            timeout_sec=40, max_output_tokens=1200, thinking=False,
+        )
+        res = _parse_json_response(response)
+        kws = res.get("keywords") if isinstance(res, dict) else None
+        out = []
+        seen = set()
+        if isinstance(kws, list):
+            for k in kws:
+                if isinstance(k, dict):
+                    label = str(k.get("label") or "").strip()
+                    desc = str(k.get("desc") or "").strip()
+                elif isinstance(k, str):
+                    label, desc = k.strip(), ""
+                else:
+                    continue
+                if label and label not in seen:
+                    seen.add(label)
+                    out.append({"label": label[:24], "desc": desc[:80]})
+        return {"topic": topic, "keywords": out[:7]}
+    except Exception as e:
+        return {"topic": topic, "keywords": [], "error": _friendly_error(e)}
+
+
 def generate_scenario_detail(issue_title: str, scenario_title: str, economic_analysis: str,
                               rising: list, falling: list) -> dict:
     """특정 시나리오의 상세 심층 분석을 생성합니다."""
