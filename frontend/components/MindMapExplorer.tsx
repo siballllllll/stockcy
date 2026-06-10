@@ -52,7 +52,7 @@ function ensureDims(n: MNode) {
   if (n.phase == null) n.phase = Math.random() * Math.PI * 2;
   return n as Required<Pick<MNode, "w" | "h">> & MNode;
 }
-function radiusOfDepth(depth: number) { return depth <= 0 ? 0 : 250 + (depth - 1) * 230; }
+function radiusOfDepth(depth: number) { return depth <= 0 ? 0 : 290 + (depth - 1) * 285; }   // 링 간격 확대(여유)
 
 export default function MindMapExplorer({
   open, initialTopic, onClose, onExpand, onGenerate, onOpenIssue,
@@ -100,15 +100,20 @@ export default function MindMapExplorer({
       const ch = childrenOf(node.id);
       if (ch.length === 0) return;
       const total = ch.reduce((s, c) => s + leafCount(c), 0) || 1;
-      let cur = a0;
+      const span = a1 - a0;
+      // 가지 사이 각도 간격 — 1단계(가지)는 넓게, 깊을수록 좁게(경계에서 안 붙게)
+      const desiredGap = ch[0].depth === 1 ? 0.16 : 0.07;
+      const gap = Math.min(desiredGap, (span * 0.5) / ch.length);
+      const usable = span - gap * ch.length;
+      let cur = a0 + gap / 2;
       for (const c of ch) {
-        const w = (a1 - a0) * (leafCount(c) / total);
+        const w = usable * (leafCount(c) / total);
         const ang = cur + w / 2;
         const r = radiusOfDepth(c.depth);
         c.x = wcx + Math.cos(ang) * r;
         c.y = wcy + Math.sin(ang) * r;
         assign(c, cur, cur + w);
-        cur += w;
+        cur += w + gap;
       }
     };
     assign(root, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2);
