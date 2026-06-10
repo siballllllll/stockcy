@@ -189,7 +189,8 @@ export default function MindMapExplorer({
           const p = ns.find(n => n.id === a.parentId);
           if (p) {
             const pe = ensureDims(p);
-            const rest = a.r + pe.r + 90 + a.depth * 12;
+            // 1단계는 넓게, 깊은 자식은 부모에 가깝게(여기저기 뻗지 않게).
+            const rest = a.r + pe.r + (a.depth <= 1 ? 96 : 58);
             const dx = pe.x - a.x, dy = pe.y - a.y;
             const d = Math.sqrt(dx * dx + dy * dy) || 1;
             const k = 0.010 * (d - rest);
@@ -283,13 +284,22 @@ export default function MindMapExplorer({
     const ctxAncestors = buildContext(id).split(" > ").slice(0, -1).join(" > ");
     try {
       const kws = await onExpand(node.label, ctxAncestors, refresh);
-      const cur = nodesRef.current.find(n => n.id === id);
-      if (cur) {
+      const curNode = nodesRef.current.find(n => n.id === id);
+      if (curNode) {
+        const cur = ensureDims(curNode);
         const n = kws.length;
         const newIds: number[] = [];
+        // 바깥 방향 = 부모→클릭노드 방향(중심에서 멀어지는 쪽). 루트는 전방위.
+        const par = cur.parentId !== null ? nodesRef.current.find(p => p.id === cur.parentId) : null;
+        const baseAng = par ? Math.atan2(cur.y - par.y, cur.x - par.x) : Math.random() * Math.PI * 2;
+        const arc = par ? Math.PI * 0.85 : Math.PI * 2;   // 부모 반대쪽 부채꼴(루트만 전방위)
+        // 클릭한 노드를 바깥으로 살짝 튀어나오게(앞으로) → 새 자식이 그 근처에서 자람.
+        if (par) { cur.x += Math.cos(baseAng) * 34; cur.y += Math.sin(baseAng) * 34; cur.ax = cur.x; cur.ay = cur.y; }
+        const dist = cur.r + 70;
         kws.forEach((k, i) => {
-          const ang = (Math.PI * 2 * i) / Math.max(1, n) + Math.random() * 0.25;
-          const rr = 170 + Math.random() * 50;
+          const off = par ? (n === 1 ? 0 : (i / (n - 1) - 0.5)) * arc : (i / n) * arc;
+          const ang = baseAng + off + (Math.random() - 0.5) * 0.1;
+          const rr = dist + Math.random() * 16;
           const nid = idRef.current++;
           newIds.push(nid);
           nodesRef.current.push(ensureDims({
