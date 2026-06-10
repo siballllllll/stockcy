@@ -2115,14 +2115,14 @@ function ScenariosPageInner() {
 
               {/* 커스텀 탭: 검색 UI */}
               {regionFilter === "커스텀" && (
-                <div style={{ display: "flex", gap: "8px", alignItems: "center", marginBottom: "12px", padding: "10px 12px", background: "rgba(255,180,50,0.06)", border: "1px solid rgba(255,180,50,0.2)", borderRadius: "8px" }}>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", alignItems: "center", marginBottom: "12px", padding: "10px 12px", background: "rgba(255,180,50,0.06)", border: "1px solid rgba(255,180,50,0.2)", borderRadius: "8px" }}>
                   <input
                     className="stockcy-input"
                     placeholder="키워드 입력 (예: 반도체 관세, 금리 동결)"
                     value={customKeyword}
                     onChange={e => setCustomKeyword(e.target.value)}
                     onKeyDown={e => e.key === "Enter" && handleCustomSearch()}
-                    style={{ flex: 1, fontSize: "0.85rem" }}
+                    style={{ flex: "1 1 160px", minWidth: 0, fontSize: "0.85rem" }}
                   />
                   <button
                     className="stockcy-btn stockcy-btn-primary"
