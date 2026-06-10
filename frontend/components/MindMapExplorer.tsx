@@ -133,6 +133,19 @@ export default function MindMapExplorer({
       })];
       doExpand(0, false);
     }
+    // 위치는 항상 화면 중앙 기준 동심원으로 새로 시드(트리 구조=탐색내역은 보존).
+    // 이전 세션에 노드가 멀리 표류한 채 저장돼 화면 밖으로 사라지던 문제 방지.
+    {
+      const wcx = (typeof window !== "undefined" ? window.innerWidth : 800) / 2;
+      const wcy = (typeof window !== "undefined" ? window.innerHeight : 600) / 2;
+      for (const n of nodesRef.current) {
+        const ring = n.depth * 160;
+        const ang = Math.random() * Math.PI * 2;
+        n.x = wcx + Math.cos(ang) * ring + (Math.random() - 0.5) * 40;
+        n.y = wcy + Math.sin(ang) * ring + (Math.random() - 0.5) * 40;
+        n.ax = n.x; n.ay = n.y; n.vx = 0; n.vy = 0;
+      }
+    }
     reheat(1);   // 열릴 때 한 번 자리잡기
     setTick(t => t + 1);
     // eslint-disable-next-line react-hooks/exhaustive-deps
