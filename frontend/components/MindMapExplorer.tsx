@@ -141,10 +141,14 @@ export default function MindMapExplorer({
       const wcx = (typeof window !== "undefined" ? window.innerWidth : 800) / 2;
       const wcy = (typeof window !== "undefined" ? window.innerHeight : 600) / 2;
       for (const n of nodesRef.current) {
-        const ring = n.depth * 160;
-        const ang = Math.random() * Math.PI * 2;
-        n.x = wcx + Math.cos(ang) * ring + (Math.random() - 0.5) * 40;
-        n.y = wcy + Math.sin(ang) * ring + (Math.random() - 0.5) * 40;
+        if (n.parentId === null) {       // 루트(주제)는 정확히 화면 중앙에 못 박음
+          n.x = wcx; n.y = wcy;
+        } else {
+          const ring = n.depth * 160;
+          const ang = Math.random() * Math.PI * 2;
+          n.x = wcx + Math.cos(ang) * ring + (Math.random() - 0.5) * 40;
+          n.y = wcy + Math.sin(ang) * ring + (Math.random() - 0.5) * 40;
+        }
         n.ax = n.x; n.ay = n.y; n.vx = 0; n.vy = 0;
       }
     }
@@ -159,8 +163,6 @@ export default function MindMapExplorer({
   //        살짝살짝 흔들림(전체 표류 0, 풍선처럼 떠다니지 않음).
   stepRef.current = () => {
     const ns = nodesRef.current;
-    const cx = (typeof window !== "undefined" ? window.innerWidth : 800) / 2;
-    const cy = (typeof window !== "undefined" ? window.innerHeight : 600) / 2;
     const alpha = alphaRef.current;
 
     const free = freeRef.current;                       // null=전체 / Set=그 노드만 움직임(나머지 고정)
@@ -170,7 +172,8 @@ export default function MindMapExplorer({
       // (1) 레이아웃 — '움직이는 노드'만 힘 적용. 고정 노드는 장애물로만 작용(안 움직임).
       for (let i = 0; i < ns.length; i++) {
         const a = ensureDims(ns[i]);
-        if (dragRef.current.id === a.id || !isFree(a.id)) continue;
+        // 루트(주제) 노드는 완전 고정 — 절대 움직이지 않음.
+        if (a.parentId === null || dragRef.current.id === a.id || !isFree(a.id)) continue;
         let fx = 0, fy = 0;
         for (let j = 0; j < ns.length; j++) {
           if (i === j) continue;
@@ -179,9 +182,9 @@ export default function MindMapExplorer({
           let d2 = dx * dx + dy * dy;
           if (d2 < 1) { d2 = 1; dx = Math.random() - 0.5; dy = Math.random() - 0.5; }
           const d = Math.sqrt(d2);
-          const minD = a.r + b.r + 46;
-          let f = 16000 / d2;
-          if (d < minD) f += (minD - d) * 1.1;
+          const minD = a.r + b.r + 34;
+          let f = 6500 / d2;
+          if (d < minD) f += (minD - d) * 0.55;
           fx += (dx / d) * f;
           fy += (dy / d) * f;
         }
@@ -197,14 +200,11 @@ export default function MindMapExplorer({
             fx += (dx / d) * k * d;
             fy += (dy / d) * k * d;
           }
-        } else {
-          fx += (cx - a.x) * 0.02;
-          fy += (cy - a.y) * 0.02;
         }
-        a.vx = (a.vx + fx * 0.02) * 0.80;
-        a.vy = (a.vy + fy * 0.02) * 0.80;
+        a.vx = (a.vx + fx * 0.02) * 0.78;
+        a.vy = (a.vy + fy * 0.02) * 0.78;
         const sp = Math.hypot(a.vx, a.vy);
-        if (sp > 7) { a.vx = a.vx / sp * 7; a.vy = a.vy / sp * 7; }
+        if (sp > 3.4) { a.vx = a.vx / sp * 3.4; a.vy = a.vy / sp * 3.4; }   // 상한 낮춰 '날아감'(overshoot) 방지
       }
       // 전체 표류(평균 속도) 제거 — '전체 레이아웃'일 때만(부분 펼침은 부모가 고정이라 불필요).
       if (free === null) {
@@ -214,7 +214,7 @@ export default function MindMapExplorer({
         for (const a of ns) { if (dragRef.current.id === a.id) continue; a.vx -= mvx; a.vy -= mvy; }
       }
       for (const a of ns) {
-        if (dragRef.current.id === a.id || !isFree(a.id)) continue;
+        if (a.parentId === null || dragRef.current.id === a.id || !isFree(a.id)) continue;
         a.x += a.vx; a.y += a.vy;
         a.ax = a.x; a.ay = a.y;   // 앵커 = 자리잡는 위치 추적
       }
@@ -225,11 +225,11 @@ export default function MindMapExplorer({
       const t = (typeof performance !== "undefined" ? performance.now() : Date.now()) / 1000;
       for (const a0 of ns) {
         const a = ensureDims(a0);
-        if (dragRef.current.id === a.id) continue;
+        // 루트(주제)는 흔들림도 없이 완전 고정.
+        if (a.parentId === null || dragRef.current.id === a.id) continue;
         if (a.ax == null || a.ay == null) { a.ax = a.x; a.ay = a.y; }
-        const amp = a.depth === 0 ? 1.8 : 2.6;
-        a.x = a.ax + Math.sin(t * 0.8 + (a.phase ?? 0)) * amp;
-        a.y = a.ay + Math.cos(t * 0.66 + (a.phase ?? 0)) * amp;
+        a.x = a.ax + Math.sin(t * 0.8 + (a.phase ?? 0)) * 2.6;
+        a.y = a.ay + Math.cos(t * 0.66 + (a.phase ?? 0)) * 2.6;
       }
       alphaRef.current = 0;
     }
@@ -324,7 +324,7 @@ export default function MindMapExplorer({
       const cur2 = nodesRef.current.find(n => n.id === id);
       if (cur2) cur2.loading = false;
       persist();
-      reheat(0.85);   // 새 노드 자리잡기
+      reheat(0.55);   // 새 노드만 부드럽게 자리잡기(낮은 에너지 → 날아가지 않음)
       setTick(t => t + 1);
     }
   }, [buildContext, onExpand, persist, reheat]);
