@@ -152,9 +152,11 @@ export function MarketTickerBar() {
       const d = (krFavPrices as any)?.[code];
       if (!d) return null;
       const fav = (favList ?? []).find((f: Favorite) => f["티커"] === code);
+      // 코드(티커)가 아닌 '진짜 종목명'을 우선 선택 (bulk가 name=code로 줄 때 즐겨찾기 저장명으로 폴백)
+      const name = [d.name, d["종목명"], fav?.["종목명"]].find((n) => n && n !== code) ?? code;
       return {
         code,
-        name: d.name ?? d["종목명"] ?? fav?.["종목명"] ?? code,
+        name,
         price: d.price ?? d["현재가"] ?? 0,
         change_pct: d.change_pct ?? d["등락률(%)"] ?? 0,
       };
