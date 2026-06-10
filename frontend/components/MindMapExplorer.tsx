@@ -157,22 +157,19 @@ export default function MindMapExplorer({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, initialTopic]);
 
-  // ── 시뮬레이션 루프 ────────────────────────────────────────────────────────
-  // 2단계: (1) 레이아웃 regime — 펼치거나 옮긴 직후 힘 시뮬레이션으로 '자리잡기'(쿨링),
-  //        (2) idle regime — 자리잡으면 각 노드가 '앵커(고정 위치)' 주변 ±2~3px로만
-  //        살짝살짝 흔들림(전체 표류 0, 풍선처럼 떠다니지 않음).
+  // ── 시뮬레이션 루프 (정지형) ──────────────────────────────────────────────
+  // 펼치거나 옮긴 직후에만 힘 시뮬레이션으로 '자리잡기'(쿨링) → 가라앉으면 루프를 완전히 멈춘다.
+  // 자리잡은 뒤엔 어떤 움직임도 없음(idle 흔들림 없음). 루트(주제)는 항상 완전 고정.
   stepRef.current = () => {
     const ns = nodesRef.current;
     const alpha = alphaRef.current;
-
+    const dragging = dragRef.current.id !== null || dragRef.current.panning;
     const free = freeRef.current;                       // null=전체 / Set=그 노드만 움직임(나머지 고정)
     const isFree = (id: number) => free === null || free.has(id);
 
     if (alpha > 0.02) {
-      // (1) 레이아웃 — '움직이는 노드'만 힘 적용. 고정 노드는 장애물로만 작용(안 움직임).
       for (let i = 0; i < ns.length; i++) {
         const a = ensureDims(ns[i]);
-        // 루트(주제) 노드는 완전 고정 — 절대 움직이지 않음.
         if (a.parentId === null || dragRef.current.id === a.id || !isFree(a.id)) continue;
         let fx = 0, fy = 0;
         for (let j = 0; j < ns.length; j++) {
@@ -188,53 +185,45 @@ export default function MindMapExplorer({
           fx += (dx / d) * f;
           fy += (dy / d) * f;
         }
-        if (a.parentId !== null) {
-          const p = ns.find(n => n.id === a.parentId);
-          if (p) {
-            const pe = ensureDims(p);
-            // 1단계는 넓게, 깊은 자식은 부모에 가깝게(여기저기 뻗지 않게).
-            const rest = a.r + pe.r + (a.depth <= 1 ? 96 : 58);
-            const dx = pe.x - a.x, dy = pe.y - a.y;
-            const d = Math.sqrt(dx * dx + dy * dy) || 1;
-            const k = 0.010 * (d - rest);
-            fx += (dx / d) * k * d;
-            fy += (dy / d) * k * d;
-          }
+        const p = ns.find(n => n.id === a.parentId);
+        if (p) {
+          const pe = ensureDims(p);
+          const rest = a.r + pe.r + (a.depth <= 1 ? 96 : 58);
+          const dx = pe.x - a.x, dy = pe.y - a.y;
+          const d = Math.sqrt(dx * dx + dy * dy) || 1;
+          const k = 0.010 * (d - rest);
+          fx += (dx / d) * k * d;
+          fy += (dy / d) * k * d;
         }
-        a.vx = (a.vx + fx * 0.02) * 0.78;
-        a.vy = (a.vy + fy * 0.02) * 0.78;
+        a.vx = (a.vx + fx * 0.02) * 0.75;
+        a.vy = (a.vy + fy * 0.02) * 0.75;
         const sp = Math.hypot(a.vx, a.vy);
-        if (sp > 3.4) { a.vx = a.vx / sp * 3.4; a.vy = a.vy / sp * 3.4; }   // 상한 낮춰 '날아감'(overshoot) 방지
+        if (sp > 2.6) { a.vx = a.vx / sp * 2.6; a.vy = a.vy / sp * 2.6; }   // 상한 낮춰 '날아감' 방지
       }
-      // 전체 표류(평균 속도) 제거 — '전체 레이아웃'일 때만(부분 펼침은 부모가 고정이라 불필요).
-      if (free === null) {
+      if (free === null) {   // 전체 레이아웃일 때만 전체 표류 제거
         let mvx = 0, mvy = 0, c = 0;
-        for (const a of ns) { if (dragRef.current.id === a.id) continue; mvx += a.vx; mvy += a.vy; c++; }
+        for (const a of ns) { if (a.parentId === null) continue; mvx += a.vx; mvy += a.vy; c++; }
         if (c) { mvx /= c; mvy /= c; }
-        for (const a of ns) { if (dragRef.current.id === a.id) continue; a.vx -= mvx; a.vy -= mvy; }
+        for (const a of ns) { if (a.parentId === null) continue; a.vx -= mvx; a.vy -= mvy; }
       }
       for (const a of ns) {
         if (a.parentId === null || dragRef.current.id === a.id || !isFree(a.id)) continue;
         a.x += a.vx; a.y += a.vy;
-        a.ax = a.x; a.ay = a.y;   // 앵커 = 자리잡는 위치 추적
+        a.ax = a.x; a.ay = a.y;
       }
-      alphaRef.current = alpha * 0.95;   // 쿨링(빠르게 가라앉음)
-    } else {
-      // (2) idle — 앵커 주변 미세 bob (국소·비표류). 부분 레이아웃 종료 → 다음을 위해 free 해제.
-      freeRef.current = null;
-      const t = (typeof performance !== "undefined" ? performance.now() : Date.now()) / 1000;
-      for (const a0 of ns) {
-        const a = ensureDims(a0);
-        // 루트(주제)는 흔들림도 없이 완전 고정.
-        if (a.parentId === null || dragRef.current.id === a.id) continue;
-        if (a.ax == null || a.ay == null) { a.ax = a.x; a.ay = a.y; }
-        a.x = a.ax + Math.sin(t * 0.8 + (a.phase ?? 0)) * 2.6;
-        a.y = a.ay + Math.cos(t * 0.66 + (a.phase ?? 0)) * 2.6;
-      }
-      alphaRef.current = 0;
+      alphaRef.current = alpha * 0.90;   // 쿨링(빠르게 가라앉음)
     }
+
     setTick(t => (t + 1) % 1000000);
-    rafRef.current = requestAnimationFrame(stepRef.current!);
+
+    if (alphaRef.current > 0.02 || dragging) {
+      rafRef.current = requestAnimationFrame(stepRef.current!);
+    } else {
+      // 자리잡음 → 루프 정지(완전히 멈춤). 다음 펼치기/드래그 때 reheat로 재시작.
+      rafRef.current = null;
+      freeRef.current = null;
+      persist();
+    }
   };
 
   const ensureRunning = useCallback(() => {
@@ -245,12 +234,10 @@ export default function MindMapExplorer({
     ensureRunning();
   }, [ensureRunning]);
 
-  // 마운트 동안 루프 가동(idle bob 포함) + 언마운트 시 정리
+  // 언마운트 시 루프 정리
   useEffect(() => {
-    if (!open) return;
-    ensureRunning();
     return () => { if (rafRef.current) { cancelAnimationFrame(rafRef.current); rafRef.current = null; } };
-  }, [open, ensureRunning]);
+  }, []);
 
   // ── 노드 펼치기 ───────────────────────────────────────────────────────────
   const buildContext = useCallback((id: number): string => {
@@ -371,10 +358,12 @@ export default function MindMapExplorer({
     (e.target as Element).setPointerCapture?.(e.pointerId);
     dragRef.current = { id, panning: false, moved: false, downId: id };
     lastPtr.current = { x: e.clientX, y: e.clientY };
+    ensureRunning();   // 정지 상태에서도 드래그 중 재렌더되도록 루프 깨움
   };
   const onPointerDownBg = (e: React.PointerEvent) => {
     dragRef.current = { id: null, panning: true, moved: false, downId: null };
     lastPtr.current = { x: e.clientX, y: e.clientY };
+    ensureRunning();   // 팬(이동) 중 재렌더
   };
   const onPointerMove = (e: React.PointerEvent) => {
     const dr = dragRef.current;
@@ -427,6 +416,25 @@ export default function MindMapExplorer({
     }
   };
 
+  // ── 초기화 — 저장된 맵을 비우고 주제부터 새로 시작 ─────────────────────────
+  const resetMap = useCallback(() => {
+    try { localStorage.removeItem(storeKey); } catch { /* noop */ }
+    idRef.current = 1;
+    const wcx = (typeof window !== "undefined" ? window.innerWidth : 800) / 2;
+    const wcy = (typeof window !== "undefined" ? window.innerHeight : 600) / 2;
+    nodesRef.current = [ensureDims({
+      id: 0, label: initialTopic, desc: "", parentId: null, depth: 0,
+      x: wcx, y: wcy, vx: 0, vy: 0, expanded: false, loading: false,
+    })];
+    freeRef.current = null;
+    viewRef.current = { tx: 0, ty: 0, scale: 1 };
+    setSelectedId(null);
+    setGen({ status: "idle", keyword: "", result: null, index: -1, msg: "" });
+    reheat(1);
+    setTick(t => t + 1);
+    doExpand(0, false);
+  }, [storeKey, initialTopic, reheat, doExpand]);
+
   if (!open) return null;
 
   const v = viewRef.current;
@@ -453,8 +461,14 @@ export default function MindMapExplorer({
             마인드맵 탐색 · <span style={{ color: "#a5b4fc" }}>{initialTopic}</span>
           </div>
           {!narrow && <div style={{ fontSize: "0.68rem", color: "#94a3b8" }}>노드 클릭=펼치기 · 휠=확대/축소 · 빈 곳 드래그=이동</div>}
+          <button onClick={() => { if (confirm("이 주제의 마인드맵을 초기화할까요? (저장된 노드가 모두 삭제됩니다)")) resetMap(); }} style={{
+            marginLeft: "auto", background: "transparent", border: "1px solid #475569", borderRadius: 6, cursor: "pointer", color: "#cbd5e1",
+            display: "flex", alignItems: "center", gap: 4, fontSize: "0.74rem", padding: "5px 10px",
+          }} title="저장된 맵을 비우고 주제부터 새로 시작">
+            <RefreshCw size={14} /> 초기화
+          </button>
           <button onClick={onClose} style={{
-            marginLeft: "auto", background: "transparent", border: "none", cursor: "pointer", color: "#cbd5e1",
+            background: "transparent", border: "none", cursor: "pointer", color: "#cbd5e1",
             display: "flex", alignItems: "center", gap: 4, fontSize: "0.78rem",
           }}>
             <X size={18} /> 닫기
