@@ -36,6 +36,8 @@ interface MNode {
   expanded: boolean;
   loading: boolean;
   w?: number; h?: number; r?: number;   // 알약 크기(텍스트 기반) — 물리/렌더 공용
+  ax?: number; ay?: number;             // 앵커(자리잡은 위치) — idle 미세 흔들림의 기준
+  phase?: number;                       // idle bob 위상(노드별 다르게)
 }
 
 const TTL_MS = 3 * 24 * 60 * 60 * 1000; // 노드맵 보관 3일
@@ -56,6 +58,7 @@ function ensureDims(n: MNode) {
     const d = computeDims(n.label, n.depth);
     n.w = d.w; n.h = d.h; n.r = d.r;
   }
+  if (n.phase == null) n.phase = Math.random() * Math.PI * 2;
   return n as Required<Pick<MNode, "w" | "h" | "r">> & MNode;
 }
 
@@ -80,6 +83,8 @@ export default function MindMapExplorer({
   );
   const rafRef = useRef<number | null>(null);
   const lastPtr = useRef({ x: 0, y: 0 });
+  const alphaRef = useRef(0);                         // 시뮬레이션 에너지(쿨링) — 0이면 정지
+  const stepRef = useRef<(() => void) | null>(null);  // 최신 step 클로저
 
   const [, setTick] = useState(0);
   const [selectedId, setSelectedId] = useState<number | null>(null);
@@ -128,22 +133,27 @@ export default function MindMapExplorer({
       })];
       doExpand(0, false);
     }
+    reheat(1);   // 열릴 때 한 번 자리잡기
     setTick(t => t + 1);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, initialTopic]);
 
-  // ── 물리 시뮬레이션 루프 (넓게 퍼지도록 튜닝) ──────────────────────────────
-  useEffect(() => {
-    if (!open) return;
-    const step = () => {
-      const ns = nodesRef.current;
-      const cx = (typeof window !== "undefined" ? window.innerWidth : 800) / 2;
-      const cy = (typeof window !== "undefined" ? window.innerHeight : 600) / 2;
+  // ── 시뮬레이션 루프 ────────────────────────────────────────────────────────
+  // 2단계: (1) 레이아웃 regime — 펼치거나 옮긴 직후 힘 시뮬레이션으로 '자리잡기'(쿨링),
+  //        (2) idle regime — 자리잡으면 각 노드가 '앵커(고정 위치)' 주변 ±2~3px로만
+  //        살짝살짝 흔들림(전체 표류 0, 풍선처럼 떠다니지 않음).
+  stepRef.current = () => {
+    const ns = nodesRef.current;
+    const cx = (typeof window !== "undefined" ? window.innerWidth : 800) / 2;
+    const cy = (typeof window !== "undefined" ? window.innerHeight : 600) / 2;
+    const alpha = alphaRef.current;
+
+    if (alpha > 0.02) {
+      // (1) 레이아웃 — 힘 적용 후 쿨링
       for (let i = 0; i < ns.length; i++) {
         const a = ensureDims(ns[i]);
         if (dragRef.current.id === a.id) continue;
         let fx = 0, fy = 0;
-        // 노드 간 반발 — 크기(알약 폭) 고려해 넉넉히 벌림
         for (let j = 0; j < ns.length; j++) {
           if (i === j) continue;
           const b = ensureDims(ns[j]);
@@ -151,13 +161,12 @@ export default function MindMapExplorer({
           let d2 = dx * dx + dy * dy;
           if (d2 < 1) { d2 = 1; dx = Math.random() - 0.5; dy = Math.random() - 0.5; }
           const d = Math.sqrt(d2);
-          const minD = a.r + b.r + 46;            // 겹침 방지 최소 간격
-          let f = 16000 / d2;                      // 기본 반발(넓게)
-          if (d < minD) f += (minD - d) * 1.1;     // 겹치면 강하게 분리
+          const minD = a.r + b.r + 46;
+          let f = 16000 / d2;
+          if (d < minD) f += (minD - d) * 1.1;
           fx += (dx / d) * f;
           fy += (dy / d) * f;
         }
-        // 부모와의 스프링 — rest를 양쪽 크기 기준으로 잡아 자식이 멀리 퍼짐
         if (a.parentId !== null) {
           const p = ns.find(n => n.id === a.parentId);
           if (p) {
@@ -170,27 +179,56 @@ export default function MindMapExplorer({
             fy += (dy / d) * k * d;
           }
         } else {
-          fx += (cx - a.x) * 0.016;
-          fy += (cy - a.y) * 0.016;
+          fx += (cx - a.x) * 0.02;
+          fy += (cy - a.y) * 0.02;
         }
-        // 보골보골 — 미세 지터
-        fx += (Math.random() - 0.5) * 1.2;
-        fy += (Math.random() - 0.5) * 1.2;
-
-        a.vx = (a.vx + fx * 0.02) * 0.84;
-        a.vy = (a.vy + fy * 0.02) * 0.84;
+        a.vx = (a.vx + fx * 0.02) * 0.80;
+        a.vy = (a.vy + fy * 0.02) * 0.80;
         const sp = Math.hypot(a.vx, a.vy);
-        const cap = 7;
-        if (sp > cap) { a.vx = a.vx / sp * cap; a.vy = a.vy / sp * cap; }
-        a.x += a.vx;
-        a.y += a.vy;
+        if (sp > 7) { a.vx = a.vx / sp * 7; a.vy = a.vy / sp * 7; }
       }
-      setTick(t => (t + 1) % 1000000);
-      rafRef.current = requestAnimationFrame(step);
-    };
-    rafRef.current = requestAnimationFrame(step);
-    return () => { if (rafRef.current) cancelAnimationFrame(rafRef.current); };
-  }, [open]);
+      // 전체 표류(평균 속도) 제거 → 무리가 통째로 흐르지 않음
+      let mvx = 0, mvy = 0, c = 0;
+      for (const a of ns) { if (dragRef.current.id === a.id) continue; mvx += a.vx; mvy += a.vy; c++; }
+      if (c) { mvx /= c; mvy /= c; }
+      for (const a of ns) {
+        if (dragRef.current.id === a.id) continue;
+        a.vx -= mvx; a.vy -= mvy;
+        a.x += a.vx; a.y += a.vy;
+        a.ax = a.x; a.ay = a.y;   // 앵커 = 자리잡는 위치 추적
+      }
+      alphaRef.current = alpha * 0.95;   // 쿨링(빠르게 가라앉음)
+    } else {
+      // (2) idle — 앵커 주변 미세 bob (국소·비표류)
+      const t = (typeof performance !== "undefined" ? performance.now() : Date.now()) / 1000;
+      for (const a0 of ns) {
+        const a = ensureDims(a0);
+        if (dragRef.current.id === a.id) continue;
+        if (a.ax == null || a.ay == null) { a.ax = a.x; a.ay = a.y; }
+        const amp = a.depth === 0 ? 1.8 : 2.6;
+        a.x = a.ax + Math.sin(t * 0.8 + (a.phase ?? 0)) * amp;
+        a.y = a.ay + Math.cos(t * 0.66 + (a.phase ?? 0)) * amp;
+      }
+      alphaRef.current = 0;
+    }
+    setTick(t => (t + 1) % 1000000);
+    rafRef.current = requestAnimationFrame(stepRef.current!);
+  };
+
+  const ensureRunning = useCallback(() => {
+    if (rafRef.current == null && stepRef.current) rafRef.current = requestAnimationFrame(stepRef.current);
+  }, []);
+  const reheat = useCallback((a = 0.7) => {
+    alphaRef.current = Math.max(alphaRef.current, a);
+    ensureRunning();
+  }, [ensureRunning]);
+
+  // 마운트 동안 루프 가동(idle bob 포함) + 언마운트 시 정리
+  useEffect(() => {
+    if (!open) return;
+    ensureRunning();
+    return () => { if (rafRef.current) { cancelAnimationFrame(rafRef.current); rafRef.current = null; } };
+  }, [open, ensureRunning]);
 
   // ── 노드 펼치기 ───────────────────────────────────────────────────────────
   const buildContext = useCallback((id: number): string => {
@@ -244,9 +282,10 @@ export default function MindMapExplorer({
       const cur2 = nodesRef.current.find(n => n.id === id);
       if (cur2) cur2.loading = false;
       persist();
+      reheat(0.85);   // 새 노드 자리잡기
       setTick(t => t + 1);
     }
-  }, [buildContext, onExpand, persist]);
+  }, [buildContext, onExpand, persist, reheat]);
 
   // ── 좌표 변환 / 포인터 / 줌 ────────────────────────────────────────────────
   const toSvg = (clientX: number, clientY: number) => {
@@ -290,6 +329,7 @@ export default function MindMapExplorer({
     (e.target as Element).setPointerCapture?.(e.pointerId);
     dragRef.current = { id, panning: false, moved: false, downId: id };
     lastPtr.current = { x: e.clientX, y: e.clientY };
+    reheat(0.3);   // 옮기는 동안 주변 노드가 자연스럽게 비켜남
   };
   const onPointerDownBg = (e: React.PointerEvent) => {
     dragRef.current = { id: null, panning: true, moved: false, downId: null };
@@ -314,9 +354,15 @@ export default function MindMapExplorer({
   const onPointerUp = () => {
     const dr = dragRef.current;
     if (dr.downId !== null && !dr.moved) {
+      // 클릭 → 선택 + 펼치기
       const id = dr.downId;
       setSelectedId(id);
       doExpand(id, false);
+    } else if (dr.id !== null && dr.moved) {
+      // 드래그 종료 → 놓은 자리를 앵커로(거기서 살짝살짝) + 주변 재정렬
+      const node = nodesRef.current.find(n => n.id === dr.id);
+      if (node) { node.ax = node.x; node.ay = node.y; }
+      reheat(0.3);
     }
     dragRef.current = { id: null, panning: false, moved: false, downId: null };
   };
