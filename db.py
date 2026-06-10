@@ -3450,6 +3450,43 @@ def load_frgn_inst_snapshot(snapshot_date: str, market: str | None = None) -> li
         return []
 
 
+def load_cumulative_supply(days: int = 20, market: str | None = None, top_n: int = 15) -> dict:
+    """기간 누적 세력(외국인·기관) 매집 TOP — 최근 days일 합산 순매수 + 매집 지속일.
+    오늘 하루가 아니라 '일정 기간 동안 꾸준히 사 모은' 종목을 본다."""
+    try:
+        conn = get_db_conn(); cur = conn.cursor()
+        cutoff = (datetime.now() - timedelta(days=int(days))).strftime("%Y-%m-%d")
+        where = "WHERE snapshot_date >= ?"
+        params = [cutoff]
+        if market:
+            where += " AND market = ?"; params.append(market)
+        cur.execute(
+            f"""SELECT ticker, MAX(name) AS name, MAX(market) AS market,
+                       SUM(combined)  AS combined_sum,
+                       SUM(frgn_ntby) AS frgn_sum,
+                       SUM(orgn_ntby) AS orgn_sum,
+                       SUM(CASE WHEN combined > 0 THEN 1 ELSE 0 END) AS buy_days,
+                       COUNT(*) AS days_seen
+                FROM frgn_inst_snapshots
+                {where}
+                GROUP BY ticker
+                HAVING combined_sum > 0
+                ORDER BY combined_sum DESC
+                LIMIT ?""",
+            (*params, int(top_n))
+        )
+        rows = [dict(r) for r in cur.fetchall()]
+        # 실제 데이터가 덮는 날짜 범위
+        cur.execute(f"SELECT MIN(snapshot_date) AS s, MAX(snapshot_date) AS e, COUNT(DISTINCT snapshot_date) AS d FROM frgn_inst_snapshots {where}", params)
+        rng = dict(cur.fetchone() or {})
+        conn.close()
+        return {"days": days, "market": market or "ALL", "items": rows,
+                "period": f"{rng.get('s','')} ~ {rng.get('e','')}", "trading_days": rng.get("d", 0)}
+    except Exception as e:
+        print(f"load_cumulative_supply error: {e}")
+        return {"days": days, "items": [], "error": str(e)}
+
+
 def save_sector_flow_snapshot(snapshot_date: str, rows: list) -> int:
     """특정 날짜의 섹터별 수급 집계를 저장(교체). rows: [{sector, frgn_sum, orgn_sum, combined_sum, stock_count}]."""
     try:

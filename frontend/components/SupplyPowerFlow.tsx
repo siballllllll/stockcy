@@ -50,6 +50,8 @@ export function SupplyPowerFlow() {
   const [sectorRot, setSectorRot] = useState<any>(null);
   const [mkt, setMkt] = useState<"J" | "Q">("J");
   const [loading, setLoading] = useState(true);
+  const [cumDays, setCumDays] = useState(20);   // 누적 매집 기간
+  const [cum, setCum] = useState<any>(null);
   const router = useRouter();
   // 순매수/순매도 종목 클릭 → 해당 종목 검색 페이지로 이동 (코스피·코스닥 모두 KR)
   const goSearch = useCallback((code: string) => {
@@ -73,6 +75,14 @@ export function SupplyPowerFlow() {
   }, []);
 
   useEffect(() => { load(); }, [load]);
+
+  // 기간 누적 세력 매집 — 기간/시장 바뀔 때 조회
+  useEffect(() => {
+    let alive = true;
+    fetch(`${BASE}/api/kr/supply-cumulative?days=${cumDays}&market=${mkt}`)
+      .then(res => res.json()).then(d => { if (alive) setCum(d); }).catch(() => {});
+    return () => { alive = false; };
+  }, [cumDays, mkt]);
 
   const m = flow?.markets?.[mkt];
 
@@ -112,6 +122,39 @@ export function SupplyPowerFlow() {
                 {(m.outflow || []).slice(0, 8).map((x: FlowItem, i: number) => <FlowRow key={i} x={x} inflow={false} onPick={goSearch} />)}
               </div>
             </div>
+          </div>
+
+          {/* 기간 누적 세력 매집 TOP — 오늘 하루가 아닌 '일정 기간 꾸준히 사 모은' 종목 */}
+          <div style={{ marginTop: "0.9rem", borderTop: "1px solid var(--color-border)", paddingTop: "0.6rem" }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "6px", marginBottom: "5px" }}>
+              <div style={{ fontSize: "0.74rem", fontWeight: 800, color: "var(--color-text)" }}>📈 기간 누적 세력 매집 TOP <span style={{ fontSize: "0.66rem", color: "var(--color-muted)", fontWeight: 600 }}>꾸준히 사 모은 종목</span></div>
+              <div style={{ display: "flex", gap: "3px" }}>
+                {[5, 20, 60].map(d => (
+                  <button key={d} onClick={() => setCumDays(d)} style={{ fontSize: "0.66rem", padding: "2px 8px", borderRadius: "5px", fontWeight: 700, cursor: "pointer", border: "1px solid var(--color-border)", background: cumDays === d ? "var(--color-primary)" : "transparent", color: cumDays === d ? "#0e1117" : "var(--color-muted)" }}>{d}일</button>
+                ))}
+              </div>
+            </div>
+            {!cum?.items?.length ? (
+              <div style={{ fontSize: "0.7rem", color: "var(--color-muted)" }}>누적 수급 데이터가 아직 부족합니다. (일별 스냅샷이 쌓이면 표시)</div>
+            ) : (
+              <>
+                <div style={{ display: "flex", flexDirection: "column", gap: "3px" }}>
+                  {cum.items.slice(0, 8).map((x: any, i: number) => (
+                    <div key={i} onClick={() => goSearch(String(x.ticker))} title={`${x.name} 종목검색`}
+                      style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "8px", padding: "4px 8px", borderRadius: "5px", background: "rgba(239,68,68,0.05)", fontSize: "0.74rem", cursor: "pointer" }}
+                      onMouseEnter={e => { e.currentTarget.style.background = "rgba(239,68,68,0.13)"; }}
+                      onMouseLeave={e => { e.currentTarget.style.background = "rgba(239,68,68,0.05)"; }}>
+                      <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        <b style={{ color: "var(--color-text)" }}>{x.name}</b>
+                        <span style={{ fontSize: "0.62rem", color: "#34d399", marginLeft: "5px" }}>매집 {x.buy_days}/{x.days_seen}일</span>
+                      </span>
+                      <span style={{ color: "#f87171", fontWeight: 800, whiteSpace: "nowrap" }}>+{fmt(x.combined_sum)}주</span>
+                    </div>
+                  ))}
+                </div>
+                <div style={{ fontSize: "0.62rem", color: "var(--color-muted)", marginTop: "4px" }}>※ {cum.period} 누적 (외국인+기관 합산). 매집 N/M일 = 순매수한 날 / 데이터 있는 날.</div>
+              </>
+            )}
           </div>
 
           {/* 자금 이동 추적 (히스토리) */}

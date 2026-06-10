@@ -202,6 +202,14 @@ def kr_supply_rotation():
         return {"available": False, "error": str(e)}
 
 
+@router.get("/supply-cumulative")
+def kr_supply_cumulative(days: int = 20, market: str = ""):
+    """기간 누적 세력 매집 TOP — 최근 days일 합산 외국인·기관 순매수 + 매집 지속일.
+    오늘 하루가 아니라 '일정 기간 꾸준히 사 모은' 종목."""
+    from db import load_cumulative_supply
+    return load_cumulative_supply(days=days, market=(market or None))
+
+
 @router.post("/supply-snapshot")
 def kr_supply_snapshot():
     """오늘의 외국인·기관 수급 스냅샷 즉시 저장 (종목 + 섹터). 스케줄러도 매일 호출."""
