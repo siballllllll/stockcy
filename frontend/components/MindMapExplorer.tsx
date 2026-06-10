@@ -9,10 +9,10 @@
  *  - 노드 펼치기(onExpand) = 검색X·무크레딧·캐시 → 거의 무과금. 재클릭은 캐시.
  *  - 시나리오 생성(onGenerate) = 기존 /scenarios/custom (과금) — 선택+확인 2단계 게이트로 오클릭 방지.
  *
- * 의존성 0 — 자체 force 시뮬레이션(SVG)으로 구현(이 프로젝트 Next.js 특수성 회피).
+ * 의존성 0 — 자체 force 시뮬레이션(SVG)으로 구현. 줌(휠)·가변폭 알약 노드·그라데이션/그림자(입체감).
  */
 import { useCallback, useEffect, useRef, useState } from "react";
-import { X, RefreshCw, Loader2, Sparkles, ChevronRight } from "lucide-react";
+import { X, RefreshCw, Loader2, Sparkles, ChevronRight, Plus, Minus } from "lucide-react";
 
 type ExpandFn = (topic: string, context: string, refresh: boolean) => Promise<{ label: string; desc: string }[]>;
 type GenerateFn = (keyword: string) => Promise<{ issue: any; index: number } | null>;
@@ -35,22 +35,37 @@ interface MNode {
   x: number; y: number; vx: number; vy: number;
   expanded: boolean;
   loading: boolean;
+  w?: number; h?: number; r?: number;   // 알약 크기(텍스트 기반) — 물리/렌더 공용
 }
 
 const TTL_MS = 3 * 24 * 60 * 60 * 1000; // 노드맵 보관 3일
 
-function radiusOf(depth: number) {
-  return depth === 0 ? 46 : depth === 1 ? 34 : 28;
+function fontOf(depth: number) { return depth === 0 ? 15 : depth === 1 ? 13 : 12; }
+
+// 텍스트 기반 알약 크기 — 한글 폭(≈fontSize)을 고려해 잘리지 않게 넉넉히.
+function computeDims(label: string, depth: number) {
+  const fs = fontOf(depth);
+  const charW = fs * 0.98;                 // 한글 기준 넉넉히
+  const w = Math.max(64, Math.round(label.length * charW + fs * 2.2));
+  const h = depth === 0 ? 48 : depth === 1 ? 40 : 36;
+  const r = Math.max(w, h) / 2;
+  return { w, h, r };
 }
-function colorOf(depth: number, selected: boolean) {
-  if (selected) return { fill: "rgba(99,102,241,0.25)", stroke: "#818cf8" };
-  if (depth === 0) return { fill: "rgba(236,72,153,0.18)", stroke: "#ec4899" };
-  if (depth === 1) return { fill: "rgba(59,130,246,0.14)", stroke: "#3b82f6" };
-  return { fill: "rgba(148,163,184,0.12)", stroke: "#94a3b8" };
+function ensureDims(n: MNode) {
+  if (n.w == null || n.h == null || n.r == null) {
+    const d = computeDims(n.label, n.depth);
+    n.w = d.w; n.h = d.h; n.r = d.r;
+  }
+  return n as Required<Pick<MNode, "w" | "h" | "r">> & MNode;
 }
-function clip(s: string, depth: number) {
-  const max = depth === 0 ? 9 : depth === 1 ? 7 : 6;
-  return s.length > max ? s.slice(0, max) + "…" : s;
+
+function gradId(depth: number, selected: boolean) {
+  if (selected) return "mmg-sel";
+  return depth === 0 ? "mmg-0" : depth === 1 ? "mmg-1" : "mmg-2";
+}
+function strokeOf(depth: number, selected: boolean) {
+  if (selected) return "#a5b4fc";
+  return depth === 0 ? "#f472b6" : depth === 1 ? "#60a5fa" : "#94a3b8";
 }
 
 export default function MindMapExplorer({
@@ -58,7 +73,7 @@ export default function MindMapExplorer({
 }: Props) {
   const nodesRef = useRef<MNode[]>([]);
   const idRef = useRef(1);
-  const viewRef = useRef({ tx: 0, ty: 0 });
+  const viewRef = useRef({ tx: 0, ty: 0, scale: 1 });
   const svgRef = useRef<SVGSVGElement | null>(null);
   const dragRef = useRef<{ id: number | null; panning: boolean; moved: boolean; downId: number | null }>(
     { id: null, panning: false, moved: false, downId: null }
@@ -88,7 +103,7 @@ export default function MindMapExplorer({
     setNarrow(typeof window !== "undefined" && window.innerWidth < 760);
     setSelectedId(null);
     setGen({ status: "idle", keyword: "", result: null, index: -1, msg: "" });
-    viewRef.current = { tx: 0, ty: 0 };
+    viewRef.current = { tx: 0, ty: 0, scale: 1 };
 
     let restored = false;
     try {
@@ -96,7 +111,7 @@ export default function MindMapExplorer({
       if (raw) {
         const o = JSON.parse(raw);
         if (o?.ts && Date.now() - o.ts < TTL_MS && Array.isArray(o.nodes) && o.nodes.length) {
-          nodesRef.current = o.nodes;
+          nodesRef.current = o.nodes.map((n: MNode) => ensureDims(n));
           idRef.current = o.idc ?? (Math.max(...o.nodes.map((n: MNode) => n.id)) + 1);
           restored = true;
         }
@@ -107,18 +122,17 @@ export default function MindMapExplorer({
       idRef.current = 1;
       const cx = (typeof window !== "undefined" ? window.innerWidth : 800) / 2;
       const cy = (typeof window !== "undefined" ? window.innerHeight : 600) / 2;
-      nodesRef.current = [{
+      nodesRef.current = [ensureDims({
         id: 0, label: initialTopic, desc: "", parentId: null, depth: 0,
         x: cx, y: cy, vx: 0, vy: 0, expanded: false, loading: false,
-      }];
-      // 루트는 자동으로 한 번 펼친다
+      })];
       doExpand(0, false);
     }
     setTick(t => t + 1);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, initialTopic]);
 
-  // ── 물리 시뮬레이션 루프 ───────────────────────────────────────────────────
+  // ── 물리 시뮬레이션 루프 (넓게 퍼지도록 튜닝) ──────────────────────────────
   useEffect(() => {
     if (!open) return;
     const step = () => {
@@ -126,45 +140,47 @@ export default function MindMapExplorer({
       const cx = (typeof window !== "undefined" ? window.innerWidth : 800) / 2;
       const cy = (typeof window !== "undefined" ? window.innerHeight : 600) / 2;
       for (let i = 0; i < ns.length; i++) {
-        const a = ns[i];
+        const a = ensureDims(ns[i]);
         if (dragRef.current.id === a.id) continue;
         let fx = 0, fy = 0;
-        // 노드 간 반발
+        // 노드 간 반발 — 크기(알약 폭) 고려해 넉넉히 벌림
         for (let j = 0; j < ns.length; j++) {
           if (i === j) continue;
-          const b = ns[j];
+          const b = ensureDims(ns[j]);
           let dx = a.x - b.x, dy = a.y - b.y;
           let d2 = dx * dx + dy * dy;
           if (d2 < 1) { d2 = 1; dx = Math.random() - 0.5; dy = Math.random() - 0.5; }
-          const f = 5200 / d2;
           const d = Math.sqrt(d2);
+          const minD = a.r + b.r + 46;            // 겹침 방지 최소 간격
+          let f = 16000 / d2;                      // 기본 반발(넓게)
+          if (d < minD) f += (minD - d) * 1.1;     // 겹치면 강하게 분리
           fx += (dx / d) * f;
           fy += (dy / d) * f;
         }
-        // 부모와의 스프링
+        // 부모와의 스프링 — rest를 양쪽 크기 기준으로 잡아 자식이 멀리 퍼짐
         if (a.parentId !== null) {
           const p = ns.find(n => n.id === a.parentId);
           if (p) {
-            const rest = 120 + a.depth * 16;
-            const dx = p.x - a.x, dy = p.y - a.y;
+            const pe = ensureDims(p);
+            const rest = a.r + pe.r + 90 + a.depth * 12;
+            const dx = pe.x - a.x, dy = pe.y - a.y;
             const d = Math.sqrt(dx * dx + dy * dy) || 1;
-            const k = 0.012 * (d - rest);
+            const k = 0.010 * (d - rest);
             fx += (dx / d) * k * d;
             fy += (dy / d) * k * d;
           }
         } else {
-          // 루트는 화면 중앙으로 약하게
-          fx += (cx - a.x) * 0.02;
-          fy += (cy - a.y) * 0.02;
+          fx += (cx - a.x) * 0.016;
+          fy += (cy - a.y) * 0.016;
         }
         // 보골보골 — 미세 지터
-        fx += (Math.random() - 0.5) * 1.4;
-        fy += (Math.random() - 0.5) * 1.4;
+        fx += (Math.random() - 0.5) * 1.2;
+        fy += (Math.random() - 0.5) * 1.2;
 
-        a.vx = (a.vx + fx * 0.02) * 0.82;
-        a.vy = (a.vy + fy * 0.02) * 0.82;
+        a.vx = (a.vx + fx * 0.02) * 0.84;
+        a.vy = (a.vy + fy * 0.02) * 0.84;
         const sp = Math.hypot(a.vx, a.vy);
-        const cap = 6;
+        const cap = 7;
         if (sp > cap) { a.vx = a.vx / sp * cap; a.vy = a.vy / sp * cap; }
         a.x += a.vx;
         a.y += a.vy;
@@ -194,7 +210,6 @@ export default function MindMapExplorer({
     if (!node || node.loading) return;
     if (node.expanded && !refresh) return; // 재클릭=캐시(추가 호출 X)
 
-    // refresh면 기존 자식 제거
     if (refresh) {
       const kill = new Set<number>();
       const collect = (pid: number) => {
@@ -213,14 +228,14 @@ export default function MindMapExplorer({
       if (cur) {
         const n = kws.length;
         kws.forEach((k, i) => {
-          const ang = (Math.PI * 2 * i) / Math.max(1, n) + Math.random() * 0.3;
-          const r = 110 + Math.random() * 30;
-          nodesRef.current.push({
+          const ang = (Math.PI * 2 * i) / Math.max(1, n) + Math.random() * 0.25;
+          const rr = 190 + Math.random() * 60;
+          nodesRef.current.push(ensureDims({
             id: idRef.current++,
             label: k.label, desc: k.desc, parentId: id, depth: cur.depth + 1,
-            x: cur.x + Math.cos(ang) * r, y: cur.y + Math.sin(ang) * r,
+            x: cur.x + Math.cos(ang) * rr, y: cur.y + Math.sin(ang) * rr,
             vx: 0, vy: 0, expanded: false, loading: false,
-          });
+          }));
         });
         cur.expanded = true;
       }
@@ -233,7 +248,7 @@ export default function MindMapExplorer({
     }
   }, [buildContext, onExpand, persist]);
 
-  // ── 포인터(드래그/팬/클릭) ────────────────────────────────────────────────
+  // ── 좌표 변환 / 포인터 / 줌 ────────────────────────────────────────────────
   const toSvg = (clientX: number, clientY: number) => {
     const svg = svgRef.current;
     if (!svg) return { x: clientX, y: clientY };
@@ -241,6 +256,33 @@ export default function MindMapExplorer({
     if (!ctm) return { x: clientX, y: clientY };
     const inv = ctm.inverse();
     return { x: clientX * inv.a + clientY * inv.c + inv.e, y: clientX * inv.b + clientY * inv.d + inv.f };
+  };
+  // svg-space → node-space (translate+scale 역변환)
+  const toNode = (sx: number, sy: number) => {
+    const v = viewRef.current;
+    return { x: (sx - v.tx) / v.scale, y: (sy - v.ty) / v.scale };
+  };
+
+  const onWheel = (e: React.WheelEvent) => {
+    const v = viewRef.current;
+    const p = toSvg(e.clientX, e.clientY);
+    const factor = e.deltaY < 0 ? 1.12 : 1 / 1.12;
+    const ns = Math.min(2.6, Math.max(0.3, v.scale * factor));
+    // 커서 아래 지점이 고정되도록 tx,ty 보정
+    v.tx = p.x - (ns / v.scale) * (p.x - v.tx);
+    v.ty = p.y - (ns / v.scale) * (p.y - v.ty);
+    v.scale = ns;
+    setTick(t => t + 1);
+  };
+  const zoomBy = (factor: number) => {
+    const v = viewRef.current;
+    const cx = (typeof window !== "undefined" ? window.innerWidth : 800) / 2;
+    const cy = (typeof window !== "undefined" ? window.innerHeight : 600) / 2;
+    const ns = Math.min(2.6, Math.max(0.3, v.scale * factor));
+    v.tx = cx - (ns / v.scale) * (cx - v.tx);
+    v.ty = cy - (ns / v.scale) * (cy - v.ty);
+    v.scale = ns;
+    setTick(t => t + 1);
   };
 
   const onPointerDownNode = (e: React.PointerEvent, id: number) => {
@@ -259,19 +301,19 @@ export default function MindMapExplorer({
     const dy = e.clientY - lastPtr.current.y;
     if (Math.abs(dx) + Math.abs(dy) > 3) dr.moved = true;
     if (dr.id !== null) {
-      const p = toSvg(e.clientX, e.clientY);
+      const s = toSvg(e.clientX, e.clientY);
+      const p = toNode(s.x, s.y);
       const node = nodesRef.current.find(n => n.id === dr.id);
-      if (node) { node.x = p.x - viewRef.current.tx; node.y = p.y - viewRef.current.ty; node.vx = 0; node.vy = 0; }
+      if (node) { node.x = p.x; node.y = p.y; node.vx = 0; node.vy = 0; }
     } else if (dr.panning) {
       viewRef.current.tx += dx;
       viewRef.current.ty += dy;
     }
     lastPtr.current = { x: e.clientX, y: e.clientY };
   };
-  const onPointerUp = (e: React.PointerEvent) => {
+  const onPointerUp = () => {
     const dr = dragRef.current;
     if (dr.downId !== null && !dr.moved) {
-      // 클릭으로 간주 → 선택 + 펼치기
       const id = dr.downId;
       setSelectedId(id);
       doExpand(id, false);
@@ -308,7 +350,8 @@ export default function MindMapExplorer({
   return (
     <div style={{
       position: "fixed", inset: 0, zIndex: 1000,
-      background: "rgba(10,12,20,0.72)", backdropFilter: "blur(3px)",
+      background: "radial-gradient(120% 120% at 50% 40%, rgba(30,27,55,0.86), rgba(8,10,18,0.92))",
+      backdropFilter: "blur(3px)",
       display: "flex", flexDirection: narrow ? "column" : "row",
     }}>
       {/* ── 그래프 영역 ── */}
@@ -317,13 +360,13 @@ export default function MindMapExplorer({
         <div style={{
           position: "absolute", top: 0, left: 0, right: 0, zIndex: 5,
           display: "flex", alignItems: "center", gap: 8, padding: "10px 12px",
-          background: "linear-gradient(180deg, rgba(10,12,20,0.85), transparent)",
+          background: "linear-gradient(180deg, rgba(8,10,18,0.85), transparent)",
         }}>
-          <Sparkles size={16} color="#818cf8" />
+          <Sparkles size={16} color="#a5b4fc" />
           <div style={{ fontWeight: 800, fontSize: "0.9rem", color: "#e5e7eb" }}>
-            마인드맵 탐색 · <span style={{ color: "#818cf8" }}>{initialTopic}</span>
+            마인드맵 탐색 · <span style={{ color: "#a5b4fc" }}>{initialTopic}</span>
           </div>
-          <div style={{ fontSize: "0.68rem", color: "#94a3b8" }}>노드를 클릭해 펼치고, 원하는 노드를 골라 시나리오를 생성하세요</div>
+          {!narrow && <div style={{ fontSize: "0.68rem", color: "#94a3b8" }}>노드 클릭=펼치기 · 휠=확대/축소 · 빈 곳 드래그=이동</div>}
           <button onClick={onClose} style={{
             marginLeft: "auto", background: "transparent", border: "none", cursor: "pointer", color: "#cbd5e1",
             display: "flex", alignItems: "center", gap: 4, fontSize: "0.78rem",
@@ -336,44 +379,85 @@ export default function MindMapExplorer({
           ref={svgRef}
           width="100%" height="100%"
           style={{ touchAction: "none", cursor: "grab", display: "block" }}
+          onWheel={onWheel}
           onPointerDown={onPointerDownBg}
           onPointerMove={onPointerMove}
           onPointerUp={onPointerUp}
         >
-          <g transform={`translate(${v.tx},${v.ty})`}>
+          <defs>
+            <linearGradient id="mmg-0" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="#fb7fc0" /><stop offset="100%" stopColor="#c026a3" />
+            </linearGradient>
+            <linearGradient id="mmg-1" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="#7cb6ff" /><stop offset="100%" stopColor="#2563eb" />
+            </linearGradient>
+            <linearGradient id="mmg-2" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="#aeb9cc" /><stop offset="100%" stopColor="#64748b" />
+            </linearGradient>
+            <linearGradient id="mmg-sel" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="#c4b5fd" /><stop offset="100%" stopColor="#6d28d9" />
+            </linearGradient>
+            <filter id="mm-shadow" x="-40%" y="-40%" width="180%" height="180%">
+              <feDropShadow dx="0" dy="3" stdDeviation="4" floodColor="#000" floodOpacity="0.5" />
+            </filter>
+          </defs>
+
+          <g transform={`translate(${v.tx},${v.ty}) scale(${v.scale})`}>
             {/* 링크 */}
             {nodes.map(n => {
               if (n.parentId === null) return null;
               const p = nodes.find(x => x.id === n.parentId);
               if (!p) return null;
               return <line key={`l${n.id}`} x1={p.x} y1={p.y} x2={n.x} y2={n.y}
-                stroke="rgba(148,163,184,0.35)" strokeWidth={1} />;
+                stroke="rgba(148,163,184,0.4)" strokeWidth={1.4} />;
             })}
-            {/* 노드 */}
-            {nodes.map(n => {
-              const r = radiusOf(n.depth);
+            {/* 노드 (가변폭 알약 + 그라데이션 + 그림자 = 입체) */}
+            {nodes.map(n0 => {
+              const n = ensureDims(n0);
               const sel = n.id === selectedId;
-              const c = colorOf(n.depth, sel);
+              const fs = fontOf(n.depth);
               return (
                 <g key={n.id} transform={`translate(${n.x},${n.y})`}
                   style={{ cursor: "pointer" }}
                   onPointerDown={(e) => onPointerDownNode(e, n.id)}>
-                  <circle r={r} fill={c.fill} stroke={c.stroke} strokeWidth={sel ? 3 : 1.5} />
-                  <text textAnchor="middle" dy="0.1em" fontSize={n.depth === 0 ? 13 : 11}
-                    fontWeight={n.depth === 0 ? 800 : 600} fill="#e5e7eb" style={{ pointerEvents: "none", userSelect: "none" }}>
-                    {clip(n.label, n.depth)}
+                  <rect x={-n.w / 2} y={-n.h / 2} width={n.w} height={n.h} rx={n.h / 2}
+                    fill={`url(#${gradId(n.depth, sel)})`} stroke={strokeOf(n.depth, sel)}
+                    strokeWidth={sel ? 3 : 1.4} filter="url(#mm-shadow)" />
+                  {/* 상단 하이라이트(유광 입체감) */}
+                  <rect x={-n.w / 2 + 5} y={-n.h / 2 + 4} width={n.w - 10} height={n.h * 0.36} rx={n.h * 0.2}
+                    fill="rgba(255,255,255,0.18)" style={{ pointerEvents: "none" }} />
+                  <text textAnchor="middle" dy="0.34em" fontSize={fs}
+                    fontWeight={n.depth === 0 ? 800 : 700} fill="#fff"
+                    style={{ pointerEvents: "none", userSelect: "none" }}>
+                    {n.label}
                   </text>
                   {n.loading && (
-                    <text textAnchor="middle" dy={r + 14} fontSize={10} fill="#94a3b8" style={{ pointerEvents: "none" }}>펼치는 중…</text>
+                    <text textAnchor="middle" dy={n.h / 2 + 15} fontSize={11} fill="#cbd5e1" style={{ pointerEvents: "none" }}>펼치는 중…</text>
                   )}
                   {!n.loading && !n.expanded && n.depth > 0 && (
-                    <text textAnchor="middle" dy={r + 13} fontSize={11} fill="#64748b" style={{ pointerEvents: "none" }}>＋</text>
+                    <circle cx={0} cy={n.h / 2 + 9} r={7} fill="#1e2330" stroke={strokeOf(n.depth, sel)} strokeWidth={1}
+                      style={{ pointerEvents: "none" }} />
+                  )}
+                  {!n.loading && !n.expanded && n.depth > 0 && (
+                    <text textAnchor="middle" dy={n.h / 2 + 12.5} fontSize={11} fill="#cbd5e1" style={{ pointerEvents: "none" }}>＋</text>
                   )}
                 </g>
               );
             })}
           </g>
         </svg>
+
+        {/* 줌 컨트롤 */}
+        <div style={{ position: "absolute", right: 12, top: 56, zIndex: 5, display: "flex", flexDirection: "column", gap: 6 }}>
+          <button onClick={() => zoomBy(1.2)} title="확대"
+            style={{ width: 34, height: 34, borderRadius: 8, border: "1px solid #475569", background: "rgba(17,19,30,0.9)", color: "#e5e7eb", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <Plus size={16} />
+          </button>
+          <button onClick={() => zoomBy(1 / 1.2)} title="축소"
+            style={{ width: 34, height: 34, borderRadius: 8, border: "1px solid #475569", background: "rgba(17,19,30,0.9)", color: "#e5e7eb", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <Minus size={16} />
+          </button>
+        </div>
 
         {/* 선택 노드 정보 + 갱신 */}
         {selectedNode && (
@@ -395,11 +479,11 @@ export default function MindMapExplorer({
         {/* 하단 고정 생성 바 */}
         <div style={{
           position: "absolute", left: 0, right: 0, bottom: 0, zIndex: 5,
-          padding: "10px 12px", background: "linear-gradient(0deg, rgba(10,12,20,0.92), transparent)",
+          padding: "10px 12px", background: "linear-gradient(0deg, rgba(8,10,18,0.92), transparent)",
           display: "flex", alignItems: "center", gap: 10,
         }}>
           <div style={{ fontSize: "0.74rem", color: "#cbd5e1", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-            {selectedNode ? <>선택: <b style={{ color: "#818cf8" }}>{selectedNode.label}</b></> : "노드를 선택하세요"}
+            {selectedNode ? <>선택: <b style={{ color: "#a5b4fc" }}>{selectedNode.label}</b></> : "노드를 선택하세요"}
           </div>
           <button
             onClick={requestGenerate}
@@ -419,7 +503,7 @@ export default function MindMapExplorer({
           <div style={{ position: "absolute", inset: 0, zIndex: 10, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.5)" }}>
             <div style={{ background: "#11131e", border: "1px solid #334155", borderRadius: 12, padding: 20, maxWidth: 340, textAlign: "center" }}>
               <div style={{ fontSize: "0.92rem", color: "#e5e7eb", fontWeight: 700, lineHeight: 1.5 }}>
-                「<span style={{ color: "#818cf8" }}>{gen.keyword}</span>」 노드로<br />시나리오를 생성하시겠습니까?
+                「<span style={{ color: "#a5b4fc" }}>{gen.keyword}</span>」 노드로<br />시나리오를 생성하시겠습니까?
               </div>
               <div style={{ fontSize: "0.72rem", color: "#94a3b8", marginTop: 8 }}>AI 분석 1회가 사용됩니다.</div>
               <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
@@ -445,7 +529,7 @@ export default function MindMapExplorer({
           background: "#0f1118", overflowY: "auto", padding: 14, flexShrink: 0,
         }}>
           <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 10 }}>
-            <Sparkles size={14} color="#818cf8" />
+            <Sparkles size={14} color="#a5b4fc" />
             <div style={{ fontWeight: 800, fontSize: "0.84rem", color: "#e5e7eb", flex: 1 }}>시나리오 결과</div>
             <button onClick={() => setGen({ status: "idle", keyword: "", result: null, index: -1, msg: "" })}
               style={{ background: "transparent", border: "none", cursor: "pointer", color: "#94a3b8" }}><X size={16} /></button>
@@ -463,13 +547,12 @@ export default function MindMapExplorer({
             <div>
               <div style={{ fontWeight: 800, fontSize: "0.9rem", color: "#e5e7eb" }}>{gen.result.title}</div>
               {gen.result.summary && <div style={{ fontSize: "0.74rem", color: "#94a3b8", marginTop: 6, lineHeight: 1.5 }}>{gen.result.summary}</div>}
-              {/* A/B 확률 */}
               {Array.isArray(gen.result.scenarios) && gen.result.scenarios.map((s: any, i: number) => (
                 <div key={i} style={{ marginTop: 10, border: "1px solid #2a2f3e", borderRadius: 8, padding: 10 }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                     <span style={{ fontWeight: 800, color: i === 0 ? "#34d399" : "#f87171", fontSize: "0.8rem" }}>{s.label}</span>
                     <span style={{ fontSize: "0.76rem", color: "#cbd5e1", flex: 1 }}>{s.title}</span>
-                    <span style={{ fontWeight: 800, color: "#818cf8", fontSize: "0.82rem" }}>{s.probability_pct}%</span>
+                    <span style={{ fontWeight: 800, color: "#a5b4fc", fontSize: "0.82rem" }}>{s.probability_pct}%</span>
                   </div>
                   {Array.isArray(s.theme_stocks) && s.theme_stocks.length > 0 && (
                     <div style={{ marginTop: 6, display: "flex", flexWrap: "wrap", gap: 4 }}>
@@ -484,7 +567,7 @@ export default function MindMapExplorer({
               ))}
               <button
                 onClick={() => { if (gen.index >= 0) onOpenIssue(gen.index); onClose(); }}
-                style={{ marginTop: 12, width: "100%", padding: "9px", borderRadius: 8, border: "1px solid #6366f1", background: "transparent", color: "#818cf8", cursor: "pointer", fontWeight: 800, fontSize: "0.8rem", display: "flex", alignItems: "center", justifyContent: "center", gap: 4 }}>
+                style={{ marginTop: 12, width: "100%", padding: "9px", borderRadius: 8, border: "1px solid #6366f1", background: "transparent", color: "#a5b4fc", cursor: "pointer", fontWeight: 800, fontSize: "0.8rem", display: "flex", alignItems: "center", justifyContent: "center", gap: 4 }}>
                 전체 시나리오 보기 <ChevronRight size={14} />
               </button>
             </div>
