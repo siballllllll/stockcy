@@ -179,9 +179,7 @@ export default function MindMapExplorer({
           let d2 = dx * dx + dy * dy;
           if (d2 < 1) { d2 = 1; dx = Math.random() - 0.5; dy = Math.random() - 0.5; }
           const d = Math.sqrt(d2);
-          const minD = a.r + b.r + 34;
-          let f = 6500 / d2;
-          if (d < minD) f += (minD - d) * 0.55;
+          const f = 5000 / d2;   // 부드러운 일반 반발(정밀 비겹침은 아래 하드 분리에서 보장)
           fx += (dx / d) * f;
           fy += (dy / d) * f;
         }
@@ -214,9 +212,39 @@ export default function MindMapExplorer({
       alphaRef.current = alpha * 0.90;   // 쿨링(빠르게 가라앉음)
     }
 
+    // ── 하드 분리: 사각형 겹침을 위치로 직접 밀어내 '절대 안 겹치게' 보장(항상 실행) ──
+    let movedSep = false;
+    const GAP = 14;
+    const movable = (n: MNode) => n.parentId !== null && dragRef.current.id !== n.id && isFree(n.id);
+    for (let iter = 0; iter < 3; iter++) {
+      for (let i = 0; i < ns.length; i++) {
+        const a = ensureDims(ns[i]);
+        for (let j = i + 1; j < ns.length; j++) {
+          const b = ensureDims(ns[j]);
+          let dx = b.x - a.x, dy = b.y - a.y;
+          const ox = (a.w / 2 + b.w / 2 + GAP) - Math.abs(dx);
+          const oy = (a.h / 2 + b.h / 2 + GAP) - Math.abs(dy);
+          if (ox <= 0 || oy <= 0) continue;           // 한 축이라도 안 겹치면 통과
+          const aMov = movable(a), bMov = movable(b);
+          if (!aMov && !bMov) continue;
+          if (Math.min(ox, oy) > 0.5) movedSep = true; // 미세 잔여는 루프 지속에서 제외(줄다리기 방지)
+          if (ox < oy) {                               // x축으로 적게 겹침 → x로 분리
+            const sgn = dx === 0 ? (Math.random() < 0.5 ? -1 : 1) : Math.sign(dx);
+            if (aMov && bMov) { a.x -= sgn * ox / 2; b.x += sgn * ox / 2; }
+            else if (aMov) a.x -= sgn * ox; else b.x += sgn * ox;
+          } else {                                     // y로 분리
+            const sgn = dy === 0 ? (Math.random() < 0.5 ? -1 : 1) : Math.sign(dy);
+            if (aMov && bMov) { a.y -= sgn * oy / 2; b.y += sgn * oy / 2; }
+            else if (aMov) a.y -= sgn * oy; else b.y += sgn * oy;
+          }
+        }
+      }
+    }
+    if (movedSep) for (const a of ns) { if (a.parentId !== null) { a.ax = a.x; a.ay = a.y; } }
+
     setTick(t => (t + 1) % 1000000);
 
-    if (alphaRef.current > 0.02 || dragging) {
+    if (alphaRef.current > 0.02 || dragging || movedSep) {
       rafRef.current = requestAnimationFrame(stepRef.current!);
     } else {
       // 자리잡음 → 루프 정지(완전히 멈춤). 다음 펼치기/드래그 때 reheat로 재시작.
@@ -500,6 +528,8 @@ export default function MindMapExplorer({
             <filter id="mm-shadow" x="-40%" y="-40%" width="180%" height="180%">
               <feDropShadow dx="0" dy="3" stdDeviation="4" floodColor="#000" floodOpacity="0.5" />
             </filter>
+            {/* 미세한 '숨쉬기' 동적 효과 — CSS라 JS 루프 없이도 생기만 살림(자리·겹침엔 영향 없음) */}
+            <style>{`@keyframes mm-bob{0%,100%{transform:translateY(0)}50%{transform:translateY(-2.5px)}}`}</style>
           </defs>
 
           <g transform={`translate(${v.tx},${v.ty}) scale(${v.scale})`}>
@@ -520,27 +550,32 @@ export default function MindMapExplorer({
                 <g key={n.id} transform={`translate(${n.x},${n.y})`}
                   style={{ cursor: "pointer" }}
                   onPointerDown={(e) => onPointerDownNode(e, n.id)}>
-                  <rect x={-n.w / 2} y={-n.h / 2} width={n.w} height={n.h} rx={n.h / 2}
-                    fill={`url(#${gradId(n.depth, sel)})`} stroke={strokeOf(n.depth, sel)}
-                    strokeWidth={sel ? 3 : 1.4} filter="url(#mm-shadow)" />
-                  {/* 상단 하이라이트(유광 입체감) */}
-                  <rect x={-n.w / 2 + 5} y={-n.h / 2 + 4} width={n.w - 10} height={n.h * 0.36} rx={n.h * 0.2}
-                    fill="rgba(255,255,255,0.18)" style={{ pointerEvents: "none" }} />
-                  <text textAnchor="middle" dy="0.34em" fontSize={fs}
-                    fontWeight={n.depth === 0 ? 800 : 700} fill="#fff"
-                    style={{ pointerEvents: "none", userSelect: "none" }}>
-                    {n.label}
-                  </text>
-                  {n.loading && (
-                    <text textAnchor="middle" dy={n.h / 2 + 15} fontSize={11} fill="#cbd5e1" style={{ pointerEvents: "none" }}>펼치는 중…</text>
-                  )}
-                  {!n.loading && !n.expanded && n.depth > 0 && (
-                    <circle cx={0} cy={n.h / 2 + 9} r={7} fill="#1e2330" stroke={strokeOf(n.depth, sel)} strokeWidth={1}
-                      style={{ pointerEvents: "none" }} />
-                  )}
-                  {!n.loading && !n.expanded && n.depth > 0 && (
-                    <text textAnchor="middle" dy={n.h / 2 + 12.5} fontSize={11} fill="#cbd5e1" style={{ pointerEvents: "none" }}>＋</text>
-                  )}
+                  <g style={n.depth === 0 ? undefined : {
+                    animation: `mm-bob ${3 + (n.id % 5) * 0.6}s ease-in-out infinite`,
+                    animationDelay: `${-((n.phase ?? 0) / (Math.PI * 2)) * 4}s`,
+                  }}>
+                    <rect x={-n.w / 2} y={-n.h / 2} width={n.w} height={n.h} rx={n.h / 2}
+                      fill={`url(#${gradId(n.depth, sel)})`} stroke={strokeOf(n.depth, sel)}
+                      strokeWidth={sel ? 3 : 1.4} filter="url(#mm-shadow)" />
+                    {/* 상단 하이라이트(유광 입체감) */}
+                    <rect x={-n.w / 2 + 5} y={-n.h / 2 + 4} width={n.w - 10} height={n.h * 0.36} rx={n.h * 0.2}
+                      fill="rgba(255,255,255,0.18)" style={{ pointerEvents: "none" }} />
+                    <text textAnchor="middle" dy="0.34em" fontSize={fs}
+                      fontWeight={n.depth === 0 ? 800 : 700} fill="#fff"
+                      style={{ pointerEvents: "none", userSelect: "none" }}>
+                      {n.label}
+                    </text>
+                    {n.loading && (
+                      <text textAnchor="middle" dy={n.h / 2 + 15} fontSize={11} fill="#cbd5e1" style={{ pointerEvents: "none" }}>펼치는 중…</text>
+                    )}
+                    {!n.loading && !n.expanded && n.depth > 0 && (
+                      <circle cx={0} cy={n.h / 2 + 9} r={7} fill="#1e2330" stroke={strokeOf(n.depth, sel)} strokeWidth={1}
+                        style={{ pointerEvents: "none" }} />
+                    )}
+                    {!n.loading && !n.expanded && n.depth > 0 && (
+                      <text textAnchor="middle" dy={n.h / 2 + 12.5} fontSize={11} fill="#cbd5e1" style={{ pointerEvents: "none" }}>＋</text>
+                    )}
+                  </g>
                 </g>
               );
             })}
