@@ -526,7 +526,10 @@ def _run_one_scan(force: bool = False) -> dict:
                         "profit": profit,
                         "profit_pct": profit_pct,
                         "result": "수익" if profit >= 0 else "손실",
-                        "learning_point": learning_point
+                        "learning_point": learning_point,
+                        # 매수 시점 정보를 거래기록에 전파 — 거래일지 '매수근거→매도사유' 연결 + 매수사유별 성과 학습.
+                        "buy_reason": str(holding.get("buy_reason") or "").strip(),
+                        "buy_date": str(holding.get("buy_date") or holding.get("updated_time") or "").strip(),
                     }
                     save_trade_record(trade_record, owner=AI_OWNER_NAME)
 

@@ -123,6 +123,25 @@ export default function AgentDashboardPage() {
   const cashKRW = Number((agentBalance as any)?.cash ?? 0);
   const seedKRW = Number((agentBalance as any)?.seed ?? 10000000);
   const totalAssetKRW = cashKRW + holdingsValueKRW;
+  // 미실현 평가손익(원화) — 현재가 있는 종목만
+  const unrealizedPLKRW = useMemo(() => portfolio.reduce((s: number, p: any) => {
+    const isUs = !String(p.ticker).match(/^[0-9]+$/);
+    const cur = currentPriceOf(p); const bp = Number(p.buy_price || 0); const qty = Number(p.quantity || 0);
+    if (!(cur > 0) || !(bp > 0)) return s;
+    return s + (cur - bp) * qty * (isUs ? usdkrw : 1);
+  }, 0), [portfolio, currentPriceOf, usdkrw]);
+
+  // 보유기간 표시 ("3일 2시간" 등)
+  const holdingPeriod = useCallback((buyDate: any): string => {
+    const s = String(buyDate ?? "").replace(" ", "T");
+    const t = Date.parse(s);
+    if (!t || isNaN(t)) return "";
+    const ms = Date.now() - t;
+    if (ms < 0) return "";
+    const h = Math.floor(ms / 3600000);
+    const d = Math.floor(h / 24);
+    return d >= 1 ? `${d}일 ${h % 24}시간` : `${h}시간`;
+  }, []);
   
   // 실시간 에이전트 스캔 로그 로드 (10초 주기 갱신)
   const { data: scanLogs = [], isLoading: isLoadingScanLogs, mutate: mutateScanLogs } = useSWR(
@@ -535,14 +554,14 @@ export default function AgentDashboardPage() {
           {/* 잔액·평가·총자산 요약 */}
           <div style={{ display: "flex", flexWrap: "wrap", gap: "10px", marginBottom: "12px" }}>
             {[
-              { label: "현금 잔액", value: cashKRW, sub: `시드 ${(seedKRW / 10000).toLocaleString()}만` },
-              { label: "보유 평가금액", value: holdingsValueKRW, sub: `${portfolio.length}종목` },
-              { label: "총 자산", value: totalAssetKRW, sub: (() => { const pl = totalAssetKRW - seedKRW; const r = seedKRW ? (pl / seedKRW * 100) : 0; return `${pl >= 0 ? "+" : ""}${Math.round(pl).toLocaleString()}원 (${r >= 0 ? "+" : ""}${r.toFixed(1)}%)`; })() },
+              { label: "현금 잔액", value: cashKRW, sub: `시드 ${(seedKRW / 10000).toLocaleString()}만`, subColor: "var(--color-subtle)" },
+              { label: "보유 평가금액", value: holdingsValueKRW, sub: `${portfolio.length}종목 · 미실현 ${unrealizedPLKRW >= 0 ? "+" : ""}${Math.round(unrealizedPLKRW).toLocaleString()}원`, subColor: unrealizedPLKRW >= 0 ? "#34d399" : "#f87171" },
+              { label: "총 자산", value: totalAssetKRW, sub: (() => { const pl = totalAssetKRW - seedKRW; const r = seedKRW ? (pl / seedKRW * 100) : 0; return `${pl >= 0 ? "+" : ""}${Math.round(pl).toLocaleString()}원 (${r >= 0 ? "+" : ""}${r.toFixed(1)}%)`; })(), subColor: totalAssetKRW >= seedKRW ? "#34d399" : "#f87171" },
             ].map((c, i) => (
               <div key={i} style={{ flex: "1 1 150px", background: "var(--color-card)", border: "1px solid var(--color-border)", borderRadius: "10px", padding: "10px 14px" }}>
                 <div style={{ fontSize: "0.72rem", color: "var(--color-muted)", fontWeight: 700 }}>{c.label}</div>
                 <div style={{ fontSize: "1.05rem", fontWeight: 800, color: "var(--color-text)", marginTop: "2px" }}>₩{Math.round(c.value).toLocaleString()}</div>
-                <div style={{ fontSize: "0.68rem", color: i === 2 && totalAssetKRW >= seedKRW ? "#34d399" : i === 2 ? "#f87171" : "var(--color-subtle)", marginTop: "1px" }}>{c.sub}</div>
+                <div style={{ fontSize: "0.68rem", color: c.subColor, marginTop: "1px" }}>{c.sub}</div>
               </div>
             ))}
           </div>
@@ -556,6 +575,7 @@ export default function AgentDashboardPage() {
                     <th style={{ textAlign: "right" }}>현재가</th>
                     <th style={{ textAlign: "right" }}>수익률</th>
                     <th style={{ textAlign: "right" }}>수량</th>
+                    <th>매수일 · 보유</th>
                     <th>매수 근거</th>
                   </tr>
                 </thead>
@@ -604,6 +624,12 @@ export default function AgentDashboardPage() {
                           return <span style={{ color: r >= 0 ? "var(--color-danger)" : "var(--color-primary)" }}>{r >= 0 ? "+" : ""}{r.toFixed(2)}%</span>;
                         })()}</td>
                         <td style={{ textAlign: "right" }}>{p.quantity}</td>
+                        <td style={{ whiteSpace: "nowrap", fontSize: "0.78rem" }}>
+                          {(() => { const bd = p.buy_date ?? p.updated_time; if (!bd) return <span style={{ color: "var(--color-subtle)" }}>—</span>;
+                            const period = holdingPeriod(bd);
+                            return <div>{String(bd).slice(0, 10)}{period && <span style={{ color: "var(--color-muted)", display: "block", fontSize: "0.7rem" }}>{period}</span>}</div>;
+                          })()}
+                        </td>
                         <td style={{ maxWidth: "260px" }}>
                           <div style={{ fontSize: "0.82rem", color: "var(--color-text)", whiteSpace: "pre-wrap", lineHeight: 1.45 }}>
                             {String(p.buy_reason ?? "").trim() || <span style={{ color: "var(--color-subtle)" }}>{p.rating ?? "—"}</span>}
@@ -630,6 +656,7 @@ export default function AgentDashboardPage() {
                     <th style={{ textAlign: "right" }}>매수가</th>
                     <th style={{ textAlign: "right" }}>매도가</th>
                     <th style={{ textAlign: "right" }}>수익률</th>
+                    <th>매수 근거</th>
                     <th>매도 사유 (학습점)</th>
                     <th>매도일</th>
                   </tr>
@@ -646,7 +673,12 @@ export default function AgentDashboardPage() {
                         <td style={{ textAlign: "right" }}>{sym}{Number(t["매수가($)"] ?? t.buy_price ?? 0).toLocaleString()}</td>
                         <td style={{ textAlign: "right" }}>{sym}{Number(t["매도가($)"] ?? t.sell_price ?? 0).toLocaleString()}</td>
                         <td style={{ textAlign: "right", color, fontWeight: "bold" }}>{pct >= 0 ? "+" : ""}{pct.toFixed(2)}%</td>
-                        <td><span style={{ fontSize: "0.85rem" }}>{t["학습/복기"] ?? t.learning_point ?? ""}</span></td>
+                        <td style={{ maxWidth: "220px" }}>
+                          <span style={{ fontSize: "0.8rem", color: "var(--color-muted)", whiteSpace: "pre-wrap" }}>
+                            {String(t["매수사유"] ?? t.buy_reason ?? "").trim() || "—"}
+                          </span>
+                        </td>
+                        <td style={{ maxWidth: "220px" }}><span style={{ fontSize: "0.85rem" }}>{t["학습포인트"] ?? t["학습/복기"] ?? t.learning_point ?? ""}</span></td>
                         <td>{String(t["매도시간"] ?? t.sell_date).slice(0, 10)}</td>
                       </tr>
                     );
