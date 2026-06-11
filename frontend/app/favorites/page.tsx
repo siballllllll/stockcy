@@ -1016,6 +1016,9 @@ function PortfolioTab({ gapBulkMap }: { gapBulkMap: Record<string, any> }) {
       sell_date: new Date().toISOString().slice(0, 19),
       trade_source: p.trade_source ?? "개인",
       trade_type:   p.trade_type   ?? "실매매",
+      // 보유종목의 매수근거·매수일시를 거래기록으로 전파 (매도 시 유실되던 문제)
+      buy_reason: p.buy_reason ?? "",
+      buy_date:   p.buy_date ?? p.updated_time ?? "",
     });
 
     const remainingQty = p.quantity - sellQty;

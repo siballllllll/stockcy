@@ -120,7 +120,10 @@ async def execute_sell(req: SellRequest, user: dict = Depends(get_current_user))
         "sell_price": req.sell_price,
         "profit": profit,
         "profit_pct": profit_pct,
-        "result": "익절" if profit > 0 else "손절"
+        "result": "익절" if profit > 0 else "손절",
+        # 보유종목의 매수근거·매수일시를 거래기록으로 전파 (매도 시 유실되던 문제).
+        "buy_reason": str(existing.get("buy_reason") or "").strip(),
+        "buy_date": str(existing.get("buy_date") or existing.get("updated_time") or "").strip(),
     }
     await asyncio.to_thread(save_trade_record, trade, owner)
 
