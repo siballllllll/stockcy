@@ -1449,9 +1449,34 @@ function ScenariosPageInner() {
   const [customError, setCustomError]     = useState("");
   const [insightTab, setInsightTab]       = useState<"scenario" | "insight">("scenario");
   const [showRecent, setShowRecent]       = useState(false);
+  const [activeRecentIdx, setActiveRecentIdx] = useState(-1);   // 최근검색 방향키 선택 인덱스(-1=없음)
 
   const [customIssues, setCustomIssues] = useState<Array<Issue & { isCustom: true; keyword: string; id?: number }>>([]);
   const [recentSearches, setRecentSearches] = useState<string[]>([]);
+
+  // 커스텀 검색 입력 키보드 처리: ↑↓로 최근검색 선택(입력창에 채우기만, 실행 X), Enter는 선택중이면 채우기·아니면 분석.
+  const handleCustomKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (showRecent && recentSearches.length > 0 && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
+      e.preventDefault();
+      setActiveRecentIdx(prev => {
+        const n = recentSearches.length;
+        return e.key === "ArrowDown" ? (prev + 1) % n : (prev <= 0 ? n - 1 : prev - 1);
+      });
+      return;
+    }
+    if (e.key === "Enter") {
+      if (activeRecentIdx >= 0 && recentSearches[activeRecentIdx] != null) {
+        // 선택된 최근검색 → 입력창에 채우기만(바로 실행 X) → 이어서 타이핑/버튼 선택 가능
+        e.preventDefault();
+        setCustomKeyword(recentSearches[activeRecentIdx]);
+        setActiveRecentIdx(-1);
+        setShowRecent(false);
+        return;
+      }
+      handleCustomSearch();   // 직접 타이핑 후 엔터 = 분석(빠른 경로)
+    }
+    if (e.key === "Escape") { setShowRecent(false); setActiveRecentIdx(-1); }
+  };
 
   // 에이전트가 자동 생성한 오늘의 시나리오 (네가 AI업데이트 안 눌러도 자동 표시)
   const { data: agentScenarioData } = useSWR(
@@ -1882,28 +1907,31 @@ function ScenariosPageInner() {
                 className="stockcy-input"
                 placeholder="키워드 (예: 반도체 관세)"
                 value={customKeyword}
-                onChange={e => setCustomKeyword(e.target.value)}
+                onChange={e => { setCustomKeyword(e.target.value); setActiveRecentIdx(-1); }}
                 onFocus={() => setShowRecent(true)}
-                onBlur={() => setTimeout(() => setShowRecent(false), 150)}
-                onKeyDown={e => e.key === "Enter" && handleCustomSearch()}
+                onBlur={() => setTimeout(() => { setShowRecent(false); setActiveRecentIdx(-1); }, 150)}
+                onKeyDown={handleCustomKeyDown}
                 style={{ fontSize: "0.82rem", width: "100%", boxSizing: "border-box" }}
               />
-              {/* 최근 검색어 드롭다운 */}
+              {/* 최근 검색어 드롭다운 — 클릭/선택 시 입력창에 '채우기만'(바로 실행 X) */}
               {showRecent && recentSearches.length > 0 && (
                 <div style={{
                   position: "absolute", top: "100%", left: 0, right: 0, zIndex: 50,
                   background: "var(--color-card)", border: "1px solid var(--color-border)",
                   borderRadius: "6px", marginTop: "4px", overflow: "hidden",
                 }}>
-                  <div style={{ padding: "6px 10px", fontSize: "0.7rem", color: "var(--color-muted)", fontWeight: 700, borderBottom: "1px solid var(--color-border)" }}>
-                    최근 검색어
+                  <div style={{ padding: "6px 10px", fontSize: "0.68rem", color: "var(--color-muted)", fontWeight: 700, borderBottom: "1px solid var(--color-border)" }}>
+                    최근 검색어 <span style={{ fontWeight: 400 }}>· ↑↓ 선택 · 클릭하면 채워짐</span>
                   </div>
                   {recentSearches.map((kw, i) => (
                     <div
                       key={i}
-                      onMouseDown={() => { setCustomKeyword(kw); handleCustomSearch(kw); }}
-                      style={{ padding: "6px 10px", fontSize: "0.8rem", cursor: "pointer", color: "var(--color-text)" }}
-                      className="hover-highlight"
+                      onMouseDown={(e) => { e.preventDefault(); setCustomKeyword(kw); setActiveRecentIdx(-1); setShowRecent(false); }}
+                      onMouseEnter={() => setActiveRecentIdx(i)}
+                      style={{
+                        padding: "6px 10px", fontSize: "0.8rem", cursor: "pointer", color: "var(--color-text)",
+                        background: i === activeRecentIdx ? "rgba(129,140,248,0.18)" : "transparent",
+                      }}
                     >
                       {kw}
                     </div>
