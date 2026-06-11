@@ -147,6 +147,7 @@ export const api = {
   portfolio: {
     loadPortfolio: ()                        => req("/api/portfolio"),
     loadAgentPortfolio: ()                   => req("/api/portfolio/agent"),
+    loadAgentBalance: ()                     => req<{ cash: number; seed: number }>("/api/portfolio/agent/balance"),
     loadAgentScanLogs: ()                    => req<any[]>("/api/portfolio/agent/scan-logs"),
     loadAi:        ()                        => req("/api/portfolio/ai"),
     loadFavorites: async () => {

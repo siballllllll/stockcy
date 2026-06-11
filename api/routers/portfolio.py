@@ -193,6 +193,14 @@ async def load_agent_portfolio(user: dict = Depends(get_current_user)):
     return data or []
 
 
+@router.get("/portfolio/agent/balance")
+async def load_agent_balance(user: dict = Depends(get_current_user)):
+    """AI 에이전트의 현금 잔액(예수금) 반환. 초기 시드 1천만원."""
+    from db import load_virtual_balances
+    balances = await asyncio.to_thread(load_virtual_balances)
+    return {"cash": float(balances.get("AI", 10000000.0)), "seed": 10000000.0}
+
+
 @router.get("/portfolio/agent/scan-logs")
 async def load_agent_scan_logs(user: dict = Depends(get_current_user)):
     from db import load_agent_scan_logs_from_gsheet

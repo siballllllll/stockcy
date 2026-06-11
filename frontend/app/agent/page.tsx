@@ -86,6 +86,43 @@ export default function AgentDashboardPage() {
 
   const { data: portfolio = [], isLoading: isLoadingPortfolio } = useSWR<any[]>("/api/portfolio/agent", () => api.portfolio.loadAgentPortfolio() as Promise<any[]>);
   const { data: tradesRes, isLoading: isLoadingTrades } = useSWR("/api/trades/agent", () => api.portfolio.loadAgentTrades() as Promise<{ data: any[]; message: string }>);
+
+  // 에이전트 현금 잔액 + 현재 환율(평가용) + 보유종목 현재가(KR/US 분리)
+  const { data: agentBalance } = useSWR("/api/portfolio/agent/balance", () => api.portfolio.loadAgentBalance(), { refreshInterval: 60000 });
+  const { data: fxNow } = useSWR("agent-fx-now", () => api.us.exchangeRate(), { refreshInterval: 300000 });
+  const usdkrw = Number((fxNow as any)?.rate ?? 1350);
+  const { data: krPriceMap } = useSWR(
+    portfolio.length ? ["agent-kr-prices", portfolio.map((p: any) => p.ticker).join(",")] : null,
+    () => {
+      const codes = portfolio.filter((p: any) => String(p.ticker).match(/^[0-9]+$/)).map((p: any) => String(p.ticker).padStart(6, "0"));
+      return codes.length ? api.kr.stocksBulk(codes) as Promise<Record<string, any>> : Promise.resolve({});
+    },
+    { refreshInterval: 60000 }
+  );
+  const { data: usPriceMap } = useSWR(
+    portfolio.length ? ["agent-us-prices", portfolio.map((p: any) => p.ticker).join(",")] : null,
+    () => {
+      const tk = portfolio.filter((p: any) => !String(p.ticker).match(/^[0-9]+$/)).map((p: any) => String(p.ticker).toUpperCase());
+      return tk.length ? api.us.pricesBulk(tk) : Promise.resolve({});
+    },
+    { refreshInterval: 60000 }
+  );
+  const currentPriceOf = useCallback((p: any): number => {
+    const t = String(p.ticker ?? "");
+    if (t.match(/^[0-9]+$/)) return Number((krPriceMap as any)?.[t.padStart(6, "0")]?.price ?? (krPriceMap as any)?.[t]?.price ?? 0);
+    return Number((usPriceMap as any)?.[t.toUpperCase()]?.price ?? 0);
+  }, [krPriceMap, usPriceMap]);
+
+  // 보유 평가금액(원화 환산) + 총자산
+  const holdingsValueKRW = useMemo(() => portfolio.reduce((s: number, p: any) => {
+    const isUs = !String(p.ticker).match(/^[0-9]+$/);
+    const qty = Number(p.quantity || 0);
+    const cur = currentPriceOf(p) || Number(p.buy_price || 0);   // 현재가 없으면 매수가로 대체
+    return s + cur * qty * (isUs ? usdkrw : 1);
+  }, 0), [portfolio, currentPriceOf, usdkrw]);
+  const cashKRW = Number((agentBalance as any)?.cash ?? 0);
+  const seedKRW = Number((agentBalance as any)?.seed ?? 10000000);
+  const totalAssetKRW = cashKRW + holdingsValueKRW;
   
   // 실시간 에이전트 스캔 로그 로드 (10초 주기 갱신)
   const { data: scanLogs = [], isLoading: isLoadingScanLogs, mutate: mutateScanLogs } = useSWR(
@@ -160,6 +197,10 @@ export default function AgentDashboardPage() {
     }
   );
 
+  // 미국 매도건이 있는데 아직 거래일 환율(usRates)이 로드 전이면, 1350 폴백으로 숫자가 '튀는' 것을
+  // 방지하기 위해 집계를 보류한다(ratesReady=false). 거래일 환율은 종가 기준 파일캐시라 한번 잡히면 고정.
+  const hasUsTrade = useMemo(() => trades.some((t: any) => !String(t["티커"] ?? t.ticker ?? "").match(/^[0-9]+$/)), [trades]);
+  const ratesReady = !hasUsTrade || (usRates && Object.keys(usRates as any).length > 0);
   const totalProfit = useMemo(() => {
     return trades.reduce((sum: number, t: any) => {
       const ticker = String(t["티커"] ?? t.ticker ?? "");
@@ -167,12 +208,13 @@ export default function AgentDashboardPage() {
       const p = Number(t["수익금($)"] ?? t.profit ?? 0);
       if (isUs) {
         const d = String(t["매도시간"] ?? t.sell_date ?? "").slice(0, 10);
-        const rate = (usRates as any)?.[d] || 1350.0;
+        // 거래일(매도일) 종가 환율로 고정. 해당 날짜가 캐시에 없을 때만 현재환율로 대체(하드코딩 1350 제거).
+        const rate = (usRates as any)?.[d] || usdkrw;
         return sum + (p * rate);
       }
       return sum + p;
     }, 0);
-  }, [trades, usRates]);
+  }, [trades, usRates, usdkrw]);
 
   // ── 갭 일괄 스캔: 서버 백그라운드 실행 + 폴링 (화면 나가도 계속 진행) ──────────
   const gapPollingRef = useRef(false);
@@ -311,10 +353,14 @@ export default function AgentDashboardPage() {
           <div style={{ fontSize: "2rem", fontWeight: 700 }}>{trades.length}건</div>
         </div>
         <div style={{ background: "var(--color-card)", border: "1px solid var(--color-border)", borderRadius: "12px", padding: "1.5rem" }}>
-          <div style={{ color: "var(--color-muted)", fontSize: "0.9rem", marginBottom: "0.5rem" }}>누적 가상 손익 (원화 환산)</div>
-          <div style={{ fontSize: "2rem", fontWeight: 700, color: totalProfit >= 0 ? "var(--color-danger)" : "var(--color-primary)" }}>
-            {totalProfit >= 0 ? "+" : ""}₩{Math.round(totalProfit).toLocaleString()}
-          </div>
+          <div style={{ color: "var(--color-muted)", fontSize: "0.9rem", marginBottom: "0.5rem" }}>누적 가상 손익 (거래일 환율 고정 환산)</div>
+          {ratesReady ? (
+            <div style={{ fontSize: "2rem", fontWeight: 700, color: totalProfit >= 0 ? "var(--color-danger)" : "var(--color-primary)" }}>
+              {totalProfit >= 0 ? "+" : ""}₩{Math.round(totalProfit).toLocaleString()}
+            </div>
+          ) : (
+            <div style={{ fontSize: "1.2rem", fontWeight: 700, color: "var(--color-muted)" }}>집계 중…</div>
+          )}
         </div>
       </div>
 
@@ -486,6 +532,20 @@ export default function AgentDashboardPage() {
 
       {activeTab === "portfolio" && (
         <div>
+          {/* 잔액·평가·총자산 요약 */}
+          <div style={{ display: "flex", flexWrap: "wrap", gap: "10px", marginBottom: "12px" }}>
+            {[
+              { label: "현금 잔액", value: cashKRW, sub: `시드 ${(seedKRW / 10000).toLocaleString()}만` },
+              { label: "보유 평가금액", value: holdingsValueKRW, sub: `${portfolio.length}종목` },
+              { label: "총 자산", value: totalAssetKRW, sub: (() => { const pl = totalAssetKRW - seedKRW; const r = seedKRW ? (pl / seedKRW * 100) : 0; return `${pl >= 0 ? "+" : ""}${Math.round(pl).toLocaleString()}원 (${r >= 0 ? "+" : ""}${r.toFixed(1)}%)`; })() },
+            ].map((c, i) => (
+              <div key={i} style={{ flex: "1 1 150px", background: "var(--color-card)", border: "1px solid var(--color-border)", borderRadius: "10px", padding: "10px 14px" }}>
+                <div style={{ fontSize: "0.72rem", color: "var(--color-muted)", fontWeight: 700 }}>{c.label}</div>
+                <div style={{ fontSize: "1.05rem", fontWeight: 800, color: "var(--color-text)", marginTop: "2px" }}>₩{Math.round(c.value).toLocaleString()}</div>
+                <div style={{ fontSize: "0.68rem", color: i === 2 && totalAssetKRW >= seedKRW ? "#34d399" : i === 2 ? "#f87171" : "var(--color-subtle)", marginTop: "1px" }}>{c.sub}</div>
+              </div>
+            ))}
+          </div>
           {isLoadingPortfolio ? <p>로딩 중...</p> : (
             portfolio.length === 0 ? <p style={{ color: "var(--color-muted)" }}>현재 에이전트가 보유 중인 종목이 없습니다.</p> : (
               <table className="stockcy-table">
@@ -493,8 +553,10 @@ export default function AgentDashboardPage() {
                   <tr>
                     <th>종목</th>
                     <th style={{ textAlign: "right" }}>매수가</th>
+                    <th style={{ textAlign: "right" }}>현재가</th>
+                    <th style={{ textAlign: "right" }}>수익률</th>
                     <th style={{ textAlign: "right" }}>수량</th>
-                    <th>진입 사유</th>
+                    <th>매수 근거</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -533,9 +595,20 @@ export default function AgentDashboardPage() {
                             </div>
                           </div>
                         </td>
-                        <td style={{ textAlign: "right" }}>{sym}{p.buy_price.toLocaleString()}</td>
+                        <td style={{ textAlign: "right" }}>{sym}{Number(p.buy_price ?? 0).toLocaleString()}</td>
+                        <td style={{ textAlign: "right" }}>{(() => { const cur = currentPriceOf(p); return cur > 0 ? `${sym}${cur.toLocaleString()}` : <span style={{ color: "var(--color-subtle)" }}>—</span>; })()}</td>
+                        <td style={{ textAlign: "right", fontWeight: 700 }}>{(() => {
+                          const cur = currentPriceOf(p); const bp = Number(p.buy_price ?? 0);
+                          if (!(cur > 0) || !(bp > 0)) return <span style={{ color: "var(--color-subtle)" }}>—</span>;
+                          const r = (cur - bp) / bp * 100;
+                          return <span style={{ color: r >= 0 ? "var(--color-danger)" : "var(--color-primary)" }}>{r >= 0 ? "+" : ""}{r.toFixed(2)}%</span>;
+                        })()}</td>
                         <td style={{ textAlign: "right" }}>{p.quantity}</td>
-                        <td><span style={{ fontSize: "0.9rem" }}>{p.rating}</span></td>
+                        <td style={{ maxWidth: "260px" }}>
+                          <div style={{ fontSize: "0.82rem", color: "var(--color-text)", whiteSpace: "pre-wrap", lineHeight: 1.45 }}>
+                            {String(p.buy_reason ?? "").trim() || <span style={{ color: "var(--color-subtle)" }}>{p.rating ?? "—"}</span>}
+                          </div>
+                        </td>
                       </tr>
                     );
                   })}

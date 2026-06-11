@@ -445,7 +445,8 @@ def _run_one_scan(force: bool = False) -> dict:
                         "buy_price": current_price,
                         "quantity": qty,
                         "buy_date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                        "rating": f"AI 자동 매수 ({source_korean})"
+                        "rating": f"AI 자동 매수 ({source_korean})",
+                        "buy_reason": f"[{source_korean}] {reason}",   # AI 매수 판단 근거 — 보유종목에 표시
                     }
                     ai_portfolio.append(new_item)
                     ai_holdings[ticker] = new_item  # 즉시 동기화
