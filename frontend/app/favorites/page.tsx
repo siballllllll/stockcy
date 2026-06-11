@@ -58,9 +58,10 @@ function getStatusInfo(pct: number | null, price?: number, w52High?: number, w52
 }
 
 // ── 즐겨찾기 카드 ─────────────────────────────────────────────────────────────
-function FavRow({ fav, price, onRemove, onAnalyze, onSaveMemo, gapBulkMap }: {
+function FavRow({ fav, price, overtime, onRemove, onAnalyze, onSaveMemo, gapBulkMap }: {
   fav: Favorite;
   price?: { price: number; change_pct: number; w52_high?: number; w52_low?: number } | null;
+  overtime?: { price: number; change_pct: number; sign: string; status: string } | null;
   onRemove: (ticker: string) => void;
   onAnalyze: (s: StockInfo) => void;
   onSaveMemo: (ticker: string, memo: string) => Promise<void> | void;
@@ -208,6 +209,17 @@ function FavRow({ fav, price, onRemove, onAnalyze, onSaveMemo, gapBulkMap }: {
           </span>
         )}
       </div>
+
+      {/* 🌙 시간외 단일가 (장 마감 후, 데이터 있을 때만) — 정규장 가격은 그대로 두고 보조 표시 */}
+      {isKr && overtime && overtime.price > 0 && (
+        <div style={{ display: "flex", alignItems: "baseline", gap: "5px", fontSize: "0.74rem", marginTop: "1px" }}>
+          <span style={{ color: "var(--color-muted)" }}>🌙 시간외</span>
+          <span style={{ fontWeight: 700, color: "var(--color-text)" }}>₩{overtime.price.toLocaleString()}</span>
+          <span style={{ fontWeight: 600, color: overtime.change_pct > 0 ? "var(--color-danger)" : overtime.change_pct < 0 ? "var(--color-primary)" : "var(--color-muted)" }}>
+            {overtime.change_pct > 0 ? "+" : ""}{overtime.change_pct.toFixed(2)}%
+          </span>
+        </div>
+      )}
 
       {/* 버튼 행 — marginTop:auto로 카드 바닥에 고정(메모와 함께 정렬) */}
       <div style={{ display: "flex", gap: "5px", marginTop: "auto" }}>
@@ -2440,6 +2452,13 @@ export default function FavoritesPage() {
 
   const priceMap: Record<string, PriceEntry> = { ...(krPriceMap ?? {}), ...(usPriceMap ?? {}) };
 
+  // 🌙 시간외 단일가 (KR 즐겨찾기, 장 마감 후에만 값 존재) — 네이버 병렬조회, 60초 갱신
+  const { data: overtimeMap } = useSWR(
+    krTickers.length > 0 ? `kr-overtime-${krTickers.join(",")}` : null,
+    () => api.kr.overtimeBulk(krTickers as string[]),
+    { refreshInterval: 60000 }
+  );
+
   const handleRemove = async (ticker: string) => {
     await api.portfolio.removeFavorite(ticker);
     refetchFavs();
@@ -2639,7 +2658,7 @@ export default function FavoritesPage() {
                       </div>
                       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: "12px" }}>
                         {groupFavs.map((f) => (
-                          <FavRow key={f["티커"]} fav={f} price={priceMap[f["티커"]] ?? null} onRemove={handleRemove} onAnalyze={setSelectedStock} onSaveMemo={handleSaveMemo} gapBulkMap={gapBulkMap} />
+                          <FavRow key={f["티커"]} fav={f} price={priceMap[f["티커"]] ?? null} overtime={(overtimeMap as any)?.[f["티커"]] ?? null} onRemove={handleRemove} onAnalyze={setSelectedStock} onSaveMemo={handleSaveMemo} gapBulkMap={gapBulkMap} />
                         ))}
                       </div>
                     </div>

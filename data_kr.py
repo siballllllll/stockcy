@@ -344,6 +344,49 @@ def _kr_val_missing(x) -> bool:
         return False
 
 
+@st.cache_data(ttl=45, show_spinner=False)
+def get_kr_overtime_price(code: str) -> dict:
+    """네이버 m.stock에서 시간외 단일가(장 마감 후) 조회 — {price, change, change_pct, sign, status}.
+    시간외 데이터가 없으면 빈 dict. 45초 캐시(시간외 단일가는 10분 단위)."""
+    code = str(code).strip().zfill(6)
+    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)", "Referer": "https://m.stock.naver.com/"}
+    try:
+        r = requests.get(f"https://m.stock.naver.com/api/stock/{code}/basic", headers=headers, timeout=5)
+        if not r.ok:
+            return {}
+        info = (r.json() or {}).get("overMarketPriceInfo") or {}
+        if not info:
+            return {}
+        def _num(v):
+            try:
+                return float(str(v).replace(",", "")) if v not in (None, "", "-") else None
+            except Exception:
+                return None
+        price = _num(info.get("overPrice"))
+        if not price or price <= 0:
+            return {}
+        ratio = _num(info.get("fluctuationsRatio")) or 0.0
+        chg_amt = _num(info.get("compareToPreviousClosePrice")) or 0.0
+        cmp_code = str((info.get("compareToPreviousPrice") or {}).get("code", "3"))
+        # 네이버 부호코드: 1 상한·2 상승=+, 4 하한·5 하락=-, 3 보합=0
+        if cmp_code in ("4", "5"):
+            ratio = -abs(ratio); chg_amt = -abs(chg_amt); sign = "4"
+        elif cmp_code in ("1", "2"):
+            ratio = abs(ratio); chg_amt = abs(chg_amt); sign = "2"
+        else:
+            sign = "3"
+        return {
+            "price": int(round(price)),
+            "change": int(round(chg_amt)),
+            "change_pct": round(ratio, 2),
+            "sign": sign,
+            "status": str(info.get("overMarketStatus") or ""),     # OPEN / CLOSE 등
+            "session": str(info.get("tradingSessionType") or ""),   # AFTER_MARKET 등
+        }
+    except Exception:
+        return {}
+
+
 @st.cache_data(ttl=21600)
 def _get_kr_per_pbr_naver(code: str) -> dict:
     """네이버 금융에서 단일 종목 PER/PBR 스크래핑 (KRX 직접 접근이 막힌 환경의 보강책, 6h 캐시).

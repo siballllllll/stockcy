@@ -85,6 +85,9 @@ export const api = {
       }
       return results;
     },
+    overtimeBulk:   (codes: string[]) =>
+      req<Record<string, { price: number; change: number; change_pct: number; sign: string; status: string; session: string }>>(
+        `/api/kr/overtime-bulk?codes=${codes.join(",")}`),
     sectorMap:      ()                       => req("/api/kr/sector-map"),
     hotSectors:     ()                       => req("/api/kr/hot-sectors"),
     todayMarket:    ()                       => req("/api/kr/today-market"),
