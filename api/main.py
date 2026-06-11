@@ -361,6 +361,13 @@ def _scenario_tracking_loop():
                     print(f"[ml sample] 학습샘플 보강: {ms.get('updated_now', 0)}건 ({today})")
                 except Exception as e:
                     print(f"[ml sample] 오류: {e}")
+                # 패턴 스크리너 백테스트(+1/+3/+7일) — 그동안 수동 실행만 가능했던 것을 자동화
+                try:
+                    from ai_engine import backtest_screener_picks
+                    bt = backtest_screener_picks()
+                    print(f"[screener bt] 스크리너 백테스트 갱신: {(bt or {}).get('backtested', 0)}건 ({today})")
+                except Exception as e:
+                    print(f"[screener bt] 오류: {e}")
                 # 보유 종목 일별 스냅샷 (특정일 보유 복원용) — KR 현재가로 평가손익 기록
                 try:
                     from db import save_portfolio_snapshot

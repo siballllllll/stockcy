@@ -19,6 +19,8 @@ function EngineScoreboard() {
   const { data: rec } = useSWR(`${B}/api/ai/recommendation-stats`, fetcher);
   const { data: scn } = useSWR(`${B}/api/ai/scenario-tracking/stats`, fetcher);
   const { data: scr } = useSWR(`${B}/api/ai/screener-backtest/stats`, fetcher);
+  const { data: agent } = useSWR(`${B}/api/ai/agent-performance`, fetcher);
+  const { data: bench } = useSWR(`${B}/api/ai/benchmark-returns?days=7,30,90`, fetcher, { refreshInterval: 600000 });
 
   // 엔진별 d7 헤드라인 산출
   const recH = (rec?.horizons ?? []).find((h: any) => h.horizon === "7일");
@@ -33,7 +35,11 @@ function EngineScoreboard() {
     { name: "🤖 AI추천", n: rec?.measured ?? 0, win: recH?.win_rate ?? null, avg: recH?.avg_return ?? null, note: "단타발굴·종목분석 추천의 7일 후 성과", href: "" },
     { name: "📈 시나리오", n: scnN, win: scnWin, avg: scnAvg, note: "시나리오 등장 종목 7일 후 (방향 적중) — 아래 상세", href: "" },
     { name: "🔍 복합스크리너", n: scr?.total_picks_backtested ?? 0, win: scrO.win_rate_d7 ?? null, avg: scrO.avg_d7_return ?? null, note: "패턴 스크리너 픽 7일 후 백테스트", href: "" },
+    { name: "🦾 AI에이전트", n: agent?.n ?? 0, win: agent?.win_rate ?? null, avg: agent?.avg_return ?? null, note: "에이전트 모의매매 '확정 거래'의 실현 승률·수익률", href: "/agent" },
   ];
+
+  // 벤치마크(시장) 기준선 — 엔진 평균수익률을 '시장 대비'로 가늠
+  const bk7 = bench?.["KOSPI"]?.["7"]; const bs7 = bench?.["S&P500"]?.["7"];
 
   return (
     <div className="stockcy-card" style={{ padding: "1rem 1.2rem" }}>
@@ -58,6 +64,16 @@ function EngineScoreboard() {
           </div>
         ))}
       </div>
+      {/* 벤치마크(시장) 기준선 — 엔진 평균수익률 vs 시장 */}
+      {(bk7 != null || bs7 != null) && (
+        <div style={{ marginTop: "12px", display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap", fontSize: "0.78rem", background: "rgba(255,255,255,0.03)", border: "1px dashed var(--color-border)", borderRadius: "8px", padding: "8px 12px" }}>
+          <span style={{ fontWeight: 700, color: "var(--color-muted)" }}>📐 시장 기준선 (7일)</span>
+          {bk7 != null && <span>KOSPI <b style={{ color: bk7 >= 0 ? "#34d399" : "#f87171" }}>{ret(bk7)}</b></span>}
+          {bs7 != null && <span>S&amp;P500 <b style={{ color: bs7 >= 0 ? "#34d399" : "#f87171" }}>{ret(bs7)}</b></span>}
+          <span style={{ color: "var(--color-subtle)", fontSize: "0.72rem" }}>— 엔진 평균수익률이 이보다 높아야 '시장 초과(실력)'</span>
+        </div>
+      )}
+
       {/* AI추천 1/3/7일 분해 */}
       {(rec?.horizons ?? []).length > 0 && (
         <div style={{ marginTop: "12px", borderTop: "1px solid var(--color-border)", paddingTop: "10px" }}>

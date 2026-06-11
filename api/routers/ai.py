@@ -1296,6 +1296,82 @@ async def get_buy_reason_stats(user: dict = Depends(get_current_user)):
     return await asyncio.to_thread(load_buy_reason_performance, user["username"])
 
 
+def _agent_performance() -> dict:
+    """AI 에이전트의 '확정 거래'(trade_history, owner=AI_AGENT) 실현 성과 — 승률·평균수익률."""
+    from db import get_db_conn
+    try:
+        conn = get_db_conn()
+        cur = conn.cursor()
+        cur.execute("SELECT profit_pct FROM trade_history WHERE UPPER(owner) = 'AI_AGENT'")
+        vals = [float(r["profit_pct"] or 0) for r in cur.fetchall()]
+        n = len(vals)
+        if n == 0:
+            return {"n": 0, "win_rate": None, "avg_return": None}
+        wins = sum(1 for v in vals if v > 0)
+        return {"n": n, "win_rate": round(wins / n * 100, 1), "avg_return": round(sum(vals) / n, 2)}
+    except Exception:
+        return {"n": 0, "win_rate": None, "avg_return": None}
+
+
+@router.get("/agent-performance")
+async def get_agent_performance(user: dict = Depends(get_current_user)):
+    """AI 에이전트 실현 매매 성과(스코어보드용)."""
+    return await asyncio.to_thread(_agent_performance)
+
+
+@router.get("/benchmark-returns")
+async def get_benchmark_returns(days: str = "7,30,90"):
+    """벤치마크(KOSPI·S&P500) 추세 수익률 — 엔진 성과를 '시장 대비'로 가늠하는 기준선."""
+    windows = sorted({int(d) for d in days.split(",") if d.strip().isdigit()}) or [7, 30, 90]
+
+    def _trailing(series, win: int):
+        # series: list[(date, close)] 오름차순. win일 전 대비 최신 종가 수익률(%).
+        if not series or len(series) < 2:
+            return None
+        import datetime as _dt
+        last_d, last_c = series[-1]
+        target = last_d - _dt.timedelta(days=win)
+        base = None
+        for d, c in series:               # target 이하 중 가장 가까운(가장 큰) 날짜
+            if d <= target:
+                base = c
+        if base is None:
+            base = series[0][1]
+        return round((last_c - base) / base * 100, 2) if base else None
+
+    def _kospi():
+        try:
+            import FinanceDataReader as fdr
+            import datetime as _dt
+            df = fdr.DataReader("KS11", (_dt.date.today() - _dt.timedelta(days=140)).strftime("%Y-%m-%d"))
+            return [(d.date() if hasattr(d, "date") else d, float(c)) for d, c in df["Close"].dropna().items()]
+        except Exception:
+            return []
+
+    def _spx():
+        try:
+            import yfinance as yf
+            import datetime as _dt
+            df = yf.download("^GSPC", period="6mo", progress=False, timeout=10)
+            if df is None or df.empty:
+                return []
+            close = df["Close"]
+            import pandas as pd
+            if isinstance(close, pd.DataFrame):
+                close = close.iloc[:, 0]
+            return [(idx.date() if hasattr(idx, "date") else idx, float(v)) for idx, v in close.dropna().items()]
+        except Exception:
+            return []
+
+    kospi = await asyncio.to_thread(_kospi)
+    spx = await asyncio.to_thread(_spx)
+    return {
+        "windows": windows,
+        "KOSPI": {str(w): _trailing(kospi, w) for w in windows},
+        "S&P500": {str(w): _trailing(spx, w) for w in windows},
+    }
+
+
 @router.get("/holdings-risk")
 async def get_holdings_risk(user: dict = Depends(get_current_user)):
     """보유 종목 자동 위험 점검(결정론, AI 없음) — 손절 근접·추세 약화·과열 감지."""
