@@ -184,16 +184,34 @@ def _refresh_krx_prices():
         except Exception:
             pass
 
+    # ETF/ETN은 StockListing("KRX")에 없음 → ETF 리스팅으로 가격 보강(ETF가 0원/0%로 뜨던 문제).
+    etf_n = 0
+    try:
+        etf_df = fdr.StockListing("ETF/KR")
+        if etf_df is not None and not etf_df.empty:
+            for _, row in etf_df.iterrows():
+                code = str(row.get("Symbol", "")).strip().zfill(6)
+                try:
+                    price = int(row.get("Price", 0) or 0)
+                    chg = round(float(row.get("ChangeRate", 0) or 0), 2)
+                    if price > 0:
+                        tmp[code] = {"price": price, "change_pct": chg}
+                        etf_n += 1
+                except Exception:
+                    pass
+    except Exception as _e:
+        print(f"[KRX cache] ETF 리스팅 보강 실패(주식만 유지): {_e}")
+
     if not tmp:
         return  # 파싱 결과가 비면 캐시 유지
 
     KRX_PRICE_CACHE.update(tmp)
     _KRX_CACHE_UPDATED = _time.time()
     if _KRX_FAIL_STREAK > 0:
-        print(f"[KRX cache] 갱신 복구 — {len(tmp)}종목 (직전 {_KRX_FAIL_STREAK}회 실패 후)")
+        print(f"[KRX cache] 갱신 복구 — {len(tmp)}종목(ETF {etf_n}) (직전 {_KRX_FAIL_STREAK}회 실패 후)")
         _KRX_FAIL_STREAK = 0
     else:
-        print(f"[KRX cache] {len(tmp)}종목 갱신 완료")
+        print(f"[KRX cache] {len(tmp)}종목 갱신 완료 (ETF {etf_n} 포함)")
 
 
 def _price_refresh_loop():
