@@ -451,13 +451,36 @@ def get_kr_stock_price(stock_code: str, with_fundamental: bool = False):
                         per_v = round(fm["per"], 2)
                     if _kr_val_missing(pbr_v) and fm.get("pbr"):
                         pbr_v = round(fm["pbr"], 2)
+        # KIS 시세 추출
+        _price = int(o.get("stck_prpr", 0) or 0)
+        _chg = int(o.get("prdy_vrss", 0) or 0)
+        _chg_pct = float(o.get("prdy_ctrt", 0) or 0)
+        _sign = o.get("prdy_vrss_sign", "3")
+        # [보강] KIS가 일부 종목에 보합(등락률 0%·이전가)을 주는 경우 → FDR 전종목 캐시로 가격·등락률 교정.
+        #   (실제 보합 종목은 FDR도 0이라 그대로 유지됨)
+        if abs(_chg_pct) < 0.005:
+            try:
+                fdf = _get_fdr_krx()
+                if fdf is not None and not getattr(fdf, "empty", True):
+                    _row = fdf[fdf["Code"].astype(str).str.zfill(6) == stock_code]
+                    if not _row.empty:
+                        _r = _row.iloc[0]
+                        _fc = int(_r.get("Close", 0) or 0)
+                        _fp = round(float(_r.get("ChagesRatio", 0) or 0), 2)
+                        if _fc > 0 and abs(_fp) >= 0.01:
+                            _price = _fc
+                            _chg_pct = _fp
+                            _chg = int(_r.get("Changes", 0) or 0)
+                            _sign = "2" if _fp > 0 else "4"
+            except Exception:
+                pass
         return {
             "code": stock_code,
             "name": o.get("hts_kor_isnm") or stock_code,
-            "price": int(o.get("stck_prpr", 0) or 0),
-            "change": int(o.get("prdy_vrss", 0) or 0),
-            "change_pct": float(o.get("prdy_ctrt", 0) or 0),
-            "sign": o.get("prdy_vrss_sign", "3"),
+            "price": _price,
+            "change": _chg,
+            "change_pct": _chg_pct,
+            "sign": _sign,
             "volume": int(o.get("acml_vol", 0) or 0),
             "amount": int(o.get("acml_tr_pbmn", 0) or 0),
             "open": int(o.get("stck_oprc", 0) or 0),
