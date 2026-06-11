@@ -1465,15 +1465,15 @@ function ScenariosPageInner() {
       return;
     }
     if (e.key === "Enter") {
+      e.preventDefault();
       if (activeRecentIdx >= 0 && recentSearches[activeRecentIdx] != null) {
-        // 선택된 최근검색 → 입력창에 채우기만(바로 실행 X) → 이어서 타이핑/버튼 선택 가능
-        e.preventDefault();
+        // 선택된 최근검색 → 입력창에 채우기만(바로 실행 X)
         setCustomKeyword(recentSearches[activeRecentIdx]);
         setActiveRecentIdx(-1);
         setShowRecent(false);
-        return;
       }
-      handleCustomSearch();   // 직접 타이핑 후 엔터 = 분석(빠른 경로)
+      // 직접 타이핑 후 Enter는 분석을 실행하지 않음 — '분석하기'/'마인드맵' 버튼으로 명시 선택.
+      return;
     }
     if (e.key === "Escape") { setShowRecent(false); setActiveRecentIdx(-1); }
   };
@@ -2149,7 +2149,7 @@ function ScenariosPageInner() {
                     placeholder="키워드 입력 (예: 반도체 관세, 금리 동결)"
                     value={customKeyword}
                     onChange={e => setCustomKeyword(e.target.value)}
-                    onKeyDown={e => e.key === "Enter" && handleCustomSearch()}
+                    onKeyDown={e => { if (e.key === "Enter") e.preventDefault(); }}
                     style={{ flex: "1 1 160px", minWidth: 0, fontSize: "0.85rem" }}
                   />
                   <button
