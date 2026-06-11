@@ -66,7 +66,7 @@ export const api = {
   // ── 국내 시장 ──────────────────────────────────────────────────────────────
   kr: {
     indices:        ()                       => req("/api/kr/indices"),
-    stockPrice:     (code: string)           => req(`/api/kr/stocks/${code}`),
+    stockPrice:     (code: string, fundamental = false) => req(`/api/kr/stocks/${code}${fundamental ? "?fundamental=true" : ""}`),
     stockName:      (code: string)           => req(`/api/kr/stocks/${code}/name`),
     allStocks:      ()                       => req("/api/kr/stocks/all"),
     volumeRanking:  (market = "ALL")         => req(`/api/kr/volume-ranking?market=${market}`),

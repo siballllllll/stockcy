@@ -185,7 +185,7 @@ export function StockModal({ stock, onClose }: { stock: StockInfo; onClose: () =
 
   const { data: krPrice } = useSWR<KrStock>(
     isKr ? `kr-modal-price-${stock.code}` : null,
-    () => api.kr.stockPrice(stock.code) as Promise<KrStock>
+    () => api.kr.stockPrice(stock.code, true) as Promise<KrStock>   // 모달 — 펀더멘털 포함
   );
 
   const { data: usPrice } = useSWR<{ "심볼": string; "현재가($)": number; "등락률(%)": number } | null>(

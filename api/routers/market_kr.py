@@ -123,10 +123,11 @@ def kr_stocks_all():
 
 
 @router.get("/stocks/{code}")
-def kr_stock_price(code: str):
-    """국내 종목 현재가 + 재무 지표 (KIS API). 검색 상세이므로 PER/PBR 보강(네이버) 활성화."""
+def kr_stock_price(code: str, fundamental: bool = Query(False, description="PER/PBR 등 펀더멘털 보강(네이버 스크래핑) — 검색 상세에서만 true")):
+    """국내 종목 현재가 (KIS API). fundamental=true일 때만 PER/PBR 네이버 보강(느림).
+    기본 false — 가격만 필요한 다수 호출부(보유·즐겨찾기·대시보드)의 불필요한 네트워크 지연 방지."""
     from data_kr import get_kr_stock_price
-    result = get_kr_stock_price(code, with_fundamental=True)
+    result = get_kr_stock_price(code, with_fundamental=fundamental)
     return result or {"error": "데이터 없음"}
 
 

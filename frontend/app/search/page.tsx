@@ -319,8 +319,8 @@ function SearchPageInner() {
   // ── KR SWR ───────────────────────────────────────────────────────────────
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { data: krStockData, isLoading: krLoading } = useSWR<any>(
-    isKR ? `/api/kr/stocks/${currentCode}` : null,
-    () => api.kr.stockPrice(currentCode),
+    isKR ? `/api/kr/stocks/${currentCode}?fundamental=true` : null,
+    () => api.kr.stockPrice(currentCode, true),   // 검색 상세 — PER/PBR 등 펀더멘털 포함
     { refreshInterval: 30000 }
   );
   // eslint-disable-next-line @typescript-eslint/no-explicit-any

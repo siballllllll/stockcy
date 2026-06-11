@@ -442,7 +442,9 @@ def get_kr_stock_price(stock_code: str, with_fundamental: bool = False):
                     dvr_v = nv["dividend_yield"]
                 if nv.get("market_cap") and (not mcap_v or mcap_v in ("-", "0억")):
                     mcap_v = nv["market_cap"]
-            if _kr_val_missing(per_v) or _kr_val_missing(pbr_v):
+            # pykrx 폴백은 '네이버가 통째로 실패(네트워크)'했을 때만 — 네이버가 동작했는데 PER이 비면
+            # 적자기업이라 pykrx에도 없으므로 7초(콜드)+KRX로그인을 낭비할 이유가 없다.
+            if not nv and (_kr_val_missing(per_v) or _kr_val_missing(pbr_v)):
                 fm = _get_kr_fundamental_map().get(stock_code)   # 폴백: pykrx(가능한 환경에서만)
                 if fm:
                     if _kr_val_missing(per_v) and fm.get("per"):
