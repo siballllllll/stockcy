@@ -119,11 +119,11 @@ export function MarketTickerBar() {
   const { data: us }      = useSWR<UsIndices>("us-indices",    () => api.us.indices()       as Promise<UsIndices>, { refreshInterval: 60000,  revalidateOnFocus: false });
   const { data: kr }      = useSWR<KrIndices>("kr-indices",    () => api.kr.indices()       as Promise<KrIndices>, { refreshInterval: 60000,  revalidateOnFocus: false });
   const { data: btc }     = useSWR("btc-price",                () => api.us.crypto("BTC"),                         { refreshInterval: 120000, revalidateOnFocus: false });
-  const { data: fx }      = useSWR("usd-krw-rate",             () => api.us.exchangeRate(),                        { refreshInterval: 300000, revalidateOnFocus: false });
-  const { data: gainers } = useSWR("kr-top-gainers",           () => api.kr.changeRanking("KOSPI", "up") as Promise<any[]>, { refreshInterval: 300000, revalidateOnFocus: false });
-  const { data: krReps }  = useSWR("kr-rep-stocks",            () => api.kr.realtimeBulk(KR_REPS)        as Promise<Record<string, any>>, { refreshInterval: 30000,  revalidateOnFocus: false });
+  const { data: fx }      = useSWR("usd-krw-rate",             () => api.us.exchangeRate(),                        { refreshInterval: 150000, revalidateOnFocus: false });
+  const { data: gainers } = useSWR("kr-top-gainers",           () => api.kr.changeRanking("KOSPI", "up") as Promise<any[]>, { refreshInterval: 150000, revalidateOnFocus: false });
+  const { data: krReps }  = useSWR("kr-rep-stocks",            () => api.kr.realtimeBulk(KR_REPS)        as Promise<Record<string, any>>, { refreshInterval: 15000,  revalidateOnFocus: false });
   const { data: usReps }  = useSWR("us-rep-stocks",            () => api.us.stocks(US_REPS)               as Promise<any[]>, { refreshInterval: 60000,  revalidateOnFocus: false });
-  const { data: favList } = useSWR("favorites",                () => api.portfolio.loadFavorites(),        { refreshInterval: 300000, revalidateOnFocus: false });
+  const { data: favList } = useSWR("favorites",                () => api.portfolio.loadFavorites(),        { refreshInterval: 150000, revalidateOnFocus: false });
 
   const krFavCodes = (favList ?? []).filter((f: Favorite) => f["시장"] === "국내").map((f: Favorite) => f["티커"]);
   const usFavTickers = (favList ?? []).filter((f: Favorite) => f["시장"] === "미국").map((f: Favorite) => f["티커"]);
@@ -131,7 +131,7 @@ export function MarketTickerBar() {
   const { data: krFavPrices } = useSWR(
     krFavCodes.length > 0 ? ["kr-fav-rt", krFavCodes.join(",")] : null,
     () => api.kr.realtimeBulk(krFavCodes) as Promise<Record<string, any>>,
-    { refreshInterval: 30000, revalidateOnFocus: false }
+    { refreshInterval: 15000, revalidateOnFocus: false }
   );
   const { data: usFavPrices } = useSWR(
     usFavTickers.length > 0 ? ["us-fav-prices", usFavTickers.join(",")] : null,

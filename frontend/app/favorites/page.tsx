@@ -875,7 +875,7 @@ function PortfolioTab({ gapBulkMap }: { gapBulkMap: Record<string, any> }) {
       }
       return map;
     },
-    { refreshInterval: 30000 }
+    { refreshInterval: 15000 }
   );
 
   // US 현재가
@@ -2447,7 +2447,7 @@ export default function FavoritesPage() {
       }
       return map;
     },
-    { refreshInterval: 30000 }
+    { refreshInterval: 15000 }
   );
 
   const { data: usPriceMap } = useSWR(

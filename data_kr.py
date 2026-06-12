@@ -344,28 +344,28 @@ def _kr_val_missing(x) -> bool:
         return False
 
 
-@st.cache_data(ttl=20, show_spinner=False)
+@st.cache_data(ttl=8, show_spinner=False)
 def get_kr_realtime_price(code: str) -> dict:
-    """네이버 m.stock에서 정규장 실시간 시세 — {price, change, change_pct, sign}.
-    FDR StockListing은 장중 지연(어제값), KIS는 보합(0%) 문제 → 네이버가 실시간(delayTime 0). 20초 캐시."""
+    """네이버 실시간 폴링 시세 — {price, change, change_pct, sign}.
+    polling.finance.naver.com = 초 단위 실시간(basic은 분 단위 지연). FDR(장중 지연)·KIS(보합) 대체. 8초 캐시."""
     code = str(code).strip().zfill(6)
     headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)", "Referer": "https://m.stock.naver.com/"}
+    def _num(v):
+        try:
+            return float(str(v).replace(",", "")) if v not in (None, "", "-") else None
+        except Exception:
+            return None
     try:
-        r = requests.get(f"https://m.stock.naver.com/api/stock/{code}/basic", headers=headers, timeout=5)
+        r = requests.get(f"https://polling.finance.naver.com/api/realtime/domestic/stock/{code}", headers=headers, timeout=5)
         if not r.ok:
             return {}
-        j = r.json() or {}
-        def _num(v):
-            try:
-                return float(str(v).replace(",", "")) if v not in (None, "", "-") else None
-            except Exception:
-                return None
-        price = _num(j.get("closePrice"))
+        d = ((r.json() or {}).get("datas") or [{}])[0]
+        price = _num(d.get("closePriceRaw") or d.get("closePrice"))
         if not price or price <= 0:
             return {}
-        ratio = _num(j.get("fluctuationsRatio")) or 0.0
-        chg = _num(j.get("compareToPreviousClosePrice")) or 0.0
-        cmp_code = str((j.get("compareToPreviousPrice") or {}).get("code", "3"))
+        ratio = _num(d.get("fluctuationsRatioRaw") or d.get("fluctuationsRatio")) or 0.0
+        chg = _num(d.get("compareToPreviousClosePriceRaw") or d.get("compareToPreviousClosePrice")) or 0.0
+        cmp_code = str((d.get("compareToPreviousPrice") or {}).get("code", "3"))
         if cmp_code in ("4", "5"):
             ratio = -abs(ratio); chg = -abs(chg); sign = "4"
         elif cmp_code in ("1", "2"):
