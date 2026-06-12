@@ -128,6 +128,18 @@ def kr_stock_price(code: str, fundamental: bool = Query(False, description="PER/
     기본 false — 가격만 필요한 다수 호출부(보유·즐겨찾기·대시보드)의 불필요한 네트워크 지연 방지."""
     from data_kr import get_kr_stock_price
     result = get_kr_stock_price(code, with_fundamental=fundamental)
+    # [교정] KIS가 보합(등락률 0%·이전가)을 주는 경우(장 초반·KOSDAQ) → bulk와 동일한 KRX 가격캐시(FDR)로
+    # 가격·등락률을 교정. bulk는 정상인데 종목별 KIS만 0%로 나오던 문제를 모든 호출부에서 한 번에 해결.
+    if result and abs(float(result.get("change_pct") or 0)) < 0.005:
+        try:
+            from api.main import KRX_PRICE_CACHE
+            hit = KRX_PRICE_CACHE.get(str(code).strip().zfill(6))
+            if hit and (hit.get("price") or 0) > 0 and abs(float(hit.get("change_pct") or 0)) >= 0.01:
+                result["price"] = hit["price"]
+                result["change_pct"] = hit["change_pct"]
+                result["sign"] = "2" if hit["change_pct"] > 0 else "4"
+        except Exception:
+            pass
     return result or {"error": "데이터 없음"}
 
 
