@@ -3979,8 +3979,19 @@ def load_confluence_picks(days: int = 5, min_engines: int = 2) -> list:
             engine_firsts = sorted(min(ds) for ds in a["edates"].values() if ds)
             confluence_date = (engine_firsts[min_engines - 1] if len(engine_firsts) >= min_engines
                                else (engine_firsts[-1] if engine_firsts else None))
-            # 당시가: 가장 이른 날짜에 가격이 기록된 엔진의 값 (없으면 None)
-            rec_price = min(a["priced"], key=lambda x: x[0])[1] if a["priced"] else None
+            # 당시가: '교차검증 성립일' 시점 가격 — 성립일 이하(<=) 중 가장 늦은 가격(=성립 무렵),
+            # 없으면 가장 이른 가격으로 폴백. (실제 행동=교차검증 떴을 때 기준이라 더 의미 있음)
+            rec_price = None
+            if a["priced"]:
+                def _dt(s):
+                    try:
+                        return datetime.strptime(str(s)[:10], "%Y-%m-%d")
+                    except Exception:
+                        return None
+                cd = _dt(confluence_date)
+                le = [(d, p) for d, p in a["priced"] if _dt(d) and cd and _dt(d) <= cd]
+                rec_price = (max(le, key=lambda x: x[0])[1] if le
+                             else min(a["priced"], key=lambda x: x[0])[1])
             out.append({
                 "ticker": k,
                 "name": a["name"] or k,

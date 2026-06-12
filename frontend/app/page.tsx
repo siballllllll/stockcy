@@ -550,7 +550,7 @@ function ConfluenceTab({ onSelect }: { onSelect: (s: StockInfo) => void }) {
                     <div style={{ display: "flex", flexWrap: "wrap", gap: "3px 10px", alignItems: "center", fontSize: "0.66rem", color: "var(--color-muted)", borderTop: "1px solid var(--color-border)", paddingTop: "6px" }}>
                       {p.first_date && <span>📅 최초 포착 <b style={{ color: "var(--color-text)" }}>{p.first_date}</b></span>}
                       {p.confluence_date && <span>🎯 교차검증 성립 <b style={{ color: "#a5b4fc" }}>{p.confluence_date}</b><span style={{ color: "var(--color-subtle)" }}> (2개+ 엔진 겹친 날)</span></span>}
-                      {rec > 0 && <span>당시가 <b style={{ color: "var(--color-text)" }}>{fmtPrice(isKr, rec)}</b></span>}
+                      {rec > 0 && <span>당시가<span style={{ color: "var(--color-subtle)" }}>(성립일)</span> <b style={{ color: "var(--color-text)" }}>{fmtPrice(isKr, rec)}</b></span>}
                       {cur > 0 && <span>현재가 <b style={{ color: "var(--color-text)" }}>{fmtPrice(isKr, cur)}</b></span>}
                       {chg != null && <span style={{ fontWeight: 700, color: chg >= 0 ? "#ff4b4b" : "#3b82f6" }}>{chg >= 0 ? "▲" : "▼"} {Math.abs(chg).toFixed(2)}%</span>}
                     </div>
