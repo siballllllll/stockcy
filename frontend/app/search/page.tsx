@@ -320,8 +320,18 @@ function SearchPageInner() {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { data: krStockData, isLoading: krLoading } = useSWR<any>(
     isKR ? `/api/kr/stocks/${currentCode}?fundamental=true` : null,
-    () => api.kr.stockPrice(currentCode, true),   // 검색 상세 — PER/PBR 등 펀더멘털 포함
+    () => api.kr.stockPrice(currentCode, true),   // 검색 상세 — PER/PBR 등 펀더멘털(KIS) 포함
     { refreshInterval: 30000 }
+  );
+  // 가격·등락률은 네이버 실시간으로 통일(슬라이드·즐겨찾기와 동일 소스). KIS는 펀더멘털용으로만 유지.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data: krRealtime } = useSWR<any>(
+    isKR && currentCode ? `kr-rt-${currentCode}` : null,
+    async () => {
+      const m = await api.kr.realtimeBulk([currentCode]);
+      return (m as any)[currentCode] ?? (m as any)[String(currentCode).padStart(6, "0")] ?? null;
+    },
+    { refreshInterval: 15000 }
   );
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { data: nameData } = useSWR<any>(
@@ -423,9 +433,11 @@ function SearchPageInner() {
   const isLoading  = isKR ? krLoading    : usLoading;
   const chartDataRaw = isKR ? krChartRaw : usChartRaw;
 
-  const price     = stockData?.price || 0;
-  const change    = stockData?.change_pct || 0;
-  const changeVal = Math.abs(stockData?.change || 0);
+  // KR이면 네이버 실시간으로 가격·등락률 통일(슬라이드와 일치). 없으면 KIS 값 폴백.
+  const rtOk      = isKR && (krRealtime?.price ?? 0) > 0;
+  const price     = rtOk ? krRealtime.price : (stockData?.price || 0);
+  const change    = rtOk ? krRealtime.change_pct : (stockData?.change_pct || 0);
+  const changeVal = Math.abs(rtOk ? krRealtime.change : (stockData?.change || 0));
   const isUp      = change > 0;
   const isDown    = change < 0;
   const color     = isUp ? "var(--color-danger)" : isDown ? "var(--color-primary)" : "var(--color-text)";
