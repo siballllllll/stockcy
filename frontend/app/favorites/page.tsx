@@ -862,20 +862,20 @@ function PortfolioTab({ gapBulkMap }: { gapBulkMap: Record<string, any> }) {
   const krTickers = krItems.map(p => padKr(p.ticker));
   const usTickers = (portfolio ?? []).filter(p => !isKrCode(p.ticker)).map(p => String(p.ticker).trim().toUpperCase());
 
-  // KR 현재가 — bulk(FDR 캐시·신뢰·빠름)로. KIS 종목별 루프는 장초·KOSDAQ 0%·느림 문제로 폐기.
+  // KR 현재가 — 네이버 실시간(realtimeBulk). FDR은 장중 지연, KIS는 장초 보합이라 둘 다 부적합.
   const { data: krPrices } = useSWR(
-    krTickers.length > 0 ? `kr-port-prices-bulk-${krTickers.join(",")}` : null,
+    krTickers.length > 0 ? `kr-port-rt-${krTickers.join(",")}` : null,
     async () => {
-      const bulk = await api.kr.stocksBulk(krTickers as string[]);
+      const rt = await api.kr.realtimeBulk(krTickers as string[]);
       const map: Record<string, number> = {};
       for (const code of krTickers) {
         const padded = String(code).trim().padStart(6, "0");
-        const b = (bulk as any)[padded] ?? (bulk as any)[code];
+        const b = (rt as any)[padded] ?? (rt as any)[code];
         if (b && (b.price ?? 0) > 0) map[padded] = b.price;
       }
       return map;
     },
-    { refreshInterval: 60000 }
+    { refreshInterval: 30000 }
   );
 
   // US 현재가
@@ -2423,20 +2423,20 @@ export default function FavoritesPage() {
 
   type PriceEntry = { price: number; change_pct: number; w52_high?: number; w52_low?: number };
 
-  // KR 시세는 bulk(FDR 캐시·신뢰)로 — KIS 종목별 조회는 장 시작 직후·KOSDAQ에서 0%를 줘서 신뢰 불가.
-  // (w52는 bulk에 없어 생략 → 바닥권/고점권 배지만 빠지고 나머지는 등락률로 정상 동작)
+  // KR 시세는 네이버 실시간(realtimeBulk)으로 — FDR(StockListing)은 장중 지연(어제값), KIS는 장초 보합.
+  // (w52는 없어 생략 → 바닥권/고점권 배지만 빠지고 나머지는 등락률로 정상 동작)
   const { data: krPriceMap } = useSWR(
-    krTickers.length > 0 ? `kr-fav-prices-bulk-${krTickers.join(",")}` : null,
+    krTickers.length > 0 ? `kr-fav-rt-${krTickers.join(",")}` : null,
     async () => {
-      const bulk = await api.kr.stocksBulk(krTickers as string[]);
+      const rt = await api.kr.realtimeBulk(krTickers as string[]);
       const map: Record<string, PriceEntry> = {};
       for (const code of krTickers) {
-        const b = (bulk as any)[code] ?? (bulk as any)[String(code).padStart(6, "0")];
+        const b = (rt as any)[code] ?? (rt as any)[String(code).padStart(6, "0")];
         if (b && (b.price ?? 0) > 0) map[code] = { price: b.price, change_pct: b.change_pct ?? 0 };
       }
       return map;
     },
-    { refreshInterval: 60000 }
+    { refreshInterval: 30000 }
   );
 
   const { data: usPriceMap } = useSWR(

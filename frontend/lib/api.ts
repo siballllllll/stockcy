@@ -88,6 +88,10 @@ export const api = {
     overtimeBulk:   (codes: string[]) =>
       req<Record<string, { price: number; change: number; change_pct: number; sign: string; status: string; session: string }>>(
         `/api/kr/overtime-bulk?codes=${codes.join(",")}`),
+    // 정규장 실시간 시세(네이버) — 화면용. FDR(지연)·KIS(보합) 대체.
+    realtimeBulk:   (codes: string[]) =>
+      req<Record<string, { price: number; change: number; change_pct: number; sign: string }>>(
+        `/api/kr/realtime-bulk?codes=${codes.join(",")}`),
     sectorMap:      ()                       => req("/api/kr/sector-map"),
     hotSectors:     ()                       => req("/api/kr/hot-sectors"),
     todayMarket:    ()                       => req("/api/kr/today-market"),

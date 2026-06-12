@@ -344,6 +344,39 @@ def _kr_val_missing(x) -> bool:
         return False
 
 
+@st.cache_data(ttl=20, show_spinner=False)
+def get_kr_realtime_price(code: str) -> dict:
+    """네이버 m.stock에서 정규장 실시간 시세 — {price, change, change_pct, sign}.
+    FDR StockListing은 장중 지연(어제값), KIS는 보합(0%) 문제 → 네이버가 실시간(delayTime 0). 20초 캐시."""
+    code = str(code).strip().zfill(6)
+    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)", "Referer": "https://m.stock.naver.com/"}
+    try:
+        r = requests.get(f"https://m.stock.naver.com/api/stock/{code}/basic", headers=headers, timeout=5)
+        if not r.ok:
+            return {}
+        j = r.json() or {}
+        def _num(v):
+            try:
+                return float(str(v).replace(",", "")) if v not in (None, "", "-") else None
+            except Exception:
+                return None
+        price = _num(j.get("closePrice"))
+        if not price or price <= 0:
+            return {}
+        ratio = _num(j.get("fluctuationsRatio")) or 0.0
+        chg = _num(j.get("compareToPreviousClosePrice")) or 0.0
+        cmp_code = str((j.get("compareToPreviousPrice") or {}).get("code", "3"))
+        if cmp_code in ("4", "5"):
+            ratio = -abs(ratio); chg = -abs(chg); sign = "4"
+        elif cmp_code in ("1", "2"):
+            ratio = abs(ratio); chg = abs(chg); sign = "2"
+        else:
+            sign = "3"
+        return {"price": int(round(price)), "change": int(round(chg)), "change_pct": round(ratio, 2), "sign": sign}
+    except Exception:
+        return {}
+
+
 @st.cache_data(ttl=45, show_spinner=False)
 def get_kr_overtime_price(code: str) -> dict:
     """네이버 m.stock에서 시간외 단일가(장 마감 후) 조회 — {price, change, change_pct, sign, status}.
@@ -494,36 +527,13 @@ def get_kr_stock_price(stock_code: str, with_fundamental: bool = False):
                         per_v = round(fm["per"], 2)
                     if _kr_val_missing(pbr_v) and fm.get("pbr"):
                         pbr_v = round(fm["pbr"], 2)
-        # KIS 시세 추출
-        _price = int(o.get("stck_prpr", 0) or 0)
-        _chg = int(o.get("prdy_vrss", 0) or 0)
-        _chg_pct = float(o.get("prdy_ctrt", 0) or 0)
-        _sign = o.get("prdy_vrss_sign", "3")
-        # [보강] KIS가 일부 종목에 보합(등락률 0%·이전가)을 주는 경우 → FDR 전종목 캐시로 가격·등락률 교정.
-        #   (실제 보합 종목은 FDR도 0이라 그대로 유지됨)
-        if abs(_chg_pct) < 0.005:
-            try:
-                fdf = _get_fdr_krx()
-                if fdf is not None and not getattr(fdf, "empty", True):
-                    _row = fdf[fdf["Code"].astype(str).str.zfill(6) == stock_code]
-                    if not _row.empty:
-                        _r = _row.iloc[0]
-                        _fc = int(_r.get("Close", 0) or 0)
-                        _fp = round(float(_r.get("ChagesRatio", 0) or 0), 2)
-                        if _fc > 0 and abs(_fp) >= 0.01:
-                            _price = _fc
-                            _chg_pct = _fp
-                            _chg = int(_r.get("Changes", 0) or 0)
-                            _sign = "2" if _fp > 0 else "4"
-            except Exception:
-                pass
         return {
             "code": stock_code,
             "name": o.get("hts_kor_isnm") or stock_code,
-            "price": _price,
-            "change": _chg,
-            "change_pct": _chg_pct,
-            "sign": _sign,
+            "price": int(o.get("stck_prpr", 0) or 0),
+            "change": int(o.get("prdy_vrss", 0) or 0),
+            "change_pct": float(o.get("prdy_ctrt", 0) or 0),
+            "sign": o.get("prdy_vrss_sign", "3"),
             "volume": int(o.get("acml_vol", 0) or 0),
             "amount": int(o.get("acml_tr_pbmn", 0) or 0),
             "open": int(o.get("stck_oprc", 0) or 0),
