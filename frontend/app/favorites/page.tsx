@@ -1426,7 +1426,7 @@ function PortfolioTab({ gapBulkMap }: { gapBulkMap: Record<string, any> }) {
             if (parsed.error) return (
               <StatusBox type="danger">{parsed.error}</StatusBox>
             );
-            const hasAnyField = parsed.verdict || parsed.timing || parsed.target_exit || parsed.stop_loss || parsed.reason || parsed.risk || parsed.add_buy_verdict || parsed.thesis_check;
+            const hasAnyField = parsed.verdict || parsed.timing || parsed.target_exit || parsed.stop_loss || parsed.reason || parsed.risk || parsed.add_buy_verdict || parsed.thesis_check || parsed.price_zone;
             const cur = sellTarget?.isUs ? "$" : "₩";
             const thesis = String(parsed.thesis_check || "").trim();
             const thesisBroken = thesis.includes("훼손") || thesis.includes("약화");
@@ -1440,6 +1440,17 @@ function PortfolioTab({ gapBulkMap }: { gapBulkMap: Record<string, any> }) {
                     📋 판단: {parsed.verdict}
                   </div>
                 )}
+                {String(parsed.price_zone || "").trim() && (() => {
+                  const pz = String(parsed.price_zone).trim();
+                  const cheap = pz.includes("저평가"); const rich = pz.includes("고평가");
+                  const c = cheap ? "#34d399" : rich ? "#fb923c" : "#a5b4fc";
+                  return (
+                    <div style={{ padding: "8px 12px", background: `${c}14`, border: `1px solid ${c}55`, borderRadius: "8px" }}>
+                      <div style={{ fontWeight: 700, fontSize: "0.78rem", color: c, marginBottom: "2px" }}>💲 현재 가격대 평가 <span style={{ fontWeight: 400, color: "var(--color-muted)" }}>(손익률과 무관, 가격 자체)</span></div>
+                      <div style={{ lineHeight: 1.6, color: "var(--color-text)" }}>{pz}</div>
+                    </div>
+                  );
+                })()}
                 {thesis && (
                   <div style={{ padding: "8px 12px", background: thesisBroken ? "rgba(248,113,113,0.08)" : "rgba(52,211,153,0.08)", border: `1px solid ${thesisBroken ? "rgba(248,113,113,0.3)" : "rgba(52,211,153,0.3)"}`, borderRadius: "8px" }}>
                     <div style={{ fontWeight: 700, fontSize: "0.78rem", color: thesisBroken ? "#f87171" : "#34d399", marginBottom: "2px" }}>🧭 최초 매수 논리 점검</div>
