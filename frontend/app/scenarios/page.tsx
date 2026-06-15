@@ -1618,9 +1618,11 @@ function ScenariosPageInner() {
     setIssueIdx(0);
     setReady("scenarios", false);
 
-    // 최대 3분 후 자동 타임아웃 (서버 무응답 시 로딩 영구 대기 방지)
+    // 최대 4분20초 후 자동 타임아웃 (서버 무응답 시 로딩 영구 대기 방지).
+    // 백엔드는 최대 240초까지 생성을 시도하므로(thinking+검색), 프론트는 그보다 여유 있게 둬야
+    // 정상 작업 중인데 클라이언트가 먼저 끊는 일이 없다. 안전망 용도.
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => { if (!cancelled) controller.abort(); }, 180_000);
+    const timeoutId = setTimeout(() => { if (!cancelled) controller.abort(); }, 260_000);
 
     (async () => {
       try {
@@ -1659,7 +1661,7 @@ function ScenariosPageInner() {
       } catch (e: any) {
         if (!cancelled) {
           if (e?.name === "AbortError") {
-            setLoadError("AI 시나리오 분석 시간이 초과됐습니다 (3분). 잠시 후 다시 시도해주세요.");
+            setLoadError("AI 시나리오 분석 시간이 초과됐습니다. 잠시 후 다시 시도해주세요.");
           } else {
             setLoadError(String(e));
           }
