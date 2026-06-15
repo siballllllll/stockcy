@@ -395,6 +395,10 @@ def get_kr_overtime_price(code: str) -> dict:
                 return float(str(v).replace(",", "")) if v not in (None, "", "-") else None
             except Exception:
                 return None
+        # 본장 중엔 네이버가 overMarketPriceInfo에 '정규장 현재가'를 그대로 넣어주므로
+        # (session=REGULAR_MARKET) 시간외로 오인된다 → 정규장 세션이면 시간외 없음으로 처리.
+        if str(info.get("tradingSessionType") or "").upper() == "REGULAR_MARKET":
+            return {}
         price = _num(info.get("overPrice"))
         if not price or price <= 0:
             return {}
