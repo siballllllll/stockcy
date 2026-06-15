@@ -37,6 +37,17 @@ import { useSSE } from "@/hooks/useSSE";
 import { useAuth } from "@/lib/auth-context";
 import { useIsMobile } from "@/lib/use-is-mobile";
 
+// 지금이 KR 정규장(본장) 시간인지 — 평일 09:00~15:30 KST.
+// 네이버 시간외 단일가(overMarketPriceInfo)는 본장 중에도 전날 값이 남아있어서,
+// 본장 시간엔 시간외 배지를 숨겨야 한다("본장 열렸는데 시간외 뜨는" 혼란 방지).
+function isKrRegularSession(): boolean {
+  const now = new Date();
+  const kstDay = (now.getUTCDay() + (now.getUTCHours() + 9 >= 24 ? 1 : 0)) % 7; // KST 요일
+  if (kstDay === 0 || kstDay === 6) return false; // 주말은 본장 없음
+  const kstMin = ((now.getUTCHours() + 9) % 24) * 60 + now.getUTCMinutes();
+  return kstMin >= 9 * 60 && kstMin < 15 * 60 + 30; // 09:00 ~ 15:30
+}
+
 // ── 투자 가이드 배지 (Streamlit 원본 로직 동일) ─────────────────────────────
 function getStatusInfo(pct: number | null, price?: number, w52High?: number, w52Low?: number) {
   if (pct === null) return null;
@@ -2669,7 +2680,7 @@ export default function FavoritesPage() {
                       </div>
                       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: "12px" }}>
                         {groupFavs.map((f) => (
-                          <FavRow key={f["티커"]} fav={f} price={priceMap[f["티커"]] ?? null} overtime={(overtimeMap as any)?.[f["티커"]] ?? null} onRemove={handleRemove} onAnalyze={setSelectedStock} onSaveMemo={handleSaveMemo} gapBulkMap={gapBulkMap} />
+                          <FavRow key={f["티커"]} fav={f} price={priceMap[f["티커"]] ?? null} overtime={isKrRegularSession() ? null : ((overtimeMap as any)?.[f["티커"]] ?? null)} onRemove={handleRemove} onAnalyze={setSelectedStock} onSaveMemo={handleSaveMemo} gapBulkMap={gapBulkMap} />
                         ))}
                       </div>
                     </div>
