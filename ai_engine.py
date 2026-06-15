@@ -67,6 +67,55 @@ def _fix_scenario_names(res: dict) -> dict:
     return res
 
 
+def _diversify_probabilities(res: dict) -> dict:
+    """확률(probability_pct)이 5의 배수로 뭉치는 LLM 편향을 깨는 결정론적 후처리.
+
+    프롬프트로 '끝자리 0/5 금지'를 요구해도 Gemini가 무시하고 60/65/55처럼 둥근 값을
+    뱉는 경우가 많아, 5의 배수가 들어오면 제목 해시 기반으로 ±1~3 미세 조정한다.
+    - A/B는 상호배타이므로 항상 A+B=100을 유지(A를 기준으로 B=100-A 재계산).
+    - 같은 제목이면 항상 같은 값(새로고침·재조회 시 흔들리지 않음).
+    """
+    import hashlib
+
+    def _to_int(v):
+        try:
+            return int(round(float(v)))
+        except (TypeError, ValueError):
+            return None
+
+    def _prob_label(pct: int) -> str:
+        return "높음" if pct >= 70 else ("보통" if pct >= 40 else "낮음")
+
+    for issue in res.get("issues", [res]):
+        scenarios = issue.get("scenarios", [])
+        if not scenarios:
+            continue
+        anchor = scenarios[0]
+        a = _to_int(anchor.get("probability_pct"))
+        if a is None:
+            continue
+        # 5의 배수면 제목 해시로 결정론적 ±1~3 흔들기 (delta%5 != 0 보장 → 다시 배수 안 됨)
+        if a % 5 == 0:
+            seed = f"{issue.get('title','')}|{anchor.get('title','')}"
+            h = int(hashlib.md5(seed.encode("utf-8")).hexdigest(), 16)
+            delta = (h % 7) - 3            # -3..3
+            if delta == 0:
+                delta = 1 + (h % 3)        # 1..3
+            a += delta
+        a = max(6, min(94, a))             # 5~95 범위 + 끝점(5/95=배수) 회피
+        anchor["probability_pct"] = a
+        if "probability" in anchor:
+            anchor["probability"] = _prob_label(a)
+        # 상호배타 B 시나리오는 100-A로 보정
+        if len(scenarios) >= 2:
+            other = scenarios[1]
+            b = 100 - a
+            other["probability_pct"] = b
+            if "probability" in other:
+                other["probability"] = _prob_label(b)
+    return res
+
+
 def _override_targets(res: dict) -> dict:
     """시나리오 종목에 현재가 기반 매수타점/목표가/손절선 덮어쓰기."""
     def _is_kr(tk):
@@ -799,6 +848,7 @@ def generate_market_scenarios() -> dict:
         "- ⛔ 40~60% 구간에 몰아넣는 것을 금지합니다. 게으른 5:5·6:4 분배는 실패로 간주합니다.\n"
         "- 검색으로 확인한 근거(촉매 강도·수급·일정·과거 사례·정책 방향)의 우열을 반영해 5~95 범위에서 과감하고 세밀하게 책정하세요. 근거가 분명하면 82/18, 73/27처럼 벌리고, 정말 박빙일 때만 55/45.\n"
         "- 이슈마다 확률 분포가 달라야 합니다. 모든 이슈가 60/40으로 똑같이 나오면 잘못된 것입니다.\n"
+        "- ⛔ 끝자리가 0 또는 5인 둥근 값(50·55·60·65·70…) 금지. 반드시 끝자리를 1·2·3·4·6·7·8·9로 세밀하게 책정하세요(예: 73·62·81·47).\n"
         "- probability(높음/보통/낮음)는 pct와 일치시키세요(70+ 높음 / 40~69 보통 / 40미만 낮음).\n"
         "반드시 아래 JSON 형식으로만 응답하세요 (마크다운 백틱, 주석 절대 금지):\n\n"
         "{\n"
@@ -839,6 +889,7 @@ def generate_market_scenarios() -> dict:
         response = _call_gemini(prompt, use_search=True, temperature=0.6, timeout_sec=220, max_output_tokens=16000, thinking=True)
         res = _parse_json_response(response)
         _fix_scenario_names(res)
+        _diversify_probabilities(res)
         _override_targets(res)
         return res
     except Exception as e:
@@ -860,7 +911,7 @@ def analyze_custom_issue(keyword: str) -> dict:
         "theme_stocks는 단타·스윙에 유리한 국내 중소형주(시총 1조 미만 코스닥 우선) 3~5개.\n"
         "rising_stocks·falling_stocks에 이미 있는 종목, 시총 10조↑ 대형주는 제외.\n\n"
         "【확률(probability_pct) 산정 규칙】 A/B 확률 합=100. 40~60 몰림 금지(게으른 5:5·6:4 실패). "
-        "근거 우열을 반영해 5~95에서 과감·세밀하게(예: 80/20, 27/73) 책정하고, 정말 박빙일 때만 55/45.\n\n"
+        "근거 우열을 반영해 5~95에서 과감·세밀하게(예: 78/22, 27/73) 책정. ⛔ 끝자리 0·5 둥근 값 금지 — 끝자리는 1·2·3·4·6·7·8·9로(예: 73·62·81).\n\n"
         "반드시 아래 JSON 형식으로만 응답 (백틱·주석 절대 금지):\n\n"
         "{\n"
         '  "title": "이슈 제목",\n'
@@ -906,6 +957,7 @@ def analyze_custom_issue(keyword: str) -> dict:
         res = _parse_json_response(response)
 
         _fix_scenario_names(res)
+        _diversify_probabilities(res)
         _override_targets(res)
         return res
     except Exception as e:
