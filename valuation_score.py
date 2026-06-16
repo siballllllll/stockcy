@@ -26,7 +26,9 @@ from typing import Optional
 
 # ── 가벼운 TTL 캐시 (yfinance 과호출 방지) — st.cache_data는 FastAPI에서 불안정해 미사용 ──
 _CACHE: dict[str, tuple[float, dict]] = {}
-_CACHE_TTL = 1800  # 30분
+# 펀더멘털은 분기마다 갱신되므로 24시간 캐시로 충분. 같은 종목을 하루 1번만 yfinance에 물어
+# IP 레이트리밋(특히 공유망)을 사실상 회피한다. 실패(0/3) 결과는 캐시하지 않아 즉시 재시도됨.
+_CACHE_TTL = 86400  # 24시간
 
 
 def _cache_get(key: str):
