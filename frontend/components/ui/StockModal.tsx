@@ -342,6 +342,18 @@ export function StockModal({ stock, onClose }: { stock: StockInfo; onClose: () =
                   );
                 })}
               </div>
+              {valScore.phase?.phase && (() => {
+                const ph = valScore.phase.phase as string;
+                const c = ph.includes("취약") ? "#f87171" : ph.includes("쇠퇴") ? "#fb923c"
+                  : ph.includes("바닥") ? "#fbbf24" : ph.includes("정상") ? "#34d399" : "var(--color-muted)";
+                return (
+                  <div style={{ fontSize: "0.72rem", display: "flex", alignItems: "center", gap: "0.4rem", flexWrap: "wrap", borderTop: "1px solid var(--color-border)", paddingTop: "0.4rem" }}>
+                    <span style={{ color: "var(--color-muted)" }}>재무 국면</span>
+                    <span style={{ fontWeight: 800, color: c }}>{ph}</span>
+                    <span style={{ color: "var(--color-subtle)", fontSize: "0.66rem" }}>· {valScore.phase.reason}</span>
+                  </div>
+                );
+              })()}
               {valScore.kr_note && (
                 <div style={{ fontSize: "0.66rem", color: "var(--color-muted)", lineHeight: 1.4 }}>ℹ️ {valScore.kr_note}</div>
               )}

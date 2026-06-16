@@ -189,9 +189,20 @@ def _fetch_kr(code: str) -> dict:
     except Exception:
         pass
 
+    # 재무 국면 분류(결정론) — 가치함정 vs 순환바닥 1차 구분
+    phase = None
+    try:
+        from fundamental_phase import classify_fundamental_phase
+        ph = classify_fundamental_phase(code) or {}
+        if ph.get("phase"):
+            phase = {"phase": ph["phase"], "reason": ph.get("reason", "")}
+    except Exception:
+        pass
+
     return {"peg": peg, "fcf_yield": fcf_yield, "ev_ebitda": ev_ebitda,
             "name": name or code, "_kr_per": per, "_kr_pbr": pbr,
-            "_kr_fin": fin, "_kr_growth_distorted": growth_distorted, "_dart_year": dart_yr}
+            "_kr_fin": fin, "_kr_growth_distorted": growth_distorted, "_dart_year": dart_yr,
+            "_phase": phase}
 
 
 # ── 메인 진입점 ───────────────────────────────────────────────────────────────
@@ -264,6 +275,7 @@ def compute_valuation_score(ticker: str, market: Optional[str] = None) -> dict:
         "score_30": score_30,
         "coverage": f"{n_avail}/3 항목 실데이터",
         "confidence_pct": round(available_max / 30 * 100, 0),
+        "phase": data.get("_phase"),   # 재무 국면(결정론) — KR만, {phase, reason}
     }
     if is_kr:
         fin = data.get("_kr_fin") or {}
