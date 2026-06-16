@@ -21,8 +21,9 @@ def get_us_stock_data(tickers):
 
     data = []
     try:
-        # 단 한 번의 yf.download 호출로 병렬 다운로드 (극단적 네트워크 지연 방지를 위해 timeout=1.5초 제한)
-        raw = yf.download(tickers_list, period="2d", interval="1d", progress=False, auto_adjust=True, timeout=1.5)
+        # 한 번의 yf.download로 병렬 다운로드. period=5d → 전일 종가가 거의 항상 확보돼
+        # '하루치만 와서 등락률 0%' 케이스를 방지. timeout은 4초로(1.5초는 너무 짧아 잦은 실패→KIS 0% 폴백).
+        raw = yf.download(tickers_list, period="5d", interval="1d", progress=False, auto_adjust=True, timeout=4)
         if not raw.empty:
             close_df = raw["Close"]
             

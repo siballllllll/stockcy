@@ -1835,7 +1835,8 @@ def get_us_prices_bulk_kis(tickers_exchange_tuple: tuple) -> dict:
             price = float(o.get("last", 0) or 0)
             base  = float(o.get("base", 0) or 0)   # 전일종가 — KIS 응답에 'rate' 필드가 없어 직접 계산
             if price > 0:
-                chp = round((price - base) / base * 100, 2) if base > 0 else 0.0
+                # base(전일종가) 없으면 등락률 계산 불가 → None으로 두고 yfinance가 보완하게 함
+                chp = round((price - base) / base * 100, 2) if base > 0 else None
                 return ticker, {"price": price, "change_pct": chp}
         return ticker, None
 
@@ -1849,13 +1850,14 @@ def get_us_prices_bulk_kis(tickers_exchange_tuple: tuple) -> dict:
             except Exception:
                 pass
 
-    # ── 2차: KIS 누락분만 yfinance 배치 보완 (timeout 필수 — 무한 매달림 방지) ──
-    missing = [t for t in tickers if t not in results]
+    # ── 2차: KIS 누락분 + 등락률 미산출(base 없음)분을 yfinance 배치 보완 ──
+    missing = [t for t in tickers if t not in results or results[t].get("change_pct") is None]
     if missing:
         try:
             import yfinance as yf
             import pandas as _pd
-            raw = yf.download(missing, period="2d", auto_adjust=True, progress=False, threads=True, timeout=8)
+            # period=5d → 전일종가 거의 항상 확보(2d는 하루치만 와서 등락률 0% 되는 케이스 방지)
+            raw = yf.download(missing, period="5d", auto_adjust=True, progress=False, threads=True, timeout=8)
             if raw is not None and not raw.empty:
                 is_multi = isinstance(raw.columns, _pd.MultiIndex)
                 for ticker in missing:
@@ -1875,6 +1877,11 @@ def get_us_prices_bulk_kis(tickers_exchange_tuple: tuple) -> dict:
                         continue
         except Exception:
             pass
+
+    # 등락률을 끝내 못 구한 종목(KIS price만 있고 base 없음 + yfinance도 실패)은 0%로 표기(가격은 보존)
+    for v in results.values():
+        if v.get("change_pct") is None:
+            v["change_pct"] = 0.0
 
     return results
 
