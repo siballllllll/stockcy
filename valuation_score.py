@@ -171,9 +171,27 @@ def _fetch_kr(code: str) -> dict:
     if per and per > 0 and g is not None and 5 <= g <= 60:
         peg = round(per / g, 2)
 
-    return {"peg": peg, "fcf_yield": None, "ev_ebitda": None,
+    # DART 현금흐름표/재무상태표 + KIS 시총 → FCF Yield·EV/EBITDA (KIS엔 없던 항목)
+    fcf_yield = None
+    ev_ebitda = None
+    dart_yr = None
+    try:
+        from dart import get_kr_financials_dart
+        from data_kr import get_kr_market_cap_won
+        fd = get_kr_financials_dart(code) or {}
+        mcap = get_kr_market_cap_won(code)
+        dart_yr = fd.get("year")
+        if mcap and mcap > 0:
+            if fd.get("fcf") is not None:
+                fcf_yield = fd["fcf"] / mcap * 100
+            if fd.get("ebitda") and fd["ebitda"] > 0 and fd.get("net_debt") is not None:
+                ev_ebitda = (mcap + fd["net_debt"]) / fd["ebitda"]
+    except Exception:
+        pass
+
+    return {"peg": peg, "fcf_yield": fcf_yield, "ev_ebitda": ev_ebitda,
             "name": name or code, "_kr_per": per, "_kr_pbr": pbr,
-            "_kr_fin": fin, "_kr_growth_distorted": growth_distorted}
+            "_kr_fin": fin, "_kr_growth_distorted": growth_distorted, "_dart_year": dart_yr}
 
 
 # ── 메인 진입점 ───────────────────────────────────────────────────────────────
@@ -214,7 +232,7 @@ def compute_valuation_score(ticker: str, market: Optional[str] = None) -> dict:
     band_info = None
     try:
         from db import save_ev_ebitda_snapshot, load_ev_ebitda_band
-        if not is_kr and ev and ev > 0:
+        if ev and ev > 0:   # US=yfinance, KR=DART+KIS 시총 — 둘 다 누적
             save_ev_ebitda_snapshot(raw_ticker, ev)          # 하루 1점(날짜 유니크)
         band_info = load_ev_ebitda_band(raw_ticker)
         if band_info.get("ready") and band_info.get("min") is not None:
@@ -255,9 +273,11 @@ def compute_valuation_score(ticker: str, market: Optional[str] = None) -> dict:
         if fin.get("rev_growth") is not None: ctx.append(f"매출성장 {fin['rev_growth']}%")
         ctx_str = " · ".join(ctx) if ctx else "KIS 재무 제한"
         peg_note = " (PEG: 성장률 왜곡 구간이라 채점 제외)" if data.get("_kr_growth_distorted") else ""
+        dart_yr = data.get("_dart_year")
+        src = f"KIS 재무 + DART 재무제표({dart_yr} 연차)" if dart_yr else "KIS 재무 기반"
         result["kr_note"] = (
-            f"KIS 재무 기반 — PER={data.get('_kr_per')}, PBR={data.get('_kr_pbr')}, {ctx_str}.{peg_note} "
-            f"FCF·EV/EBITDA는 KIS 현금흐름표 부재로 보류(추후 DART)."
+            f"{src} — PER={data.get('_kr_per')}, PBR={data.get('_kr_pbr')}, {ctx_str}.{peg_note}"
+            + ("" if dart_yr else " FCF·EV/EBITDA는 DART 연차 미확보로 보류.")
         )
     elif available_max == 0:
         # US인데 0/3 = 영구적 부재가 아니라 yfinance 일시 장애(레이트리밋/타임아웃)일 가능성↑

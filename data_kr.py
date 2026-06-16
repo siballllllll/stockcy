@@ -74,6 +74,22 @@ def _get(path: str, tr_id: str, params: dict, debug_label: str | None = None, _r
         return None
 
 
+def get_kr_market_cap_won(code: str):
+    """KIS 현재가의 시가총액(hts_avls, 억원) → 원 단위 숫자. 실패 시 None. (무캐시: 실패를 안 박음)"""
+    d = _get(
+        "/uapi/domestic-stock/v1/quotations/inquire-price", "FHKST01010100",
+        {"fid_cond_mrkt_div_code": "J", "fid_input_iscd": str(code).strip().zfill(6)},
+    )
+    if not d:
+        return None
+    avls = (d.get("output") or {}).get("hts_avls")
+    try:
+        v = float(str(avls).replace(",", ""))
+        return v * 1e8 if v > 0 else None   # 억원 → 원
+    except (TypeError, ValueError):
+        return None
+
+
 def get_kr_financials_kis(code: str) -> dict:
     """KIS 재무비율(연간 최신) 조회 — 결정론 밸류용.
     (캐시는 호출측 valuation_score 결과캐시(24h)에 위임 — 실패 {}를 6h 박지 않기 위해 무캐시)
