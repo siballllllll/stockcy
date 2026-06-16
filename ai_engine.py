@@ -2250,6 +2250,16 @@ def generate_kr_stock_report(stock_code: str, name: str, price_data: dict, inves
 중장기 분석(long_term_analysis)에는 이 데이터를 사용하지 마세요.
 """
 
+    # [DART·KIS 재무 팩트시트 + 재무 국면] — AI가 재무를 추측하지 않고 실데이터로 판단하게 주입
+    factsheet_section = ""
+    try:
+        from fundamental_phase import build_kr_factsheet
+        _fs = build_kr_factsheet(stock_code)
+        if _fs:
+            factsheet_section = "\n" + _fs + "\n"
+    except Exception:
+        pass
+
     prompt = f"""
 당신은 한국 주식시장 전문 애널리스트입니다.\n반드시 모든 출력을 한국어(한글)로 작성하세요. 영어 문장으로 답변하면 안 됩니다 — 영문은 종목 티커·기업 고유명사에만 허용합니다. 한자(漢字)는 절대 금지.
 {pattern_section}
@@ -2268,6 +2278,8 @@ def generate_kr_stock_report(stock_code: str, name: str, price_data: dict, inves
 52주 최고: {price_data.get('w52_high', 0):,}원 | 52주 최저: {price_data.get('w52_low', 0):,}원
 PER: {price_data.get('per', '-')} | PBR: {price_data.get('pbr', '-')}
 {investor_summary}
+{factsheet_section}
+[재무 팩트시트 활용 지침] 위 팩트시트가 있으면 재무 수치(FCF·부채·ROE·영업이익 추이)를 지어내지 말고 그 값을 근거로 쓰고, '재무 국면' 분류를 long_term_analysis와 key_issues에 반드시 반영하세요(순환 바닥 vs 구조적 쇠퇴 구분).
 
 ⚠️ [최우선 검증 단계] 분석 시작 전 반드시 구글 검색으로 KRX 종목코드 '{stock_code}'의 실제 종목명을 확인하세요.
 - 검색어: "KRX {stock_code} 종목명" 또는 "{stock_code} 주식 종목"

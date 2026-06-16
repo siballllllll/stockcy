@@ -133,6 +133,49 @@ def _build_reason(phase: str, s: dict) -> str:
     return " · ".join(bits)
 
 
+def build_kr_factsheet(code: str) -> str:
+    """AI 프롬프트 주입용 — DART·KIS 실데이터 재무 팩트시트(국면 포함). 데이터 없으면 ''."""
+    ph = classify_fundamental_phase(code) or {}
+    if not ph.get("phase"):
+        return ""
+    sig = ph.get("signals", {})
+    series = ph.get("series", [])
+
+    fcf = ebitda = net_debt = None
+    try:
+        from dart import get_kr_financials_dart
+        fd = get_kr_financials_dart(code) or {}
+        fcf, ebitda, net_debt = fd.get("fcf"), fd.get("ebitda"), fd.get("net_debt")
+    except Exception:
+        pass
+    roe = None
+    try:
+        from data_kr import get_kr_financials_kis
+        roe = (get_kr_financials_kis(code) or {}).get("roe")
+    except Exception:
+        pass
+
+    op_trend = " → ".join(f"{s['y']}:{s['op억'] / 10000:.1f}조" for s in series)
+    L = ["[재무 팩트시트 — DART·KIS 실데이터 (추측 금지, 아래 숫자로만 판단)]",
+         f"- 재무 국면(결정론): {ph['phase']} — {ph['reason']}",
+         f"- 영업이익 추이: {op_trend}"]
+    if sig.get("rev_cagr_pct") is not None:
+        L.append(f"- 매출 장기성장 CAGR: {sig['rev_cagr_pct']}%")
+    if roe is not None:
+        L.append(f"- ROE: {roe}%")
+    if sig.get("debt_ratio") is not None:
+        L.append(f"- 부채비율: {sig['debt_ratio']}%")
+    if sig.get("pbr") is not None:
+        L.append(f"- PBR: {sig['pbr']} (1.0 미만이면 자산가치 이하)")
+    if fcf is not None:
+        L.append(f"- FCF(영업현금흐름−CAPEX): {fcf / 1e12:+.1f}조원")
+    if ebitda and net_debt is not None:
+        L.append(f"- EBITDA: {ebitda / 1e12:.1f}조 / 순부채: {net_debt / 1e12:+.1f}조 (음수=순현금)")
+    L.append("※ '순환 바닥'이면 현 부진이 사이클 저점일 수 있으니 '구조적 쇠퇴'와 구분해 판단하고, "
+             "'구조적 쇠퇴 의심'·'재무 취약'이면 보수적으로 차감하세요. 재무 수치를 지어내지 말 것.")
+    return "\n".join(L)
+
+
 if __name__ == "__main__":
     import sys
     from dotenv import load_dotenv; load_dotenv()
