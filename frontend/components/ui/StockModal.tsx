@@ -1,5 +1,5 @@
 "use client";
-import { X, Zap } from "lucide-react";
+import { X, Zap, Search } from "lucide-react";
 import { StatusBox } from "./StatusBox";
 import { Badge } from "./Badge";
 import { Accordion } from "./Accordion";
@@ -300,16 +300,28 @@ export function StockModal({ stock, onClose }: { stock: StockInfo; onClose: () =
           </div>
         )}
 
-        {/* ── AI 분석 버튼 ── */}
-        <button
-          className="stockcy-btn stockcy-btn-primary"
-          onClick={handleAnalyze}
-          disabled={analysis.status === "running" || !priceReady}
-          style={{ display: "flex", alignItems: "center", gap: "0.5rem", justifyContent: "center" }}
-        >
-          <Zap size={14} />
-          {analysis.status === "running" ? "분석 중..." : "AI 분석 시작"}
-        </button>
+        {/* ── 액션 버튼 (AI 분석 + 종합검색 새 탭) ── */}
+        <div style={{ display: "flex", gap: "0.5rem" }}>
+          <button
+            className="stockcy-btn stockcy-btn-primary"
+            onClick={handleAnalyze}
+            disabled={analysis.status === "running" || !priceReady}
+            style={{ flex: 1, display: "flex", alignItems: "center", gap: "0.5rem", justifyContent: "center" }}
+          >
+            <Zap size={14} />
+            {analysis.status === "running" ? "분석 중..." : "AI 분석 시작"}
+          </button>
+          {/* 더 디테일한 정보는 종합검색 화면에서 — 새 탭으로 열어 모달 분석을 잃지 않게 함 */}
+          <button
+            className="stockcy-btn stockcy-btn-secondary"
+            onClick={() => window.open(`/search?q=${encodeURIComponent(stock.code)}&market=${isKr ? "KR" : "US"}`, "_blank", "noopener,noreferrer")}
+            title="종합검색 화면을 새 탭에서 엽니다"
+            style={{ display: "flex", alignItems: "center", gap: "0.4rem", justifyContent: "center", whiteSpace: "nowrap" }}
+          >
+            <Search size={14} />
+            종합검색
+          </button>
+        </div>
 
         {/* ── 분석 진행 상태 ── */}
         {analysis.status === "running" && (
