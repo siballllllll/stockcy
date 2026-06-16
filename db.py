@@ -387,6 +387,17 @@ def init_local_db():
         )
     """)
 
+    # ev_ebitda_snapshots (밸류에이션 EV/EBITDA 일별 스냅 — 자체 5년 밴드 누적용)
+    # 종목 조회 시 그날 값을 1줄씩 적재 → 시간이 쌓이면 밴드(하단/중간/상단) 계산 가능
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS ev_ebitda_snapshots (
+            ticker TEXT,
+            snap_date TEXT,
+            ev_ebitda REAL,
+            PRIMARY KEY (ticker, snap_date)
+        )
+    """)
+
     # custom_scenarios (유저별 커스텀 이슈 시나리오 — 서버 영속, 브라우저 localStorage 대체)
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS custom_scenarios (
@@ -3633,6 +3644,51 @@ def load_scenario_stocks_set() -> dict:
     except Exception as e:
         print(f"load_scenario_stocks_set error: {e}")
         return {}
+
+
+def save_ev_ebitda_snapshot(ticker: str, ev_ebitda) -> None:
+    """EV/EBITDA 일별 스냅 1줄 적재 (ticker+날짜 유니크 — 하루 1점). 자체 밴드 누적용."""
+    try:
+        v = float(ev_ebitda)
+    except (TypeError, ValueError):
+        return
+    if v <= 0:
+        return
+    try:
+        conn = get_db_conn()
+        conn.execute(
+            "INSERT OR REPLACE INTO ev_ebitda_snapshots (ticker, snap_date, ev_ebitda) VALUES (?, ?, ?)",
+            (str(ticker).strip().upper(), datetime.now().strftime("%Y-%m-%d"), v),
+        )
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"save_ev_ebitda_snapshot error: {e}")
+
+
+def load_ev_ebitda_band(ticker: str, min_points: int = 20, max_days: int = 1825) -> dict:
+    """누적된 EV/EBITDA 스냅으로 밴드(min/max) 반환. 최근 max_days(기본 5년)만 사용.
+    n >= min_points 일 때만 ready=True (점수 산정 가능)."""
+    try:
+        cutoff = (datetime.now() - timedelta(days=max_days)).strftime("%Y-%m-%d")
+        conn = get_db_conn()
+        row = conn.execute(
+            """SELECT MIN(ev_ebitda) AS lo, MAX(ev_ebitda) AS hi,
+                      COUNT(*) AS n, MIN(snap_date) AS first_date
+               FROM ev_ebitda_snapshots
+               WHERE ticker = ? AND snap_date >= ? AND ev_ebitda > 0""",
+            (str(ticker).strip().upper(), cutoff),
+        ).fetchone()
+        conn.close()
+        d = dict(row or {})
+        n = int(d.get("n") or 0)
+        return {"min": d.get("lo"), "max": d.get("hi"), "n": n,
+                "first_date": d.get("first_date"), "ready": n >= min_points,
+                "min_points": min_points}
+    except Exception as e:
+        print(f"load_ev_ebitda_band error: {e}")
+        return {"min": None, "max": None, "n": 0, "first_date": None,
+                "ready": False, "min_points": min_points}
 
 
 def save_backtest_result(row: dict):

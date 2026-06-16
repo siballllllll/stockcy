@@ -70,22 +70,26 @@ def _score_fcf_yield(fcf_yield_pct: Optional[float]) -> dict:
             "note": f"FCF Yield {y:.2f}%"}
 
 
-def _score_ev_ebitda_band(current: Optional[float], band: Optional[tuple]) -> dict:
-    """EV/EBITDA 5년 밴드 위치: 하단→10 / 중간→6 / 상단→2.
-    band=(min5, max5)가 없으면 현재 멀티플만 보여주고 점수는 N/A."""
+def _score_ev_ebitda_band(current: Optional[float], band: Optional[tuple],
+                          band_info: Optional[dict] = None) -> dict:
+    """EV/EBITDA 자체 밴드 위치: 하단→10 / 중간→6 / 상단→2.
+    band=(min, max)는 누적 스냅이 충분(ready)할 때만 들어온다. 아니면 누적 진행상황을 표시."""
     if current is None or current <= 0:
         return {"value": current, "score": None, "max": 10, "available": False,
                 "note": "EV/EBITDA 산출 불가(적자 EBITDA·데이터 없음)"}
+    n = int((band_info or {}).get("n", 0) or 0)
+    need = int((band_info or {}).get("min_points", 20) or 20)
     if not band or band[1] <= band[0]:
+        prog = f"누적 {n}/{need}일" if n < need else f"{n}일(값 분산 부족)"
         return {"value": round(current, 2), "score": None, "max": 10, "available": False,
-                "note": f"현재 EV/EBITDA {current:.1f} (5년 밴드 미보유 → 밴드점수 N/A)"}
+                "note": f"현재 EV/EBITDA {current:.1f} · 자체 밴드 {prog} (충분히 쌓이면 점수화)"}
     lo, hi = band
     pos = (current - lo) / (hi - lo)
     if pos <= 0.33:   s, lab = 10, "하단 소외"
     elif pos <= 0.66: s, lab = 6, "중간 밴드"
     else:             s, lab = 2, "상단 과열"
     return {"value": round(current, 2), "score": s, "max": 10, "available": True,
-            "note": f"EV/EBITDA {current:.1f} · 밴드 {lab}(위치 {pos*100:.0f}%)"}
+            "note": f"EV/EBITDA {current:.1f} · 자체 밴드({n}일) {lab}(위치 {pos*100:.0f}%)"}
 
 
 # ── 데이터 수집 ───────────────────────────────────────────────────────────────
@@ -188,10 +192,24 @@ def compute_valuation_score(ticker: str, market: Optional[str] = None) -> dict:
                 "items": {}, "score_raw": 0, "available_max": 0, "score_30": None,
                 "coverage": "0/3 항목", "confidence_pct": 0.0}
 
+    # EV/EBITDA: 오늘 값을 스냅 적재(추가 호출 0) → 누적된 자체 밴드로 점수화 시도.
+    ev = data.get("ev_ebitda")
+    band = None
+    band_info = None
+    try:
+        from db import save_ev_ebitda_snapshot, load_ev_ebitda_band
+        if not is_kr and ev and ev > 0:
+            save_ev_ebitda_snapshot(raw_ticker, ev)          # 하루 1점(날짜 유니크)
+        band_info = load_ev_ebitda_band(raw_ticker)
+        if band_info.get("ready") and band_info.get("min") is not None:
+            band = (band_info["min"], band_info["max"])
+    except Exception:
+        band_info = None
+
     items = {
         "peg":            _score_peg(data.get("peg")),
         "fcf_yield":      _score_fcf_yield(data.get("fcf_yield")),
-        "ev_ebitda_band": _score_ev_ebitda_band(data.get("ev_ebitda"), band=None),  # 밴드 시계열 미보유
+        "ev_ebitda_band": _score_ev_ebitda_band(ev, band, band_info),
     }
 
     avail = [it for it in items.values() if it["available"]]
