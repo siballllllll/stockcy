@@ -724,7 +724,7 @@ export default function Dashboard() {
                   <div style={{ fontSize: "0.8rem", fontWeight: 700, color: "var(--color-muted)", marginBottom: "0.75rem", display: "flex", alignItems: "center", gap: "0.4rem" }}>
                     🎯 패턴 매칭 상위 종목
                   </div>
-                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: "0.75rem" }}>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: "0.75rem" }}>
                     {data.top_picks.map((p: any, i: number) => {
                       const score      = Number(p.match_score ?? 0);
                       const rankColors = ["#7c3aed", "#4f46e5", "#0369a1"];
