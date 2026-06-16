@@ -2130,6 +2130,29 @@ KOSDAQ: {kosdaq.get('index',0):,.2f}  ({kosdaq.get('change_pct',0):+.2f}%)
         response = _call_gemini(prompt, use_search=True, temperature=0.35)
         result = _parse_json_response(response)
 
+        # 종목명-코드 정합성 교정 — AI가 name/code를 잘못 짝짓는 경우(예: '한국정보공학'에
+        # 다른 코드)가 있어, KRX 코드→이름 맵으로 name을 코드 기준 강제 일치시키고
+        # 실재하지 않는 코드(AI 허구)는 드롭한다. (시나리오의 _fix_kr_stock_names와 동일 정책)
+        try:
+            from data_kr import get_kr_code_to_name_map
+            _code_map = get_kr_code_to_name_map()
+            if isinstance(result, dict) and _code_map:
+                _kept = []
+                for p in result.get("picks", []) or []:
+                    code = str(p.get("code", "")).strip().zfill(6)
+                    if code.isdigit() and len(code) == 6:
+                        real = _code_map.get(code)
+                        if real:
+                            p["code"] = code
+                            p["name"] = real          # 코드 기준 이름 교정
+                            _kept.append(p)
+                        # KRX에 없는 코드면 허구 → 드롭
+                    else:
+                        _kept.append(p)               # 비정상 형식은 보존(후속 로직 처리)
+                result["picks"] = _kept
+        except Exception:
+            pass
+
         # 현재가/등락률을 실시간 랭킹 데이터로 덮어쓰기 — AI가 구글검색으로 채우는 값이
         # 누락/부정확해 PicksBoard에 현재가·등락률이 안 뜨던 문제 보정.
         try:
