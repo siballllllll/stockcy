@@ -87,10 +87,28 @@ def _score_ev_ebitda_band(current: Optional[float], band: Optional[tuple]) -> di
 
 
 # ── 데이터 수집 ───────────────────────────────────────────────────────────────
-def _fetch_us(ticker: str) -> dict:
-    """yfinance .info에서 밸류에이션 원시값 수집."""
-    import yfinance as yf
-    info = yf.Ticker(ticker).info or {}
+_YF_POOL = None
+
+
+def _yf_pool():
+    global _YF_POOL
+    if _YF_POOL is None:
+        from concurrent.futures import ThreadPoolExecutor
+        _YF_POOL = ThreadPoolExecutor(max_workers=2)
+    return _YF_POOL
+
+
+def _fetch_us(ticker: str, timeout_sec: int = 12) -> dict:
+    """yfinance .info에서 밸류에이션 원시값 수집. yfinance .info는 느리고 레이트리밋에
+    잘 걸려서 타임아웃으로 감싼다(엔드포인트가 멈추지 않게). 실패 시 빈 info → 전부 N/A."""
+    from concurrent.futures import TimeoutError as _FTimeout
+    def _do():
+        import yfinance as yf
+        return yf.Ticker(ticker).info or {}
+    try:
+        info = _yf_pool().submit(_do).result(timeout=timeout_sec)
+    except (_FTimeout, Exception):
+        info = {}
 
     peg = info.get("trailingPegRatio") or info.get("pegRatio")
     try:
@@ -196,8 +214,13 @@ def compute_valuation_score(ticker: str, market: Optional[str] = None) -> dict:
             f"KR 결정론 밸류는 포워드성장·FCF·EV/EBITDA 무료 소스 부재로 산정 불가. "
             f"(참고 PER={data.get('_kr_per')}, PBR={data.get('_kr_pbr')})"
         )
+    elif available_max == 0:
+        # US인데 0/3 = 영구적 부재가 아니라 yfinance 일시 장애(레이트리밋/타임아웃)일 가능성↑
+        result["transient_note"] = "데이터 일시 조회 실패(yfinance 지연·레이트리밋 가능) — 잠시 후 다시 시도하세요."
 
-    _cache_put(key, result)
+    # 성공 결과만 캐시 — US 일시 실패(0/3)는 캐시하지 않아 다음 호출에 즉시 재시도되게 한다.
+    if is_kr or available_max > 0:
+        _cache_put(key, result)
     return result
 
 

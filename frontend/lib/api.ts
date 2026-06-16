@@ -104,6 +104,8 @@ export const api = {
       body: JSON.stringify({ code: code, name: name, price_data: priceData, investor_data: investorData }),
     }),
     scenarios: ()                            => req("/api/ai/scenarios"),
+    valuationScore: (ticker: string, market: string) =>
+      req(`/api/ai/valuation-score?ticker=${encodeURIComponent(ticker)}&market=${market}`),
     sectorRotation: ()                       => req("/api/ai/sector-rotation"),
     realtimePicksKr: (body: any = {})        => req("/api/ai/realtime-picks-kr", {
       method: "POST",

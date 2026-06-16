@@ -201,6 +201,12 @@ export function StockModal({ stock, onClose }: { stock: StockInfo; onClose: () =
     () => api.kr.dailyChart(stock.code, 40) as Promise<ChartCandle[]>
   );
 
+  // [결정론 밸류에이션 점수] 실데이터로만 산출(추정 없음). 원시값을 투명하게 노출.
+  const { data: valScore } = useSWR<any>(
+    `valuation-${stock.code}`,
+    () => api.ai.valuationScore(stock.code, isKr ? "KR" : "US")
+  );
+
   const krAnalysis = useSSE<KrStockReport>("/api/ai/kr-stock-report", { method: "POST", globalId: `kr-report-${stock.code}`, globalTitle: `${stock.name} 종합 분석` });
   const usAnalysis = useSSE<StockReport>("/api/ai/stock-report",    { method: "POST", globalId: `us-report-${stock.code}`, globalTitle: `${stock.name} 종합 분석` });
   const analysis   = isKr ? krAnalysis : usAnalysis;
@@ -299,6 +305,48 @@ export function StockModal({ stock, onClose }: { stock: StockInfo; onClose: () =
             <MiniLineChart data={chartPrices} width={530} height={56} />
           </div>
         )}
+
+        {/* ── 밸류에이션 결정론 점수 (실데이터·투명 패널) ── */}
+        {valScore && !valScore.error && (() => {
+          const labels: Record<string, string> = { peg: "PEG", fcf_yield: "FCF Yield", ev_ebitda_band: "EV/EBITDA" };
+          const s30 = valScore.score_30;
+          const conf = Number(valScore.confidence_pct ?? 0);
+          const scoreColor = s30 == null ? "var(--color-muted)" : s30 >= 20 ? "var(--color-up)" : s30 >= 10 ? "var(--color-info)" : "var(--color-down)";
+          return (
+            <div style={{ background: "var(--color-elevated)", borderRadius: "0.5rem", padding: "0.75rem", display: "flex", flexDirection: "column", gap: "0.5rem", border: "1px solid var(--color-border)" }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "0.5rem", flexWrap: "wrap" }}>
+                <span style={{ fontSize: "0.78rem", fontWeight: 700 }}>🏛️ 밸류에이션 <span style={{ color: "var(--color-muted)", fontWeight: 400 }}>(결정론·실데이터)</span></span>
+                <span style={{ display: "flex", alignItems: "baseline", gap: "0.4rem" }}>
+                  <span style={{ fontSize: "1.05rem", fontWeight: 800, color: scoreColor }}>{s30 == null ? "산정 불가" : `${s30} / 30`}</span>
+                  <span style={{ fontSize: "0.66rem", color: "var(--color-muted)" }}>{valScore.coverage} · 신뢰도 {conf}%</span>
+                </span>
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: "0.25rem" }}>
+                {(["peg", "fcf_yield", "ev_ebitda_band"] as const).map((k) => {
+                  const it = valScore.items?.[k];
+                  if (!it) return null;
+                  const ok = it.available;
+                  return (
+                    <div key={k} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "0.5rem", fontSize: "0.72rem" }}>
+                      <span style={{ color: "var(--color-muted)", minWidth: "72px" }}>{labels[k]}</span>
+                      <span style={{ flex: 1, color: "var(--color-text)", lineHeight: 1.35 }}>{it.note}</span>
+                      <span style={{ flexShrink: 0, fontWeight: 700, color: ok ? "var(--color-text)" : "var(--color-muted)", background: ok ? "rgba(255,255,255,0.06)" : "transparent", borderRadius: "4px", padding: "1px 6px" }}>
+                        {ok ? `${it.score}/${it.max}` : "N/A"}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+              {valScore.kr_note && (
+                <div style={{ fontSize: "0.66rem", color: "var(--color-muted)", lineHeight: 1.4 }}>ℹ️ {valScore.kr_note}</div>
+              )}
+              {valScore.transient_note && (
+                <div style={{ fontSize: "0.66rem", color: "var(--color-warning)", lineHeight: 1.4 }}>⚠️ {valScore.transient_note}</div>
+              )}
+              <div style={{ fontSize: "0.62rem", color: "var(--color-muted)" }}>※ AI 추정 아님. 실데이터 없는 항목은 N/A로 두고 신뢰도에 반영.</div>
+            </div>
+          );
+        })()}
 
         {/* ── 액션 버튼 (AI 분석 + 종합검색 새 탭) ── */}
         <div style={{ display: "flex", gap: "0.5rem" }}>
