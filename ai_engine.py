@@ -1583,12 +1583,24 @@ def generate_stock_report(ticker, current_price, change_pct):
     if not news_txt or "No recent target" in news_txt:
         news_txt = f"Current Price of {ticker} is ${current_price} ({change_pct}%)."
 
+    # [yfinance 재무 팩트시트 + 재무 국면] — AI가 재무를 추측하지 않고 실데이터로 판단하게 주입
+    factsheet_section = ""
+    try:
+        from fundamental_phase import build_us_factsheet
+        _fs = build_us_factsheet(ticker)
+        if _fs:
+            factsheet_section = "\n" + _fs + "\n"
+    except Exception:
+        pass
+
     prompt = f"""
 당신은 월스트리트 전문 애널리스트입니다.\n반드시 모든 출력을 한국어(한글)로 작성하세요. 영어 문장으로 답변하면 안 됩니다 — 영문은 종목 티커·기업 고유명사에만 허용합니다. 한자(漢字)는 절대 금지.
 현재 {ticker}의 주가는 ${current_price} ({change_pct}%)입니다.
 
 [실시간 최신 영문 뉴스 팩트시트 (RAG)]
 {news_txt}
+{factsheet_section}
+[재무 팩트시트 활용 지침] 위 팩트시트가 있으면 재무 수치(FCF·영업이익 추이·EV/EBITDA)를 지어내지 말고 그 값을 근거로 쓰고, '재무 국면' 분류를 long_term_analysis와 key_issues에 반드시 반영하세요(순환 바닥 vs 구조적 쇠퇴 구분).
 
 [분석 원칙 — 냉철한 리스크 차감 및 낙관 편향(Optimism Bias) 절대 금지]
 1. 상승·하락 어느 쪽으로도 편향하지 마십시오. 장밋빛 낙관론은 금융 분석가로서 최악의 과오입니다.

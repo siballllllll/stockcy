@@ -77,20 +77,27 @@ def classify_fundamental_phase(code: str) -> dict:
     except Exception:
         pass
 
-    # ── 신호 산출 ──────────────────────────────────────────────────────────
+    core = _classify_core(ops, revs, debt_ratio, pbr, cfo)
+    core["series"] = [{"y": s["year"], "op억": round(s["op"])} for s in series]
+    return core
+
+
+def _classify_core(ops: list, revs: list, debt_ratio=None, pbr=None, cfo=None) -> dict:
+    """국면 판정 코어(KR/US 공용). ops·revs는 오름차순(과거→최근). 반환 {phase, reason, signals}."""
+    latest_op, prev_op = ops[-1], ops[-2]
+    trough, peak = min(ops), max(ops)
     op_positive = latest_op > 0
-    rebounding = latest_op > prev_op and latest_op > trough * 1.15  # 바닥에서 명확히 반등
+    rebounding = latest_op > prev_op and latest_op > trough * 1.15   # 바닥에서 명확히 반등
     at_trough = latest_op <= trough * 1.10                          # 아직 바닥권
-    # 장기 매출 CAGR (구조적 침식 판별)
     n = len(revs) - 1
-    rev_cagr = ((revs[-1] / revs[0]) ** (1 / n) - 1) if revs[0] > 0 and n > 0 else None
+    rev_cagr = ((revs[-1] / revs[0]) ** (1 / n) - 1) if (revs[0] > 0 and n > 0) else None
     structural = (rev_cagr is not None and rev_cagr < -0.02 and latest_op < prev_op)
-    # 순환성: 영업이익 진폭이 크면 사이클 업종
-    cyclical = (trough <= 0 or (peak > 0 and trough > 0 and peak / trough >= 2.5))
+    # 순환성: '실제 하락 사이클'이 있었을 때만(단순 우상향 성장주가 진폭만으로 순환 오분류되는 것 방지)
+    had_decline = any(ops[i] < ops[i - 1] * 0.8 for i in range(1, len(ops)))
+    cyclical = had_decline and (trough <= 0 or (peak > 0 and trough > 0 and peak / trough >= 2.5))
     survivable = ((debt_ratio is None or debt_ratio < 200)
                   and (op_positive or (cfo is not None and cfo > 0)))
 
-    # ── 국면 판정 ──────────────────────────────────────────────────────────
     if op_positive and not structural and (rebounding or latest_op >= peak * 0.8):
         phase = "정상·양호"
     elif structural and not rebounding:
@@ -102,22 +109,11 @@ def classify_fundamental_phase(code: str) -> dict:
     else:
         phase = "일시 부진"
 
-    signals = {
-        "latest_op_억": round(latest_op),
-        "trough_억": round(trough),
-        "op_positive": op_positive,
-        "rebounding": rebounding,
-        "at_trough": at_trough,
-        "rev_cagr_pct": round(rev_cagr * 100, 1) if rev_cagr is not None else None,
-        "structural": structural,
-        "cyclical": cyclical,
-        "survivable": survivable,
-        "debt_ratio": debt_ratio,
-        "pbr": pbr,
-    }
-    reason = _build_reason(phase, signals)
-    return {"phase": phase, "reason": reason, "signals": signals,
-            "series": [{"y": s["year"], "op억": round(s["op"])} for s in series]}
+    signals = {"op_positive": op_positive, "rebounding": rebounding, "at_trough": at_trough,
+               "rev_cagr_pct": round(rev_cagr * 100, 1) if rev_cagr is not None else None,
+               "structural": structural, "cyclical": cyclical, "survivable": survivable,
+               "debt_ratio": debt_ratio, "pbr": pbr}
+    return {"phase": phase, "reason": _build_reason(phase, signals), "signals": signals}
 
 
 def _build_reason(phase: str, s: dict) -> str:
@@ -171,6 +167,82 @@ def build_kr_factsheet(code: str) -> str:
         L.append(f"- FCF(영업현금흐름−CAPEX): {fcf / 1e12:+.1f}조원")
     if ebitda and net_debt is not None:
         L.append(f"- EBITDA: {ebitda / 1e12:.1f}조 / 순부채: {net_debt / 1e12:+.1f}조 (음수=순현금)")
+    L.append("※ '순환 바닥'이면 현 부진이 사이클 저점일 수 있으니 '구조적 쇠퇴'와 구분해 판단하고, "
+             "'구조적 쇠퇴 의심'·'재무 취약'이면 보수적으로 차감하세요. 재무 수치를 지어내지 말 것.")
+    return "\n".join(L)
+
+
+# ── US (yfinance) 경로 ────────────────────────────────────────────────────────
+def _yf_income_series(ticker: str) -> list:
+    """yfinance income_stmt(연간) → [{year, revenue, op}] 오름차순(과거→최근)."""
+    import yfinance as yf
+    try:
+        fin = yf.Ticker(ticker).income_stmt
+    except Exception:
+        return []
+    if fin is None or getattr(fin, "empty", True):
+        return []
+    out = []
+    for c in reversed(list(fin.columns)):   # 컬럼은 최신순 → 과거순으로
+        try:
+            rev = fin.loc["Total Revenue", c] if "Total Revenue" in fin.index else None
+            op = fin.loc["Operating Income", c] if "Operating Income" in fin.index else None
+            if rev is not None and op is not None and rev == rev and op == op:  # NaN 제외
+                out.append({"year": str(c)[:4], "revenue": float(rev), "op": float(op)})
+        except Exception:
+            pass
+    return out
+
+
+def classify_us_phase(ticker: str) -> dict:
+    """US 재무 국면 분류(yfinance). {phase, reason, signals, series}."""
+    series = _yf_income_series(ticker)
+    if len(series) < 3:
+        return {"phase": None, "reason": "다년 재무 데이터 부족", "signals": {}, "series": series}
+    ops = [s["op"] for s in series]
+    revs = [s["revenue"] for s in series]
+    info = {}
+    try:
+        import yfinance as yf
+        info = yf.Ticker(ticker).info or {}
+    except Exception:
+        pass
+    pbr = round(info["priceToBook"], 2) if info.get("priceToBook") else None
+    core = _classify_core(ops, revs, info.get("debtToEquity"), pbr, info.get("operatingCashflow"))
+    core["series"] = [{"y": s["year"], "op_b": round(s["op"] / 1e9, 1)} for s in series]
+    return core
+
+
+def build_us_factsheet(ticker: str) -> str:
+    """AI 프롬프트 주입용 — yfinance 실데이터 재무 팩트시트(국면 포함). 데이터 없으면 ''."""
+    ph = classify_us_phase(ticker)
+    if not ph or not ph.get("phase"):
+        return ""
+    sig, series = ph["signals"], ph["series"]
+    info = {}
+    try:
+        import yfinance as yf
+        info = yf.Ticker(ticker).info or {}
+    except Exception:
+        pass
+    fcf, mcap = info.get("freeCashflow"), info.get("marketCap")
+    fcfy = (fcf / mcap * 100) if (fcf and mcap) else None
+    eve, roe = info.get("enterpriseToEbitda"), info.get("returnOnEquity")
+
+    op_trend = " → ".join(f"{s['y']}:{s['op_b']:+.1f}B" for s in series)
+    L = ["[재무 팩트시트 — yfinance 실데이터 (추측 금지, 아래 숫자로만 판단)]",
+         f"- 재무 국면(결정론): {ph['phase']} — {ph['reason']}",
+         f"- 영업이익 추이($B): {op_trend}"]
+    if sig.get("rev_cagr_pct") is not None:
+        L.append(f"- 매출 장기성장 CAGR: {sig['rev_cagr_pct']}%")
+    if roe is not None:
+        L.append(f"- ROE: {round(roe * 100, 1)}%")
+    if sig.get("pbr") is not None:
+        L.append(f"- PBR: {sig['pbr']} (1.0 미만이면 자산가치 이하)")
+    if fcfy is not None:
+        L.append(f"- FCF Yield: {fcfy:+.1f}%")
+    if eve is not None:
+        L.append(f"- EV/EBITDA: {round(eve, 1)}")
     L.append("※ '순환 바닥'이면 현 부진이 사이클 저점일 수 있으니 '구조적 쇠퇴'와 구분해 판단하고, "
              "'구조적 쇠퇴 의심'·'재무 취약'이면 보수적으로 차감하세요. 재무 수치를 지어내지 말 것.")
     return "\n".join(L)
