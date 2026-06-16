@@ -5774,10 +5774,84 @@ def _track_scenario_stocks_performance_impl() -> dict:
 
 # ── 패턴 스크리너 백테스트 ────────────────────────────────────────────────────
 
-def backtest_screener_picks() -> dict:
+import threading as _bt_threading
+_BACKTEST_LOCK = _bt_threading.Lock()   # 동시 실행 가드 (웹 워커 프로세스 내 공유)
+_BT_IO_POOL = None                       # 자식 프로세스 안에서 쓰는 다운로드용 스레드풀
+
+
+def _bt_io_pool():
+    """백테스트 자식 프로세스 안에서 종목 다운로드에 쓰는 스레드풀(지연 생성)."""
+    global _BT_IO_POOL
+    if _BT_IO_POOL is None:
+        from concurrent.futures import ThreadPoolExecutor
+        _BT_IO_POOL = ThreadPoolExecutor(max_workers=3)
+    return _BT_IO_POOL
+
+
+def _bt_download(ticker: str, is_us: bool, start_date: str, end_date: str):
+    import FinanceDataReader as fdr
+    import yfinance as yf
+    if is_us:
+        return yf.download(ticker, start=start_date, end=end_date, progress=False, timeout=10)
+    return fdr.DataReader(ticker, start_date, end_date)   # FDR은 자체 타임아웃이 없음 → 아래에서 감쌈
+
+
+def _fetch_backtest_df(ticker, is_us, start_date, end_date, timeout_sec: int = 15):
+    """[종목별 타임아웃] FDR/yfinance 다운로드를 timeout_sec로 감싼다.
+    한 종목이 응답 안 해도 전체 백테스트가 막히지 않도록 스킵(None 반환)한다.
+    (스레드는 강제 종료가 불가능하나, 자식 프로세스 전체 타임아웃이 최종 안전망)."""
+    from concurrent.futures import TimeoutError as _FTimeout
+    fut = _bt_io_pool().submit(_bt_download, ticker, is_us, start_date, end_date)
+    try:
+        return fut.result(timeout=timeout_sec)
+    except _FTimeout:
+        print(f"[backtest] {ticker} 다운로드 {timeout_sec}s 타임아웃 → 스킵")
+        return None
+    except Exception as e:
+        print(f"[backtest] {ticker} 다운로드 실패: {e}")
+        return None
+
+
+def _backtest_worker(q):
+    """별도 프로세스 진입점 — 결과(dict)를 Queue로 돌려준다."""
+    try:
+        q.put(_backtest_screener_picks_impl())
+    except Exception as e:
+        q.put({"error": f"백테스트 처리 오류: {e}"})
+
+
+def backtest_screener_picks(timeout_sec: int = 600) -> dict:
+    """[격리 실행] 무거운 백테스트를 별도 프로세스에서 돌려 웹 워커(이벤트 루프)를 절대 막지 않는다.
+    + 동시 실행 가드(이미 돌면 즉시 반환) + 전체 타임아웃(초과 시 자식 강제 종료).
+    호출부(스케줄러 동기호출 / 엔드포인트 to_thread)는 그대로 두고 내부만 격리한다."""
+    if not _BACKTEST_LOCK.acquire(blocking=False):
+        return {"error": "백테스트가 이미 실행 중입니다. 잠시 후 다시 시도하세요.", "running": True}
+    try:
+        import multiprocessing as mp
+        ctx = mp.get_context("spawn")
+        q = ctx.Queue()
+        proc = ctx.Process(target=_backtest_worker, args=(q,), daemon=True)
+        proc.start()
+        proc.join(timeout_sec)
+        if proc.is_alive():
+            proc.terminate()
+            proc.join(5)
+            print(f"[backtest] 전체 타임아웃({timeout_sec}s) — 자식 프로세스 강제 종료")
+            return {"error": f"백테스트 시간 초과({timeout_sec}s) — 중단했습니다.", "timeout": True}
+        try:
+            return q.get_nowait()
+        except Exception:
+            return {"error": "백테스트 결과를 받지 못했습니다."}
+    except Exception as e:
+        return {"error": f"백테스트 실행 오류: {e}"}
+    finally:
+        _BACKTEST_LOCK.release()
+
+
+def _backtest_screener_picks_impl() -> dict:
     """screener_picks 테이블의 모든 추천 종목에 대해 +1/+3/+7일 가격을 조회해 사후 성과 통계를 만듭니다.
     국내(숫자 티커)는 FDR, 미국(알파벳 티커)은 yfinance 사용.
-    """
+    ⚠️ 별도 프로세스에서 실행됨 — backtest_screener_picks()를 통해서만 호출할 것."""
     from db import get_db_conn, save_backtest_result, load_backtest_stats
     from datetime import datetime, timedelta
     import FinanceDataReader as fdr
@@ -5818,14 +5892,11 @@ def backtest_screener_picks() -> dict:
         try:
             end_date = (picked + timedelta(days=10)).strftime("%Y-%m-%d")
             start_date = picked.strftime("%Y-%m-%d")
-            if is_us:
-                df = yf.download(ticker, start=start_date, end=end_date, progress=False, timeout=10)
-                if not df.empty and "Close" in df.columns:
-                    pass
-                else:
-                    continue
-            else:
-                df = fdr.DataReader(ticker, start_date, end_date)
+            df = _fetch_backtest_df(ticker, is_us, start_date, end_date)   # 종목별 타임아웃
+            if df is None:
+                continue
+            if is_us and (df.empty or "Close" not in df.columns):
+                continue
             if df.empty or len(df) < 2:
                 continue
 
