@@ -244,6 +244,31 @@ def compute_valuation_score(ticker: str, market: Optional[str] = None) -> dict:
     return result
 
 
+def snapshot_ev_ebitda_for(tickers, delay_sec: float = 1.5, limit: int = 60) -> dict:
+    """[일별 스냅 배치] 주어진 US 티커들의 '오늘' EV/EBITDA를 적재한다(스케줄러용).
+    결과 캐시를 우회해 매일 1점을 보장한다. yfinance 보호: 종목당 딜레이 + 개수 제한.
+    KR(6자리 숫자)·중복·빈값은 건너뛴다."""
+    from db import save_ev_ebitda_snapshot
+    seen: set[str] = set()
+    saved = 0
+    for tk in tickers or []:
+        t = str(tk).strip().upper()
+        if not t or t in seen or t.isdigit():   # 빈값/중복/KR 제외
+            continue
+        seen.add(t)
+        if len(seen) > limit:
+            break
+        try:
+            ev = _fetch_us(t).get("ev_ebitda")
+            if ev and ev > 0:
+                save_ev_ebitda_snapshot(t, ev)
+                saved += 1
+        except Exception:
+            pass
+        time.sleep(delay_sec)   # yfinance 레이트리밋 보호
+    return {"requested": len(seen), "saved": saved}
+
+
 if __name__ == "__main__":
     import json, sys
     syms = sys.argv[1:] or ["NVDA", "AAPL", "005930"]

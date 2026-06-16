@@ -399,6 +399,26 @@ def _scenario_tracking_loop():
                     print(f"[pf snapshot] 보유 스냅샷 저장: {sr.get('saved', 0)}건 ({today})")
                 except Exception as e:
                     print(f"[pf snapshot] 오류: {e}")
+                # EV/EBITDA 일별 스냅 — 보유+즐겨찾기 US 종목 (자체 밴드 누적, 종목당 딜레이로 yfinance 보호)
+                try:
+                    from db import get_db_conn
+                    from valuation_score import snapshot_ev_ebitda_for
+                    _conn = get_db_conn(); _cur = _conn.cursor()
+                    _us = set()
+                    for _tbl in ("portfolio", "favorites"):
+                        try:
+                            for _row in _cur.execute(f"SELECT ticker FROM {_tbl}").fetchall():
+                                _t = str(_row["ticker"]).strip().upper()
+                                if _t and not _t.isdigit():   # US만 (EV/EBITDA는 US만 존재)
+                                    _us.add(_t)
+                        except Exception:
+                            pass
+                    _conn.close()
+                    if _us:
+                        _es = snapshot_ev_ebitda_for(list(_us))
+                        print(f"[ev snap] EV/EBITDA 일별 스냅: {_es.get('saved', 0)}/{_es.get('requested', 0)}건 ({today})")
+                except Exception as e:
+                    print(f"[ev snap] 오류: {e}")
         except Exception:
             pass
         _time.sleep(300)   # 5분마다 체크
