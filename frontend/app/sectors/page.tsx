@@ -607,7 +607,8 @@ export default function SectorsPage() {
               placeholder="종목명, 섹터명 검색 (예: 한미반도체, HBM)"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="stockcy-input w-full pl-10 py-3 text-sm bg-white/5 border border-white/10 rounded-lg focus:outline-none focus:border-indigo-500 transition-colors"
+              className="stockcy-input w-full py-3 text-sm bg-white/5 border border-white/10 rounded-lg focus:outline-none focus:border-indigo-500 transition-colors"
+              style={{ paddingLeft: "42px" }}
             />
           </div>
 
