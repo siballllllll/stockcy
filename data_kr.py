@@ -38,9 +38,10 @@ def _headers(tr_id: str) -> dict:
     }
 
 
-def _get(path: str, tr_id: str, params: dict, debug_label: str | None = None):
+def _get(path: str, tr_id: str, params: dict, debug_label: str | None = None, _retry: bool = True):
     """KIS API GET 요청 공통 함수. 실패 시 None 반환.
-    debug_label 지정 시 실패(rt_cd!=0)나 예외 사유를 콘솔/로그에 남겨 진단을 돕는다."""
+    debug_label 지정 시 실패(rt_cd!=0)나 예외 사유를 콘솔/로그에 남겨 진단을 돕는다.
+    토큰 무효(EGW00121: 다른 프로세스가 재발급해 무효화)면 토큰 갱신 후 1회 자동 재시도."""
     try:
         resp = requests.get(
             f"{KIS_BASE}{path}",
@@ -57,6 +58,13 @@ def _get(path: str, tr_id: str, params: dict, debug_label: str | None = None):
             return None
         if data.get("rt_cd") == "0":
             return data
+        # 토큰 무효 → 강제 재발급 후 1회 재시도 (KIS는 appkey당 토큰 1개만 유효)
+        if _retry and str(data.get("msg_cd")) == "EGW00121":
+            try:
+                get_kis_token.clear()
+            except Exception:
+                pass
+            return _get(path, tr_id, params, debug_label=debug_label, _retry=False)
         if debug_label:
             print(f"[KIS {debug_label}] 실패 rt_cd={data.get('rt_cd')} msg_cd={data.get('msg_cd')} msg={data.get('msg1')}")
         return None
@@ -64,6 +72,38 @@ def _get(path: str, tr_id: str, params: dict, debug_label: str | None = None):
         if debug_label:
             print(f"[KIS {debug_label}] 요청 예외: {repr(e)[:140]}")
         return None
+
+
+def get_kr_financials_kis(code: str) -> dict:
+    """KIS 재무비율(연간 최신) 조회 — 결정론 밸류용.
+    (캐시는 호출측 valuation_score 결과캐시(24h)에 위임 — 실패 {}를 6h 박지 않기 위해 무캐시)
+    반환: {eps, bps, roe, rev_growth(매출증가율%), op_growth(영업이익증가율%),
+           ni_growth(순이익증가율%), debt_ratio(부채비율%), period}. 실패 시 {}."""
+    code = str(code).strip().zfill(6)
+    d = _get(
+        "/uapi/domestic-stock/v1/finance/financial-ratio",
+        "FHKST66430300",
+        {"fid_div_cls_code": "0", "fid_cond_mrkt_div_code": "J", "fid_input_iscd": code},
+        debug_label="재무비율",
+    )
+    if not d or not d.get("output"):
+        return {}
+    o = d["output"]
+    row = (o[0] if isinstance(o, list) and o else o) or {}
+
+    def _f(k):
+        try:
+            v = float(str(row.get(k, "")).replace(",", ""))
+            return v if v != 99.99 else None   # 99.99 = KIS 마스킹/결측
+        except (TypeError, ValueError):
+            return None
+
+    return {
+        "eps": _f("eps"), "bps": _f("bps"), "roe": _f("roe_val"),
+        "rev_growth": _f("grs"), "op_growth": _f("bsop_prfi_inrt"),
+        "ni_growth": _f("ntin_inrt"), "debt_ratio": _f("lblt_rate"),
+        "period": row.get("stac_yymm"),
+    }
 
 
 @st.cache_data(ttl=86400, show_spinner=False)

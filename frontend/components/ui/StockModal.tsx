@@ -310,14 +310,19 @@ export function StockModal({ stock, onClose }: { stock: StockInfo; onClose: () =
         {valScore && !valScore.error && (() => {
           const labels: Record<string, string> = { peg: "PEG", fcf_yield: "FCF Yield", ev_ebitda_band: "EV/EBITDA" };
           const s30 = valScore.score_30;
+          const availMax = Number(valScore.available_max ?? 0);
           const conf = Number(valScore.confidence_pct ?? 0);
           const scoreColor = s30 == null ? "var(--color-muted)" : s30 >= 20 ? "var(--color-up)" : s30 >= 10 ? "var(--color-info)" : "var(--color-down)";
+          // 헤드라인: 2항목+ → 30점 환산 / 1항목만 → 원점수(항목 부족) / 0항목 → 산정 불가
+          const headline = s30 != null ? `${s30} / 30`
+            : availMax > 0 ? `${valScore.score_raw}/${availMax} · 항목 부족`
+            : "산정 불가";
           return (
             <div style={{ background: "var(--color-elevated)", borderRadius: "0.5rem", padding: "0.75rem", display: "flex", flexDirection: "column", gap: "0.5rem", border: "1px solid var(--color-border)" }}>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "0.5rem", flexWrap: "wrap" }}>
                 <span style={{ fontSize: "0.78rem", fontWeight: 700 }}>🏛️ 밸류에이션 <span style={{ color: "var(--color-muted)", fontWeight: 400 }}>(결정론·실데이터)</span></span>
                 <span style={{ display: "flex", alignItems: "baseline", gap: "0.4rem" }}>
-                  <span style={{ fontSize: "1.05rem", fontWeight: 800, color: scoreColor }}>{s30 == null ? "산정 불가" : `${s30} / 30`}</span>
+                  <span style={{ fontSize: "1.05rem", fontWeight: 800, color: scoreColor }}>{headline}</span>
                   <span style={{ fontSize: "0.66rem", color: "var(--color-muted)" }}>{valScore.coverage} · 신뢰도 {conf}%</span>
                 </span>
               </div>

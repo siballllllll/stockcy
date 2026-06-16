@@ -145,6 +145,7 @@ def _fetch_kr(code: str) -> dict:
     """KR은 포워드 성장·FCF·EV/EBITDA 무료 소스가 없어 밸류 3항목 모두 산출 불가.
     PER/PBR만 참고로 가져오되 점수에는 쓰지 않는다(정직성)."""
     per = pbr = name = None
+    fin = {}
     try:
         from data_kr import _get_kr_per_pbr_naver
         d = _get_kr_per_pbr_naver(code) or {}
@@ -156,8 +157,23 @@ def _fetch_kr(code: str) -> dict:
         name = (get_kr_code_to_name_map() or {}).get(code)
     except Exception:
         pass
-    return {"peg": None, "fcf_yield": None, "ev_ebitda": None,
-            "name": name or code, "_kr_per": per, "_kr_pbr": pbr}
+    try:
+        from data_kr import get_kr_financials_kis
+        fin = get_kr_financials_kis(code) or {}
+    except Exception:
+        fin = {}
+
+    # PEG = PER / 과거 순이익성장률(%). 단, 회복연도·적자전환 등 성장률 왜곡 구간(범위 밖)은
+    # 가짜 저평가를 만들므로 채점에서 제외(N/A). 정상 성장 구간(5~60%)에서만 산출.
+    peg = None
+    g = fin.get("ni_growth")
+    growth_distorted = (g is not None and not (5 <= g <= 60))
+    if per and per > 0 and g is not None and 5 <= g <= 60:
+        peg = round(per / g, 2)
+
+    return {"peg": peg, "fcf_yield": None, "ev_ebitda": None,
+            "name": name or code, "_kr_per": per, "_kr_pbr": pbr,
+            "_kr_fin": fin, "_kr_growth_distorted": growth_distorted}
 
 
 # ── 메인 진입점 ───────────────────────────────────────────────────────────────
@@ -215,7 +231,9 @@ def compute_valuation_score(ticker: str, market: Optional[str] = None) -> dict:
     avail = [it for it in items.values() if it["available"]]
     score_raw = sum(it["score"] for it in avail)
     available_max = sum(it["max"] for it in avail)
-    score_30 = round(score_raw / available_max * 30, 1) if available_max else None
+    # 종합 30점 환산은 '항목 2개 이상(20점)'일 때만 — 1개 항목으로 30점 만점처럼
+    # 과대표시되는 것을 방지(예: PEG만 만점인데 30/30으로 보이는 오해 차단).
+    score_30 = round(score_raw / available_max * 30, 1) if available_max >= 20 else None
     n_avail = len(avail)
 
     result = {
@@ -230,16 +248,26 @@ def compute_valuation_score(ticker: str, market: Optional[str] = None) -> dict:
         "confidence_pct": round(available_max / 30 * 100, 0),
     }
     if is_kr:
+        fin = data.get("_kr_fin") or {}
+        ctx = []
+        if fin.get("roe") is not None:        ctx.append(f"ROE {fin['roe']}%")
+        if fin.get("debt_ratio") is not None: ctx.append(f"부채비율 {fin['debt_ratio']}%")
+        if fin.get("rev_growth") is not None: ctx.append(f"매출성장 {fin['rev_growth']}%")
+        ctx_str = " · ".join(ctx) if ctx else "KIS 재무 제한"
+        peg_note = " (PEG: 성장률 왜곡 구간이라 채점 제외)" if data.get("_kr_growth_distorted") else ""
         result["kr_note"] = (
-            f"KR 결정론 밸류는 포워드성장·FCF·EV/EBITDA 무료 소스 부재로 산정 불가. "
-            f"(참고 PER={data.get('_kr_per')}, PBR={data.get('_kr_pbr')})"
+            f"KIS 재무 기반 — PER={data.get('_kr_per')}, PBR={data.get('_kr_pbr')}, {ctx_str}.{peg_note} "
+            f"FCF·EV/EBITDA는 KIS 현금흐름표 부재로 보류(추후 DART)."
         )
     elif available_max == 0:
         # US인데 0/3 = 영구적 부재가 아니라 yfinance 일시 장애(레이트리밋/타임아웃)일 가능성↑
         result["transient_note"] = "데이터 일시 조회 실패(yfinance 지연·레이트리밋 가능) — 잠시 후 다시 시도하세요."
 
-    # 성공 결과만 캐시 — US 일시 실패(0/3)는 캐시하지 않아 다음 호출에 즉시 재시도되게 한다.
-    if is_kr or available_max > 0:
+    # 성공 결과만 캐시 — 실패는 캐시하지 않아 다음 호출에 즉시 재시도되게 한다.
+    #  · US: 항목 1개+ 산출되면 성공 / 0개면 yfinance 일시장애 → 미캐시
+    #  · KR: KIS 재무를 실제 취득했으면 성공 / 못 받았으면(토큰 등) 미캐시
+    kr_ok = is_kr and bool(data.get("_kr_fin"))
+    if available_max > 0 or kr_ok:
         _cache_put(key, result)
     return result
 
