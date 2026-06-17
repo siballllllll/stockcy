@@ -28,6 +28,7 @@ function IssuePanel({ code, market }: { code: string; market: string }) {
   });
   const related: any[] = (relData as any)?.stocks || [];
   const isUs = (tk: string) => /[A-Za-z]/.test(tk || "");
+  const roleLabel = (r: string) => r === "수혜" ? "수혜주(상승)" : r === "피해" ? "피해주(하락)" : r === "테마" ? "테마주" : r;
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "0.6rem" }}>
@@ -49,17 +50,29 @@ function IssuePanel({ code, market }: { code: string; market: string }) {
               ))}
             </div>
           )}
-          <div style={{ fontSize: "0.78rem", fontWeight: 700, lineHeight: 1.4, color: "#c084fc" }}>📋 {active?.title || active?.keyword}</div>
+          <div style={{ fontSize: "0.8rem", fontWeight: 700, lineHeight: 1.45, color: "#c084fc" }}>📋 {active?.title || active?.keyword}</div>
+          {(active?.role || active?.horizon || active?.captured_at) && (
+            <div style={{ fontSize: "0.68rem", color: "var(--color-muted)", lineHeight: 1.45, display: "flex", flexWrap: "wrap", gap: "6px" }}>
+              {active?.role && <span>이 종목 역할: <b style={{ color: "var(--color-text)" }}>{roleLabel(active.role)}</b></span>}
+              {active?.horizon && <span style={{ padding: "0 6px", borderRadius: "4px", background: "rgba(168,85,247,0.1)", color: "#c084fc", fontWeight: 700 }}>{active.horizon}</span>}
+              {active?.captured_at && <span>· {active.captured_at} 포착</span>}
+            </div>
+          )}
 
-          <div style={{ fontSize: "0.66rem", color: "var(--color-muted)" }}>이 이슈 관련 종목 <span style={{ color: "#34d399" }}>(무료)</span></div>
+          <div style={{ fontSize: "0.66rem", color: "var(--color-muted)", marginTop: "2px" }}>이 이슈 관련 종목 <span style={{ color: "#34d399" }}>(무료)</span></div>
           {related.length > 0 ? (
-            <div style={{ display: "flex", flexWrap: "wrap", gap: "4px" }}>
-              {related.map((s) => (
-                <span key={s.ticker} onClick={() => router.push(`/search?q=${s.ticker}&market=${isUs(s.ticker) ? "US" : "KR"}`)}
-                  style={{ fontSize: "0.7rem", padding: "2px 8px", borderRadius: "6px", background: "var(--color-elevated)", border: "1px solid var(--color-border)", cursor: "pointer", color: "var(--color-text)" }}>
-                  {s.name || s.ticker}
-                </span>
-              ))}
+            <div style={{ display: "flex", flexWrap: "wrap", gap: "5px" }}>
+              {related.map((s) => {
+                const rc = s.role === "수혜" ? "#34d399" : s.role === "피해" ? "#f87171" : "#c084fc";
+                return (
+                  <span key={s.ticker} onClick={() => router.push(`/search?q=${s.ticker}&market=${isUs(s.ticker) ? "US" : "KR"}`)}
+                    title={s.role ? roleLabel(s.role) : undefined}
+                    style={{ fontSize: "0.72rem", padding: "3px 8px", borderRadius: "6px", background: "var(--color-elevated)", border: `1px solid ${s.role ? rc + "55" : "var(--color-border)"}`, cursor: "pointer", color: "var(--color-text)", display: "inline-flex", alignItems: "center", gap: "4px" }}>
+                    {s.name || s.ticker}
+                    {s.role && <span style={{ fontSize: "0.58rem", color: rc, fontWeight: 700 }}>{s.role}</span>}
+                  </span>
+                );
+              })}
             </div>
           ) : (
             <div style={{ fontSize: "0.7rem", color: "var(--color-muted)" }}>저장된 관련 종목 없음 — 아래 버튼으로 탐색</div>
@@ -331,7 +344,7 @@ export function StockModal({ stock, onClose }: { stock: StockInfo; onClose: () =
         top:            "4vh",
         left:           "50%",
         transform:      "translateX(-50%)",
-        width:          isMobile ? "96vw" : "min(98vw, 1080px)",
+        width:          isMobile ? "96vw" : "min(98vw, 1200px)",
         maxHeight:      "92vh",
         overflowY:      isMobile ? "auto" : "hidden",
         background:     "var(--color-card)",
@@ -501,7 +514,7 @@ export function StockModal({ stock, onClose }: { stock: StockInfo; onClose: () =
           </div>{/* /좌측 컬럼 */}
 
           {/* 우측 컬럼 — 이슈 패널 (가운데 구분선) */}
-          <div style={{ width: isMobile ? "100%" : "320px", flexShrink: 0, borderLeft: isMobile ? "none" : "1px solid var(--color-border)", borderTop: isMobile ? "1px solid var(--color-border)" : "none", paddingLeft: isMobile ? 0 : "1rem", paddingTop: isMobile ? "0.85rem" : 0, overflowY: isMobile ? "visible" : "auto" }}>
+          <div style={{ width: isMobile ? "100%" : "420px", flexShrink: 0, borderLeft: isMobile ? "none" : "1px solid var(--color-border)", borderTop: isMobile ? "1px solid var(--color-border)" : "none", paddingLeft: isMobile ? 0 : "1.1rem", paddingTop: isMobile ? "0.85rem" : 0, overflowY: isMobile ? "visible" : "auto" }}>
             <IssuePanel code={stock.code} market={isKr ? "KR" : "US"} />
           </div>
         </div>{/* /2단 */}

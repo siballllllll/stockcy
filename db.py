@@ -3644,7 +3644,7 @@ def get_stock_issues(tickers: list, days: int = 21) -> dict:
         conn = get_db_conn()
         ph = ",".join("?" * len(tk))
         rows = conn.execute(
-            f"""SELECT ticker, scenario_keyword, scenario_title, role, MAX(captured_at) AS captured_at
+            f"""SELECT ticker, scenario_keyword, scenario_title, role, horizon, MAX(captured_at) AS captured_at
                 FROM scenario_stocks
                 WHERE ticker IN ({ph}) AND captured_at >= ?
                 GROUP BY ticker, scenario_keyword
@@ -3661,7 +3661,8 @@ def get_stock_issues(tickers: list, days: int = 21) -> dict:
                     "keyword": d.get("scenario_keyword"),
                     "title": d.get("scenario_title"),
                     "role": d.get("role"),
-                    "captured_at": d.get("captured_at"),
+                    "horizon": d.get("horizon"),
+                    "captured_at": (d.get("captured_at") or "")[:10],
                 })
         return out
     except Exception as e:
