@@ -227,8 +227,9 @@ export function ScreenerPanel() {
   const [results, setResults] = useState<any[] | null>(null);
   const [isScreening, setIsScreening] = useState(false);
   const [reliableOnly, setReliableOnly] = useState(false);   // 학습된 정량필터(저승률 제외)
-  const [midterm, setMidterm] = useState<any[] | null>(null);  // 중장기 가치 발굴 결과
+  const [midterm, setMidterm] = useState<any[] | null>(null);  // 가치 발굴 결과
   const [midtermLoading, setMidtermLoading] = useState(false);
+  const [horizon, setHorizon] = useState("value");             // swing/value/quality
   const [favDone, setFavDone] = useState<Record<string, boolean>>({});
 
   // 밸류체인 팝업 모달 상태
@@ -321,7 +322,7 @@ export function ScreenerPanel() {
       const res = await fetch(`/backend/api/screener/midterm-value`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ market, sector: selectedSector, limit: 20 }),
+        body: JSON.stringify({ market, sector: selectedSector, horizon, limit: 20 }),
       });
       const data = await res.json();
       setMidterm(data.ranked || []);
@@ -429,18 +430,36 @@ export function ScreenerPanel() {
             {isScreening ? <><RefreshCw className="animate-spin" size={18} /> 스캔 중...</> : <><Play size={18} fill="currentColor" /> 정밀 스크리닝 실행</>}
           </button>
 
-          {/* 중장기 가치 발굴 — 조건 무관, 섹터를 밸류+재무국면으로 스캔 */}
-          <button
-            onClick={handleMidterm}
-            disabled={midtermLoading}
-            className="stockcy-btn"
-            style={{ width: "100%", padding: "12px", fontSize: "0.95rem", fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center", gap: "8px", marginTop: "8px", background: "rgba(52,211,153,0.12)", border: "1px solid rgba(52,211,153,0.4)", color: "#34d399" }}
-          >
-            {midtermLoading ? <><RefreshCw className="animate-spin" size={16} /> 발굴 중... (최대 2~3분)</> : <>💎 중장기 가치 발굴 (3개월+ 보유)</>}
-          </button>
-          <p style={{ fontSize: "0.68rem", color: "var(--color-muted)", marginTop: "6px", lineHeight: 1.4 }}>
-            선택한 섹터를 밸류에이션·재무 국면으로 스캔해 <b style={{ color: "#34d399" }}>중장기 보유 매력</b> 순으로 줄세웁니다. (결정론·무료, 한국 종목 권장)
-          </p>
+          {/* 가치 발굴 — 보유기간(horizon) 선택 후 섹터를 밸류+재무국면으로 스캔 */}
+          <div style={{ marginTop: "14px", borderTop: "1px solid var(--color-border)", paddingTop: "12px" }}>
+            <div style={{ fontSize: "0.78rem", fontWeight: 700, color: "#34d399", marginBottom: "6px" }}>💎 가치 발굴 — 보유 기간</div>
+            <div style={{ display: "flex", gap: "5px", marginBottom: "8px" }}>
+              {[
+                { id: "swing", label: "1개월~", desc: "반등 변곡·회복 초입" },
+                { id: "value", label: "3개월~1년", desc: "싼 가치·순환 바닥" },
+                { id: "quality", label: "수년+", desc: "꾸준한 ROE·성장 우량" },
+              ].map((h) => (
+                <button key={h.id} onClick={() => setHorizon(h.id)} title={h.desc}
+                  style={{ flex: 1, padding: "7px 4px", fontSize: "0.74rem", fontWeight: horizon === h.id ? 800 : 500, borderRadius: "7px", cursor: "pointer",
+                    background: horizon === h.id ? "rgba(52,211,153,0.18)" : "var(--color-elevated)",
+                    border: `1px solid ${horizon === h.id ? "rgba(52,211,153,0.55)" : "var(--color-border)"}`,
+                    color: horizon === h.id ? "#34d399" : "var(--color-muted)" }}>
+                  {h.label}
+                </button>
+              ))}
+            </div>
+            <button
+              onClick={handleMidterm}
+              disabled={midtermLoading}
+              className="stockcy-btn"
+              style={{ width: "100%", padding: "12px", fontSize: "0.95rem", fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center", gap: "8px", background: "rgba(52,211,153,0.12)", border: "1px solid rgba(52,211,153,0.4)", color: "#34d399" }}
+            >
+              {midtermLoading ? <><RefreshCw className="animate-spin" size={16} /> 발굴 중... (최대 2~3분)</> : <>💎 {horizon === "swing" ? "1개월~" : horizon === "quality" ? "수년+" : "3개월~1년"} 가치 발굴</>}
+            </button>
+            <p style={{ fontSize: "0.68rem", color: "var(--color-muted)", marginTop: "6px", lineHeight: 1.4 }}>
+              섹터를 밸류·재무 국면으로 스캔해 <b style={{ color: "#34d399" }}>선택한 보유 기간</b>에 맞는 매력 순으로 줄세웁니다. 기간마다 기준이 달라집니다(단기=반등, 중기=가치, 장기=우량). 결정론·무료, 한국 권장.
+            </p>
+          </div>
         </div>
 
         {/* 우측: 스크리닝 결과 패널 */}
@@ -453,7 +472,7 @@ export function ScreenerPanel() {
           {/* 중장기 가치 발굴 결과 (랭킹) */}
           {(midtermLoading || midterm) && (
             <div style={{ marginBottom: "20px" }}>
-              <div style={{ fontSize: "0.95rem", fontWeight: 800, color: "#34d399", marginBottom: "10px" }}>💎 중장기 보유 매력 랭킹</div>
+              <div style={{ fontSize: "0.95rem", fontWeight: 800, color: "#34d399", marginBottom: "10px" }}>💎 {horizon === "swing" ? "1개월~" : horizon === "quality" ? "수년+ 우량" : "3개월~1년 가치"} 보유 매력 랭킹</div>
               {midtermLoading ? (
                 <div style={{ display: "flex", alignItems: "center", gap: "10px", color: "var(--color-muted)", padding: "16px 0" }}>
                   <RefreshCw className="animate-spin" size={18} /> 섹터 종목을 밸류·재무국면으로 분석 중... (최대 2~3분, 다시 누르면 캐시로 빠름)
@@ -477,6 +496,7 @@ export function ScreenerPanel() {
                             {r.pbr != null && <span style={{ color: "var(--color-muted)" }}> · PBR {r.pbr}</span>}
                             {r.roe != null && <span style={{ color: "var(--color-muted)" }}> · ROE {r.roe}%</span>}
                             {r.fcf_yield != null && <span style={{ color: "var(--color-muted)" }}> · FCF {r.fcf_yield}%</span>}
+                            {horizon === "quality" && r.rev_cagr != null && <span style={{ color: "var(--color-muted)" }}> · 매출성장 {r.rev_cagr}%</span>}
                           </span>
                         </span>
                         <span style={{ fontWeight: 800, color: sc, fontSize: "0.95rem", flexShrink: 0 }}>{r.midterm_score}점</span>
