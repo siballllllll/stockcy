@@ -227,6 +227,9 @@ export function ScreenerPanel() {
   const [results, setResults] = useState<any[] | null>(null);
   const [isScreening, setIsScreening] = useState(false);
   const [reliableOnly, setReliableOnly] = useState(false);   // 학습된 정량필터(저승률 제외)
+  const [midterm, setMidterm] = useState<any[] | null>(null);  // 중장기 가치 발굴 결과
+  const [midtermLoading, setMidtermLoading] = useState(false);
+  const [favDone, setFavDone] = useState<Record<string, boolean>>({});
 
   // 밸류체인 팝업 모달 상태
   const [valChainTarget, setValChainTarget] = useState<{ sector: string; subSector: string } | null>(null);
@@ -307,6 +310,35 @@ export function ScreenerPanel() {
       alert("스크리닝 중 오류가 발생했습니다.");
     } finally {
       setIsScreening(false);
+    }
+  };
+
+  // [중장기 가치 발굴] 섹터를 밸류+재무국면으로 스캔해 3개월+ 보유 매력 순 랭킹
+  const handleMidterm = async () => {
+    setMidtermLoading(true);
+    setMidterm(null);
+    try {
+      const res = await fetch(`/backend/api/screener/midterm-value`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ market, sector: selectedSector, limit: 20 }),
+      });
+      const data = await res.json();
+      setMidterm(data.ranked || []);
+    } catch (err) {
+      console.error(err);
+      alert("중장기 발굴 중 오류가 발생했습니다.");
+    } finally {
+      setMidtermLoading(false);
+    }
+  };
+
+  const handleFav = async (code: string, name: string) => {
+    try {
+      await api.portfolio.addFavorite(market === "KR" ? "국내" : "미국", code, name, "", selectedSector);
+      setFavDone((p) => ({ ...p, [code]: true }));
+    } catch {
+      alert("즐겨찾기 추가 실패");
     }
   };
 
@@ -396,6 +428,19 @@ export function ScreenerPanel() {
           >
             {isScreening ? <><RefreshCw className="animate-spin" size={18} /> 스캔 중...</> : <><Play size={18} fill="currentColor" /> 정밀 스크리닝 실행</>}
           </button>
+
+          {/* 중장기 가치 발굴 — 조건 무관, 섹터를 밸류+재무국면으로 스캔 */}
+          <button
+            onClick={handleMidterm}
+            disabled={midtermLoading}
+            className="stockcy-btn"
+            style={{ width: "100%", padding: "12px", fontSize: "0.95rem", fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center", gap: "8px", marginTop: "8px", background: "rgba(52,211,153,0.12)", border: "1px solid rgba(52,211,153,0.4)", color: "#34d399" }}
+          >
+            {midtermLoading ? <><RefreshCw className="animate-spin" size={16} /> 발굴 중... (최대 2~3분)</> : <>💎 중장기 가치 발굴 (3개월+ 보유)</>}
+          </button>
+          <p style={{ fontSize: "0.68rem", color: "var(--color-muted)", marginTop: "6px", lineHeight: 1.4 }}>
+            선택한 섹터를 밸류에이션·재무 국면으로 스캔해 <b style={{ color: "#34d399" }}>중장기 보유 매력</b> 순으로 줄세웁니다. (결정론·무료, 한국 종목 권장)
+          </p>
         </div>
 
         {/* 우측: 스크리닝 결과 패널 */}
@@ -404,6 +449,49 @@ export function ScreenerPanel() {
             <BarChart2 size={20} color="var(--color-success)" />
             스크리닝 결과 {results ? `(${results.length}종목 포착)` : ""}
           </h2>
+
+          {/* 중장기 가치 발굴 결과 (랭킹) */}
+          {(midtermLoading || midterm) && (
+            <div style={{ marginBottom: "20px" }}>
+              <div style={{ fontSize: "0.95rem", fontWeight: 800, color: "#34d399", marginBottom: "10px" }}>💎 중장기 보유 매력 랭킹</div>
+              {midtermLoading ? (
+                <div style={{ display: "flex", alignItems: "center", gap: "10px", color: "var(--color-muted)", padding: "16px 0" }}>
+                  <RefreshCw className="animate-spin" size={18} /> 섹터 종목을 밸류·재무국면으로 분석 중... (최대 2~3분, 다시 누르면 캐시로 빠름)
+                </div>
+              ) : (midterm && midterm.length === 0) ? (
+                <div style={{ color: "var(--color-muted)", padding: "12px 0" }}>분석 가능한 종목이 없습니다(데이터 부족 또는 일시 한도). 잠시 후 재시도해보세요.</div>
+              ) : (
+                <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+                  {(midterm || []).map((r: any, i: number) => {
+                    const ph = String(r.phase || "");
+                    const pc = ph.includes("취약") ? "#f87171" : ph.includes("쇠퇴") ? "#fb923c" : ph.includes("바닥") ? "#fbbf24" : ph.includes("정상") ? "#34d399" : "var(--color-muted)";
+                    const sc = r.midterm_score >= 40 ? "#34d399" : r.midterm_score >= 20 ? "#fbbf24" : "#f87171";
+                    return (
+                      <div key={r.code} style={{ display: "flex", alignItems: "center", gap: "10px", padding: "10px 12px", background: "var(--color-elevated)", borderRadius: "8px", border: "1px solid var(--color-border)" }}>
+                        <span style={{ fontWeight: 800, color: "var(--color-muted)", width: "20px" }}>{i + 1}</span>
+                        <span onClick={() => router.push(`/search?q=${r.code}&market=${market}`)} style={{ flex: 1, cursor: "pointer", minWidth: 0 }}>
+                          <span style={{ fontWeight: 700 }}>{r.name}</span>
+                          <span style={{ color: "var(--color-muted)", fontSize: "0.74rem", marginLeft: "6px" }}>{r.code}</span>
+                          <span style={{ display: "block", fontSize: "0.72rem", marginTop: "2px" }}>
+                            <span style={{ color: pc, fontWeight: 700 }}>{ph || "국면 미상"}</span>
+                            {r.pbr != null && <span style={{ color: "var(--color-muted)" }}> · PBR {r.pbr}</span>}
+                            {r.roe != null && <span style={{ color: "var(--color-muted)" }}> · ROE {r.roe}%</span>}
+                            {r.fcf_yield != null && <span style={{ color: "var(--color-muted)" }}> · FCF {r.fcf_yield}%</span>}
+                          </span>
+                        </span>
+                        <span style={{ fontWeight: 800, color: sc, fontSize: "0.95rem", flexShrink: 0 }}>{r.midterm_score}점</span>
+                        <button onClick={() => handleFav(r.code, r.name)} disabled={favDone[r.code]} title="즐겨찾기 추가"
+                          style={{ flexShrink: 0, background: "none", border: "none", cursor: favDone[r.code] ? "default" : "pointer", fontSize: "1.1rem", color: favDone[r.code] ? "#fbbf24" : "var(--color-muted)" }}>
+                          {favDone[r.code] ? "★" : "☆"}
+                        </button>
+                      </div>
+                    );
+                  })}
+                  <p style={{ fontSize: "0.66rem", color: "var(--color-muted)", marginTop: "4px" }}>점수 = 재무국면 + 자산가치(PBR) + 품질(ROE) + 현금창출(FCF) − 생존력. ☆ 눌러 즐겨찾기. 투자판단은 본인 책임.</p>
+                </div>
+              )}
+            </div>
+          )}
 
           {isScreening ? (
             <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "400px", gap: "20px" }}>

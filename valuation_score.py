@@ -195,7 +195,8 @@ def _fetch_kr(code: str) -> dict:
         from fundamental_phase import classify_fundamental_phase
         ph = classify_fundamental_phase(code) or {}
         if ph.get("phase"):
-            phase = {"phase": ph["phase"], "reason": ph.get("reason", "")}
+            phase = {"phase": ph["phase"], "reason": ph.get("reason", ""),
+                     "signals": ph.get("signals", {})}
     except Exception:
         pass
 

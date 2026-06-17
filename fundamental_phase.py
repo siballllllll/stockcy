@@ -59,12 +59,13 @@ def classify_fundamental_phase(code: str) -> dict:
     trough = min(ops)
     peak = max(ops)
 
-    # 보조 재무 (생존력·PBR)
-    debt_ratio = pbr = cfo = None
+    # 보조 재무 (생존력·PBR·ROE)
+    debt_ratio = pbr = cfo = roe = None
     try:
         from data_kr import get_kr_financials_kis, get_kr_stock_price
         fin = get_kr_financials_kis(code) or {}
         debt_ratio = fin.get("debt_ratio")
+        roe = fin.get("roe")
         bps = fin.get("bps")
         price = float((get_kr_stock_price(code) or {}).get("price") or 0)
         if bps and bps > 0 and price > 0:
@@ -78,6 +79,7 @@ def classify_fundamental_phase(code: str) -> dict:
         pass
 
     core = _classify_core(ops, revs, debt_ratio, pbr, cfo)
+    core["signals"]["roe"] = roe
     core["series"] = [{"y": s["year"], "op억": round(s["op"])} for s in series]
     return core
 

@@ -274,3 +274,22 @@ def run_screener(req: ScreenerRequest):
         return rel.get("score") or 0
     results.sort(key=lambda x: (-x['match_count'], -_relscore(x), -x['change_pct']))
     return {"results": results}
+
+
+class MidtermRequest(BaseModel):
+    market: str = "KR"
+    sector: str
+    limit: int = 20
+
+
+@router.post("/midterm-value")
+async def midterm_value(req: MidtermRequest):
+    """[중장기 가치 발굴] 섹터 종목을 밸류에이션+재무국면 종합 점수로 랭킹(3개월+ 보유 후보).
+    결정론·무료. 섹터 단위 스캔(레이트리밋상 전 종목 동시는 불가)."""
+    import asyncio
+    from midterm_screen import screen_sector_midterm
+    stocks = _get_kr_sector_stocks(req.sector) if req.market == "KR" else _get_us_sector_stocks(req.sector)
+    codes_names = list(stocks.items())
+    if not codes_names:
+        return {"scanned": 0, "ranked": []}
+    return await asyncio.to_thread(screen_sector_midterm, codes_names, req.market, req.limit, 0.3)
