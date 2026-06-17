@@ -1,6 +1,6 @@
 "use client";
 import { useState, useEffect, useRef, useMemo, useCallback } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import useSWR from "swr";
 import { Globe, TrendingUp, AlertTriangle, DollarSign, Loader2, ChevronDown, ChevronUp, RefreshCw, X } from "lucide-react";
 import dynamic from "next/dynamic";
@@ -1721,6 +1721,19 @@ function ScenariosPageInner() {
       setCustomLoading(false);
     }
   };
+
+  // 즐겨찾기 이슈 배지에서 넘어온 경우(?focus=이슈) → 그 이슈를 자동 검색해 관련 종목 표시
+  const focusParams = useSearchParams();
+  const focusRanRef = useRef("");
+  useEffect(() => {
+    const focus = focusParams.get("focus");
+    if (focus && focus.trim() && focusRanRef.current !== focus) {
+      focusRanRef.current = focus;
+      setCustomKeyword(focus);
+      setTimeout(() => handleCustomSearch(focus), 150);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusParams]);
 
   // ── 마인드맵 탐색 (커스텀 시나리오 보조) ────────────────────────────────────
   const [mindmapOpen, setMindmapOpen] = useState(false);

@@ -69,7 +69,7 @@ function getStatusInfo(pct: number | null, price?: number, w52High?: number, w52
 }
 
 // ── 즐겨찾기 카드 ─────────────────────────────────────────────────────────────
-function FavRow({ fav, price, overtime, onRemove, onAnalyze, onSaveMemo, gapBulkMap }: {
+function FavRow({ fav, price, overtime, onRemove, onAnalyze, onSaveMemo, gapBulkMap, issues }: {
   fav: Favorite;
   price?: { price: number; change_pct: number; w52_high?: number; w52_low?: number } | null;
   overtime?: { price: number; change_pct: number; sign: string; status: string } | null;
@@ -77,6 +77,7 @@ function FavRow({ fav, price, overtime, onRemove, onAnalyze, onSaveMemo, gapBulk
   onAnalyze: (s: StockInfo) => void;
   onSaveMemo: (ticker: string, memo: string) => Promise<void> | void;
   gapBulkMap: Record<string, any>;
+  issues?: { keyword?: string; title?: string; role?: string }[];
 }) {
   const router = useRouter();
   const isKr   = fav["시장"] === "국내";
@@ -220,6 +221,22 @@ function FavRow({ fav, price, overtime, onRemove, onAnalyze, onSaveMemo, gapBulk
           </span>
         )}
       </div>
+
+      {/* 📋 이슈 배지 — 이 종목이 등장한 최근 이슈(시나리오). 클릭 시 관련 종목 보기 */}
+      {issues && issues.length > 0 && (
+        <div style={{ display: "flex", gap: "4px", flexWrap: "wrap", marginTop: "2px" }}>
+          {issues.slice(0, 2).map((iss, i) => (
+            <span
+              key={i}
+              onClick={(e) => { e.stopPropagation(); router.push(`/scenarios?focus=${encodeURIComponent(iss.keyword || iss.title || "")}`); }}
+              title={`이슈: ${iss.title || iss.keyword} — 클릭 시 이 이슈 관련 종목 보기`}
+              style={{ fontSize: "0.68rem", padding: "2px 8px", borderRadius: "99px", background: "rgba(168,85,247,0.13)", border: "1px solid rgba(168,85,247,0.35)", color: "#c084fc", cursor: "pointer", fontWeight: 700, maxWidth: "100%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+            >
+              📋 {iss.title || iss.keyword}
+            </span>
+          ))}
+        </div>
+      )}
 
       {/* 🌙 시간외 단일가 (장 마감 후, 데이터 있을 때만) — 정규장 가격은 그대로 두고 보조 표시 */}
       {isKr && overtime && overtime.price > 0 && (
@@ -2481,6 +2498,14 @@ export default function FavoritesPage() {
     { refreshInterval: 60000 }
   );
 
+  // 📋 종목별 최근 이슈(시나리오) 맵 — '왜 오르는지' 배지용 (10분 갱신)
+  const allFavTickers = [...krTickers, ...usTickers];
+  const { data: issuesMap } = useSWR(
+    allFavTickers.length > 0 ? `fav-issues-${allFavTickers.join(",")}` : null,
+    () => (api.ai as any).stockIssues(allFavTickers) as Promise<Record<string, any[]>>,
+    { refreshInterval: 600000 }
+  );
+
   const handleRemove = async (ticker: string) => {
     await api.portfolio.removeFavorite(ticker);
     refetchFavs();
@@ -2680,7 +2705,7 @@ export default function FavoritesPage() {
                       </div>
                       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: "12px" }}>
                         {groupFavs.map((f) => (
-                          <FavRow key={f["티커"]} fav={f} price={priceMap[f["티커"]] ?? null} overtime={isKrRegularSession() ? null : ((overtimeMap as any)?.[f["티커"]] ?? null)} onRemove={handleRemove} onAnalyze={setSelectedStock} onSaveMemo={handleSaveMemo} gapBulkMap={gapBulkMap} />
+                          <FavRow key={f["티커"]} fav={f} price={priceMap[f["티커"]] ?? null} overtime={isKrRegularSession() ? null : ((overtimeMap as any)?.[f["티커"]] ?? null)} onRemove={handleRemove} onAnalyze={setSelectedStock} onSaveMemo={handleSaveMemo} gapBulkMap={gapBulkMap} issues={(issuesMap as any)?.[f["티커"]]} />
                         ))}
                       </div>
                     </div>

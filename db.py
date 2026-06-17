@@ -3630,6 +3630,45 @@ def load_scenario_stocks_by_ticker(ticker: str) -> list:
         return []
 
 
+def get_stock_issues(tickers: list, days: int = 21) -> dict:
+    """종목별 '최근 등장 이슈' 맵 — {ticker: [{keyword, title, role, captured_at}]}.
+    즐겨찾기 카드에 '왜 오르는지(이슈)' 배지로 쓰며, 최근 days일 내 시나리오만."""
+    if not tickers:
+        return {}
+    try:
+        from datetime import datetime, timedelta
+        cutoff = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
+        tk = [str(t).strip() for t in tickers if t and str(t).strip()]
+        if not tk:
+            return {}
+        conn = get_db_conn()
+        ph = ",".join("?" * len(tk))
+        rows = conn.execute(
+            f"""SELECT ticker, scenario_keyword, scenario_title, role, MAX(captured_at) AS captured_at
+                FROM scenario_stocks
+                WHERE ticker IN ({ph}) AND captured_at >= ?
+                GROUP BY ticker, scenario_keyword
+                ORDER BY captured_at DESC""",
+            (*tk, cutoff),
+        ).fetchall()
+        conn.close()
+        out: dict = {}
+        for r in rows:
+            d = dict(r)
+            out.setdefault(d["ticker"], [])
+            if len(out[d["ticker"]]) < 3:   # 종목당 최대 3개 이슈
+                out[d["ticker"]].append({
+                    "keyword": d.get("scenario_keyword"),
+                    "title": d.get("scenario_title"),
+                    "role": d.get("role"),
+                    "captured_at": d.get("captured_at"),
+                })
+        return out
+    except Exception as e:
+        print(f"get_stock_issues error: {e}")
+        return {}
+
+
 def load_scenario_stocks_set() -> dict:
     """모든 시나리오 등장 종목의 ticker → 시나리오 개수 맵."""
     try:
