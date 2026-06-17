@@ -48,6 +48,25 @@ function Md({ text }: { text?: string }) {
   );
 }
 
+// ── 기대감 사이클 + 보유 판단 (뉴스·텔레그램 심리 × 펀더 교차) ──────────────────
+function HoldVerdict({ r }: { r: any }) {
+  const cyc: string | undefined = r?.expectation_cycle;
+  const verdict: string | undefined = r?.hold_verdict;
+  if (!cyc && !verdict) return null;
+  const c = !cyc ? "var(--color-muted)"
+    : cyc.includes("과열") ? "#f87171"
+    : (cyc.includes("소멸") || cyc.includes("무관심")) ? "var(--color-muted)"
+    : cyc.includes("확산") ? "#34d399"
+    : cyc.includes("초기") ? "#60a5fa" : "var(--color-text)";
+  return (
+    <div style={{ background: "rgba(96,165,250,0.07)", border: "1px solid rgba(96,165,250,0.25)", borderRadius: "0.5rem", padding: "0.6rem 0.7rem", display: "flex", flexDirection: "column", gap: "0.35rem" }}>
+      <div style={{ fontSize: "0.78rem", fontWeight: 800 }}>📣 기대감 사이클 + 보유 판단</div>
+      {cyc && <div style={{ fontSize: "0.78rem" }}><span style={{ color: "var(--color-muted)" }}>기대감: </span><span style={{ fontWeight: 700, color: c }}>{cyc}</span></div>}
+      {verdict && <div style={{ fontSize: "0.8rem", lineHeight: 1.5, color: "var(--color-text)" }}>{verdict}</div>}
+    </div>
+  );
+}
+
 // ── KR 리포트 결과 카드 ───────────────────────────────────────────────────────
 function KrReport({ r }: { r: KrStockReport }) {
   const variantMap: Record<string, "success"|"info"|"warning"|"muted"|"danger"> = {
@@ -69,6 +88,8 @@ function KrReport({ r }: { r: KrStockReport }) {
         <Badge variant="muted">{r.short_term_view_pct}</Badge>
         {r.ticker_mismatch && <Badge variant="warning">종목명 불일치 확인</Badge>}
       </div>
+
+      <HoldVerdict r={r} />
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "0.5rem" }}>
         {[
@@ -144,6 +165,8 @@ function UsReport({ r }: { r: StockReport }) {
         <Badge variant={v}>{r.rating}</Badge>
         <Badge variant="muted">{r.short_term_view_pct}</Badge>
       </div>
+
+      <HoldVerdict r={r} />
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "0.5rem" }}>
         {[
