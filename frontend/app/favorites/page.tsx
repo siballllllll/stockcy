@@ -81,8 +81,10 @@ function IssueBadge({ issues, router, selfTicker }: { issues: { keyword?: string
 
   useEffect(() => {
     if (!open || !active) return;
+    const fn = (api.ai as any).issueStocks;
+    if (typeof fn !== "function") { setRelated([]); setRelLoading(false); return; }   // 번들 stale 방어
     setRelLoading(true); setRelated(null);
-    (api.ai as any).issueStocks(active.keyword || active.title || "", selfTicker)
+    fn(active.keyword || active.title || "", selfTicker)
       .then((d: any) => setRelated(d?.stocks || []))
       .catch(() => setRelated([]))
       .finally(() => setRelLoading(false));
