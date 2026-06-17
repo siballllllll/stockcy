@@ -1293,6 +1293,14 @@ async def stock_issues(req: StockIssuesReq):
     return await asyncio.to_thread(get_stock_issues, req.tickers, 21)
 
 
+@router.get("/issue-stocks")
+async def issue_stocks(keyword: str = Query(...), exclude: str = Query(None)):
+    """같은 이슈(시나리오 키워드)에 등장한 다른 종목들 — 무료·즉시(과금 없음)."""
+    from db import get_issue_stocks
+    rows = await asyncio.to_thread(get_issue_stocks, keyword, exclude, 12, 21)
+    return {"keyword": keyword, "stocks": rows}
+
+
 @router.get("/valuation-score")
 async def get_valuation_score(ticker: str = Query(...), market: str = Query(None)):
     """[결정론·비AI] 월街 밸류에이션 점수(30점) — 실데이터로만 산출, 추정 없음.

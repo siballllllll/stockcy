@@ -262,8 +262,8 @@ export function StockModal({ stock, onClose }: { stock: StockInfo; onClose: () =
         top:            "4vh",
         left:           "50%",
         transform:      "translateX(-50%)",
-        width:          "min(96vw, 600px)",
-        maxHeight:      "90vh",
+        width:          "min(96vw, 780px)",
+        maxHeight:      "92vh",
         overflowY:      "auto",
         background:     "var(--color-card)",
         borderRadius:   "0.75rem",
@@ -325,7 +325,7 @@ export function StockModal({ stock, onClose }: { stock: StockInfo; onClose: () =
             <p style={{ fontSize: "0.68rem", color: "var(--color-muted)", marginBottom: "0.25rem" }}>
               최근 {chartPrices.length}일 종가
             </p>
-            <MiniLineChart data={chartPrices} width={530} height={56} />
+            <MiniLineChart data={chartPrices} width={710} height={64} />
           </div>
         )}
 

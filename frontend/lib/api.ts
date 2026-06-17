@@ -108,6 +108,8 @@ export const api = {
       req(`/api/ai/valuation-score?ticker=${encodeURIComponent(ticker)}&market=${market}`),
     stockIssues: (tickers: string[]) =>
       req("/api/ai/stock-issues", { method: "POST", body: JSON.stringify({ tickers }) }),
+    issueStocks: (keyword: string, exclude?: string) =>
+      req(`/api/ai/issue-stocks?keyword=${encodeURIComponent(keyword)}${exclude ? `&exclude=${encodeURIComponent(exclude)}` : ""}`),
     sectorRotation: ()                       => req("/api/ai/sector-rotation"),
     realtimePicksKr: (body: any = {})        => req("/api/ai/realtime-picks-kr", {
       method: "POST",

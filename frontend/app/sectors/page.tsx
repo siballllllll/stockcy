@@ -217,6 +217,14 @@ export default function SectorsPage() {
     if (t === "all" || t === "hot" || t === "shadow") setActiveTab(t);
     if (m === "KR" || m === "US") setMapMarket(m);
     if (s) { setActiveTab("all"); setSelectedSector(s); }
+    // 즐겨찾기 이슈 배지 → '이슈 섹터'로 넘어온 경우(?shadow=이슈): 쉐도우 탐색 자동 실행
+    const sh = sp.get("shadow");
+    if (sh && sh.trim()) {
+      setActiveTab("shadow");
+      setShadowSearchQuery(sh);
+      setTimeout(() => runShadowDiscover(sh), 250);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // 전체 섹터 맵 로드 (KR — hot/shadow 탭과 codeToNameMap 공용, 그대로 유지)
@@ -423,8 +431,9 @@ export default function SectorsPage() {
   }, [usPrices]);
 
   // 실시간 AI RAG 쉐도우 종목 발굴 즉석 탐색
-  const runShadowDiscover = async () => {
-    if (!shadowSearchQuery.trim()) return;
+  const runShadowDiscover = async (kw?: string) => {
+    const keyword = (kw ?? shadowSearchQuery).trim();
+    if (!keyword) return;
     setShadowDiscoverStatus("loading");
     setShadowDiscoverResult(null);
     setShadowDiscoverMsg("📡 실시간 구글 RAG 정보망 수집 중...");
@@ -446,7 +455,7 @@ export default function SectorsPage() {
         {
           method: "POST",
           body: {
-            keyword: shadowSearchQuery.trim()
+            keyword: keyword
           }
         }
       );
@@ -777,7 +786,7 @@ export default function SectorsPage() {
                 />
               </div>
               <button
-                onClick={runShadowDiscover}
+                onClick={() => runShadowDiscover()}
                 disabled={shadowDiscoverStatus === "loading" || !shadowSearchQuery.trim()}
                 className="px-6 py-3 bg-amber-500 hover:bg-amber-400 text-black font-black text-sm rounded-lg transition-colors flex items-center gap-2 shadow-lg shadow-amber-500/20 disabled:opacity-50 disabled:cursor-not-allowed"
               >

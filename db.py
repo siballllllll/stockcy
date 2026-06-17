@@ -3669,6 +3669,39 @@ def get_stock_issues(tickers: list, days: int = 21) -> dict:
         return {}
 
 
+def get_issue_stocks(keyword: str, exclude_ticker: str = None, limit: int = 12, days: int = 21) -> list:
+    """같은 이슈(scenario_keyword)에 등장한 다른 종목들 — 무료·즉시. [{ticker, name, market, role}]."""
+    if not keyword:
+        return []
+    try:
+        from datetime import datetime, timedelta
+        cutoff = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
+        conn = get_db_conn()
+        rows = conn.execute(
+            """SELECT ticker, name, market, role, MAX(captured_at) AS captured_at
+               FROM scenario_stocks
+               WHERE scenario_keyword = ? AND captured_at >= ?
+               GROUP BY ticker
+               ORDER BY captured_at DESC""",
+            (keyword, cutoff),
+        ).fetchall()
+        conn.close()
+        out = []
+        ex = str(exclude_ticker).strip() if exclude_ticker else None
+        for r in rows:
+            d = dict(r)
+            if ex and str(d.get("ticker")).strip() == ex:
+                continue
+            out.append({"ticker": d.get("ticker"), "name": d.get("name"),
+                        "market": d.get("market"), "role": d.get("role")})
+            if len(out) >= limit:
+                break
+        return out
+    except Exception as e:
+        print(f"get_issue_stocks error: {e}")
+        return []
+
+
 def load_scenario_stocks_set() -> dict:
     """모든 시나리오 등장 종목의 ticker → 시나리오 개수 맵."""
     try:
