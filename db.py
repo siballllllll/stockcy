@@ -3652,17 +3652,53 @@ def get_stock_issues(tickers: list, days: int = 21) -> dict:
             (*tk, cutoff),
         ).fetchall()
         conn.close()
+
+        # 이슈 실제 요약 소스: 라이브 캐시 + 최근 일별 시나리오 로그(영속) 병합 → {title: {summary, category}}
+        main_map: dict = {}
+
+        def _ingest(scn):
+            for iss in (scn or {}).get("issues", []) or []:
+                t = str(iss.get("title") or "").strip()
+                if t and t not in main_map:   # 최신 우선(이미 있으면 유지)
+                    main_map[t] = {"summary": iss.get("summary", ""), "category": iss.get("category")}
+
+        try:
+            _ingest(load_ai_cache("market_scenarios_latest"))
+        except Exception:
+            pass
+        try:
+            for di in list_daily_market_log_dates("scenarios", 30) or []:
+                _ingest(load_daily_market_log(di.get("log_date"), "scenarios"))
+        except Exception:
+            pass
+        ci_cache: dict = {}   # 커스텀 이슈 요약 (keyword → summary), 지연 로드
+
         out: dict = {}
         for r in rows:
             d = dict(r)
+            title = str(d.get("scenario_title") or "").strip()
+            keyword = d.get("scenario_keyword")
+            info = main_map.get(title) or {}
+            summary = info.get("summary") or ""
+            if not summary and keyword and not str(keyword).startswith("[메인]"):
+                if keyword not in ci_cache:
+                    try:
+                        ci = load_ai_cache(f"ci_{str(keyword)[:40]}") or {}
+                        res = ci.get("result", ci) or {}
+                        ci_cache[keyword] = res.get("summary", "")
+                    except Exception:
+                        ci_cache[keyword] = ""
+                summary = ci_cache.get(keyword, "")
             out.setdefault(d["ticker"], [])
             if len(out[d["ticker"]]) < 3:   # 종목당 최대 3개 이슈
                 out[d["ticker"]].append({
-                    "keyword": d.get("scenario_keyword"),
+                    "keyword": keyword,
                     "title": d.get("scenario_title"),
                     "role": d.get("role"),
                     "horizon": d.get("horizon"),
                     "captured_at": (d.get("captured_at") or "")[:10],
+                    "summary": summary,
+                    "category": info.get("category"),
                 })
         return out
     except Exception as e:

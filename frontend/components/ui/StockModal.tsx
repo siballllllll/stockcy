@@ -59,6 +59,13 @@ function IssuePanel({ code, market }: { code: string; market: string }) {
             </div>
           )}
 
+          {active?.summary && (
+            <div style={{ fontSize: "0.72rem", color: "var(--color-subtle)", lineHeight: 1.55, background: "rgba(168,85,247,0.06)", border: "1px solid rgba(168,85,247,0.18)", borderRadius: "6px", padding: "7px 9px" }}>
+              {active.category && <span style={{ fontSize: "0.6rem", fontWeight: 800, color: "#c084fc", marginRight: "5px" }}>[{active.category}]</span>}
+              {active.summary}
+            </div>
+          )}
+
           <div style={{ fontSize: "0.66rem", color: "var(--color-muted)", marginTop: "2px" }}>이 이슈 관련 종목 <span style={{ color: "#34d399" }}>(무료)</span></div>
           {related.length > 0 ? (
             <div style={{ display: "flex", flexWrap: "wrap", gap: "5px" }}>
