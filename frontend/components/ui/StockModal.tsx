@@ -1,4 +1,6 @@
 "use client";
+import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { X, Zap, Search } from "lucide-react";
 import { StatusBox } from "./StatusBox";
 import { Badge } from "./Badge";
@@ -7,7 +9,73 @@ import { MiniLineChart } from "./MiniLineChart";
 import { useSSE } from "@/hooks/useSSE";
 import useSWR from "swr";
 import { api } from "@/lib/api";
+import { useIsMobile } from "@/lib/use-is-mobile";
 import type { KrStock, StockReport, KrStockReport, ChartCandle } from "@/lib/types";
+
+// 모달 우측 — 이 종목 관련 이슈 패널 (관련 종목 무료 + 시나리오/이슈섹터)
+function IssuePanel({ code, market }: { code: string; market: string }) {
+  const router = useRouter();
+  const [activeIdx, setActiveIdx] = useState(0);
+  const { data: issuesMap } = useSWR(`stk-issues-${code}`, () => {
+    const fn = (api.ai as any).stockIssues;
+    return typeof fn === "function" ? fn([code]) : Promise.resolve({});
+  });
+  const issues: any[] = (issuesMap as any)?.[code] || [];
+  const active = issues.length ? issues[Math.min(activeIdx, issues.length - 1)] : null;
+  const { data: relData } = useSWR(active ? `iss-stk-${active.keyword || active.title}` : null, () => {
+    const fn = (api.ai as any).issueStocks;
+    return typeof fn === "function" ? fn(active.keyword || active.title || "", code) : Promise.resolve({ stocks: [] });
+  });
+  const related: any[] = (relData as any)?.stocks || [];
+  const isUs = (tk: string) => /[A-Za-z]/.test(tk || "");
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: "0.6rem" }}>
+      <div style={{ fontSize: "0.82rem", fontWeight: 800 }}>📣 이 종목 관련 이슈</div>
+      {issues.length === 0 ? (
+        <div style={{ fontSize: "0.74rem", color: "var(--color-muted)", lineHeight: 1.5 }}>
+          시나리오에 등장한 이슈가 없습니다. (이슈가 누적되면 여기에 표시됩니다)
+        </div>
+      ) : (
+        <>
+          {issues.length > 1 && (
+            <div style={{ display: "flex", gap: "4px", flexWrap: "wrap" }}>
+              {issues.map((iss, i) => (
+                <span key={i} onClick={() => setActiveIdx(i)} title={iss.title || iss.keyword}
+                  style={{ fontSize: "0.64rem", padding: "1px 8px", borderRadius: "99px", cursor: "pointer", fontWeight: 700,
+                    background: i === activeIdx ? "rgba(168,85,247,0.22)" : "var(--color-elevated)",
+                    border: `1px solid ${i === activeIdx ? "rgba(168,85,247,0.6)" : "var(--color-border)"}`,
+                    color: i === activeIdx ? "#c084fc" : "var(--color-muted)" }}>이슈 {i + 1}</span>
+              ))}
+            </div>
+          )}
+          <div style={{ fontSize: "0.78rem", fontWeight: 700, lineHeight: 1.4, color: "#c084fc" }}>📋 {active?.title || active?.keyword}</div>
+
+          <div style={{ fontSize: "0.66rem", color: "var(--color-muted)" }}>이 이슈 관련 종목 <span style={{ color: "#34d399" }}>(무료)</span></div>
+          {related.length > 0 ? (
+            <div style={{ display: "flex", flexWrap: "wrap", gap: "4px" }}>
+              {related.map((s) => (
+                <span key={s.ticker} onClick={() => router.push(`/search?q=${s.ticker}&market=${isUs(s.ticker) ? "US" : "KR"}`)}
+                  style={{ fontSize: "0.7rem", padding: "2px 8px", borderRadius: "6px", background: "var(--color-elevated)", border: "1px solid var(--color-border)", cursor: "pointer", color: "var(--color-text)" }}>
+                  {s.name || s.ticker}
+                </span>
+              ))}
+            </div>
+          ) : (
+            <div style={{ fontSize: "0.7rem", color: "var(--color-muted)" }}>저장된 관련 종목 없음 — 아래 버튼으로 탐색</div>
+          )}
+
+          <div style={{ display: "flex", gap: "5px", marginTop: "2px" }}>
+            <button onClick={() => router.push(`/scenarios?focus=${encodeURIComponent(active.keyword || active.title || "")}`)}
+              style={{ flex: 1, padding: "8px 4px", fontSize: "0.72rem", fontWeight: 700, borderRadius: "7px", cursor: "pointer", background: "rgba(168,85,247,0.13)", border: "1px solid rgba(168,85,247,0.4)", color: "#c084fc" }}>🔍 시나리오</button>
+            <button onClick={() => router.push(`/sectors?shadow=${encodeURIComponent(active.keyword || active.title || "")}`)}
+              style={{ flex: 1, padding: "8px 4px", fontSize: "0.72rem", fontWeight: 700, borderRadius: "7px", cursor: "pointer", background: "rgba(96,165,250,0.13)", border: "1px solid rgba(96,165,250,0.4)", color: "#60a5fa" }}>🗺️ 이슈 섹터</button>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
 
 // ── 인터페이스 ────────────────────────────────────────────────────────────────
 export interface StockInfo {
@@ -205,6 +273,7 @@ function UsReport({ r }: { r: StockReport }) {
 // ── 메인 모달 컴포넌트 ────────────────────────────────────────────────────────
 export function StockModal({ stock, onClose }: { stock: StockInfo; onClose: () => void }) {
   const isKr = stock.market === "국내";
+  const isMobile = useIsMobile();
 
   const { data: krPrice } = useSWR<KrStock>(
     isKr ? `kr-modal-price-${stock.code}` : null,
@@ -262,9 +331,9 @@ export function StockModal({ stock, onClose }: { stock: StockInfo; onClose: () =
         top:            "4vh",
         left:           "50%",
         transform:      "translateX(-50%)",
-        width:          "min(96vw, 780px)",
+        width:          isMobile ? "96vw" : "min(98vw, 1080px)",
         maxHeight:      "92vh",
-        overflowY:      "auto",
+        overflowY:      isMobile ? "auto" : "hidden",
         background:     "var(--color-card)",
         borderRadius:   "0.75rem",
         border:         "1px solid var(--color-border)",
@@ -285,6 +354,10 @@ export function StockModal({ stock, onClose }: { stock: StockInfo; onClose: () =
             <X size={18} />
           </button>
         </div>
+
+        {/* ── 본문: 좌(분석) │ 우(이슈) 2단 ── */}
+        <div style={{ display: "flex", flexDirection: isMobile ? "column" : "row", gap: "1rem", flex: 1, minHeight: 0, overflow: isMobile ? "visible" : "hidden" }}>
+          <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: "1rem", overflowY: isMobile ? "visible" : "auto", paddingRight: isMobile ? 0 : "0.4rem" }}>
 
         {/* ── 현재가 ── */}
         {price !== undefined ? (
@@ -425,6 +498,13 @@ export function StockModal({ stock, onClose }: { stock: StockInfo; onClose: () =
             ? <KrReport r={analysis.result as KrStockReport} />
             : <UsReport r={analysis.result as StockReport} />
         )}
+          </div>{/* /좌측 컬럼 */}
+
+          {/* 우측 컬럼 — 이슈 패널 (가운데 구분선) */}
+          <div style={{ width: isMobile ? "100%" : "320px", flexShrink: 0, borderLeft: isMobile ? "none" : "1px solid var(--color-border)", borderTop: isMobile ? "1px solid var(--color-border)" : "none", paddingLeft: isMobile ? 0 : "1rem", paddingTop: isMobile ? "0.85rem" : 0, overflowY: isMobile ? "visible" : "auto" }}>
+            <IssuePanel code={stock.code} market={isKr ? "KR" : "US"} />
+          </div>
+        </div>{/* /2단 */}
       </div>
     </>
   );
