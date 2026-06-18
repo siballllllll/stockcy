@@ -446,7 +446,7 @@ export function StockModal({ stock, onClose }: { stock: StockInfo; onClose: () =
           const s30 = valScore.score_30;
           const availMax = Number(valScore.available_max ?? 0);
           const conf = Number(valScore.confidence_pct ?? 0);
-          const scoreColor = s30 == null ? "var(--color-muted)" : s30 >= 20 ? "var(--color-up)" : s30 >= 10 ? "var(--color-info)" : "var(--color-down)";
+          const scoreColor = s30 == null ? "var(--color-muted)" : s30 >= 20 ? "var(--color-success)" : s30 >= 10 ? "var(--color-info)" : "var(--color-danger)";
           // 헤드라인: 2항목+ → 30점 환산 / 1항목만 → 원점수(항목 부족) / 0항목 → 산정 불가
           const headline = s30 != null ? `${s30} / 30`
             : availMax > 0 ? `${valScore.score_raw}/${availMax} · 항목 부족`

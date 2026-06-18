@@ -23,10 +23,11 @@
   --color-warning:    #ffa421;
   --color-danger:     #ff4b4b;
 
-  /* 주가 등락 */
-  --color-up:         #00c853;   /* 상승 */
-  --color-down:       #ff1744;   /* 하락 */
+  /* 주가 등락 — 한국식 통일: 상승=빨강, 하락=파랑 (모든 등락률 표시 공용) */
+  --color-up:         #ff4b4b;   /* 상승(빨강) */
+  --color-down:       #3b82f6;   /* 하락(파랑) */
   --color-flat:       #a3a8b0;   /* 보합 */
+  --color-primary:    #3b82f6;   /* (등락률 '하락'에 쓰던 미정의 변수 — 파랑으로 통일) */
 
   /* 폰트 */
   --font-sans: "Pretendard", "Apple SD Gothic Neo", "Noto Sans KR",
