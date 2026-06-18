@@ -84,8 +84,8 @@ function AiTaskIndicator() {
           </>
         ) : unreadCount > 0 ? (
           <>
-            <Bell size={12} color="var(--color-up)" />
-            <span style={{ color: "var(--color-up)" }}>알림 ({unreadCount})</span>
+            <Bell size={12} color="var(--color-success)" />
+            <span style={{ color: "var(--color-success)" }}>알림 ({unreadCount})</span>
           </>
         ) : doneCount > 0 ? (
           <>
@@ -106,7 +106,7 @@ function AiTaskIndicator() {
             )}
           </div>
           {taskList.map(t => {
-            const c = t.status === "done" ? "var(--color-up)" : t.status === "error" ? "var(--color-danger)" : "var(--color-primary)";
+            const c = t.status === "done" ? "var(--color-success)" : t.status === "error" ? "var(--color-danger)" : "var(--color-info)";
             const label = t.status === "done" ? "완료" : t.status === "error" ? "오류" : "진행 중";
             const isRead = t.status === "done" && t.read;
             const rel = _relTime(t.completedAt ?? t.timestamp);

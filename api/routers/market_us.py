@@ -61,6 +61,18 @@ def us_stocks(tickers: str = Query(..., description="콤마로 구분된 티커 
     return df.to_dict(orient="records")
 
 
+@router.get("/kr-names")
+def us_kr_names_lookup(tickers: str = Query(..., description="콤마 구분 US 티커")):
+    """US 티커 → 한글 종목명 맵 (us_kr_names.US_KR_NAME_MAP). 즐겨찾기 한글화용."""
+    from us_kr_names import US_KR_NAME_MAP
+    out = {}
+    for t in tickers.split(","):
+        t = t.strip().upper()
+        if t and t in US_KR_NAME_MAP:
+            out[t] = US_KR_NAME_MAP[t]
+    return out
+
+
 import threading
 
 _US_ALL_STOCKS_CACHE = None     # 검색 자동완성용 {ticker: 한글/영문명}

@@ -69,7 +69,7 @@ function getStatusInfo(pct: number | null, price?: number, w52High?: number, w52
 }
 
 // ── 즐겨찾기 카드 ─────────────────────────────────────────────────────────────
-function FavRow({ fav, price, overtime, onRemove, onAnalyze, onSaveMemo, gapBulkMap, issues }: {
+function FavRow({ fav, price, overtime, onRemove, onAnalyze, onSaveMemo, gapBulkMap, issues, krName }: {
   fav: Favorite;
   price?: { price: number; change_pct: number; w52_high?: number; w52_low?: number } | null;
   overtime?: { price: number; change_pct: number; sign: string; status: string } | null;
@@ -78,6 +78,7 @@ function FavRow({ fav, price, overtime, onRemove, onAnalyze, onSaveMemo, gapBulk
   onSaveMemo: (ticker: string, memo: string) => Promise<void> | void;
   gapBulkMap: Record<string, any>;
   issues?: { keyword?: string; title?: string; role?: string }[];
+  krName?: string;
 }) {
   const router = useRouter();
   const isKr   = fav["시장"] === "국내";
@@ -155,7 +156,7 @@ function FavRow({ fav, price, overtime, onRemove, onAnalyze, onSaveMemo, gapBulk
       {/* 제목 행 — 한 줄 고정(말줄임)으로 카드 간 정렬 유지 */}
       <div style={{ display: "flex", alignItems: "center", gap: "5px", flexWrap: "nowrap", minWidth: 0 }}>
         <Star size={12} style={{ color: "var(--color-warning)", fill: "var(--color-warning)", flexShrink: 0 }} />
-        <span style={{ fontWeight: 700, fontSize: "0.9rem", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>{fav["종목명"]}</span>
+        <span title={fav["종목명"]} style={{ fontWeight: 700, fontSize: "0.9rem", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>{krName || fav["종목명"]}</span>
         <span style={{ fontSize: "0.7rem", color: "var(--color-muted)", marginRight: "4px", flexShrink: 0 }}>({fav["티커"]})</span>
 
         {/* 실시간 갭 배지 표출 */}
@@ -2498,6 +2499,13 @@ export default function FavoritesPage() {
     { refreshInterval: 600000 }
   );
 
+  // 🇺🇸→🇰🇷 미국 종목 한글명 (us_kr_names 맵, 24h 캐시)
+  const { data: usKrMap } = useSWR(
+    usTickers.length > 0 ? `us-krnames-${usTickers.join(",")}` : null,
+    () => (api.us as any).krNames(usTickers) as Promise<Record<string, string>>,
+    { revalidateOnFocus: false, dedupingInterval: 86400000 }
+  );
+
   const handleRemove = async (ticker: string) => {
     await api.portfolio.removeFavorite(ticker);
     refetchFavs();
@@ -2701,7 +2709,7 @@ export default function FavoritesPage() {
                       </div>
                       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: "12px" }}>
                         {groupFavs.map((f) => (
-                          <FavRow key={f["티커"]} fav={f} price={priceMap[f["티커"]] ?? null} overtime={isKrRegularSession() ? null : ((overtimeMap as any)?.[f["티커"]] ?? null)} onRemove={handleRemove} onAnalyze={setSelectedStock} onSaveMemo={handleSaveMemo} gapBulkMap={gapBulkMap} issues={(issuesMap as any)?.[f["티커"]]} />
+                          <FavRow key={f["티커"]} fav={f} price={priceMap[f["티커"]] ?? null} overtime={isKrRegularSession() ? null : ((overtimeMap as any)?.[f["티커"]] ?? null)} onRemove={handleRemove} onAnalyze={setSelectedStock} onSaveMemo={handleSaveMemo} gapBulkMap={gapBulkMap} issues={(issuesMap as any)?.[f["티커"]]} krName={f["시장"] === "미국" ? (usKrMap as any)?.[f["티커"]] : undefined} />
                         ))}
                       </div>
                     </div>

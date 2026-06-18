@@ -41,6 +41,7 @@ export const api = {
     indices:     ()                         => req("/api/us/indices"),
     session:     ()                         => req("/api/us/session"),
     stocks:      (tickers: string[])        => req(`/api/us/stocks?tickers=${tickers.join(",")}`),
+    krNames:     (tickers: string[])        => req<Record<string, string>>(`/api/us/kr-names?tickers=${tickers.join(",")}`),
     pricesBulk:  (tickers: string[]) =>
       req<Record<string, { price: number; change_pct: number }>>("/api/us/prices-bulk", {
         method: "POST",
