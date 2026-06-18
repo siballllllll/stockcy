@@ -11,6 +11,7 @@ import { useSSE } from "@/hooks/useSSE";
 import { MarkdownLite } from "@/components/ui/MarkdownLite";
 import { SupplyPowerFlow } from "@/components/SupplyPowerFlow";
 import { SectorTrend } from "@/components/SectorTrend";
+import { SupplyRotationPanel } from "@/components/SupplyRotationPanel";
 import { AiCostBadge } from "@/components/ui/AiCostBadge";
 import { useAuth, getToken } from "@/lib/auth-context";
 import { useIsMobile } from "@/lib/use-is-mobile";
@@ -1447,7 +1448,7 @@ function ScenariosPageInner() {
   const [customKeyword, setCustomKeyword] = useState("");
   const [customLoading, setCustomLoading] = useState(false);
   const [customError, setCustomError]     = useState("");
-  const [insightTab, setInsightTab]       = useState<"scenario" | "insight">("scenario");
+  const [insightTab, setInsightTab]       = useState<"scenario" | "insight" | "supply">("scenario");
   const [showRecent, setShowRecent]       = useState(false);
   const [activeRecentIdx, setActiveRecentIdx] = useState(-1);   // 최근검색 방향키 선택 인덱스(-1=없음)
 
@@ -2043,7 +2044,7 @@ function ScenariosPageInner() {
 
           {/* 탭: 시나리오 / 시장 인사이트 */}
           <div style={{ display: "flex", gap: "6px", marginBottom: "1.1rem" }}>
-            {([["scenario", "🎯 시나리오"], ["insight", "📊 시장 인사이트"]] as const).map(([k, label]) => (
+            {([["scenario", "🎯 시나리오"], ["insight", "📊 시장 인사이트"], ["supply", "🔄 수급 이동 감지"]] as const).map(([k, label]) => (
               <button key={k} onClick={() => setInsightTab(k)}
                 style={{ padding: "7px 16px", fontSize: "0.85rem", fontWeight: 700, borderRadius: "8px", cursor: "pointer",
                   border: "1px solid " + (insightTab === k ? "var(--color-accent)" : "var(--color-border)"),
@@ -2066,6 +2067,9 @@ function ScenariosPageInner() {
               </div>
             </>
           )}
+
+          {/* 수급 이동 감지 탭 — 이 탭을 열 때만 로드됨 (자동 호출 방지) */}
+          {insightTab === "supply" && <SupplyRotationPanel />}
 
           {/* 새로고침 실패(예: 크레딧 없음)인데 이미 보던 시나리오가 있으면 → 본문은 유지하고 상단 알림 배너로만 표시 */}
           {insightTab === "scenario" && loadError && issues.length > 0 && (
