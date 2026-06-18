@@ -25,6 +25,18 @@ def get_hot_sectors_nowait() -> dict | None:
     """캐시된 핫 섹터를 즉시(락 없이) 반환. 캐시 미스·만료 시 None."""
     if _HS_CACHE_DATA and (time.time() - _HS_CACHE_TS) < _HS_CACHE_TTL:
         return _HS_CACHE_DATA
+    # 모듈(메모리) 캐시 미스 → DB 캐시 폴백.
+    # analyze_kr_hot_sectors가 DB 캐시 적중 시 Gemini 호출 없이 조기 반환하면
+    # 모듈 캐시가 비어, 서버 재시작 직후 스크리너의 핫섹터 보너스가 통째로
+    # 무력화되던 문제를 보정한다. load_ai_cache는 로컬 SQLite라 블로킹 없음.
+    try:
+        from db import load_ai_cache
+        _cached = load_ai_cache("kr_hot_sectors_latest")
+        if isinstance(_cached, dict) and "error" not in _cached and "sectors" in _cached:
+            _update_hs_cache(_cached)
+            return _cached
+    except Exception:
+        pass
     return None
 
 
@@ -2570,6 +2582,7 @@ def analyze_kr_hot_sectors() -> dict:
     _CACHE_KEY = "kr_hot_sectors_latest"
     _cached = load_ai_cache(_CACHE_KEY)
     if _cached and "error" not in _cached:
+        _update_hs_cache(_cached)  # DB 적중 시에도 모듈 캐시 동기화 (스크리너가 즉시 활용)
         return _cached
 
     from sectors_kr import KR_SECTOR_MAP
