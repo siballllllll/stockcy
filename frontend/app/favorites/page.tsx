@@ -1706,7 +1706,7 @@ function PostmortemModal({ trade, onClose, onRefresh }: { trade: any; onClose: (
               <MarkdownLite text={pmResult?.cause} style={{ lineHeight: 1.6 }} />
             </div>
             <div style={{ background: "rgba(99,102,241,0.15)", border: "1px solid rgba(99,102,241,0.3)", padding: "1rem", borderRadius: "8px" }}>
-              <div style={{ fontSize: "0.85rem", color: "var(--color-primary)", fontWeight: 700, marginBottom: "0.5rem" }}>💡 학습 포인트 (교훈)</div>
+              <div style={{ fontSize: "0.85rem", color: "var(--color-warning)", fontWeight: 700, marginBottom: "0.5rem" }}>💡 학습 포인트 (교훈)</div>
               <MarkdownLite text={pmResult?.learning_point} style={{ lineHeight: 1.6, fontWeight: 500 }} />
             </div>
           </div>
@@ -2188,11 +2188,11 @@ function TradesTab() {
                     <td style={{ fontSize: "0.72rem", color: "var(--color-muted)" }}>{sellDate.slice(0, 16).replace("T", " ")}</td>
                     <td>
                       {lp ? (
-                        <div style={{ fontSize: "0.75rem", color: "var(--color-primary)", maxWidth: "150px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", cursor: "pointer" }} title={lp} onClick={() => setPostmortemTrade(t)}>
+                        <div style={{ fontSize: "0.75rem", color: "var(--color-muted)", maxWidth: "150px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", cursor: "pointer" }} title={lp} onClick={() => setPostmortemTrade(t)}>
                           💡 {lp}
                         </div>
                       ) : (
-                        <button className="stockcy-btn stockcy-btn-primary" style={{ padding: "2px 6px", fontSize: "0.7rem", background: "transparent", border: "1px solid var(--color-primary)", color: "var(--color-primary)" }} onClick={() => setPostmortemTrade(t)}>
+                        <button className="stockcy-btn" style={{ padding: "2px 6px", fontSize: "0.7rem", background: "transparent", border: "1px solid var(--color-border)", color: "var(--color-text)" }} onClick={() => setPostmortemTrade(t)}>
                           <Brain size={10} style={{ marginRight: "4px" }} /> AI 복기
                         </button>
                       )}

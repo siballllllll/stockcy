@@ -419,6 +419,18 @@ def _scenario_tracking_loop():
                         print(f"[ev snap] EV/EBITDA 일별 스냅: {_es.get('saved', 0)}/{_es.get('requested', 0)}건 ({today})")
                 except Exception as e:
                     print(f"[ev snap] 오류: {e}")
+                # 내 패턴 스크리너 — 매일 자동 실행(교차검증에 '패턴스크리너' 엔진이 매일 기여, 회당 ~5원)
+                try:
+                    from ai_engine import screen_by_my_pattern
+                    from db import save_screener_picks
+                    _pr = screen_by_my_pattern()
+                    if _pr.get("top_picks"):
+                        save_screener_picks(_pr["top_picks"])
+                        print(f"[pattern screen] 자동 스크리닝 저장: {len(_pr['top_picks'])}건 ({today})")
+                    elif _pr.get("error"):
+                        print(f"[pattern screen] 스킵: {_pr['error']}")
+                except Exception as e:
+                    print(f"[pattern screen] 오류: {e}")
         except Exception:
             pass
         _time.sleep(300)   # 5분마다 체크
