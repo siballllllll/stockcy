@@ -65,10 +65,22 @@ function IssuePanel({ code, market }: { code: string; market: string }) {
               {active.summary}
             </div>
           )}
-          {active?.economic && (
-            <div style={{ fontSize: "0.7rem", color: "var(--color-subtle)", lineHeight: 1.55, background: "rgba(96,165,250,0.06)", border: "1px solid rgba(96,165,250,0.18)", borderRadius: "6px", padding: "7px 9px" }}>
-              <div style={{ fontSize: "0.62rem", fontWeight: 800, color: "#60a5fa", marginBottom: "3px" }}>💹 경제적 분석</div>
-              {active.economic}
+          {active?.economics && active.economics.length > 0 && (
+            <div style={{ display: "flex", flexDirection: "column", gap: "5px" }}>
+              <div style={{ fontSize: "0.62rem", fontWeight: 800, color: "#60a5fa" }}>💹 경제적 분석 (A/B 시나리오)</div>
+              {active.economics.map((e: any, i: number) => {
+                const up = (e.direction || "").includes("강세");
+                const dn = (e.direction || "").includes("약세");
+                const dc = up ? "#34d399" : dn ? "#f87171" : "#fbbf24";
+                return (
+                  <div key={i} style={{ fontSize: "0.7rem", color: "var(--color-subtle)", lineHeight: 1.55, background: "rgba(96,165,250,0.06)", border: "1px solid rgba(96,165,250,0.18)", borderRadius: "6px", padding: "6px 9px" }}>
+                    <span style={{ fontWeight: 800, color: dc, marginRight: "5px" }}>
+                      {e.label}{e.direction ? `·${e.direction}` : ""}{e.prob != null ? ` ${e.prob}%` : ""}
+                    </span>
+                    {e.text}
+                  </div>
+                );
+              })}
             </div>
           )}
 
