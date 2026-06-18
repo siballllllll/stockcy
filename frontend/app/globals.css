@@ -160,6 +160,8 @@ html, body {
 @keyframes spin { to { transform: rotate(360deg); } }
 @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: .4; } }
 @keyframes blink-green { 0%, 100% { opacity: 1; box-shadow: 0 0 4px #22c55e; } 50% { opacity: 0.25; box-shadow: none; } }
+@keyframes blink-issue { 0%, 100% { opacity: 1; box-shadow: 0 0 6px 1px rgba(192,132,252,0.7); } 50% { opacity: 0.3; box-shadow: 0 0 2px 0 rgba(192,132,252,0.3); } }
+.issue-blink { animation: blink-issue 1.3s ease-in-out infinite; }
 @keyframes shimmer {
   0%   { background-position: -200% 0; }
   100% { background-position:  200% 0; }

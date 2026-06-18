@@ -69,17 +69,6 @@ function getStatusInfo(pct: number | null, price?: number, w52High?: number, w52
 }
 
 // ── 즐겨찾기 카드 ─────────────────────────────────────────────────────────────
-// 📋 이슈 배지 — "이슈 있음"만 간단히 표시(정적). 상세·관련종목·이동은 AI 분석 모달의 이슈 패널에서.
-function IssueBadge({ issues }: { issues: { keyword?: string; title?: string }[] }) {
-  if (!issues || issues.length === 0) return null;
-  const titles = issues.map((i) => i.title || i.keyword).filter(Boolean).join("\n");
-  return (
-    <span title={titles} style={{ marginTop: "2px", display: "inline-block", fontSize: "0.66rem", padding: "2px 8px", borderRadius: "99px", background: "rgba(168,85,247,0.13)", border: "1px solid rgba(168,85,247,0.4)", color: "#c084fc", fontWeight: 800, whiteSpace: "nowrap" }}>
-      📋 이슈{issues.length > 1 ? ` ${issues.length}` : ""}
-    </span>
-  );
-}
-
 function FavRow({ fav, price, overtime, onRemove, onAnalyze, onSaveMemo, gapBulkMap, issues }: {
   fav: Favorite;
   price?: { price: number; change_pct: number; w52_high?: number; w52_low?: number } | null;
@@ -157,6 +146,12 @@ function FavRow({ fav, price, overtime, onRemove, onAnalyze, onSaveMemo, gapBulk
       position: "relative",
       zIndex: memoOpen ? 30 : undefined,
     }}>
+      {/* 📋 이슈 깜빡이 — 이슈 있는 종목은 모서리에서 깜빡(상세는 AI 분석 모달) */}
+      {issues && issues.length > 0 && (
+        <span className="issue-blink" title={`이슈 ${issues.length}건:\n` + issues.map((i) => i.title || i.keyword).filter(Boolean).join("\n")}
+          style={{ position: "absolute", top: "7px", right: "7px", width: "9px", height: "9px", borderRadius: "50%", background: "#c084fc", zIndex: 3 }} />
+      )}
+
       {/* 제목 행 — 한 줄 고정(말줄임)으로 카드 간 정렬 유지 */}
       <div style={{ display: "flex", alignItems: "center", gap: "5px", flexWrap: "nowrap", minWidth: 0 }}>
         <Star size={12} style={{ color: "var(--color-warning)", fill: "var(--color-warning)", flexShrink: 0 }} />
@@ -232,9 +227,6 @@ function FavRow({ fav, price, overtime, onRemove, onAnalyze, onSaveMemo, gapBulk
           </span>
         )}
       </div>
-
-      {/* 📋 이슈 배지 — 간략 표시 + 호버 툴팁 + 클릭 이동 */}
-      {issues && issues.length > 0 && <IssueBadge issues={issues} />}
 
       {/* 🌙 시간외 단일가 (장 마감 후, 데이터 있을 때만) — 정규장 가격은 그대로 두고 보조 표시 */}
       {isKr && overtime && overtime.price > 0 && (
@@ -359,16 +351,18 @@ function AddFavoriteForm({ onAdded }: { onAdded: () => void }) {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
       <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
-        <select className="stockcy-input" style={{ width: "90px", flexShrink: 0 }} value={market} onChange={(e) => setMarket(e.target.value as "국내" | "미국")}>
+        <select className="stockcy-input" style={{ width: "90px", flexShrink: 0 }} value={market} onChange={(e) => { setMarket(e.target.value as "국내" | "미국"); setTicker(""); setName(""); }}>
           <option value="미국">미국</option>
           <option value="국내">국내</option>
         </select>
-        <input className="stockcy-input" placeholder="티커 (예: NVDA, 005930)" value={ticker} onChange={(e) => setTicker(e.target.value)} style={{ flex: 1 }} />
-        <input className="stockcy-input" placeholder="종목명 (예: 엔비디아)" value={name} onChange={(e) => setName(e.target.value)} style={{ flex: 1 }} />
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <StockSearchInput market={market} onSelect={(t, n) => { setTicker(t); setName(n); }} />
+        </div>
         <button className="stockcy-btn stockcy-btn-primary" onClick={handleAdd} disabled={loading || !ticker || !name}>
           <Plus size={14} />추가
         </button>
       </div>
+      {ticker && <div style={{ fontSize: "0.74rem", color: "var(--color-muted)" }}>선택: <b style={{ color: "var(--color-text)" }}>{name}</b> ({ticker})</div>}
       {msg && <StatusBox type={msg.type}>{msg.text}</StatusBox>}
     </div>
   );
@@ -2684,6 +2678,10 @@ export default function FavoritesPage() {
         <>
           <Card title={`즐겨찾기 종목 (${favs?.length ?? 0}개)`}>
             <AddFavoriteForm onAdded={() => refetchFavs()} />
+            <div style={{ display: "flex", alignItems: "center", gap: "7px", marginTop: "8px", fontSize: "0.72rem", color: "var(--color-muted)", lineHeight: 1.4 }}>
+              <span className="issue-blink" style={{ display: "inline-block", flexShrink: 0, width: "8px", height: "8px", borderRadius: "50%", background: "#c084fc" }} />
+              <span>카드 모서리에 보라색이 <b style={{ color: "#c084fc" }}>깜빡이면 관련 이슈가 있다</b>는 뜻이에요. 종목을 클릭하면 AI 분석 창 오른쪽에서 이슈 상세(요약·관련 종목)를 볼 수 있어요.</span>
+            </div>
             <div className="stockcy-divider" />
             {isLoading ? <Skeleton height="150px" /> : !favs || favs.length === 0 ? (
               <StatusBox type="info">즐겨찾기에 등록된 종목이 없습니다.</StatusBox>
