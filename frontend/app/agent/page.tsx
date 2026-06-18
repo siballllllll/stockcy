@@ -573,6 +573,7 @@ export default function AgentDashboardPage() {
                     <th>종목</th>
                     <th style={{ textAlign: "right" }}>매수가</th>
                     <th style={{ textAlign: "right" }}>현재가</th>
+                    <th style={{ textAlign: "right" }}>평가손익</th>
                     <th style={{ textAlign: "right" }}>수익률</th>
                     <th style={{ textAlign: "right" }}>수량</th>
                     <th>매수일 · 보유</th>
@@ -617,6 +618,12 @@ export default function AgentDashboardPage() {
                         </td>
                         <td style={{ textAlign: "right" }}>{sym}{Number(p.buy_price ?? 0).toLocaleString()}</td>
                         <td style={{ textAlign: "right" }}>{(() => { const cur = currentPriceOf(p); return cur > 0 ? `${sym}${cur.toLocaleString()}` : <span style={{ color: "var(--color-subtle)" }}>—</span>; })()}</td>
+                        <td style={{ textAlign: "right", fontWeight: 700 }}>{(() => {
+                          const cur = currentPriceOf(p); const bp = Number(p.buy_price ?? 0); const qty = Number(p.quantity ?? 0);
+                          if (!(cur > 0) || !(bp > 0)) return <span style={{ color: "var(--color-subtle)" }}>—</span>;
+                          const pl = (cur - bp) * qty;
+                          return <span style={{ color: pl >= 0 ? "var(--color-danger)" : "var(--color-primary)" }}>{pl >= 0 ? "+" : "-"}{sym}{Math.abs(isUs ? Number(pl.toFixed(2)) : Math.round(pl)).toLocaleString()}</span>;
+                        })()}</td>
                         <td style={{ textAlign: "right", fontWeight: 700 }}>{(() => {
                           const cur = currentPriceOf(p); const bp = Number(p.buy_price ?? 0);
                           if (!(cur > 0) || !(bp > 0)) return <span style={{ color: "var(--color-subtle)" }}>—</span>;
