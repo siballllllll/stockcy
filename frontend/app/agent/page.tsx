@@ -655,6 +655,7 @@ export default function AgentDashboardPage() {
                     <th>종목</th>
                     <th style={{ textAlign: "right" }}>매수가</th>
                     <th style={{ textAlign: "right" }}>매도가</th>
+                    <th style={{ textAlign: "right" }}>수익금</th>
                     <th style={{ textAlign: "right" }}>수익률</th>
                     <th>매수 근거</th>
                     <th>매도 사유 (학습점)</th>
@@ -666,12 +667,14 @@ export default function AgentDashboardPage() {
                     const isUs = !String(t["티커"] ?? t.ticker).match(/^[0-9]+$/);
                     const sym = isUs ? "$" : "₩";
                     const pct = Number(t["수익률(%)"] ?? t.profit_pct ?? 0);
+                    const profit = Number(t["수익금($)"] ?? t.profit ?? 0);
                     const color = pct >= 0 ? "var(--color-danger)" : "var(--color-primary)";
                     return (
                       <tr key={idx}>
                         <td><strong>{t["종목명"] ?? t.name}</strong></td>
                         <td style={{ textAlign: "right" }}>{sym}{Number(t["매수가($)"] ?? t.buy_price ?? 0).toLocaleString()}</td>
                         <td style={{ textAlign: "right" }}>{sym}{Number(t["매도가($)"] ?? t.sell_price ?? 0).toLocaleString()}</td>
+                        <td style={{ textAlign: "right", color, fontWeight: "bold" }}>{profit >= 0 ? "+" : "-"}{sym}{Math.abs(isUs ? Number(profit.toFixed(2)) : Math.round(profit)).toLocaleString()}</td>
                         <td style={{ textAlign: "right", color, fontWeight: "bold" }}>{pct >= 0 ? "+" : ""}{pct.toFixed(2)}%</td>
                         <td style={{ maxWidth: "220px" }}>
                           <span style={{ fontSize: "0.8rem", color: "var(--color-muted)", whiteSpace: "pre-wrap" }}>
