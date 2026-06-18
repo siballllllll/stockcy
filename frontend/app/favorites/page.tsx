@@ -69,94 +69,13 @@ function getStatusInfo(pct: number | null, price?: number, w52High?: number, w52
 }
 
 // ── 즐겨찾기 카드 ─────────────────────────────────────────────────────────────
-// 📋 이슈 배지 — 칩 하나(카드 깔끔) + 호버 미리보기 + 클릭 팝오버(관련 종목 무료 + 시나리오/섹터)
-function IssueBadge({ issues, router, selfTicker }: { issues: { keyword?: string; title?: string }[]; router: any; selfTicker: string }) {
-  const [hover, setHover] = useState(false);
-  const [open, setOpen] = useState(false);
-  const [activeIdx, setActiveIdx] = useState(0);
-  const [related, setRelated] = useState<any[] | null>(null);
-  const [relLoading, setRelLoading] = useState(false);
-
-  const active = issues && issues.length ? issues[Math.min(activeIdx, issues.length - 1)] : null;
-
-  useEffect(() => {
-    if (!open || !active) return;
-    const fn = (api.ai as any).issueStocks;
-    if (typeof fn !== "function") { setRelated([]); setRelLoading(false); return; }   // 번들 stale 방어
-    setRelLoading(true); setRelated(null);
-    fn(active.keyword || active.title || "", selfTicker)
-      .then((d: any) => setRelated(d?.stocks || []))
-      .catch(() => setRelated([]))
-      .finally(() => setRelLoading(false));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, activeIdx]);
-
-  if (!issues || issues.length === 0 || !active) return null;
-  const goScenario = (iss: any) => { setOpen(false); router.push(`/scenarios?focus=${encodeURIComponent(iss.keyword || iss.title || "")}`); };
-  const goSector = (iss: any) => { setOpen(false); router.push(`/sectors?shadow=${encodeURIComponent(iss.keyword || iss.title || "")}`); };
-  const isUs = (tk: string) => /[A-Za-z]/.test(tk || "");
-
+// 📋 이슈 배지 — "이슈 있음"만 간단히 표시(정적). 상세·관련종목·이동은 AI 분석 모달의 이슈 패널에서.
+function IssueBadge({ issues }: { issues: { keyword?: string; title?: string }[] }) {
+  if (!issues || issues.length === 0) return null;
+  const titles = issues.map((i) => i.title || i.keyword).filter(Boolean).join("\n");
   return (
-    <span style={{ position: "relative", display: "inline-block", marginTop: "2px" }}
-      onMouseEnter={() => !open && setHover(true)} onMouseLeave={() => setHover(false)}>
-      <span
-        onClick={(e: any) => { e.stopPropagation(); setHover(false); setActiveIdx(0); setOpen(true); }}
-        style={{ fontSize: "0.66rem", padding: "2px 8px", borderRadius: "99px", background: "rgba(168,85,247,0.13)", border: "1px solid rgba(168,85,247,0.4)", color: "#c084fc", cursor: "pointer", fontWeight: 800, whiteSpace: "nowrap" }}
-      >
-        📋 이슈{issues.length > 1 ? ` ${issues.length}` : ""}
-      </span>
-
-      {/* 호버 미리보기 (제목만 살짝) */}
-      {hover && !open && (
-        <div style={{ position: "absolute", top: "calc(100% + 5px)", left: 0, zIndex: 58, width: "220px", background: "var(--color-card)", border: "1px solid var(--color-border)", borderRadius: "8px", boxShadow: "0 6px 20px rgba(0,0,0,0.4)", padding: "7px 9px", display: "flex", flexDirection: "column", gap: "3px" }}>
-          {issues.map((iss, i) => (
-            <div key={i} style={{ fontSize: "0.7rem", color: "var(--color-text)", lineHeight: 1.35 }}>📋 {iss.title || iss.keyword}</div>
-          ))}
-          <div style={{ fontSize: "0.6rem", color: "var(--color-muted)", marginTop: "2px" }}>클릭 → 관련 종목 보기</div>
-        </div>
-      )}
-
-      {/* 클릭 팝오버 (관련 종목 무료 + 시나리오/섹터) */}
-      {open && (
-        <>
-          <div onClick={(e: any) => { e.stopPropagation(); setOpen(false); }} style={{ position: "fixed", inset: 0, zIndex: 59 }} />
-          <div onClick={(e: any) => e.stopPropagation()} style={{ position: "absolute", top: "calc(100% + 5px)", left: 0, zIndex: 61, width: "270px", background: "var(--color-card)", border: "1px solid var(--color-border)", borderRadius: "10px", boxShadow: "0 8px 26px rgba(0,0,0,0.5)", padding: "10px", display: "flex", flexDirection: "column", gap: "7px" }}>
-            {issues.length > 1 && (
-              <div style={{ display: "flex", gap: "4px", flexWrap: "wrap" }}>
-                {issues.map((iss, i) => (
-                  <span key={i} onClick={() => setActiveIdx(i)} title={iss.title || iss.keyword}
-                    style={{ fontSize: "0.64rem", padding: "1px 7px", borderRadius: "99px", cursor: "pointer", fontWeight: 700,
-                      background: i === activeIdx ? "rgba(168,85,247,0.22)" : "var(--color-elevated)",
-                      border: `1px solid ${i === activeIdx ? "rgba(168,85,247,0.6)" : "var(--color-border)"}`,
-                      color: i === activeIdx ? "#c084fc" : "var(--color-muted)" }}>이슈 {i + 1}</span>
-                ))}
-              </div>
-            )}
-            <div style={{ fontSize: "0.74rem", fontWeight: 700, lineHeight: 1.35 }}>📋 {active.title || active.keyword}</div>
-
-            <div style={{ fontSize: "0.62rem", color: "var(--color-muted)" }}>이 이슈 관련 종목 <span style={{ color: "#34d399" }}>(무료·즉시)</span></div>
-            {relLoading ? (
-              <div style={{ fontSize: "0.7rem", color: "var(--color-muted)" }}>불러오는 중…</div>
-            ) : (related && related.length > 0) ? (
-              <div style={{ display: "flex", flexWrap: "wrap", gap: "4px" }}>
-                {related.map((s: any) => (
-                  <span key={s.ticker} onClick={() => { setOpen(false); router.push(`/search?q=${s.ticker}&market=${isUs(s.ticker) ? "US" : "KR"}`); }}
-                    style={{ fontSize: "0.68rem", padding: "2px 7px", borderRadius: "6px", background: "var(--color-elevated)", border: "1px solid var(--color-border)", cursor: "pointer", color: "var(--color-text)" }}>
-                    {s.name || s.ticker}
-                  </span>
-                ))}
-              </div>
-            ) : (
-              <div style={{ fontSize: "0.68rem", color: "var(--color-muted)" }}>저장된 관련 종목 없음 — 아래 버튼으로 탐색</div>
-            )}
-
-            <div style={{ display: "flex", gap: "5px", marginTop: "2px" }}>
-              <button onClick={() => goScenario(active)} style={{ flex: 1, padding: "7px 4px", fontSize: "0.72rem", fontWeight: 700, borderRadius: "7px", cursor: "pointer", background: "rgba(168,85,247,0.13)", border: "1px solid rgba(168,85,247,0.4)", color: "#c084fc" }}>🔍 시나리오</button>
-              <button onClick={() => goSector(active)} style={{ flex: 1, padding: "7px 4px", fontSize: "0.72rem", fontWeight: 700, borderRadius: "7px", cursor: "pointer", background: "rgba(96,165,250,0.13)", border: "1px solid rgba(96,165,250,0.4)", color: "#60a5fa" }}>🗺️ 이슈 섹터</button>
-            </div>
-          </div>
-        </>
-      )}
+    <span title={titles} style={{ marginTop: "2px", display: "inline-block", fontSize: "0.66rem", padding: "2px 8px", borderRadius: "99px", background: "rgba(168,85,247,0.13)", border: "1px solid rgba(168,85,247,0.4)", color: "#c084fc", fontWeight: 800, whiteSpace: "nowrap" }}>
+      📋 이슈{issues.length > 1 ? ` ${issues.length}` : ""}
     </span>
   );
 }
@@ -315,7 +234,7 @@ function FavRow({ fav, price, overtime, onRemove, onAnalyze, onSaveMemo, gapBulk
       </div>
 
       {/* 📋 이슈 배지 — 간략 표시 + 호버 툴팁 + 클릭 이동 */}
-      {issues && issues.length > 0 && <IssueBadge issues={issues} router={router} selfTicker={fav["티커"]} />}
+      {issues && issues.length > 0 && <IssueBadge issues={issues} />}
 
       {/* 🌙 시간외 단일가 (장 마감 후, 데이터 있을 때만) — 정규장 가격은 그대로 두고 보조 표시 */}
       {isKr && overtime && overtime.price > 0 && (
