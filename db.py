@@ -3660,7 +3660,14 @@ def get_stock_issues(tickers: list, days: int = 21) -> dict:
             for iss in (scn or {}).get("issues", []) or []:
                 t = str(iss.get("title") or "").strip()
                 if t and t not in main_map:   # 최신 우선(이미 있으면 유지)
-                    main_map[t] = {"summary": iss.get("summary", ""), "category": iss.get("category")}
+                    scns = iss.get("scenarios") or []
+                    econ = ""
+                    if scns:
+                        a = scns[0] or {}
+                        d = a.get("market_direction", "")
+                        econ = (f"({a.get('label','A')}·{d}) " if d else "") + (a.get("economic_analysis", "") or "")
+                    main_map[t] = {"summary": iss.get("summary", ""), "category": iss.get("category"),
+                                   "economic": econ.strip()}
 
         try:
             _ingest(load_ai_cache("market_scenarios_latest"))
@@ -3699,6 +3706,7 @@ def get_stock_issues(tickers: list, days: int = 21) -> dict:
                     "captured_at": (d.get("captured_at") or "")[:10],
                     "summary": summary,
                     "category": info.get("category"),
+                    "economic": info.get("economic") or "",
                 })
         return out
     except Exception as e:
