@@ -231,7 +231,17 @@ def crypto_price(symbol: str = "BTC"):
 
 @router.get("/exchange-rate")
 def us_exchange_rate():
-    """USD/KRW 실시간 환율 (yfinance USDKRW=X)."""
+    """USD/KRW 실시간 환율 — 토스 환율 우선, yfinance(USDKRW=X) 폴백, 최후 1350."""
+    # 1순위: 토스 참고 환율 (1분 갱신, 안정적)
+    try:
+        import toss_api
+        rate = toss_api.get_exchange_rate("USD", "KRW")
+        if rate and rate > 0:
+            return {"rate": round(rate, 2), "symbol": "USDKRW", "fallback": False, "source": "toss"}
+    except Exception:
+        pass
+
+    # 2순위: yfinance
     from api.circuit import yf_breaker
     if not yf_breaker.is_open():
         try:
@@ -244,10 +254,10 @@ def us_exchange_rate():
                     rate = float(hist["Close"].iloc[-1])
             if rate > 0:
                 yf_breaker.record_success()
-                return {"rate": round(rate, 2), "symbol": "USDKRW", "fallback": False}
+                return {"rate": round(rate, 2), "symbol": "USDKRW", "fallback": False, "source": "yfinance"}
         except Exception:
             yf_breaker.record_failure()
-    return {"rate": 1350.0, "symbol": "USDKRW", "fallback": True}
+    return {"rate": 1350.0, "symbol": "USDKRW", "fallback": True, "source": "default"}
 
 
 @router.get("/treasury-10y")

@@ -927,14 +927,25 @@ function PortfolioTab({ gapBulkMap }: { gapBulkMap: Record<string, any> }) {
   );
   const usdKrw = fxData?.rate ?? 1350;
 
+  // 토스 통합 현재가 (국내+미국 한 번에) — 평가용 우선 소스(D단계). 미스 시 네이버/yfinance 폴백.
+  const allSymbols = [...krTickers, ...usTickers];
+  const { data: tossPrices } = useSWR(
+    allSymbols.length > 0 ? `toss-bulk-${allSymbols.join(",")}` : null,
+    () => api.portfolio.tossPricesBulk(allSymbols) as Promise<Record<string, number>>,
+    { refreshInterval: 30000 }
+  );
+
   const enriched = useMemo(() => {
     return (portfolio ?? []).map(p => {
       const trimmed = String(p.ticker).trim();
       const isUs = !isKrCode(trimmed);
       const normalTicker = isUs ? trimmed.toUpperCase() : padKr(trimmed);
       const livePriceMap = isUs ? (usPrices ?? {}) : (krPrices ?? {});
-      
-      const currentPrice = livePriceMap[normalTicker] ?? livePriceMap[trimmed.toUpperCase()] ?? livePriceMap[trimmed] ?? 0;
+
+      // 1순위: 토스 통합 현재가(ETF 포함·KOSDAQ 보합/stale 없음). 2순위: 기존 소스.
+      const tossPrice = (tossPrices ?? {})[normalTicker] ?? (tossPrices ?? {})[trimmed] ?? 0;
+      const currentPrice = tossPrice > 0 ? tossPrice
+        : (livePriceMap[normalTicker] ?? livePriceMap[trimmed.toUpperCase()] ?? livePriceMap[trimmed] ?? 0);
       const hasPrice = currentPrice > 0;
       
       const cost = (p.buy_price ?? 0) * (p.quantity ?? 0);
@@ -959,7 +970,7 @@ function PortfolioTab({ gapBulkMap }: { gapBulkMap: Record<string, any> }) {
          valueKrw 
       };
     });
-  }, [portfolio, krPrices, usPrices, usdKrw]);
+  }, [portfolio, krPrices, usPrices, tossPrices, usdKrw]);
 
   // 실거래/테스트 구분 — 테스트가 합산되면 실제 투자금·손익 파악이 어려우므로 분리(기본 실거래)
   const [holdingFilter, setHoldingFilter] = useState<"실거래" | "테스트" | "전체">("실거래");

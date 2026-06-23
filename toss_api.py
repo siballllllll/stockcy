@@ -111,6 +111,36 @@ def get_price(symbol: str) -> float | None:
     return get_prices([symbol]).get(str(symbol).strip())
 
 
+def get_exchange_rate(base: str = "USD", quote: str = "KRW") -> float | None:
+    """토스 참고 환율(1분 갱신). 예: USD→KRW. 실패 시 None.
+
+    인증 토큰만 있으면 되는 시세성 데이터(계좌 헤더 불필요).
+    """
+    headers = _auth_headers()
+    if not headers:
+        return None
+    try:
+        resp = requests.get(
+            f"{TOSS_BASE}/api/v1/exchange-rate",
+            params={"baseCurrency": base.upper(), "quoteCurrency": quote.upper()},
+            headers=headers,
+            timeout=10,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+    except Exception:
+        return None
+
+    result = data.get("result", data)
+    raw = result.get("rate") if isinstance(result, dict) else None
+    if raw is None:
+        return None
+    try:
+        return float(raw)
+    except (TypeError, ValueError):
+        return None
+
+
 # ── 계좌 & 자산 (B단계: 관리자 본인 계좌 전용) ───────────────────────────────
 # ⚠️ 토스 API 키는 .env의 관리자 계좌 1개에 묶인다. 일반유저용 아님.
 

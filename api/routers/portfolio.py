@@ -222,6 +222,20 @@ async def run_agent_scan_now(user: dict = Depends(get_current_user)):
         return {"success": False, "message": str(e)}
 
 
+@router.get("/prices/toss-bulk")
+async def toss_prices_bulk(symbols: str, user: dict = Depends(get_current_user)):
+    """토스 통합 현재가(국내+미국 한 번에). {symbol: price} 반환.
+
+    D단계: 평가용 현재가 소스. 토스 prices는 lastPrice만 주므로(등락률 없음)
+    평가금액 계산에 사용하고, 등락률/세부 표시는 기존 소스를 유지한다.
+    """
+    import toss_api
+    syms = [s.strip() for s in symbols.split(",") if s.strip()]
+    if not syms:
+        return {}
+    return await asyncio.to_thread(toss_api.get_prices, syms)
+
+
 @router.get("/portfolio/toss/holdings")
 async def load_toss_holdings(_admin: dict = Depends(require_admin)):
     """토스증권 실계좌 보유종목 조회 (관리자 전용).

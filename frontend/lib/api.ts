@@ -161,6 +161,7 @@ export const api = {
   portfolio: {
     loadPortfolio: ()                        => req("/api/portfolio"),
     loadTossHoldings: ()                      => req<{ connected: boolean; holdings: Array<{ symbol: string; quantity: number; avg_price: number; market_value: number; profit_loss: number }> }>("/api/portfolio/toss/holdings"),
+    tossPricesBulk: (symbols: string[])       => req<Record<string, number>>(`/api/prices/toss-bulk?symbols=${symbols.join(",")}`),
     loadAgentPortfolio: ()                   => req("/api/portfolio/agent"),
     loadAgentBalance: ()                     => req<{ cash: number; seed: number }>("/api/portfolio/agent/balance"),
     loadAgentScanLogs: ()                    => req<any[]>("/api/portfolio/agent/scan-logs"),
