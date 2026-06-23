@@ -2041,7 +2041,14 @@ def get_kr_daily_chart(stock_code: str, period: str = "3mo", unit: str = "D") ->
     _start_str = _start_dt.strftime("%Y%m%d")
     _end_str   = _end_dt.strftime("%Y%m%d")
 
-    # ── 1차: KIS API ──────────────────────────────────────────────────────────
+    # ── 1차: 토스 일봉 (단기·중기 unit=D, ~6개월/200봉 이내) — 현재가와 소스 일치 ─
+    _toss_primary = unit == "D" and _days <= 280
+    if _toss_primary:
+        tdf = _toss_daily_df(stock_code.zfill(6), _days)
+        if not tdf.empty:
+            return tdf
+
+    # ── 2차: KIS API (장기·주월봉의 1차이자, 토스 실패 시 폴백) ─────────────────
     try:
         df = _kis_daily_chart_raw(stock_code, _start_str, _end_str, unit=unit)
         if not df.empty:
@@ -2049,13 +2056,13 @@ def get_kr_daily_chart(stock_code: str, period: str = "3mo", unit: str = "D") ->
     except Exception:
         pass
 
-    # ── 2차: 토스 일봉 폴백 (unit=D, ~200봉 이내) — yfinance .KS/.KQ 불안정 대체 ─
-    if unit == "D" and _days <= 400:
+    # ── 3차: 토스 일봉 (장기에서 KIS도 실패 시 — 최대 200봉이라도 확보) ─────────
+    if unit == "D" and not _toss_primary:
         tdf = _toss_daily_df(stock_code.zfill(6), _days)
         if not tdf.empty:
             return tdf
 
-    # ── 3차: yfinance 폴백 ────────────────────────────────────────────────────
+    # ── 4차: yfinance 폴백 ────────────────────────────────────────────────────
     import yfinance as yf
     _custom_yf = {"15d", "3y"}
     if period in _custom_yf:
@@ -2382,6 +2389,17 @@ def get_us_daily_chart(ticker: str, period: str = "3mo", unit: str = "D") -> pd.
     import yfinance as yf
     from datetime import datetime as _dt, timedelta as _td
     _custom = {"15d": 21, "3y": 1100}
+    _days = _custom.get(period, {"1d": 2, "3d": 5, "1w": 8, "1mo": 35,
+                                 "3mo": 95, "6mo": 185, "1y": 370,
+                                 "2y": 740, "5y": 1830}.get(period, 95))
+
+    # ── 1차: 토스 일봉 (단기·중기 unit=D, ~6개월/200봉 이내) — 현재가와 소스 일치 ─
+    _toss_primary = unit == "D" and _days <= 280
+    if _toss_primary:
+        tdf = _toss_daily_df(ticker.strip().upper(), _days)
+        if not tdf.empty:
+            return tdf
+
     if period in _custom:
         _end = _dt.now()
         _start = (_end - _td(days=_custom[period])).strftime("%Y-%m-%d")
@@ -2411,11 +2429,9 @@ def get_us_daily_chart(ticker: str, period: str = "3mo", unit: str = "D") -> pd.
     except Exception:
         pass
 
-    # 폴백: 토스 일봉 (yfinance 실패/빈값 시, unit=D만)
-    if unit == "D":
-        _days = _custom.get(period, {"1d": 2, "3d": 5, "1w": 8, "1mo": 35,
-                                     "3mo": 95, "6mo": 185, "1y": 370}.get(period, 95))
-        return _toss_daily_df(ticker.strip().upper(), _days if isinstance(_days, int) else 95)
+    # 폴백: 토스 일봉 (장기에서 yfinance 실패 시 — 최대 200봉, unit=D만)
+    if unit == "D" and not _toss_primary:
+        return _toss_daily_df(ticker.strip().upper(), _days)
     return pd.DataFrame()
 
 
