@@ -111,6 +111,100 @@ def get_price(symbol: str) -> float | None:
     return get_prices([symbol]).get(str(symbol).strip())
 
 
+# ── 계좌 & 자산 (B단계: 관리자 본인 계좌 전용) ───────────────────────────────
+# ⚠️ 토스 API 키는 .env의 관리자 계좌 1개에 묶인다. 일반유저용 아님.
+
+def get_accounts() -> list[dict]:
+    """관리자 계좌 목록. 각 원소에 accountNo / accountSeq / accountType."""
+    headers = _auth_headers()
+    if not headers:
+        return []
+    try:
+        resp = requests.get(f"{TOSS_BASE}/api/v1/accounts", headers=headers, timeout=10)
+        resp.raise_for_status()
+        return resp.json().get("result", []) or []
+    except Exception:
+        return []
+
+
+def _first_account_seq() -> int | None:
+    """첫 번째(주) 계좌의 accountSeq. 잔고 조회 헤더에 사용."""
+    accounts = get_accounts()
+    if not accounts:
+        return None
+    seq = accounts[0].get("accountSeq")
+    return int(seq) if seq is not None else None
+
+
+def _amount(node: dict | None) -> float:
+    """{amount:{krw|usd}} 형태에서 통화 불문 숫자 추출."""
+    if not isinstance(node, dict):
+        return 0.0
+    amt = node.get("amount", node)
+    if isinstance(amt, dict):
+        for cur in ("krw", "usd"):
+            if amt.get(cur) is not None:
+                try:
+                    return float(amt[cur])
+                except (TypeError, ValueError):
+                    return 0.0
+    try:
+        return float(amt)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def get_holdings(account_seq: int | None = None) -> list[dict]:
+    """관리자 계좌 보유종목. 정규화된 dict 리스트 반환.
+
+    각 원소: {symbol, quantity, avg_price, market_value, profit_loss}
+    account_seq 미지정 시 첫 계좌 자동 사용.
+    """
+    if account_seq is None:
+        account_seq = _first_account_seq()
+    if account_seq is None:
+        return []
+
+    headers = _auth_headers()
+    if not headers:
+        return []
+    headers["X-Tossinvest-Account"] = str(account_seq)
+
+    try:
+        resp = requests.get(f"{TOSS_BASE}/api/v1/holdings", headers=headers, timeout=10)
+        resp.raise_for_status()
+        data = resp.json()
+    except Exception:
+        return []
+
+    result = data.get("result") or {}
+    items = result.get("items") if isinstance(result, dict) else None
+    if items is None:  # 일부 응답은 result가 바로 배열일 수 있음
+        items = result if isinstance(result, list) else []
+
+    out: list[dict] = []
+    for it in items or []:
+        sym = it.get("symbol") or it.get("code")
+        if not sym:
+            continue
+        try:
+            qty = float(it.get("quantity", 0) or 0)
+        except (TypeError, ValueError):
+            qty = 0.0
+        try:
+            avg = float(it.get("averagePurchasePrice", 0) or 0)
+        except (TypeError, ValueError):
+            avg = 0.0
+        out.append({
+            "symbol": str(sym),
+            "quantity": qty,
+            "avg_price": avg,
+            "market_value": _amount(it.get("marketValue")),
+            "profit_loss": _amount(it.get("profitLoss")),
+        })
+    return out
+
+
 if __name__ == "__main__":
     # 최소 연동 테스트: venv/Scripts/python toss_api.py
     from dotenv import load_dotenv
@@ -130,3 +224,19 @@ if __name__ == "__main__":
         raise SystemExit(1)
     for sym, px in prices.items():
         print(f"  [OK] {sym}: {px:,.2f}")
+
+    print("[3] 계좌 조회 테스트 ...")
+    accs = get_accounts()
+    if not accs:
+        print("  [WARN] 계좌 없음 또는 계좌 권한 미승인 (시세만 신청한 경우 정상)")
+    else:
+        for a in accs:
+            print(f"  [OK] accountNo={a.get('accountNo')} seq={a.get('accountSeq')} type={a.get('accountType')}")
+
+        print("[4] 보유종목(잔고) 조회 테스트 ...")
+        holdings = get_holdings()
+        if not holdings:
+            print("  [INFO] 보유종목 없음")
+        for h in holdings:
+            print(f"  [OK] {h['symbol']}: {h['quantity']:g}주 / 평단 {h['avg_price']:,.2f} / "
+                  f"평가액 {h['market_value']:,.0f} / 평가손익 {h['profit_loss']:,.0f}")

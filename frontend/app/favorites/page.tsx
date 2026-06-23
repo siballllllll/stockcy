@@ -876,6 +876,9 @@ function PortfolioTab({ gapBulkMap }: { gapBulkMap: Record<string, any> }) {
   // 단일 종목 자금 회전 분석 대상
   const [rotationTarget, setRotationTarget] = useState<{ ticker: string; name: string } | null>(null);
 
+  // 토스 실계좌 잔고 동기화 (관리자 전용) — "syncing" | "" | 결과 메시지
+  const [tossSync, setTossSync] = useState<string>("");
+
   // KR/US 종목 분류 (1~6자리 숫자 = KR, 6자리로 패딩)
   const isKrCode  = (t: string) => /^\d{1,6}$/.test(String(t).trim());
   const padKr     = (t: string) => String(t).trim().padStart(6, "0");
@@ -1129,12 +1132,61 @@ function PortfolioTab({ gapBulkMap }: { gapBulkMap: Record<string, any> }) {
     mutate();
   };
 
+  // 토스 실계좌 보유종목을 개인 포트폴리오에 병합(ticker 기준 upsert) — 관리자 전용
+  const handleTossSync = async () => {
+    setTossSync("syncing");
+    try {
+      const res = await api.portfolio.loadTossHoldings();
+      if (!res.connected) { setTossSync("토스 계좌 연결 실패 — .env 키/계좌 권한 확인"); return; }
+      const holdings = res.holdings ?? [];
+      if (holdings.length === 0) { setTossSync("토스 계좌에 보유종목이 없습니다."); return; }
+
+      const norm = (t: string) => (/^\d{1,6}$/.test(String(t).trim()) ? String(t).trim().padStart(6, "0") : String(t).trim().toUpperCase());
+      const current = [...(portfolio ?? [])];
+      const idx: Record<string, number> = {};
+      current.forEach((p, i) => { idx[norm(p.ticker)] = i; });
+
+      for (const h of holdings) {
+        const key = norm(h.symbol);
+        const base = { ticker: h.symbol, buy_price: h.avg_price, quantity: h.quantity, trade_source: "토스", trade_type: "실매매" };
+        if (idx[key] !== undefined) {
+          current[idx[key]] = { ...current[idx[key]], ...base };   // 기존 name/buy_reason 보존
+        } else {
+          current.push({ ...base, name: h.symbol, buy_reason: "[토스 동기화]" });
+        }
+      }
+      await fetch(`${BASE_URL}/api/portfolio`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ portfolio_list: current }),
+      });
+      mutate();
+      setTossSync(`토스 잔고 ${holdings.length}종목 동기화 완료`);
+    } catch {
+      setTossSync("동기화 중 오류가 발생했습니다.");
+    }
+  };
+
   if (isLoading) return <Skeleton height="200px" />;
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
       {/* 종목 추가 폼 */}
       <AddPortfolioForm onAdded={() => mutate()} />
+
+      {/* 토스 실계좌 잔고 동기화 (관리자 전용) */}
+      {isAdmin && (
+        <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
+          <button onClick={handleTossSync} disabled={tossSync === "syncing"}
+            style={{ fontSize: "0.76rem", padding: "5px 14px", borderRadius: "7px", cursor: tossSync === "syncing" ? "default" : "pointer",
+              fontWeight: 700, border: "1px solid var(--color-accent)",
+              background: "rgba(99,102,241,0.12)", color: "var(--color-text)", opacity: tossSync === "syncing" ? 0.6 : 1 }}>
+            {tossSync === "syncing" ? "동기화 중…" : "🔗 토스 잔고 동기화"}
+          </button>
+          {tossSync && tossSync !== "syncing" && (
+            <span style={{ fontSize: "0.72rem", color: "var(--color-muted)" }}>{tossSync}</span>
+          )}
+        </div>
+      )}
 
       {/* 실거래 / 테스트 구분 토글 (테스트 보유가 있을 때만) */}
       {hasTest && (

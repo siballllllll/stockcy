@@ -222,6 +222,20 @@ async def run_agent_scan_now(user: dict = Depends(get_current_user)):
         return {"success": False, "message": str(e)}
 
 
+@router.get("/portfolio/toss/holdings")
+async def load_toss_holdings(_admin: dict = Depends(require_admin)):
+    """토스증권 실계좌 보유종목 조회 (관리자 전용).
+
+    ⚠️ 토스 API 키(.env)는 관리자 본인 계좌 1개에 묶이므로 require_admin 게이트 필수.
+    일반유저는 접근 불가 — 본인 잔고는 기존처럼 수동 입력한다.
+    """
+    import toss_api
+    holdings = await asyncio.to_thread(toss_api.get_holdings)
+    accounts = await asyncio.to_thread(toss_api.get_accounts)
+    connected = bool(accounts)
+    return {"connected": connected, "holdings": holdings}
+
+
 @router.post("/portfolio")
 async def save_portfolio(req: PortfolioSaveRequest, user: dict = Depends(get_current_user)):
     from db import save_portfolio_to_gsheet
