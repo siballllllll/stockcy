@@ -1163,7 +1163,7 @@ function PortfolioTab({ gapBulkMap }: { gapBulkMap: Record<string, any> }) {
         if (idx[key] !== undefined) {
           current[idx[key]] = { ...current[idx[key]], ...base };   // 기존 name/buy_reason 보존
         } else {
-          current.push({ ...base, name: h.symbol, buy_reason: "[토스 동기화]" });
+          current.push({ ...base, name: h.name || h.symbol, buy_reason: "[토스 동기화]" });
         }
       }
       await fetch(`${BASE_URL}/api/portfolio`, {

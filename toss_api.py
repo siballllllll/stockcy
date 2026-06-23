@@ -269,10 +269,16 @@ def get_holdings(account_seq: int | None = None) -> list[dict]:
             avg = float(it.get("averagePurchasePrice", 0) or 0)
         except (TypeError, ValueError):
             avg = 0.0
+        try:
+            last = float(it.get("lastPrice", 0) or 0)
+        except (TypeError, ValueError):
+            last = 0.0
         out.append({
             "symbol": str(sym),
+            "name": it.get("name") or str(sym),
             "quantity": qty,
             "avg_price": avg,
+            "last_price": last,
             "market_value": _amount(it.get("marketValue")),
             "profit_loss": _amount(it.get("profitLoss")),
         })
