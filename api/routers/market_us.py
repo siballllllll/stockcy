@@ -169,23 +169,54 @@ def us_stock_detail(ticker: str, exchange: str = Query("NASDAQ")):
     return result or {}
 
 
+# 단기·중기 일봉 period → 토스 캔들 개수 (≤6개월은 토스 1차 대상)
+_US_TOSS_SHORT = {"1d": 2, "5d": 6, "1mo": 23, "3mo": 66, "6mo": 130}
+
+
+def _toss_us_chart(ticker: str, count: int) -> list:
+    """토스 일봉을 US 차트 레코드(일자/시가/.../거래량)로 변환. 실패 시 []."""
+    try:
+        import toss_api
+        candles = toss_api.get_candles(ticker.upper(), interval="1d", count=min(max(count, 1), 200))
+        return [{
+            "일자":  str(c["datetime"])[:10],
+            "시가":  round(c["open"], 2),
+            "고가":  round(c["high"], 2),
+            "저가":  round(c["low"], 2),
+            "종가":  round(c["close"], 2),
+            "거래량": int(c["volume"]),
+        } for c in candles]
+    except Exception:
+        return []
+
+
 @router.get("/chart/{ticker}")
 def us_chart(
     ticker: str,
     period: str = Query("1y", description="yfinance period: 1d,5d,1mo,3mo,6mo,1y,2y,5y"),
     interval: str = Query("1d", description="yfinance interval: 1m,5m,15m,30m,60m,1d,1wk,1mo"),
 ):
-    """미국 주식 OHLCV 차트 데이터 (yfinance 기반). 분봉 포함."""
+    """미국 주식 OHLCV 차트 — 단기·중기 일봉은 토스 1차, 그 외 yfinance(+토스 폴백). 분봉 포함."""
+    # ── 1차: 토스 일봉 (단기·중기 ≤6개월) — 현재가·평가액과 소스 일치 ──────────
+    if interval == "1d" and period in _US_TOSS_SHORT:
+        rec = _toss_us_chart(ticker, _US_TOSS_SHORT[period])
+        if rec:
+            return rec
+
     from api.circuit import yf_breaker
     if yf_breaker.is_open():
-        return []  # 시세 소스 장애 중 — 스레드 점유 없이 즉시 반환
+        # yfinance 장애 — 일봉이면 토스로라도 반환
+        if interval == "1d":
+            return _toss_us_chart(ticker, 200)
+        return []
     try:
         import yfinance as yf
         is_minute = interval.endswith("m") and interval != "1mo"
         df = yf.Ticker(ticker.upper()).history(period=period, interval=interval, auto_adjust=True, prepost=is_minute, timeout=4)
         yf_breaker.record_success()
         if df is None or df.empty:
-            return []
+            # 일봉이면 토스 폴백
+            return _toss_us_chart(ticker, 200) if interval == "1d" else []
         records = []
         for dt, row in df.iterrows():
             # 분봉은 전체 datetime, 일봉 이상은 날짜만
@@ -206,7 +237,8 @@ def us_chart(
         return records
     except Exception:
         yf_breaker.record_failure()
-        return []
+        # 일봉이면 토스 폴백
+        return _toss_us_chart(ticker, 200) if interval == "1d" else []
 
 
 @router.get("/crypto/{symbol}")

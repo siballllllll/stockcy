@@ -244,25 +244,26 @@ function SearchPageInner() {
     });
   };
   const [chartType, setChartType]     = useState<string>("daily");
-  const [chartPeriod, setChartPeriod] = useState<string>("MAX");
+  const [chartPeriod, setChartPeriod] = useState<string>("6M");   // 기본 6개월=토스 소스
   const [minuteInterval, setMinuteInterval] = useState<number>(5);
 
   // 기간 옵션: 차트 타입별 (분봉은 기간 없음)
+  // 일봉의 3M/6M은 토스 소스로 그려짐(현재가·평가액과 일치), 1Y/MAX는 KIS/yfinance.
   const PERIOD_OPTIONS: Record<string, string[]> = {
-    daily:   ["MAX"],
+    daily:   ["3M", "6M", "1Y", "MAX"],
     weekly:  ["MAX"],
     monthly: ["MAX"],
     minute:  [],
   };
-  // KR: 기간 → 일봉 개수
+  // KR: 기간 → 일봉 개수 (3M=66·6M=130 → get_kr_daily_chart에서 토스 1차)
   const KR_PERIOD_DAYS: Record<string, Record<string, number>> = {
-    daily:   { "MAX": 5000 },
+    daily:   { "3M": 66, "6M": 130, "1Y": 250, "MAX": 5000 },
     weekly:  { "MAX": 1000 },
     monthly: { "MAX": 600 },
   };
-  // US: 기간 → yfinance period
+  // US: 기간 → yfinance period (3mo/6mo → us_chart에서 토스 1차)
   const US_PERIOD: Record<string, Record<string, string>> = {
-    daily:   { "MAX": "max" },
+    daily:   { "3M": "3mo", "6M": "6mo", "1Y": "1y", "MAX": "max" },
     weekly:  { "MAX": "max" },
     monthly: { "MAX": "max" },
   };
@@ -297,7 +298,7 @@ function SearchPageInner() {
   // 차트 타입 변경 시 유효한 기간으로 리셋
   useEffect(() => {
     if (chartType !== "minute") {
-      setChartPeriod("MAX");
+      setChartPeriod(chartType === "daily" ? "6M" : "MAX");
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [chartType]);
@@ -309,7 +310,7 @@ function SearchPageInner() {
       setCurrentCode(market === "KR" ? "005930" : "AAPL");
       setActiveTab("시세");
       setChartType("daily");
-      setChartPeriod("1Y");
+      setChartPeriod("6M");
       setAiStatus("idle");
       setAiResult(null);
     }
@@ -1007,7 +1008,24 @@ function SearchPageInner() {
                 </select>
               )}
 
-              {/* chart period buttons removed */}
+              {/* 기간 버튼 (일봉만): 3M·6M은 토스 소스, 1Y·MAX는 KIS/yfinance */}
+              {chartType !== "minute" && (PERIOD_OPTIONS[chartType]?.length ?? 0) > 1 &&
+                PERIOD_OPTIONS[chartType].map((opt) => (
+                  <button
+                    key={opt}
+                    onClick={() => setChartPeriod(opt)}
+                    className="rounded px-3 py-1 text-sm transition-colors"
+                    style={{
+                      fontWeight: 700,
+                      border: `1px solid ${chartPeriod === opt ? "var(--color-accent)" : "rgba(255,255,255,0.12)"}`,
+                      background: chartPeriod === opt ? "rgba(99,102,241,0.18)" : "transparent",
+                      color: chartPeriod === opt ? "#fff" : "rgba(255,255,255,0.6)",
+                      cursor: "pointer",
+                    }}
+                  >
+                    {opt}
+                  </button>
+                ))}
             </div>
 
             <div style={{ marginTop: "1.5rem" }}>
