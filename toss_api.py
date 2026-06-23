@@ -111,6 +111,50 @@ def get_price(symbol: str) -> float | None:
     return get_prices([symbol]).get(str(symbol).strip())
 
 
+def get_candles(symbol: str, interval: str = "1d", count: int = 100) -> list[dict]:
+    """OHLCV 캔들. interval은 "1d" 또는 "1m"만 지원, count 최대 200.
+
+    반환: [{datetime(ISO str), open, high, low, close, volume}] 시간 오름차순.
+    실패 시 빈 리스트.
+    """
+    if interval not in ("1d", "1m"):
+        return []
+    count = max(1, min(int(count), 200))
+
+    headers = _auth_headers()
+    if not headers:
+        return []
+    try:
+        resp = requests.get(
+            f"{TOSS_BASE}/api/v1/candles",
+            params={"symbol": str(symbol).strip(), "interval": interval, "count": count},
+            headers=headers,
+            timeout=10,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+    except Exception:
+        return []
+
+    result = data.get("result") or {}
+    candles = result.get("candles") if isinstance(result, dict) else result
+    out: list[dict] = []
+    for c in candles or []:
+        try:
+            out.append({
+                "datetime": c.get("timestamp"),
+                "open":   float(c.get("openPrice") or 0),
+                "high":   float(c.get("highPrice") or 0),
+                "low":    float(c.get("lowPrice") or 0),
+                "close":  float(c.get("closePrice") or 0),
+                "volume": int(float(c.get("volume") or 0)),
+            })
+        except (TypeError, ValueError):
+            continue
+    out.sort(key=lambda r: r["datetime"] or "")
+    return out
+
+
 def get_exchange_rate(base: str = "USD", quote: str = "KRW") -> float | None:
     """토스 참고 환율(1분 갱신). 예: USD→KRW. 실패 시 None.
 

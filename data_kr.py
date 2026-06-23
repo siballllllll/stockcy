@@ -2006,6 +2006,25 @@ def get_kr_change_ranking(market: str = "J") -> list:
 
 
 @st.cache_data(ttl=300)
+def _toss_daily_df(symbol: str, days: int) -> pd.DataFrame:
+    """토스 일봉을 표준 차트 DataFrame으로 변환. 실패/없음 시 빈 DF.
+    컬럼: datetime(tz-naive), open, high, low, close, volume.
+    """
+    try:
+        import toss_api
+        candles = toss_api.get_candles(symbol, interval="1d", count=min(max(days, 1), 200))
+        if not candles:
+            return pd.DataFrame()
+        df = pd.DataFrame(candles)
+        df["datetime"] = pd.to_datetime(df["datetime"])
+        if df["datetime"].dt.tz is not None:
+            df["datetime"] = df["datetime"].dt.tz_localize(None)
+        needed = ["datetime", "open", "high", "low", "close", "volume"]
+        return df[needed].dropna(subset=["open", "high", "low", "close"]).reset_index(drop=True)
+    except Exception:
+        return pd.DataFrame()
+
+
 def get_kr_daily_chart(stock_code: str, period: str = "3mo", unit: str = "D") -> pd.DataFrame:
     """국내 주식 일/주/월봉 데이터. unit: D, W, M"""
     from datetime import datetime as _dt, timedelta as _td
@@ -2030,7 +2049,13 @@ def get_kr_daily_chart(stock_code: str, period: str = "3mo", unit: str = "D") ->
     except Exception:
         pass
 
-    # ── 2차: yfinance 폴백 ────────────────────────────────────────────────────
+    # ── 2차: 토스 일봉 폴백 (unit=D, ~200봉 이내) — yfinance .KS/.KQ 불안정 대체 ─
+    if unit == "D" and _days <= 400:
+        tdf = _toss_daily_df(stock_code.zfill(6), _days)
+        if not tdf.empty:
+            return tdf
+
+    # ── 3차: yfinance 폴백 ────────────────────────────────────────────────────
     import yfinance as yf
     _custom_yf = {"15d", "3y"}
     if period in _custom_yf:
@@ -2380,9 +2405,18 @@ def get_us_daily_chart(ticker: str, period: str = "3mo", unit: str = "D") -> pd.
         df["datetime"] = pd.to_datetime(df["datetime"])
         if df["datetime"].dt.tz is not None:
             df["datetime"] = df["datetime"].dt.tz_localize(None)
-        return df[needed].dropna(subset=["open", "high", "low", "close"]).reset_index(drop=True)
+        out = df[needed].dropna(subset=["open", "high", "low", "close"]).reset_index(drop=True)
+        if not out.empty:
+            return out
     except Exception:
-        return pd.DataFrame()
+        pass
+
+    # 폴백: 토스 일봉 (yfinance 실패/빈값 시, unit=D만)
+    if unit == "D":
+        _days = _custom.get(period, {"1d": 2, "3d": 5, "1w": 8, "1mo": 35,
+                                     "3mo": 95, "6mo": 185, "1y": 370}.get(period, 95))
+        return _toss_daily_df(ticker.strip().upper(), _days if isinstance(_days, int) else 95)
+    return pd.DataFrame()
 
 
 @st.cache_data(ttl=60, show_spinner=False)
