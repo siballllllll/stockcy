@@ -185,6 +185,144 @@ def get_warning_flags(symbols: list[str]) -> dict[str, list[dict]]:
     return out
 
 
+def _f(v) -> float:
+    """문자열/None을 float로(실패 시 0)."""
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def get_orderbook(symbol: str) -> dict:
+    """호가창. {asks:[{price,volume}], bids:[...], currency}. 실패 시 {}.
+
+    asks=매도호가(낮은가→높은가), bids=매수호가(높은가→낮은가) 형태로 정렬.
+    """
+    sym = str(symbol).strip()
+    headers = _auth_headers()
+    if not sym or not headers:
+        return {}
+    try:
+        resp = requests.get(f"{TOSS_BASE}/api/v1/orderbook",
+                            params={"symbol": sym}, headers=headers, timeout=10)
+        resp.raise_for_status()
+        r = resp.json().get("result", {}) or {}
+    except Exception:
+        return {}
+
+    def _lvls(key):
+        return [{"price": _f(x.get("price")), "volume": _f(x.get("volume"))}
+                for x in (r.get(key) or [])]
+    return {"asks": _lvls("asks"), "bids": _lvls("bids"), "currency": r.get("currency")}
+
+
+def get_trades(symbol: str, count: int = 30) -> list[dict]:
+    """최근 체결 내역. [{price, volume, timestamp}] 최신순. 실패 시 []."""
+    sym = str(symbol).strip()
+    headers = _auth_headers()
+    if not sym or not headers:
+        return []
+    try:
+        resp = requests.get(f"{TOSS_BASE}/api/v1/trades",
+                            params={"symbol": sym, "count": max(1, min(int(count), 50))},
+                            headers=headers, timeout=10)
+        resp.raise_for_status()
+        items = resp.json().get("result", []) or []
+    except Exception:
+        return []
+    return [{"price": _f(t.get("price")), "volume": _f(t.get("volume")),
+             "timestamp": t.get("timestamp")} for t in items]
+
+
+def get_price_limits(symbol: str) -> dict:
+    """상/하한가. {upper, lower, currency}. 값 없으면 None(미국 등). 실패 시 {}."""
+    sym = str(symbol).strip()
+    headers = _auth_headers()
+    if not sym or not headers:
+        return {}
+    try:
+        resp = requests.get(f"{TOSS_BASE}/api/v1/price-limits",
+                            params={"symbol": sym}, headers=headers, timeout=10)
+        resp.raise_for_status()
+        r = resp.json().get("result", {}) or {}
+    except Exception:
+        return {}
+    up = r.get("upperLimitPrice")
+    lo = r.get("lowerLimitPrice")
+    return {
+        "upper": _f(up) if up is not None else None,
+        "lower": _f(lo) if lo is not None else None,
+        "currency": r.get("currency"),
+    }
+
+
+def get_market_calendar(market: str = "KR") -> dict:
+    """장 운영 정보. {date, is_open, next_business_day, prev_business_day}. 실패 시 {}.
+
+    is_open=오늘 정규장 운영 여부(휴장이면 False).
+    """
+    mk = (market or "KR").upper()
+    headers = _auth_headers()
+    if not headers:
+        return {}
+    try:
+        resp = requests.get(f"{TOSS_BASE}/api/v1/market-calendar/{mk}",
+                            headers=headers, timeout=10)
+        resp.raise_for_status()
+        r = resp.json().get("result", {}) or {}
+    except Exception:
+        return {}
+
+    def _date(node):
+        return (node or {}).get("date") if isinstance(node, dict) else None
+
+    today = r.get("today") or {}
+    integrated = today.get("integrated")
+    is_open = bool(integrated and integrated.get("regularMarket"))
+    return {
+        "date": _date(today),
+        "is_open": is_open,
+        "next_business_day": _date(r.get("nextBusinessDay")),
+        "prev_business_day": _date(r.get("previousBusinessDay")),
+    }
+
+
+def get_stock_master(symbols: list[str] | str) -> dict[str, dict]:
+    """종목 마스터. {symbol: {name, english_name, market, security_type, status,
+    list_date, delist_date, shares}}. 실패 시 {}.
+    """
+    if isinstance(symbols, (list, tuple)):
+        param = ",".join(str(s).strip() for s in symbols if str(s).strip())
+    else:
+        param = str(symbols).strip()
+    headers = _auth_headers()
+    if not param or not headers:
+        return {}
+    try:
+        resp = requests.get(f"{TOSS_BASE}/api/v1/stocks",
+                            params={"symbols": param}, headers=headers, timeout=10)
+        resp.raise_for_status()
+        items = resp.json().get("result", []) or []
+    except Exception:
+        return {}
+    out: dict[str, dict] = {}
+    for it in items:
+        sym = it.get("symbol")
+        if not sym:
+            continue
+        out[str(sym)] = {
+            "name": it.get("name"),
+            "english_name": it.get("englishName"),
+            "market": it.get("market"),
+            "security_type": it.get("securityType"),
+            "status": it.get("status"),
+            "list_date": it.get("listDate"),
+            "delist_date": it.get("delistDate"),
+            "shares": it.get("sharesOutstanding"),
+        }
+    return out
+
+
 def get_candles(symbol: str, interval: str = "1d", count: int = 100) -> list[dict]:
     """OHLCV 캔들. interval은 "1d" 또는 "1m"만 지원, count 최대 200.
 

@@ -7,6 +7,7 @@ import { useMarket } from "@/lib/market-context";
 import { useAiTask } from "@/contexts/AiTaskContext";
 import { Search, Star, Briefcase, Bell, BarChart2, DollarSign, Activity, Loader2, PlusCircle, X } from "lucide-react";
 import Chart from "@/components/Chart";
+import OrderbookPanel from "@/components/ui/OrderbookPanel";
 import { MarkdownLite } from "@/components/ui/MarkdownLite";
 import { AiCostBadge } from "@/components/ui/AiCostBadge";
 import ReactMarkdown from "react-markdown";
@@ -1055,6 +1056,9 @@ function SearchPageInner() {
               </div>
             )}
           </div>
+
+          {/* 토스 호가창·체결·상하한가·장운영 (현재 종목) */}
+          {currentCode && <OrderbookPanel code={currentCode} market={market} />}
         </div>
 
         {/* ── 우측: 검색 + 분석 영역 ───────────────────────────────────── */}

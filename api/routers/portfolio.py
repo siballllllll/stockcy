@@ -236,6 +236,44 @@ async def toss_prices_bulk(symbols: str, user: dict = Depends(get_current_user))
     return await asyncio.to_thread(toss_api.get_prices, syms)
 
 
+@router.get("/stocks/orderbook")
+async def stock_orderbook(symbol: str, user: dict = Depends(get_current_user)):
+    """토스 호가창. {asks:[{price,volume}], bids:[...], currency}."""
+    import toss_api
+    return await asyncio.to_thread(toss_api.get_orderbook, symbol)
+
+
+@router.get("/stocks/trades")
+async def stock_trades(symbol: str, count: int = 30, user: dict = Depends(get_current_user)):
+    """토스 최근 체결 내역. [{price, volume, timestamp}] (최신순, 최대 50)."""
+    import toss_api
+    return await asyncio.to_thread(toss_api.get_trades, symbol, count)
+
+
+@router.get("/stocks/price-limits")
+async def stock_price_limits(symbol: str, user: dict = Depends(get_current_user)):
+    """토스 상/하한가. {upper, lower, currency} (미국은 None)."""
+    import toss_api
+    return await asyncio.to_thread(toss_api.get_price_limits, symbol)
+
+
+@router.get("/stocks/master")
+async def stock_master(symbols: str, user: dict = Depends(get_current_user)):
+    """토스 종목 마스터. {symbol: {name, english_name, market, security_type, status, list_date, delist_date, shares}}."""
+    import toss_api
+    syms = [s.strip() for s in symbols.split(",") if s.strip()][:200]
+    if not syms:
+        return {}
+    return await asyncio.to_thread(toss_api.get_stock_master, syms)
+
+
+@router.get("/market/calendar")
+async def market_calendar(market: str = "KR", user: dict = Depends(get_current_user)):
+    """토스 장 운영 정보. {date, is_open, next_business_day, prev_business_day}."""
+    import toss_api
+    return await asyncio.to_thread(toss_api.get_market_calendar, market)
+
+
 @router.get("/stocks/warnings")
 async def stock_warnings(symbols: str, user: dict = Depends(get_current_user)):
     """토스 종목 경고정보 벌크. {symbol: [{type,type_kr,severe,start,end}]} (경고 있는 종목만).
