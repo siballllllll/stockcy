@@ -21,9 +21,10 @@ interface ChartProps {
   };
   rightPadBars?: number; // 마감까지 남은 빈 봉 수
   showSessions?: boolean; // 미국 장 구간 배경 표시
+  initialVisibleBars?: number; // >0이면 fitContent 대신 최근 N봉만 기본 표시(분봉용)
 }
 
-export default function Chart({ data, height = 450, colors = {}, rightPadBars = 0, showSessions = false }: ChartProps) {
+export default function Chart({ data, height = 450, colors = {}, rightPadBars = 0, showSessions = false, initialVisibleBars = 0 }: ChartProps) {
   const chartContainerRef = useRef<HTMLDivElement>(null);
   const chartRef          = useRef<IChartApi | null>(null);
   const seriesRef         = useRef<any>(null);
@@ -135,7 +136,16 @@ export default function Chart({ data, height = 450, colors = {}, rightPadBars = 
     if (rightPadBars > 0) {
       chartRef.current?.timeScale().applyOptions({ rightOffset: rightPadBars });
     }
-    chartRef.current?.timeScale().fitContent();
+    // 분봉처럼 데이터가 매우 많으면 전체 fitContent 시 봉이 뭉개진다 →
+    // 최근 N봉만 기본 표시하고 과거는 스크롤로 보게 한다.
+    if (initialVisibleBars > 0 && data.length > initialVisibleBars) {
+      chartRef.current?.timeScale().setVisibleLogicalRange({
+        from: data.length - initialVisibleBars,
+        to: data.length + (rightPadBars || 0),
+      });
+    } else {
+      chartRef.current?.timeScale().fitContent();
+    }
 
     // ── 미국 장 구간 배경 오버레이 ──────────────────────────────────────
     if (!showSessions || !chartRef.current || !chartContainerRef.current) return;
@@ -216,7 +226,7 @@ export default function Chart({ data, height = 450, colors = {}, rightPadBars = 
       window.removeEventListener("resize", draw);
       try { canvas.remove(); } catch {}
     };
-  }, [data, rightPadBars, showSessions]);
+  }, [data, rightPadBars, showSessions, initialVisibleBars]);
 
   return <div ref={chartContainerRef} style={{ width: "100%", height: `${height}px` }} />;
 }
