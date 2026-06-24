@@ -236,6 +236,19 @@ async def toss_prices_bulk(symbols: str, user: dict = Depends(get_current_user))
     return await asyncio.to_thread(toss_api.get_prices, syms)
 
 
+@router.get("/stocks/warnings")
+async def stock_warnings(symbols: str, user: dict = Depends(get_current_user)):
+    """토스 종목 경고정보 벌크. {symbol: [{type,type_kr,severe,start,end}]} (경고 있는 종목만).
+
+    경고 API는 종목당 1콜이라 보유종목·후보 등 소수 심볼에만 사용한다.
+    """
+    import toss_api
+    syms = [s.strip() for s in symbols.split(",") if s.strip()][:40]   # 과다 호출 방지 상한
+    if not syms:
+        return {}
+    return await asyncio.to_thread(toss_api.get_warning_flags, syms)
+
+
 @router.get("/portfolio/toss/holdings")
 async def load_toss_holdings(_admin: dict = Depends(require_admin)):
     """토스증권 실계좌 보유종목 조회 (관리자 전용).

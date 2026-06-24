@@ -111,6 +111,80 @@ def get_price(symbol: str) -> float | None:
     return get_prices([symbol]).get(str(symbol).strip())
 
 
+# 토스 경고 타입 → 한글. 지속성 위험만 강조(VI는 장중 일시 발동이라 약한 등급).
+_WARNING_KR = {
+    "INVESTMENT_RISK":        "투자위험",
+    "INVESTMENT_WARNING":     "투자경고",
+    "OVERHEATED":             "단기과열",
+    "LIQUIDATION_TRADING":    "정리매매",
+    "STOCK_WARRANTS":         "신주인수권",
+    "VI_STATIC":              "VI(정적)",
+    "VI_DYNAMIC":             "VI(동적)",
+    "VI_STATIC_AND_DYNAMIC":  "VI(정적+동적)",
+}
+# 보유/매수를 실제로 경계해야 하는 '지속성' 위험 플래그 (VI·신주인수권 제외)
+_SEVERE_WARNINGS = {"INVESTMENT_RISK", "INVESTMENT_WARNING", "OVERHEATED", "LIQUIDATION_TRADING"}
+
+
+def get_warnings(symbol: str) -> list[dict]:
+    """종목 경고정보. 활성(종료일 없음/미래) 경고만 반환.
+
+    각 원소: {type, type_kr, severe(bool), start, end}
+    경고 없으면 빈 리스트.
+    """
+    sym = str(symbol).strip()
+    if not sym:
+        return []
+    headers = _auth_headers()
+    if not headers:
+        return []
+    try:
+        resp = requests.get(
+            f"{TOSS_BASE}/api/v1/stocks/{sym}/warnings",
+            headers=headers, timeout=10,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+    except Exception:
+        return []
+
+    items = data.get("result", data) if isinstance(data, dict) else data
+    if not isinstance(items, list):
+        return []
+
+    today = time.strftime("%Y-%m-%d")
+    out: list[dict] = []
+    for w in items:
+        wtype = w.get("warningType")
+        if not wtype:
+            continue
+        end = w.get("endDate")
+        # 종료일이 과거면 비활성 → 제외
+        if end and str(end)[:10] < today:
+            continue
+        out.append({
+            "type": wtype,
+            "type_kr": _WARNING_KR.get(wtype, wtype),
+            "severe": wtype in _SEVERE_WARNINGS,
+            "start": w.get("startDate"),
+            "end": end,
+        })
+    return out
+
+
+def get_warning_flags(symbols: list[str]) -> dict[str, list[dict]]:
+    """여러 종목 경고를 {symbol: [경고...]} 로. 경고 있는 종목만 포함.
+
+    경고 API는 종목당 1콜이라 보유종목·후보 등 소수에만 사용할 것.
+    """
+    out: dict[str, list[dict]] = {}
+    for s in symbols:
+        ws = get_warnings(s)
+        if ws:
+            out[str(s).strip()] = ws
+    return out
+
+
 def get_candles(symbol: str, interval: str = "1d", count: int = 100) -> list[dict]:
     """OHLCV 캔들. interval은 "1d" 또는 "1m"만 지원, count 최대 200.
 

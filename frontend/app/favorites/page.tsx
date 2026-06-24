@@ -935,6 +935,13 @@ function PortfolioTab({ gapBulkMap }: { gapBulkMap: Record<string, any> }) {
     { refreshInterval: 30000 }
   );
 
+  // 보유종목 토스 경고정보 (관리종목·정리매매·투자경고/위험·단기과열 등)
+  const { data: tossWarnings } = useSWR(
+    allSymbols.length > 0 ? `toss-warn-${allSymbols.join(",")}` : null,
+    () => api.portfolio.stockWarnings(allSymbols),
+    { refreshInterval: 600000 }   // 10분 (경고는 자주 안 바뀜)
+  );
+
   const enriched = useMemo(() => {
     return (portfolio ?? []).map(p => {
       const trimmed = String(p.ticker).trim();
@@ -1183,6 +1190,36 @@ function PortfolioTab({ gapBulkMap }: { gapBulkMap: Record<string, any> }) {
     <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
       {/* 종목 추가 폼 */}
       <AddPortfolioForm onAdded={() => mutate()} />
+
+      {/* 보유종목 토스 경고 배너 (관리종목·정리매매·투자경고/위험·단기과열) */}
+      {tossWarnings && Object.keys(tossWarnings).length > 0 && (() => {
+        const rows = (portfolio ?? [])
+          .map(p => {
+            const t = String(p.ticker).trim();
+            const key = isKrCode(t) ? padKr(t) : t.toUpperCase();
+            const ws = (tossWarnings as any)[key] ?? (tossWarnings as any)[t];
+            return ws && ws.length ? { name: p.name || t, ws } : null;
+          })
+          .filter(Boolean) as { name: string; ws: any[] }[];
+        if (rows.length === 0) return null;
+        return (
+          <div style={{ border: "1px solid var(--color-danger)", background: "rgba(239,68,68,0.08)", borderRadius: "8px", padding: "10px 12px", display: "flex", flexDirection: "column", gap: "6px" }}>
+            <div style={{ fontSize: "0.8rem", fontWeight: 800, color: "var(--color-danger)" }}>⚠️ 보유종목 경고 (토스)</div>
+            {rows.map((r, i) => (
+              <div key={i} style={{ fontSize: "0.78rem", display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap" }}>
+                <span style={{ fontWeight: 700 }}>{r.name}</span>
+                {r.ws.map((w, j) => (
+                  <span key={j} style={{ fontSize: "0.7rem", fontWeight: 700, padding: "1px 7px", borderRadius: "5px",
+                    background: w.severe ? "rgba(239,68,68,0.22)" : "rgba(234,179,8,0.18)",
+                    color: w.severe ? "#fca5a5" : "#fde68a" }}>
+                    {w.type_kr}{w.end ? ` ~${String(w.end).slice(5)}` : ""}
+                  </span>
+                ))}
+              </div>
+            ))}
+          </div>
+        );
+      })()}
 
       {/* 토스 실계좌 잔고 동기화 (관리자 전용) */}
       {isAdmin && (
