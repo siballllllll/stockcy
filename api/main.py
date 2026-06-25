@@ -355,7 +355,9 @@ def _scenario_tracking_loop():
         try:
             now = _dt.datetime.now()
             today = now.strftime("%Y-%m-%d")
-            if now.hour == 7 and _LAST_SCENARIO_TRACK_DATE != today:
+            # catch-up: 07시 정각이 아니라 '07시 이후 처음 살아있는 시점'에 그날 1회 실행.
+            #   (노트북이 07:00~07:59에 안 켜져 있으면 통째로 스킵되던 버그 — 대부분의 아침 누락 원인)
+            if now.hour >= 7 and _LAST_SCENARIO_TRACK_DATE != today:
                 try:
                     from ai_engine import track_scenario_stocks_performance
                     r = track_scenario_stocks_performance()
