@@ -121,15 +121,23 @@ def track_ml_sample_outcomes(limit: int = 250, max_age_days: int = 60) -> dict:
     # '채울 수 있는데 아직 빈' 행만 스캔한다. d20만 비어있고 아직 +20거래일이 안 지난
     # 행을 매번 재처리하면 LIMIT 예산을 잡아먹어 신규 행이 굶는 버그가 있었음 →
     # d1/d3/d7이 비었거나, d20은 충분히(약 30일+) 지난 경우에만 대상에 포함.
+    # fill_attempts >= 5 인 행은 영구 실패(상폐·데이터없음 종목)로 보고 스캔 제외 →
+    #   매번 헛조회로 LIMIT을 잡아먹는 starvation 재발 방지.
     cur.execute(
         """SELECT id, ticker, decided_at FROM ml_training_samples
            WHERE decided_at >= ?
+             AND COALESCE(fill_attempts, 0) < 5
              AND ( d1_return IS NULL OR d3_return IS NULL OR d7_return IS NULL
                    OR mom_5 IS NULL
                    OR (d20_return IS NULL AND decided_at <= date('now','-30 day')) )
            ORDER BY decided_at ASC LIMIT ?""",
         (cutoff, int(limit)))
     rows = [dict(r) for r in cur.fetchall()]
+    # 이번에 시도하는 모든 행의 시도 횟수 +1 (성공/실패 무관 — 영구실패 종목 점진 배제)
+    if rows:
+        cur.executemany("UPDATE ml_training_samples SET fill_attempts = COALESCE(fill_attempts,0)+1 WHERE id=?",
+                        [(r["id"],) for r in rows])
+        conn.commit()
     today = datetime.now().date()
     pending = []
 
