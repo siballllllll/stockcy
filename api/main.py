@@ -381,6 +381,15 @@ def _scenario_tracking_loop():
                     print(f"[ml sample] 학습샘플 보강: {ms.get('updated_now', 0)}건 ({today})")
                 except Exception as e:
                     print(f"[ml sample] 오류: {e}")
+                # 자체 ML 자동 재학습 — 샘플 보강 직후 1회 (scikit-learn 로컬·무과금).
+                #   MIN_SAMPLES 미만 horizon은 train_model이 알아서 보류(trained=False).
+                try:
+                    from ml_model import train_all
+                    _tr = train_all()
+                    _done = {h: r.get("samples") for h, r in _tr.items() if r.get("trained")}
+                    print(f"[ml train] 자동 재학습: {_done or '학습된 모델 없음(데이터 부족)'} ({today})")
+                except Exception as e:
+                    print(f"[ml train] 오류: {e}")
                 # 패턴 스크리너 백테스트(+1/+3/+7일) — 그동안 수동 실행만 가능했던 것을 자동화
                 try:
                     from ai_engine import backtest_screener_picks

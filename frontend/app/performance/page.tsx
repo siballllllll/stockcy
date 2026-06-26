@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import useSWR from "swr";
 import { MarkdownLite } from "@/components/ui/MarkdownLite";
 import { ScenarioTrackingPanel } from "@/app/scenarios/page";
+import { useAuth } from "@/lib/auth-context";
 
 const B = "/backend";
 const fetcher = (url: string) => fetch(url).then((r) => (r.ok ? r.json() : null));
@@ -187,7 +188,11 @@ function MarketLogArchive() {
 
 // ── 자체 ML 모델 현황 ────────────────────────────────────────────────────────────
 function MlStatusPanel() {
-  const { data } = useSWR(`${B}/api/ai/ml-status`, fetcher, { refreshInterval: 0 });
+  const { data, mutate } = useSWR(`${B}/api/ai/ml-status`, fetcher, { refreshInterval: 0 });
+  const { user } = useAuth();
+  const isAdmin = user?.role === "admin";
+  const [training, setTraining] = useState(false);
+  const [msg, setMsg] = useState("");
   const H = data?.horizons ?? {};
   const min = data?.min_required ?? 80;
   const ROWS = [
@@ -195,17 +200,46 @@ function MlStatusPanel() {
     { key: "d7",  label: "스윙", desc: "7거래일" },
     { key: "d20", label: "중장기", desc: "약 1개월" },
   ];
+
+  const handleTrain = async () => {
+    setTraining(true); setMsg("");
+    try {
+      const r = await fetch(`${B}/api/ai/ml-train`, { method: "POST" }).then((x) => x.json());
+      setMsg(r?.success ? "학습 완료" : (r?.message || "학습 실패"));
+      mutate();
+    } catch { setMsg("학습 오류"); }
+    finally { setTraining(false); }
+  };
+
   return (
     <div className="stockcy-card" style={{ padding: "1rem 1.2rem" }}>
-      <div style={{ fontWeight: 800, fontSize: "1rem", marginBottom: "4px" }}>🤖 자체 ML 모델 현황 <span style={{ fontSize: "0.72rem", fontWeight: 600, color: "var(--color-muted)" }}>— 우리 데이터로 학습하는 예측 모델</span></div>
-      <div style={{ fontSize: "0.74rem", color: "var(--color-muted)", marginBottom: "10px" }}>추천을 쓸수록 자동으로 데이터가 쌓이고, 매일 새벽 결과가 채워집니다. {min}건 넘으면 학습 준비 완료.</div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "8px", flexWrap: "wrap", marginBottom: "4px" }}>
+        <div style={{ fontWeight: 800, fontSize: "1rem" }}>🤖 자체 ML 모델 현황 <span style={{ fontSize: "0.72rem", fontWeight: 600, color: "var(--color-muted)" }}>— 우리 데이터로 학습하는 예측 모델</span></div>
+        {isAdmin && (
+          <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+            {msg && <span style={{ fontSize: "0.72rem", color: "var(--color-muted)" }}>{msg}</span>}
+            <button onClick={handleTrain} disabled={training}
+              style={{ fontSize: "0.74rem", fontWeight: 700, padding: "5px 12px", borderRadius: "7px",
+                border: "1px solid var(--color-accent)", background: "rgba(99,102,241,0.12)",
+                color: "var(--color-text)", cursor: training ? "default" : "pointer", opacity: training ? 0.6 : 1 }}>
+              {training ? "학습 중…" : "지금 학습"}
+            </button>
+          </div>
+        )}
+      </div>
+      <div style={{ fontSize: "0.74rem", color: "var(--color-muted)", marginBottom: "10px" }}>추천을 쓸수록 자동으로 데이터가 쌓이고, 매일 아침 결과 갱신 후 자동 재학습됩니다. {min}건 넘으면 학습됩니다.</div>
       <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
         {ROWS.map((r) => {
-          const n = H[r.key]?.samples ?? 0;
-          const ready = H[r.key]?.ready_to_train;
-          const active = H[r.key]?.model_exists;
+          const info = H[r.key] ?? {};
+          const n = info.samples ?? 0;
+          const ready = info.ready_to_train;
+          const active = info.model_exists;
+          const auc = info.cv_auc;
+          const trainedAt = info.trained_at ? String(info.trained_at).slice(0, 10) : null;
           const pctv = Math.min(100, Math.round((n / min) * 100));
           const c = active ? "#34d399" : ready ? "#34d399" : "#60a5fa";
+          // AUC 0.5≈무작위. 0.55+ 부터 의미. 솔직하게 품질 라벨.
+          const aucLabel = auc == null ? "" : auc >= 0.6 ? `AUC ${auc} (양호)` : auc >= 0.55 ? `AUC ${auc} (보통)` : `AUC ${auc} (예측력 낮음·학습중)`;
           return (
             <div key={r.key}>
               <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.82rem", marginBottom: "3px" }}>
@@ -220,12 +254,17 @@ function MlStatusPanel() {
               <div style={{ height: "7px", background: "rgba(255,255,255,0.06)", borderRadius: "99px", overflow: "hidden" }}>
                 <div style={{ width: `${pctv}%`, height: "100%", background: c, borderRadius: "99px", transition: "width 0.3s" }} />
               </div>
+              {active && (
+                <div style={{ fontSize: "0.66rem", color: "var(--color-muted)", marginTop: "2px" }}>
+                  학습 {trainedAt}{aucLabel ? ` · ${aucLabel}` : ""}
+                </div>
+              )}
             </div>
           );
         })}
       </div>
       <div style={{ fontSize: "0.68rem", color: "var(--color-muted)", marginTop: "8px", lineHeight: 1.5 }}>
-        ※ 데이터가 가장 빨리 차는 단타(d3)부터 임계 도달 예정. 80건 넘으면 모델 학습 + 화면에 ‘ML 상승확률’ 표시 단계로.
+        ※ 단타·스윙은 학습 시작됨. 단, 현재 예측력(AUC)이 0.5(무작위) 근처라 ‘ML 상승확률’을 매매 판단에 반영하는 단계는 AUC가 더 오른 뒤로 보류 중. 데이터가 쌓이며 매일 재학습됩니다.
       </div>
     </div>
   );

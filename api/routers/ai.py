@@ -1416,6 +1416,17 @@ async def get_ml_status(user: dict = Depends(get_current_user)):
         return {"error": str(e), "horizons": {}}
 
 
+@router.post("/ml-train")
+async def post_ml_train(_admin: dict = Depends(require_admin)):
+    """자체 ML 모델 즉시 학습(관리자 전용, scikit-learn 로컬·무과금).
+    horizon별 표본이 MIN_SAMPLES 미만이면 자동 보류된다."""
+    try:
+        from ml_model import train_all
+        return {"success": True, "result": await asyncio.to_thread(train_all)}
+    except Exception as e:
+        return {"success": False, "message": str(e)}
+
+
 @router.get("/market-log/dates")
 async def get_market_log_dates(kind: str = "", limit: int = 90, user: dict = Depends(get_current_user)):
     """보관된 시장 인사이트/시나리오 로그 날짜 목록(최신순)."""

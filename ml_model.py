@@ -196,7 +196,8 @@ def train_model(horizon: str = "d7", force: bool = False) -> dict:
     clf.fit(Xm, ym)
     if not force:
         joblib.dump({"model": clf, "features": _FEATURES, "horizon": horizon,
-                     "trained_at": datetime.now().isoformat(), "samples": n}, _model_path(horizon))
+                     "trained_at": datetime.now().isoformat(), "samples": n,
+                     "cv_auc": round(auc, 3) if auc is not None else None}, _model_path(horizon))
     return {"horizon": horizon, "trained": True, "saved": not force, "demo": force, "samples": n,
             "cv_auc": round(auc, 3) if auc is not None else None,
             "base_win_rate": round(float(ym.mean()) * 100, 1)}
@@ -226,9 +227,22 @@ def ml_status() -> dict:
     out = {"min_required": MIN_SAMPLES, "features": _FEATURES, "horizons": {}}
     for h in HORIZONS:
         n = len(build_training_set(h)[1])
-        out["horizons"][h] = {
+        info = {
             "samples": n,
             "ready_to_train": n >= MIN_SAMPLES,
             "model_exists": os.path.exists(_model_path(h)),
+            "trained_at": None,
+            "trained_samples": None,
+            "cv_auc": None,
         }
+        if info["model_exists"]:
+            try:
+                import joblib
+                b = joblib.load(_model_path(h))
+                info["trained_at"] = b.get("trained_at")
+                info["trained_samples"] = b.get("samples")
+                info["cv_auc"] = b.get("cv_auc")
+            except Exception:
+                pass
+        out["horizons"][h] = info
     return out

@@ -13,6 +13,9 @@ __pycache__/
 *.pyo
 *.pyd
 
+# 자체 ML 학습 모델 (매일 자동 재학습되는 산출물 — 커밋 불필요)
+*.joblib
+
 # Jupyter Notebook
 .ipynb_checkpoints
 
