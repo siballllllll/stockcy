@@ -13,10 +13,54 @@ import os
 from datetime import datetime
 
 # 공통 피처(엔진 무관) — 에이전트·패턴·시나리오·AI추천을 모두 같은 피처로 통일
-_FEATURES = ["rsi", "ma_aligned", "pos_52w", "vol_ratio"]
+# 기본 4개 + 확장 5개(모멘텀·MACD·볼린저%b·ATR). _extra_feats와 EXTRA_FEATURES 동기화 유지.
+_BASE_FEATURES = ["rsi", "ma_aligned", "pos_52w", "vol_ratio"]
+EXTRA_FEATURES = ["mom_5", "mom_20", "macd_hist", "bb_pctb", "atr_pct"]
+_FEATURES = _BASE_FEATURES + EXTRA_FEATURES
 MIN_SAMPLES = 80   # 이 미만이면 학습 보류 (신뢰 가능한 최소 표본)
 # 예측 기간(horizon): 단타 d3 / 스윙 d7 / 중장기 d20. 각각 별도 모델.
 HORIZONS = {"d3": "d3_return", "d7": "d7_return", "d20": "d20_return"}
+
+
+def _extra_feats(c: list, h: list, l: list) -> dict:
+    """판단시점까지의 종가/고가/저가(c,h,l)로 확장 피처 계산.
+    mom_5/mom_20=5·20거래일 모멘텀(%), macd_hist=MACD 히스토그램(가격대비%),
+    bb_pctb=볼린저 %b(0~1), atr_pct=ATR(14) 가격대비%. 데이터 부족 시 중립값."""
+    import statistics
+    n = len(c)
+    out = {"mom_5": 0.0, "mom_20": 0.0, "macd_hist": 0.0, "bb_pctb": 0.5, "atr_pct": 0.0}
+    last = c[-1] if n else 0
+    if n >= 6 and c[-6]:
+        out["mom_5"] = round((last / c[-6] - 1) * 100, 2)
+    if n >= 21 and c[-21]:
+        out["mom_20"] = round((last / c[-21] - 1) * 100, 2)
+    # MACD(12,26,9) 히스토그램 — 가격 대비 정규화
+    if n >= 26:
+        k12, k26 = 2 / 13, 2 / 27
+        e12 = e26 = c[0]; macd_series = []
+        for x in c:
+            e12 = x * k12 + e12 * (1 - k12)
+            e26 = x * k26 + e26 * (1 - k26)
+            macd_series.append(e12 - e26)
+        ks = 2 / 10; sig = macd_series[0]
+        for m in macd_series[1:]:
+            sig = m * ks + sig * (1 - ks)
+        if last:
+            out["macd_hist"] = round((macd_series[-1] - sig) / last * 100, 3)
+    # 볼린저 %b (20일, 2σ)
+    if n >= 20:
+        w = c[-20:]; ma = sum(w) / 20; sd = statistics.pstdev(w)
+        up, lo = ma + 2 * sd, ma - 2 * sd
+        if up > lo:
+            out["bb_pctb"] = round((last - lo) / (up - lo), 3)
+    # ATR(14) 가격 대비 %
+    if n >= 15:
+        trs = []
+        for i in range(n - 14, n):
+            trs.append(max(h[i] - l[i], abs(h[i] - c[i - 1]), abs(l[i] - c[i - 1])))
+        if last:
+            out["atr_pct"] = round((sum(trs) / len(trs)) / last * 100, 3)
+    return out
 
 
 def _model_path(horizon: str) -> str:
@@ -31,20 +75,15 @@ def build_training_set(horizon: str = "d7"):
     conn = get_db_conn(); cur = conn.cursor()
     rows = []
     try:
+        # 확장 피처(mom_5 등)는 ml_training_samples에만 존재 → 그 컬럼이 채워진 행만 사용.
+        # agent_decisions는 확장 피처가 없어 통합 피처셋 학습에서 제외(28건 손실 < 9피처 이득).
         cur.execute(
-            f"""SELECT rsi, ma_aligned, pos_52w, vol_ratio, {col} AS ret
+            f"""SELECT rsi, ma_aligned, pos_52w, vol_ratio,
+                       mom_5, mom_20, macd_hist, bb_pctb, atr_pct, {col} AS ret
                 FROM ml_training_samples
-                WHERE {col} IS NOT NULL AND rsi IS NOT NULL"""
+                WHERE {col} IS NOT NULL AND rsi IS NOT NULL AND mom_5 IS NOT NULL"""
         )
         rows += [dict(r) for r in cur.fetchall()]
-        # 에이전트 결과(단일 horizon)는 스윙(d7)에만 합류
-        if horizon == "d7":
-            cur.execute(
-                """SELECT rsi, ma_aligned, pos_52w, vol_ratio, outcome_return AS ret
-                   FROM agent_decisions
-                   WHERE action='BUY' AND outcome_return IS NOT NULL AND rsi IS NOT NULL"""
-            )
-            rows += [dict(r) for r in cur.fetchall()]
     finally:
         conn.close()
     X, y = [], []
@@ -55,6 +94,11 @@ def build_training_set(horizon: str = "d7"):
                 "ma_aligned": 1.0 if d["ma_aligned"] else 0.0,
                 "pos_52w":    float(d["pos_52w"] or 0),
                 "vol_ratio":  float(d["vol_ratio"] or 0),
+                "mom_5":      float(d["mom_5"] or 0),
+                "mom_20":     float(d["mom_20"] or 0),
+                "macd_hist":  float(d["macd_hist"] or 0),
+                "bb_pctb":    float(d["bb_pctb"] if d["bb_pctb"] is not None else 0.5),
+                "atr_pct":    float(d["atr_pct"] or 0),
             })
             y.append(1 if float(d["ret"] or 0) > 0 else 0)
         except Exception:
@@ -81,6 +125,7 @@ def track_ml_sample_outcomes(limit: int = 250, max_age_days: int = 60) -> dict:
         """SELECT id, ticker, decided_at FROM ml_training_samples
            WHERE decided_at >= ?
              AND ( d1_return IS NULL OR d3_return IS NULL OR d7_return IS NULL
+                   OR mom_5 IS NULL
                    OR (d20_return IS NULL AND decided_at <= date('now','-30 day')) )
            ORDER BY decided_at ASC LIMIT ?""",
         (cutoff, int(limit)))
@@ -103,8 +148,10 @@ def track_ml_sample_outcomes(limit: int = 250, max_age_days: int = 60) -> dict:
         pos = (cur_p - lo) / (hi - lo) * 100 if hi > lo else 50.0
         ma5 = sum(c[-5:]) / 5; ma20 = sum(c[-20:]) / 20; ma60 = sum(c[-60:]) / 60 if len(c) >= 60 else ma20
         ma_al = 1 if (cur_p > ma5 > ma20 > ma60) else 0
-        return {"rsi": round(rsi, 1), "vol_ratio": round(vr, 2), "pos_52w": round(pos, 1),
+        feat = {"rsi": round(rsi, 1), "vol_ratio": round(vr, 2), "pos_52w": round(pos, 1),
                 "ma_aligned": ma_al, "entry": cur_p}
+        feat.update(_extra_feats(c, h, l))
+        return feat
 
     for row in rows:
         try:
@@ -150,6 +197,7 @@ def track_ml_sample_outcomes(limit: int = 250, max_age_days: int = 60) -> dict:
             label = (1 if r7 > 0 else 0) if r7 is not None else None
             now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             pending.append((f["rsi"], f["ma_aligned"], f["pos_52w"], f["vol_ratio"],
+                            f["mom_5"], f["mom_20"], f["macd_hist"], f["bb_pctb"], f["atr_pct"],
                             round(entry, 2), r1, r3, r7, r20, label, now, row["id"]))
         except Exception as e:
             print(f"[ml sample track] {tk} 실패: {e}")
@@ -160,7 +208,8 @@ def track_ml_sample_outcomes(limit: int = 250, max_age_days: int = 60) -> dict:
         try:
             cur.executemany(
                 """UPDATE ml_training_samples
-                   SET rsi=?, ma_aligned=?, pos_52w=?, vol_ratio=?, entry_price=?,
+                   SET rsi=?, ma_aligned=?, pos_52w=?, vol_ratio=?,
+                       mom_5=?, mom_20=?, macd_hist=?, bb_pctb=?, atr_pct=?, entry_price=?,
                        d1_return=?, d3_return=?, d7_return=?, d20_return=?, label=?, outcome_checked_at=?
                    WHERE id=?""", pending)
             conn.commit(); updated = len(pending)
