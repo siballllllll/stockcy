@@ -74,10 +74,15 @@ def track_ml_sample_outcomes(limit: int = 250, max_age_days: int = 60) -> dict:
 
     conn = get_db_conn(); cur = conn.cursor()
     cutoff = (datetime.now() - timedelta(days=max_age_days)).strftime("%Y-%m-%d")
-    # d20(중장기)까지 다 채워질 때까지 재처리 (d7만 채워지고 멈추지 않도록)
+    # '채울 수 있는데 아직 빈' 행만 스캔한다. d20만 비어있고 아직 +20거래일이 안 지난
+    # 행을 매번 재처리하면 LIMIT 예산을 잡아먹어 신규 행이 굶는 버그가 있었음 →
+    # d1/d3/d7이 비었거나, d20은 충분히(약 30일+) 지난 경우에만 대상에 포함.
     cur.execute(
         """SELECT id, ticker, decided_at FROM ml_training_samples
-           WHERE d20_return IS NULL AND decided_at >= ? ORDER BY decided_at ASC LIMIT ?""",
+           WHERE decided_at >= ?
+             AND ( d1_return IS NULL OR d3_return IS NULL OR d7_return IS NULL
+                   OR (d20_return IS NULL AND decided_at <= date('now','-30 day')) )
+           ORDER BY decided_at ASC LIMIT ?""",
         (cutoff, int(limit)))
     rows = [dict(r) for r in cur.fetchall()]
     today = datetime.now().date()
