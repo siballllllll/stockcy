@@ -384,10 +384,24 @@ def _scenario_tracking_loop():
                 # 자체 ML 자동 재학습 — 샘플 보강 직후 1회 (scikit-learn 로컬·무과금).
                 #   MIN_SAMPLES 미만 horizon은 train_model이 알아서 보류(trained=False).
                 try:
-                    from ml_model import train_all
+                    import os as _os
+                    from ml_model import train_all, _model_path, HORIZONS
+                    # 학습 전, 어떤 horizon이 아직 '모델 없음'이었는지 기록(첫 학습 감지용)
+                    _was_missing = {h for h in HORIZONS if not _os.path.exists(_model_path(h))}
                     _tr = train_all()
                     _done = {h: r.get("samples") for h, r in _tr.items() if r.get("trained")}
                     print(f"[ml train] 자동 재학습: {_done or '학습된 모델 없음(데이터 부족)'} ({today})")
+                    # 직전엔 모델이 없었는데 이번에 처음 학습된 horizon → 텔레그램 1회 알림
+                    _newly = [h for h in _was_missing if _tr.get(h, {}).get("trained")]
+                    if _newly:
+                        _label = {"d3": "단타(d3)", "d7": "스윙(d7)", "d20": "중장기(d20)"}
+                        _lines = [f"• {_label.get(h, h)}: 표본 {_tr[h].get('samples')}건, AUC {_tr[h].get('cv_auc')}" for h in _newly]
+                        try:
+                            from telegram_bot import send_message
+                            send_message("🤖 <b>자체 ML 모델 신규 학습 완료</b>\n" + "\n".join(_lines) +
+                                         "\n\n성과 탭의 'ML 모델 현황'에서 확인하세요.")
+                        except Exception as _te:
+                            print(f"[ml train] 텔레그램 알림 실패: {_te}")
                 except Exception as e:
                     print(f"[ml train] 오류: {e}")
                 # 패턴 스크리너 백테스트(+1/+3/+7일) — 그동안 수동 실행만 가능했던 것을 자동화
