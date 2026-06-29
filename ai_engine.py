@@ -1087,8 +1087,8 @@ def generate_scenario_detail(issue_title: str, scenario_title: str, economic_ana
         res = _parse_json_response(response)
         # [Python Override - 실시간 현재가 기반 단타 & 장타 타점 교정]
         try:
-            short_stocks = res.get("short_detail", {}).get("stocks", [])
-            long_stocks = res.get("long_detail", {}).get("stocks", [])
+            short_stocks = (res.get("short_detail") or {}).get("stocks", [])
+            long_stocks = (res.get("long_detail") or {}).get("stocks", [])
             all_detail_stocks = short_stocks + long_stocks
             
             if all_detail_stocks:
@@ -2259,7 +2259,7 @@ def generate_kr_stock_report(stock_code: str, name: str, price_data: dict, inves
             rsi_val = ind["daily"].get("rsi")
             vol_r = ind["daily"].get("volume_ratio")
             ma_align = ind["daily"].get("ma_aligned")
-            win_rsi = profile.get("win", {}).get("rsi", {})
+            win_rsi = (profile.get("win") or {}).get("rsi") or {}
             pattern_context = (
                 f"패턴 매칭 점수: {match_score}점"
                 + (f" / RSI: {rsi_val}" if rsi_val is not None else "")
