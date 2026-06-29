@@ -4718,9 +4718,9 @@ def screen_by_my_pattern() -> dict:
         pw = (personal_profile.get('win') or {}); lw = (leading_profile.get('win') or {})
         profile_summary = (
             f"[개인 패턴] 승률 {personal_profile.get('win_rate_pct')}% / 평균수익률 {personal_profile.get('avg_profit_pct')}% / "
-            f"RSI {pw.get('rsi',{}).get('p25','?')}~{pw.get('rsi',{}).get('p75','?')}\n"
+            f"RSI {(pw.get('rsi') or {}).get('p25','?')}~{(pw.get('rsi') or {}).get('p75','?')}\n"
             f"[리딩방 패턴] 승률 {leading_profile.get('win_rate_pct')}% / 평균수익률 {leading_profile.get('avg_profit_pct')}% / "
-            f"RSI {lw.get('rsi',{}).get('p25','?')}~{lw.get('rsi',{}).get('p75','?')}\n"
+            f"RSI {(lw.get('rsi') or {}).get('p25','?')}~{(lw.get('rsi') or {}).get('p75','?')}\n"
             f"[교집합 스코어] 개인×리딩방 기하평균으로 계산 — 양쪽 모두 높아야 높은 점수"
         )
     else:
@@ -4728,8 +4728,8 @@ def screen_by_my_pattern() -> dict:
         profile_summary = (
             f"승률 {profile.get('win_rate_pct')}% / "
             f"평균수익률 {profile.get('avg_profit_pct')}% / "
-            f"성공 RSI 구간 {prw.get('rsi', {}).get('p25','?')}~{prw.get('rsi', {}).get('p75','?')} / "
-            f"거래량비율 {prw.get('volume_ratio', {}).get('p25','?')}~{prw.get('volume_ratio', {}).get('p75','?')}배 / "
+            f"성공 RSI 구간 {(prw.get('rsi') or {}).get('p25','?')}~{(prw.get('rsi') or {}).get('p75','?')} / "
+            f"거래량비율 {(prw.get('volume_ratio') or {}).get('p25','?')}~{(prw.get('volume_ratio') or {}).get('p75','?')}배 / "
             f"MA정배열 비율 {prw.get('ma_aligned_rate_pct','?')}%"
         )
     def _stage_tag(s):
