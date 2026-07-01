@@ -4470,13 +4470,34 @@ def screen_by_my_pattern() -> dict:
     except Exception as e:
         print(f"[screener] prebreakout 계산 오류: {e}")
 
-    # pre-breakout 후보를 먼저 채점하도록 candidate 순서 정렬 (점수 보정이 [:50] 컷에서 누락되지 않게)
-    if prebreak_map:
-        candidates = dict(
-            sorted(candidates.items(),
-                   key=lambda kv: prebreak_map.get(kv[0], {}).get("score", 0),
-                   reverse=True)
-        )
+    # 2-c. 내 관심 유니버스(즐겨찾기+보유) 편입 — 눌림목 매수 스타일 커버.
+    #   내 승리패턴은 거래량 조용한 눌림목(vol 0.2~0.5)인데 급등 랭킹엔 안 잡힌다 →
+    #   '봐둔 종목이 눌린' 케이스를 후보에 넣어 패턴 점수로 발굴. (로컬 DB라 네트워크 무관)
+    try:
+        from db import load_favorites, load_portfolio_from_gsheet
+        _watch = []
+        _favs, _ = load_favorites()
+        _watch += [(str(f.get("티커", "")).strip(), f.get("종목명", "")) for f in (_favs or [])]
+        for _own in ("USER", "AI_AGENT"):
+            for _p in (load_portfolio_from_gsheet(owner=_own) or []):
+                _watch.append((str(_p.get("ticker", "")).strip(), _p.get("name", "")))
+        for _cr, _nm in _watch:
+            if not _cr.isdigit():   # KR 스크리너 — 숫자 코드만
+                continue
+            _cc = _cr.zfill(6)
+            if _cc and _cc != "000000" and _cc not in candidates:
+                candidates[_cc] = {"code": _cc, "name": _nm, "signal": "watchlist"}
+    except Exception as _e:
+        print(f"[screener] watchlist 편입 오류: {_e}")
+
+    # 채점 우선순위 정렬: watchlist(눌림목 유니버스)·pre-breakout 후보를 앞으로 →
+    #   [:60] 컷에서 눌림목 종목이 누락되지 않게.
+    candidates = dict(
+        sorted(candidates.items(),
+               key=lambda kv: (kv[1].get("signal") == "watchlist",
+                               prebreak_map.get(kv[0], {}).get("score", 0)),
+               reverse=True)
+    )
 
     if not candidates:
         return {"error": "시장 데이터를 가져오지 못했습니다. 백엔드 서버가 실행 중인지 확인해주세요."}
@@ -4546,7 +4567,7 @@ def screen_by_my_pattern() -> dict:
         return round(best_adj, 1), best_label
 
     scored: list[dict] = []
-    for code, meta in list(candidates.items())[:50]:   # 최대 50개로 제한
+    for code, meta in list(candidates.items())[:60]:   # 최대 60개 (눌림목 유니버스 포함)
         ind = _get_trade_indicators(code, "")           # buy_date 없이 일봉만
         if dual_mode:
             p_score = _score_stock_against_profile(ind, personal_profile)
