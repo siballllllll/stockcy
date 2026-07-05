@@ -3498,6 +3498,77 @@ def load_cumulative_supply(days: int = 20, market: str | None = None, top_n: int
         return {"days": days, "items": [], "error": str(e)}
 
 
+def detect_abnormal_supply(lookback_days: int = 20, z_threshold: float = 2.0,
+                           min_history: int = 3, top_n: int = 12) -> dict:
+    """'제 덩치에 비해 비정상적으로 갑자기 세력이 몰린' 종목 탐지.
+
+    순매수 절대금액 상위(대형주 편중)가 아니라, 각 종목을 자기 자신의 과거 대비 정규화한다.
+    - surge(급증): 과거 min_history일 이상 이력이 있고, 오늘 순매수가 자기 평균+표준편차 대비
+      z-score>=z_threshold 로 튀어오른 종목. (조용하던 종목에 갑자기 세력 유입)
+    - new_entrant(신규 급습): 최근 lookback_days간 상위권에 없다가 오늘 처음 강하게 등장한 종목.
+    2거래일 이상 스냅샷이 쌓여야 동작."""
+    try:
+        import statistics
+        conn = get_db_conn(); cur = conn.cursor()
+        cutoff = (datetime.now() - timedelta(days=int(lookback_days))).strftime("%Y-%m-%d")
+        cur.execute(
+            """SELECT snapshot_date, ticker, name, market, combined
+               FROM frgn_inst_snapshots
+               WHERE snapshot_date >= ?
+               ORDER BY snapshot_date ASC""", (cutoff,))
+        rows = [dict(r) for r in cur.fetchall()]
+        conn.close()
+        if not rows:
+            return {"available": False, "reason": "수급 스냅샷 데이터가 없습니다.", "surge": [], "new_entrant": []}
+        dates = sorted({r["snapshot_date"] for r in rows})
+        if len(dates) < 2:
+            return {"available": False, "reason": "스냅샷 2거래일 이상 필요 — 매일 자동 적재 중입니다.",
+                    "have_dates": dates, "surge": [], "new_entrant": []}
+        today = dates[-1]
+        # 종목별 (날짜→combined) 시계열
+        series: dict = {}
+        meta: dict = {}
+        for r in rows:
+            tk = r["ticker"]
+            series.setdefault(tk, {})[r["snapshot_date"]] = int(r["combined"] or 0)
+            meta[tk] = {"name": r["name"], "market": r["market"]}
+        surge, new_entrant = [], []
+        for tk, by_date in series.items():
+            today_val = by_date.get(today)
+            if today_val is None or today_val <= 0:
+                continue  # 오늘 순매수(유입)만 대상 — 이탈은 별도 기능이 담당
+            prior = [v for d, v in by_date.items() if d != today]
+            name = meta[tk]["name"]; market = meta[tk]["market"]
+            if len(prior) < min_history:
+                # 이력이 거의 없는데 오늘 강하게 등장 → 신규 급습 후보
+                new_entrant.append({
+                    "ticker": tk, "name": name, "market": market,
+                    "today": today_val, "days_seen_before": len(prior),
+                })
+                continue
+            mean = statistics.mean(prior)
+            sd = statistics.pstdev(prior)
+            if sd <= 0:
+                continue
+            z = (today_val - mean) / sd
+            if z >= z_threshold:
+                surge.append({
+                    "ticker": tk, "name": name, "market": market,
+                    "today": today_val, "baseline_avg": round(mean),
+                    "zscore": round(z, 1),
+                    "multiple": round(today_val / mean, 1) if mean > 0 else None,
+                    "days_seen_before": len(prior),
+                })
+        surge.sort(key=lambda x: x["zscore"], reverse=True)
+        new_entrant.sort(key=lambda x: x["today"], reverse=True)
+        return {"available": True, "today": today, "lookback_days": lookback_days,
+                "trading_days": len(dates), "z_threshold": z_threshold,
+                "surge": surge[:top_n], "new_entrant": new_entrant[:top_n]}
+    except Exception as e:
+        print(f"detect_abnormal_supply error: {e}")
+        return {"available": False, "error": str(e), "surge": [], "new_entrant": []}
+
+
 def save_sector_flow_snapshot(snapshot_date: str, rows: list) -> int:
     """특정 날짜의 섹터별 수급 집계를 저장(교체). rows: [{sector, frgn_sum, orgn_sum, combined_sum, stock_count}]."""
     try:

@@ -46,6 +46,7 @@ function FlowRow({ x, inflow, onPick }: { x: FlowItem; inflow: boolean; onPick?:
 export function SupplyPowerFlow() {
   const [flow, setFlow] = useState<any>(null);
   const [rotation, setRotation] = useState<any>(null);
+  const [abnormal, setAbnormal] = useState<any>(null);
   const [sectorToday, setSectorToday] = useState<any[]>([]);
   const [sectorRot, setSectorRot] = useState<any>(null);
   const [mkt, setMkt] = useState<"J" | "Q">("J");
@@ -61,13 +62,14 @@ export function SupplyPowerFlow() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [f, r, sf, sr] = await Promise.all([
+      const [f, r, ab, sf, sr] = await Promise.all([
         fetch(`${BASE}/api/kr/supply-power-flow`).then(res => res.json()).catch(() => null),
         fetch(`${BASE}/api/kr/supply-rotation`).then(res => res.json()).catch(() => null),
+        fetch(`${BASE}/api/kr/supply-abnormal`).then(res => res.json()).catch(() => null),
         fetch(`${BASE}/api/kr/sector-flow?days=1`).then(res => res.json()).catch(() => null),
         fetch(`${BASE}/api/kr/sector-rotation`).then(res => res.json()).catch(() => null),
       ]);
-      setFlow(f); setRotation(r);
+      setFlow(f); setRotation(r); setAbnormal(ab);
       setSectorToday(sf?.series || []);
       setSectorRot(sr);
     } catch { /* 무시 */ }
@@ -123,6 +125,51 @@ export function SupplyPowerFlow() {
               </div>
             </div>
           </div>
+
+          {/* 세력 이상 급증 감지 — 순매수 절대금액이 아니라 '제 덩치 대비 갑자기 몰린' 종목 */}
+          {abnormal?.available && (() => {
+            const surge = (abnormal.surge || []).filter((x: any) => x.market === mkt);
+            const fresh = (abnormal.new_entrant || []).filter((x: any) => x.market === mkt);
+            if (!surge.length && !fresh.length) return null;
+            return (
+              <div style={{ marginTop: "0.9rem", borderTop: "1px solid var(--color-border)", paddingTop: "0.6rem" }}>
+                <div style={{ fontSize: "0.74rem", fontWeight: 800, color: "#fbbf24", marginBottom: "5px" }}>
+                  🚨 세력 이상 급증 <span style={{ fontSize: "0.66rem", color: "var(--color-muted)", fontWeight: 600 }}>제 덩치 대비 비정상적으로 몰린 종목</span>
+                </div>
+                {surge.length > 0 && (
+                  <div style={{ display: "flex", flexDirection: "column", gap: "3px", marginBottom: fresh.length ? "6px" : 0 }}>
+                    {surge.slice(0, 6).map((x: any, i: number) => (
+                      <div key={i} onClick={() => goSearch(String(x.ticker))} title={`${x.name} 종목검색`}
+                        style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "8px", padding: "4px 8px", borderRadius: "5px", background: "rgba(245,158,11,0.08)", border: "1px solid rgba(245,158,11,0.2)", fontSize: "0.74rem", cursor: "pointer" }}
+                        onMouseEnter={e => { e.currentTarget.style.background = "rgba(245,158,11,0.18)"; }}
+                        onMouseLeave={e => { e.currentTarget.style.background = "rgba(245,158,11,0.08)"; }}>
+                        <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                          <b style={{ color: "var(--color-text)" }}>{x.name}</b>
+                          {x.multiple != null && <span style={{ fontSize: "0.62rem", color: "#fbbf24", marginLeft: "5px", fontWeight: 700 }}>평소 {x.multiple}배</span>}
+                        </span>
+                        <span style={{ textAlign: "right", whiteSpace: "nowrap" }}>
+                          <span style={{ color: "#f87171", fontWeight: 800 }}>+{fmt(x.today)}주</span>
+                          <span style={{ fontSize: "0.6rem", color: "var(--color-muted)", marginLeft: "5px" }}>z{x.zscore}</span>
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {fresh.length > 0 && (
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: "5px" }}>
+                    <span style={{ fontSize: "0.66rem", color: "var(--color-muted)", fontWeight: 700, alignSelf: "center" }}>🆕 신규 급습:</span>
+                    {fresh.slice(0, 8).map((x: any, i: number) => (
+                      <span key={i} onClick={() => goSearch(String(x.ticker))} title={`${x.name} 종목검색`}
+                        style={{ fontSize: "0.68rem", padding: "2px 7px", borderRadius: "5px", background: "rgba(52,211,153,0.1)", border: "1px solid rgba(52,211,153,0.3)", color: "#34d399", fontWeight: 700, cursor: "pointer" }}>
+                        {x.name} +{fmt(x.today)}주
+                      </span>
+                    ))}
+                  </div>
+                )}
+                <div style={{ fontSize: "0.62rem", color: "var(--color-muted)", marginTop: "4px" }}>※ 최근 {abnormal.lookback_days}일 기준. z = 자기 과거 평균 대비 표준편차 배수(2↑ 이상급증). 신규 급습 = 평소 상위권에 없다가 오늘 강하게 등장.</div>
+              </div>
+            );
+          })()}
 
           {/* 기간 누적 세력 매집 TOP — 오늘 하루가 아닌 '일정 기간 꾸준히 사 모은' 종목 */}
           <div style={{ marginTop: "0.9rem", borderTop: "1px solid var(--color-border)", paddingTop: "0.6rem" }}>

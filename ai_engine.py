@@ -829,16 +829,46 @@ def generate_market_commentary() -> dict:
                 "commentary": "잠시 후 다시 시도해주세요."}
 
 
+def _recent_scenario_context(days: int = 4) -> str:
+    """최근 며칠간 생성한 시나리오의 이슈 제목을 모아 '반복 회피' 지시문을 만든다.
+    AI가 매일 백지에서 같은 상시 테마(반도체·연준·비트코인)로만 수렴하는 문제를 막기 위해,
+    최근에 이미 다룬 이슈를 프롬프트에 주입해 '새로운 각도/전개'를 요구한다."""
+    try:
+        from db import list_daily_market_log_dates, load_daily_market_log
+        seen = []
+        for di in (list_daily_market_log_dates("scenarios", days) or [])[:days]:
+            log = load_daily_market_log(di.get("log_date"), "scenarios") or {}
+            for issue in (log.get("issues") or []):
+                t = str(issue.get("title") or "").strip()
+                if t and t not in seen:
+                    seen.append(t)
+        if not seen:
+            return ""
+        joined = " / ".join(seen[:16])
+        return (
+            "\n【반복 회피 — 매우 중요】\n"
+            f"최근 며칠간 이미 다룬 이슈 제목들: {joined}\n"
+            "- 위와 '똑같은 이슈를 똑같은 각도로' 반복하지 마세요. 상시 테마(반도체·연준 금리·비트코인 등)를 "
+            "다루더라도, 오늘 새로 나온 촉매·수치·일정·뉴스로 '전개가 달라진 지점'을 반드시 반영해 차별화하세요.\n"
+            "- 가능하면 위 목록에 없는 새로운 이슈(신규 정책·실적·지정학 이벤트 등)를 최소 1개 발굴하세요.\n"
+        )
+    except Exception as e:
+        print(f"[recent scenario ctx] {e}")
+        return ""
+
+
 def generate_market_scenarios() -> dict:
-    """오늘의 주요 이슈별 시나리오 — 비트코인 포함 전 영역, 단타/장타 전략 분리."""
+    """오늘의 주요 이슈별 시나리오 — 전 영역, 단타/장타 전략 분리. 최근 이슈 반복 회피 적용."""
     prompt = (
         "당신은 월스트리트 20년 경력의 매크로 전략가이자 퀀트 트레이더입니다.\n반드시 모든 출력을 한국어(한글)로 작성하세요. 영어 문장으로 답변하면 안 됩니다 — 영문은 종목 티커·기업 고유명사에만 허용합니다. 한자(漢字)는 절대 금지.\n"
         "구글 검색으로 오늘 글로벌 금융시장(주식·암호화폐 포함)에 가장 큰 영향을 줄 수 있는\n"
-        "주요 이슈를 최대 4개까지 파악하세요. 실제로 중요한 이슈만 포함하고, 억지로 채우지 마세요. 반드시 비트코인·암호화폐 관련 이슈 1개를 포함하세요.\n"
+        "주요 이슈를 최대 4개까지 파악하세요. 실제로 중요한 이슈만 포함하고, 억지로 채우지 마세요. 시장에서 실제로 유의미할 때만 비트코인·암호화폐 이슈를 포함하고, 매일 기계적으로 넣지는 마세요.\n"
         "이슈는 시장 파급력이 큰 순서대로 정렬하세요 (issue_no 1이 가장 중요).\n"
-        "(예: 미·중 무역협상, 반도체, 전쟁·지정학, 연준 금리, 유가, 비트코인 법안/ETF, SpaceX 등)\n\n"
-        "각 이슈별로 2가지 시나리오(A: 낙관, B: 비관)를 작성하세요.\n"
-        "PER/밸류에이션 관점을 반드시 포함하고, 단타전략과 장타전략을 구분해서 작성하세요.\n\n"
+        "(예: 미·중 무역협상, 반도체, 전쟁·지정학, 연준 금리, 유가, 비트코인 법안/ETF, SpaceX 등)\n"
+        + _recent_scenario_context() +
+        "\n각 이슈별로 2가지 시나리오(A: 낙관, B: 비관)를 작성하세요.\n"
+        "PER/밸류에이션 관점을 반드시 포함하고, 단타전략과 장타전략을 구분해서 작성하세요.\n"
+        "economic_analysis에는 '오늘 새로 확인된 촉매·수치·일정'을 최소 1개 구체적으로 담아, 어제와 다른 분석이 되게 하세요.\n\n"
         "⚠️ [종목 신뢰성 원칙 — 최우선 적용]\n"
         "rising_stocks, falling_stocks, theme_stocks에 포함하는 모든 종목은 구글 검색으로 반드시 검증하세요:\n"
         "① 국내 종목: 해당 6자리 코드가 실제 KRX(KOSPI/KOSDAQ) 상장 종목코드인지 확인\n"
@@ -881,7 +911,7 @@ def generate_market_scenarios() -> dict:
         '          "probability": "높음/보통/낮음 (pct와 일치)",\n'
         '          "market_direction": "강세/약세/혼조",\n'
         '          "trigger": "현실화 조건 (1문장)",\n'
-        '          "economic_analysis": "경제적 영향. PER/밸류에이션 관점 포함 (2~3문장)",\n'
+        '          "economic_analysis": "경제적 영향 + PER/밸류에이션 관점 + 오늘 새로 확인된 촉매·수치·일정 1개 이상 (3~4문장, 어제와 차별화)",\n'
         '          "rising_stocks": [\n'
         '            {"name": "종목명", "ticker": "국내=6자리숫자코드/미국=심볼", "reason": "이유", "valuation_note": "PER 코멘트", "signal": "매우 강력 추천/추천/중간추천/비추천/매우 비추천", "signal_reason": "현재 매수 관점 한 줄 요약", "expected_gain_pct": "호재/모멘텀 크기에 따른 합리적 단기 목표 상승률 (% 기호 없이, 예: 8.0)", "expected_loss_pct": "합리적 손절 기준율 (음수, 예: -3.0)"}\n'
         "          ],\n"

@@ -211,6 +211,17 @@ def kr_supply_cumulative(days: int = 20, market: str = ""):
     return load_cumulative_supply(days=days, market=(market or None))
 
 
+@router.get("/supply-abnormal")
+def kr_supply_abnormal(lookback_days: int = 20, z: float = 2.0):
+    """세력 이상 급증 감지 — 순매수 절대금액이 아니라 '제 덩치 대비 비정상적으로 갑자기'
+    세력이 몰린 종목. surge(자기 평균 대비 z-score 급등) + new_entrant(신규 급습)."""
+    from db import detect_abnormal_supply
+    try:
+        return detect_abnormal_supply(lookback_days=lookback_days, z_threshold=z)
+    except Exception as e:
+        return {"available": False, "error": str(e), "surge": [], "new_entrant": []}
+
+
 @router.post("/supply-snapshot")
 def kr_supply_snapshot():
     """오늘의 외국인·기관 수급 스냅샷 즉시 저장 (종목 + 섹터). 스케줄러도 매일 호출."""
