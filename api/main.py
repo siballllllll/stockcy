@@ -603,26 +603,48 @@ def start_watchlist_alert_scheduler():
 
 # ── 10-c. 외국인·기관 수급 일일 스냅샷 스케줄러 (세력 자금 이동 추적용) ──────────
 _LAST_SUPPLY_SNAPSHOT_DATE = ""
+_SUPPLY_SNAPSHOT_ATTEMPTS: dict = {}   # {date: 시도횟수} — 휴장일 무한 재시도 방지
 
 def _supply_snapshot_loop():
-    """평일 15:45 KST(한국장 마감 직후)에 외국인·기관 수급 스냅샷을 DB에 적재.
-    매일 쌓여야 day-over-day 세력 자금 이동(detect_supply_rotation)이 동작한다."""
+    """평일 장 마감(15:45 KST) 이후 '아무 때나' 외국인·기관 수급 스냅샷을 DB에 적재.
+    매일 쌓여야 day-over-day 세력 자금 이동/이상급증(detect_supply_rotation·detect_abnormal_supply)이 동작한다.
+
+    [강건화] 과거엔 15:45~15:59 15분 창에만 트리거돼, 노트북 배포 특성상 그 순간 백엔드가
+    안 떠 있으면 그날치를 영영 놓쳤다(6/23 이후 전면 중단의 원인). 이제:
+      ① 창 확대: 15:45 이후면 저녁·밤 아무 때나 오늘치 미적재 시 즉시 적재.
+      ② 시작 시 캐치업: 루프 첫 iteration에서 바로 조건 평가 → 뒤늦게 켜도 그날치 확보.
+    DB에 오늘치가 이미 있으면(재시작 후에도) 건너뛴다. 휴장일(saved=0)은 5회까지만 시도."""
     global _LAST_SUPPLY_SNAPSHOT_DATE
     import datetime as _dt
     while True:
         try:
             now = _dt.datetime.now()
             today = now.strftime("%Y-%m-%d")
-            if (now.weekday() < 5 and now.hour == 15 and now.minute >= 45
-                    and _LAST_SUPPLY_SNAPSHOT_DATE != today):
+            after_close = now.hour > 15 or (now.hour == 15 and now.minute >= 45)
+            if now.weekday() < 5 and after_close and _LAST_SUPPLY_SNAPSHOT_DATE != today:
+                # 재시작 대비: DB에 오늘치가 이미 있으면 재적재하지 않고 완료 처리
+                already = False
                 try:
-                    from data_kr import snapshot_frgn_inst_today, snapshot_sector_flow_today
-                    r = snapshot_frgn_inst_today()
-                    sr = snapshot_sector_flow_today()
+                    from db import load_frgn_inst_snapshot_dates
+                    already = today in (load_frgn_inst_snapshot_dates(1) or [])
+                except Exception:
+                    pass
+                if already:
                     _LAST_SUPPLY_SNAPSHOT_DATE = today
-                    print(f"[supply snapshot] 종목 {r.get('saved', 0)}건 / 섹터 {sr.get('sectors', 0)}개 ({today})")
-                except Exception as e:
-                    print(f"[supply snapshot] 오류: {e}")
+                elif _SUPPLY_SNAPSHOT_ATTEMPTS.get(today, 0) < 5:
+                    _SUPPLY_SNAPSHOT_ATTEMPTS[today] = _SUPPLY_SNAPSHOT_ATTEMPTS.get(today, 0) + 1
+                    try:
+                        from data_kr import snapshot_frgn_inst_today, snapshot_sector_flow_today
+                        r = snapshot_frgn_inst_today()
+                        sr = snapshot_sector_flow_today()
+                        saved = int(r.get("saved", 0) or 0)
+                        if saved > 0:
+                            _LAST_SUPPLY_SNAPSHOT_DATE = today   # 성공 시에만 완료 처리
+                            print(f"[supply snapshot] 종목 {saved}건 / 섹터 {sr.get('sectors', 0)}개 ({today})")
+                        else:
+                            print(f"[supply snapshot] 데이터 없음(휴장 가능) — 재시도 {_SUPPLY_SNAPSHOT_ATTEMPTS[today]}/5 ({today})")
+                    except Exception as e:
+                        print(f"[supply snapshot] 오류: {e}")
         except Exception:
             pass
         _time.sleep(120)
@@ -632,7 +654,7 @@ def _supply_snapshot_loop():
 def start_supply_snapshot_scheduler():
     t = _threading.Thread(target=_supply_snapshot_loop, daemon=True)
     t.start()
-    print("[supply snapshot] 수급 스냅샷 스케줄러 시작 (평일 15:45)")
+    print("[supply snapshot] 수급 스냅샷 스케줄러 시작 (평일 15:45 이후 캐치업)")
 
 
 # ── 10-d. 전 유저 패턴 학습 정기 재빌드 (Phase 6) ──────────────────────────────
