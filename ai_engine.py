@@ -3983,6 +3983,15 @@ def _get_trade_indicators(ticker: str, buy_date_str: str) -> dict:
                     opens, hist["High"].values, hist["Low"].values, closes, volumes, is_kr)
             except Exception:
                 pass
+            # 자체 ML 확장 피처(모멘텀·MACD·볼린저%b·ATR) — 동일 hist 재사용, ML 승률 예측용
+            try:
+                from ml_model import _extra_feats
+                result["daily"]["ml_extra"] = _extra_feats(
+                    [float(x) for x in closes],
+                    [float(x) for x in hist["High"].values],
+                    [float(x) for x in hist["Low"].values])
+            except Exception:
+                pass
     except Exception as e:
         result["daily"]["error"] = str(e)[:80]
 
@@ -4697,6 +4706,25 @@ def screen_by_my_pattern() -> dict:
         if hsh_score > 0:
             match_score = min(100, match_score + min(8, hsh_score * 1.6))
 
+        # ── 자체 ML 승률 게이트 (v3.108.0) — 우리 매매결과로 학습된 확률을 점수에 반영 ──
+        # 학습만 하고 소비처가 없던 predict_win_proba를 여기서 처음 배선. 로컬·무과금.
+        # d7(스윙) 확률 기준 ±12점: 확률 50%=중립, 30%면 -6, 15%면 -10.5 (저확률 후보 강제 강등).
+        ml_p3 = ml_p7 = None
+        try:
+            from ml_model import predict_win_proba
+            _mlf = {
+                "rsi": _d.get("rsi"), "ma_aligned": 1.0 if _d.get("ma_aligned") else 0.0,
+                "pos_52w": _d.get("pos_52w_pct"), "vol_ratio": _d.get("volume_ratio"),
+                "is_us": 0.0 if str(code).strip().isdigit() else 1.0,
+            }
+            _mlf.update(ind["daily"].get("ml_extra") or {})
+            ml_p7 = predict_win_proba(_mlf, "d7")
+            ml_p3 = predict_win_proba(_mlf, "d3")
+            if ml_p7 is not None:
+                match_score = max(0, min(100, match_score + max(-12.0, min(12.0, (ml_p7 - 50) * 0.3))))
+        except Exception as _me:
+            print(f"[screener ml] {code} 예측 실패: {_me}")
+
         match_score = round(match_score, 1)   # 누적 보정으로 생긴 부동소수점 오차 정리
 
         # ── 모멘텀 진단 한 줄(결정론) — '왜 지금 올라와 있나 / 남은 여력 근거'를 카드에 직접 표시 ──
@@ -4746,6 +4774,8 @@ def screen_by_my_pattern() -> dict:
             "hsh_label":         hsh.get("hsh_label", ""),     # 하승훈式 신호 요약 (돌파눌림목·볼린저·MACD)
             "hsh_score":         hsh_score,                    # 0~5
             "hsh_amount_ok":     bool(hsh.get("amount_ok", False)),  # 거래대금 게이트 통과
+            "ml_win_proba_d7":   ml_p7,   # 자체 ML 7일 상승확률 % (모델 미학습 시 None)
+            "ml_win_proba_d3":   ml_p3,   # 자체 ML 3일 상승확률 %
         })
 
     scored.sort(key=lambda x: x["match_score"], reverse=True)
@@ -4807,7 +4837,11 @@ def screen_by_my_pattern() -> dict:
     candidates_text = "\n".join(
         f"- {s['name']}({s['code']}): 매칭점수={s['match_score']}, RSI={s['rsi']}, "
         f"거래량비율={s['vol_ratio']}배, 52주위치={s['pos_52w']}%, 당일등락={s.get('today_change_pct')}%, "
-        f"MA정배열={'O' if s['ma_aligned'] else 'X'}, 갭={s['gap_pct']}%, 신호={s['signal']}{_stage_tag(s)}{_market_tag(s)}{_hsh_tag(s)}"
+        f"MA정배열={'O' if s['ma_aligned'] else 'X'}, 갭={s['gap_pct']}%, 신호={s['signal']}"
+        + (f", 자체ML 상승확률(우리 매매결과 학습)=7일 {s['ml_win_proba_d7']}%" +
+           (f"·3일 {s['ml_win_proba_d3']}%" if s.get('ml_win_proba_d3') is not None else "")
+           if s.get('ml_win_proba_d7') is not None else "")
+        + f"{_stage_tag(s)}{_market_tag(s)}{_hsh_tag(s)}"
         for s in top
     )
 
@@ -4829,6 +4863,7 @@ def screen_by_my_pattern() -> dict:
        · '돌파직전'이면 "아직 안 올랐고 어떤 시그널(거래량가속·박스권돌파 등)로 곧 갈 것인지" 근거.
    (c) 따라서 지금 진입이 타당한지 한 줄 결론.
    선정 우선순위: ① 돌파직전(선진입) 1순위, ② 강한추세지속은 '추가 여력 근거가 분명할 때만' 유효, ③ 과열은 신중/제외.
+   ※ '자체ML 상승확률'은 이 투자자의 실제 매매결과로 학습된 통계 예측입니다. 7일 확률 40% 미만이면 다른 신호가 좋아도 감점 요인으로 명시하고, 55% 이상이면 통계적 뒷받침 근거로 언급하세요.
 2. 각 종목의 예상 단기 진입 가격대와 손절 기준 (돌파직전은 돌파 확인 후/눌림목 분할, 추세지속은 눌림목 대기).
 3. 주의 리스크 1가지씩.
 

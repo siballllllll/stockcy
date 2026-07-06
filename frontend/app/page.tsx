@@ -814,6 +814,17 @@ export default function Dashboard() {
                                 🎯 {p.hsh_label}
                               </span>
                             )}
+                            {p.ml_win_proba_d7 != null && (() => {
+                              const good = p.ml_win_proba_d7 >= 55;
+                              const bad = p.ml_win_proba_d7 <= 42;
+                              const c = good ? "#34d399" : bad ? "#f87171" : "#a5b4fc";
+                              const bg = good ? "rgba(16,185,129,0.15)" : bad ? "rgba(239,68,68,0.15)" : "rgba(99,102,241,0.13)";
+                              return (
+                                <span style={{ fontSize: "0.72rem", padding: "2px 7px", borderRadius: "6px", background: bg, border: `1px solid ${c}55`, color: c, fontWeight: 800 }} title={`자체 ML 예측 상승확률 — 우리 매매결과로 학습·확률보정 완료 (7일 ${p.ml_win_proba_d7}%${p.ml_win_proba_d3 != null ? ` / 3일 ${p.ml_win_proba_d3}%` : ""}). 점수에 ±12점 반영됨`}>
+                                  🤖 ML {p.ml_win_proba_d7}%
+                                </span>
+                              );
+                            })()}
                           </div>
 
                           {/* 현재가 + 추천 매수 구간 + 과열 경고 */}

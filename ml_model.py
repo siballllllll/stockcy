@@ -13,11 +13,14 @@ import os
 from datetime import datetime
 
 # 공통 피처(엔진 무관) — 에이전트·패턴·시나리오·AI추천을 모두 같은 피처로 통일
-# 기본 4개 + 확장 5개(모멘텀·MACD·볼린저%b·ATR). _extra_feats와 EXTRA_FEATURES 동기화 유지.
+# 기본 4개 + 확장 5개(모멘텀·MACD·볼린저%b·ATR) + 시장 구분(is_us).
+# _extra_feats와 EXTRA_FEATURES 동기화 유지.
 _BASE_FEATURES = ["rsi", "ma_aligned", "pos_52w", "vol_ratio"]
 EXTRA_FEATURES = ["mom_5", "mom_20", "macd_hist", "bb_pctb", "atr_pct"]
-_FEATURES = _BASE_FEATURES + EXTRA_FEATURES
+_FEATURES = _BASE_FEATURES + EXTRA_FEATURES + ["is_us"]
+_FEATURE_DEFAULTS = {"bb_pctb": 0.5}   # 미제공 시 중립값이 0이 아닌 피처
 MIN_SAMPLES = 80   # 이 미만이면 학습 보류 (신뢰 가능한 최소 표본)
+RECENCY_HALF_LIFE_DAYS = 60   # 최근성 가중치 반감기 — 5월 같은 옛 레짐의 영향 자연 감쇠
 # 예측 기간(horizon): 단타 d3 / 스윙 d7 / 중장기 d20. 각각 별도 모델.
 HORIZONS = {"d3": "d3_return", "d7": "d7_return", "d20": "d20_return"}
 
@@ -68,8 +71,9 @@ def _model_path(horizon: str) -> str:
 
 
 def build_training_set(horizon: str = "d7"):
-    """기간별 라벨 학습 데이터 → (X: list[dict], y: list[int]). y=1(상승)/0(하락).
-    소스: ml_training_samples(패턴·시나리오·AI추천)의 해당 dN_return + (d7 한정) agent_decisions."""
+    """기간별 라벨 학습 데이터 → (X: list[dict], y: list[int], dates: list[str]).
+    y=1(상승)/0(하락). decided_at 오름차순 정렬 — 시계열 CV·최근성 가중치의 전제.
+    소스: ml_training_samples(패턴·시나리오·AI추천)의 해당 dN_return."""
     col = HORIZONS.get(horizon, "d7_return")
     from db import get_db_conn
     conn = get_db_conn(); cur = conn.cursor()
@@ -78,17 +82,19 @@ def build_training_set(horizon: str = "d7"):
         # 확장 피처(mom_5 등)는 ml_training_samples에만 존재 → 그 컬럼이 채워진 행만 사용.
         # agent_decisions는 확장 피처가 없어 통합 피처셋 학습에서 제외(28건 손실 < 9피처 이득).
         cur.execute(
-            f"""SELECT rsi, ma_aligned, pos_52w, vol_ratio,
+            f"""SELECT ticker, decided_at, rsi, ma_aligned, pos_52w, vol_ratio,
                        mom_5, mom_20, macd_hist, bb_pctb, atr_pct, {col} AS ret
                 FROM ml_training_samples
-                WHERE {col} IS NOT NULL AND rsi IS NOT NULL AND mom_5 IS NOT NULL"""
+                WHERE {col} IS NOT NULL AND rsi IS NOT NULL AND mom_5 IS NOT NULL
+                ORDER BY decided_at ASC"""
         )
         rows += [dict(r) for r in cur.fetchall()]
     finally:
         conn.close()
-    X, y = [], []
+    X, y, dates = [], [], []
     for d in rows:
         try:
+            tk = str(d.get("ticker") or "")
             X.append({
                 "rsi":        float(d["rsi"] or 0),
                 "ma_aligned": 1.0 if d["ma_aligned"] else 0.0,
@@ -99,11 +105,13 @@ def build_training_set(horizon: str = "d7"):
                 "macd_hist":  float(d["macd_hist"] or 0),
                 "bb_pctb":    float(d["bb_pctb"] if d["bb_pctb"] is not None else 0.5),
                 "atr_pct":    float(d["atr_pct"] or 0),
+                "is_us":      1.0 if any(ch.isalpha() for ch in tk) else 0.0,
             })
             y.append(1 if float(d["ret"] or 0) > 0 else 0)
+            dates.append(str(d.get("decided_at") or "")[:10])
         except Exception:
             continue
-    return X, y
+    return X, y, dates
 
 
 def track_ml_sample_outcomes(limit: int = 250, max_age_days: int = 60) -> dict:
@@ -233,8 +241,15 @@ def _to_matrix(X):
 
 
 def train_model(horizon: str = "d7", force: bool = False) -> dict:
-    """기간별 학습 + 교차검증 후 모델 저장. 데이터 부족이면 보류(force=True면 데모로 강제)."""
-    X, y = build_training_set(horizon)
+    """기간별 학습 + 시계열 교차검증 후 모델 저장. 데이터 부족이면 보류(force=True면 데모로 강제).
+
+    [v3.108 품질 업그레이드]
+    - 시계열 CV(TimeSeriesSplit): 랜덤 K-fold는 '미래 데이터로 과거를 맞추는' 누출로
+      AUC가 부풀려짐 → 항상 과거로 학습→미래로 검증하는 정직한 지표로 교체.
+    - 확률 보정(CalibratedClassifierCV/sigmoid): GBM 원시 predict_proba는 과신 경향
+      → 보정 후 '상승확률 62%'가 실제 62% 빈도에 근접하도록.
+    - 최근성 가중치: 반감기 60일 지수감쇠 — 5월 급등주 레짐 같은 옛 데이터 영향 자연 감소."""
+    X, y, dates = build_training_set(horizon)
     n = len(y)
     if n < MIN_SAMPLES and not force:
         return {"horizon": horizon, "trained": False, "samples": n, "min_required": MIN_SAMPLES,
@@ -244,24 +259,62 @@ def train_model(horizon: str = "d7", force: bool = False) -> dict:
 
     import numpy as np
     from sklearn.ensemble import GradientBoostingClassifier
-    from sklearn.model_selection import cross_val_score
+    from sklearn.model_selection import TimeSeriesSplit
+    from sklearn.metrics import roc_auc_score
     import joblib
 
     Xm, ym = _to_matrix(X), np.array(y)
-    clf = GradientBoostingClassifier(random_state=42)
+    # 최근성 가중치 (build_training_set이 decided_at 오름차순 보장)
+    today = datetime.now().date()
+    ages = []
+    for ds in dates:
+        try:
+            ages.append((today - datetime.strptime(ds, "%Y-%m-%d").date()).days)
+        except Exception:
+            ages.append(0)
+    w = np.array([0.5 ** (max(0, a) / RECENCY_HALF_LIFE_DAYS) for a in ages])
+
+    # 정직한 성능 측정: 시계열 분할 — 각 fold는 과거로만 학습해 미래를 예측
     auc = None
     try:
-        cv = min(5, max(2, n // 2))
-        auc = float(cross_val_score(clf, Xm, ym, cv=cv, scoring="roc_auc").mean())
-    except Exception:
-        pass
-    clf.fit(Xm, ym)
+        aucs = []
+        for tr_i, te_i in TimeSeriesSplit(n_splits=min(4, max(2, n // 60))).split(Xm):
+            if len(set(ym[te_i])) < 2:
+                continue   # 검증 구간에 승/패 한쪽만 있으면 AUC 정의 불가
+            m = GradientBoostingClassifier(random_state=42)
+            m.fit(Xm[tr_i], ym[tr_i], sample_weight=w[tr_i])
+            aucs.append(roc_auc_score(ym[te_i], m.predict_proba(Xm[te_i])[:, 1]))
+        if aucs:
+            auc = float(np.mean(aucs))
+    except Exception as e:
+        print(f"[ml train] 시계열 CV 실패: {e}")
+
+    # 최종 모델: 확률 보정 래핑 (표본 충분할 때). 실패 시 순정 GBM 폴백.
+    base = GradientBoostingClassifier(random_state=42)
+    clf = None; calibrated = False
+    if n >= 150:
+        try:
+            from sklearn.calibration import CalibratedClassifierCV
+            try:
+                cal = CalibratedClassifierCV(estimator=base, method="sigmoid", cv=3)
+            except TypeError:   # sklearn<1.2 파라미터명 호환
+                cal = CalibratedClassifierCV(base_estimator=base, method="sigmoid", cv=3)
+            cal.fit(Xm, ym, sample_weight=w)
+            clf = cal; calibrated = True
+        except Exception as e:
+            print(f"[ml train] 확률 보정 실패, 순정 GBM 폴백: {e}")
+    if clf is None:
+        base.fit(Xm, ym, sample_weight=w)
+        clf = base
     if not force:
         joblib.dump({"model": clf, "features": _FEATURES, "horizon": horizon,
                      "trained_at": datetime.now().isoformat(), "samples": n,
-                     "cv_auc": round(auc, 3) if auc is not None else None}, _model_path(horizon))
+                     "cv_auc": round(auc, 3) if auc is not None else None,
+                     "cv_method": "time_series", "calibrated": calibrated,
+                     "recency_half_life": RECENCY_HALF_LIFE_DAYS}, _model_path(horizon))
     return {"horizon": horizon, "trained": True, "saved": not force, "demo": force, "samples": n,
             "cv_auc": round(auc, 3) if auc is not None else None,
+            "cv_method": "time_series", "calibrated": calibrated,
             "base_win_rate": round(float(ym.mean()) * 100, 1)}
 
 
@@ -270,16 +323,33 @@ def train_all() -> dict:
     return {h: train_model(h) for h in HORIZONS}
 
 
-def predict_win_proba(features: dict, horizon: str = "d7"):
-    """저장된 기간별 모델로 상승 확률(%) 예측. 모델 미존재 시 None."""
+_BUNDLE_CACHE: dict = {}   # {horizon: (mtime, bundle)} — 스크리너가 후보 60개×기간별 호출해도 로드 1회
+
+def _load_bundle(horizon: str):
     path = _model_path(horizon)
     if not os.path.exists(path):
         return None
+    mtime = os.path.getmtime(path)
+    hit = _BUNDLE_CACHE.get(horizon)
+    if hit and hit[0] == mtime:
+        return hit[1]
+    import joblib
+    bundle = joblib.load(path)
+    _BUNDLE_CACHE[horizon] = (mtime, bundle)
+    return bundle
+
+
+def predict_win_proba(features: dict, horizon: str = "d7"):
+    """저장된 기간별 모델로 상승 확률(%) 예측. 모델 미존재 시 None.
+    미제공 피처는 중립값(_FEATURE_DEFAULTS, 그 외 0)으로 채움."""
     try:
-        import joblib, numpy as np
-        bundle = joblib.load(path)
+        bundle = _load_bundle(horizon)
+        if not bundle:
+            return None
+        import numpy as np
         clf, cols = bundle["model"], bundle["features"]
-        x = np.array([[float(features.get(c, 0) or 0) for c in cols]], dtype=float)
+        x = np.array([[float(features.get(c, _FEATURE_DEFAULTS.get(c, 0)) if features.get(c) is not None
+                             else _FEATURE_DEFAULTS.get(c, 0)) for c in cols]], dtype=float)
         return round(float(clf.predict_proba(x)[0][1]) * 100, 1)
     except Exception:
         return None
