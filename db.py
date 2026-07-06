@@ -486,6 +486,9 @@ def init_local_db():
         "ALTER TABLE screener_picks ADD COLUMN price REAL",  # 추천 당시가(교차검증용)
         "ALTER TABLE screener_picks ADD COLUMN hsh_label TEXT",  # 하승훈式 시그널 라벨(교차검증 표시용)
         "ALTER TABLE ml_training_samples ADD COLUMN d20_return REAL",  # 중장기(약 1개월) 라벨용
+        "ALTER TABLE ml_training_samples ADD COLUMN pred_d3 REAL",   # 추천 시점 ML 예측확률(%) — 사후검증용
+        "ALTER TABLE ml_training_samples ADD COLUMN pred_d7 REAL",
+        "ALTER TABLE ml_training_samples ADD COLUMN pred_d20 REAL",
         "ALTER TABLE screener_backtest_results ADD COLUMN market TEXT DEFAULT 'kr'",
         "ALTER TABLE scenario_stocks ADD COLUMN horizon TEXT",
         "ALTER TABLE portfolio ADD COLUMN buy_reason TEXT DEFAULT ''",
@@ -2570,23 +2573,79 @@ _BUY_REASON_BUCKETS = [
 ]
 
 
-def log_ml_sample(source: str, ticker: str, name: str = "", market: str = "", entry_price=None):
+def log_ml_sample(source: str, ticker: str, name: str = "", market: str = "", entry_price=None,
+                  preds: dict | None = None):
     """자체 ML 학습 샘플 기록(추천 시점) — 종목·날짜만. 피처/결과는 추적 job이 사후에 채움.
-    (source, ticker, 날짜) 중복은 무시. 어느 엔진이든 추천할 때 호출."""
+    (source, ticker, 날짜) 중복은 무시. 어느 엔진이든 추천할 때 호출.
+    preds: 추천 시점의 ML 예측확률 {'d3': %, 'd7': %, 'd20': %} — 나중에 실제 결과와 비교(사후검증)."""
     try:
         tk = str(ticker or "").strip()
         if not tk:
             return
+        p = preds or {}
+        def _pv(k):
+            v = p.get(k)
+            return float(v) if v is not None else None
         today = datetime.now().strftime("%Y-%m-%d")
         conn = get_db_conn(); cur = conn.cursor()
         cur.execute(
-            "INSERT OR IGNORE INTO ml_training_samples (source, ticker, name, market, decided_at, entry_price) VALUES (?, ?, ?, ?, ?, ?)",
+            "INSERT OR IGNORE INTO ml_training_samples (source, ticker, name, market, decided_at, entry_price, pred_d3, pred_d7, pred_d20) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (str(source), tk, str(name or ""), str(market or ""), today,
-             float(entry_price) if entry_price else None)
+             float(entry_price) if entry_price else None,
+             _pv("d3"), _pv("d7"), _pv("d20"))
         )
         conn.commit(); conn.close()
     except Exception as e:
         print(f"log_ml_sample error: {e}")
+
+
+def load_ml_prediction_verification() -> dict:
+    """ML 예측 사후검증 — '추천 시점에 저장한 예측확률(pred_dN)'과 '실제 결과(dN_return)'를 대조.
+    학습 성능(cv_auc)과 달리 이것은 실전 예측의 실측 성적표(라이브 검증).
+    - live_auc: 예측확률이 실제 승/패를 얼마나 구분했나 (순위 기반, sklearn 불필요)
+    - buckets: 확률 구간별 실제 승률 — 보정이 잘 됐다면 '55%+ 구간'의 실제 승률이 55%에 근접해야 함."""
+    def _rank_auc(pairs):
+        import bisect
+        pos = sorted(p for p, l in pairs if l == 1)
+        neg = [p for p, l in pairs if l == 0]
+        if not pos or not neg:
+            return None
+        wins = 0.0
+        for pn in neg:
+            hi = bisect.bisect_right(pos, pn)
+            lo = bisect.bisect_left(pos, pn)
+            wins += (len(pos) - hi) + (hi - lo) * 0.5
+        return round(wins / (len(pos) * len(neg)), 3)
+
+    out = {"horizons": {}}
+    try:
+        conn = get_db_conn(); cur = conn.cursor()
+        for h in ("d3", "d7", "d20"):
+            cur.execute(
+                f"""SELECT pred_{h} AS pred, {h}_return AS ret FROM ml_training_samples
+                    WHERE pred_{h} IS NOT NULL AND {h}_return IS NOT NULL"""
+            )
+            rows = [(float(r["pred"]), 1 if float(r["ret"]) > 0 else 0, float(r["ret"])) for r in cur.fetchall()]
+            info = {"n": len(rows), "live_auc": None, "buckets": []}
+            if rows:
+                info["live_auc"] = _rank_auc([(p, l) for p, l, _ in rows])
+                for lo, hi, label in ((0, 40, "40% 미만"), (40, 50, "40~50%"), (50, 55, "50~55%"), (55, 101, "55% 이상")):
+                    grp = [(l, ret) for p, l, ret in rows if lo <= p < hi]
+                    if grp:
+                        info["buckets"].append({
+                            "label": label, "n": len(grp),
+                            "actual_win_rate": round(sum(l for l, _ in grp) / len(grp) * 100, 1),
+                            "avg_return": round(sum(r for _, r in grp) / len(grp), 2),
+                        })
+            out["horizons"][h] = info
+        conn.close()
+        out["available"] = any(v["n"] > 0 for v in out["horizons"].values())
+        if not out["available"]:
+            out["reason"] = "예측 기록이 아직 없습니다 — v3.110.0부터 추천 시점 예측이 자동 저장되며, 결과가 채워지면(3~7일 후) 여기서 실측 성적이 표시됩니다."
+        return out
+    except Exception as e:
+        print(f"load_ml_prediction_verification error: {e}")
+        return {"available": False, "error": str(e), "horizons": {}}
 
 
 def backfill_ml_samples_from_history() -> dict:

@@ -263,8 +263,41 @@ function MlStatusPanel() {
           );
         })}
       </div>
+      {/* 예측 사후검증 — 추천 시점 예측확률 vs 실제 결과 (라이브 성적표) */}
+      {(() => {
+        const ver = data?.verification;
+        if (!ver) return null;
+        if (!ver.available) return (
+          <div style={{ fontSize: "0.68rem", color: "var(--color-muted)", marginTop: "10px", padding: "8px 10px", background: "rgba(255,255,255,0.03)", borderRadius: "8px", lineHeight: 1.5 }}>
+            🔬 <b>예측 사후검증</b>: {ver.reason || "예측 기록 수집 중"}
+          </div>
+        );
+        const HL: Record<string, string> = { d3: "단타(3일)", d7: "스윙(7일)", d20: "중장기(20일)" };
+        return (
+          <div style={{ marginTop: "10px", padding: "10px 12px", background: "rgba(99,102,241,0.06)", border: "1px solid rgba(99,102,241,0.2)", borderRadius: "8px" }}>
+            <div style={{ fontSize: "0.78rem", fontWeight: 800, marginBottom: "6px" }}>🔬 예측 사후검증 <span style={{ fontSize: "0.66rem", fontWeight: 600, color: "var(--color-muted)" }}>— 추천 시점 예측 vs 실제 결과 (실전 성적표)</span></div>
+            {Object.entries(ver.horizons || {}).filter(([, v]: any) => v.n > 0).map(([h, v]: any) => (
+              <div key={h} style={{ marginBottom: "6px" }}>
+                <div style={{ fontSize: "0.72rem", color: "var(--color-subtle)" }}>
+                  <b>{HL[h] ?? h}</b> — 검증표본 {v.n}건{v.live_auc != null && <> · 실전 AUC <b style={{ color: v.live_auc >= 0.6 ? "#34d399" : v.live_auc >= 0.55 ? "#a5b4fc" : "#f87171" }}>{v.live_auc}</b></>}
+                </div>
+                {v.buckets?.length > 0 && (
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: "4px", marginTop: "3px" }}>
+                    {v.buckets.map((b: any, i: number) => (
+                      <span key={i} style={{ fontSize: "0.66rem", padding: "2px 7px", borderRadius: "5px", background: "rgba(255,255,255,0.04)", border: "1px solid var(--color-border)", color: "var(--color-subtle)" }} title={`평균수익 ${b.avg_return}%`}>
+                        예측 {b.label} → 실제 승률 <b style={{ color: "var(--color-text)" }}>{b.actual_win_rate}%</b> ({b.n}건)
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ))}
+            <div style={{ fontSize: "0.62rem", color: "var(--color-muted)", marginTop: "4px" }}>※ 보정이 잘 됐다면 각 구간의 실제 승률이 예측 구간과 비슷해야 합니다 (예: '55% 이상' 구간 → 실제 승률 ≈ 55%+).</div>
+          </div>
+        );
+      })()}
       <div style={{ fontSize: "0.68rem", color: "var(--color-muted)", marginTop: "8px", lineHeight: 1.5 }}>
-        ※ 단타·스윙은 학습 시작됨. 단, 현재 예측력(AUC)이 0.5(무작위) 근처라 ‘ML 상승확률’을 매매 판단에 반영하는 단계는 AUC가 더 오른 뒤로 보류 중. 데이터가 쌓이며 매일 재학습됩니다.
+        ※ v3.108+: ML 확률이 패턴 스크리너 점수(±12점)·매도타이밍·종목리포트에 실전 반영 중. 시계열 교차검증 + 확률보정 + 최근성 가중 적용, 매일 아침 자동 재학습.
       </div>
     </div>
   );

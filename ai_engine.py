@@ -4758,7 +4758,7 @@ def screen_by_my_pattern() -> dict:
         # ── 자체 ML 승률 게이트 (v3.108.0) — 우리 매매결과로 학습된 확률을 점수에 반영 ──
         # 학습만 하고 소비처가 없던 predict_win_proba를 여기서 처음 배선. 로컬·무과금.
         # d7(스윙) 확률 기준 ±12점: 확률 50%=중립, 30%면 -6, 15%면 -10.5 (저확률 후보 강제 강등).
-        ml_p3 = ml_p7 = None
+        ml_p3 = ml_p7 = ml_p20 = None
         try:
             from ml_model import predict_win_proba
             _mlf = {
@@ -4769,6 +4769,7 @@ def screen_by_my_pattern() -> dict:
             _mlf.update(ind["daily"].get("ml_extra") or {})
             ml_p7 = predict_win_proba(_mlf, "d7")
             ml_p3 = predict_win_proba(_mlf, "d3")
+            ml_p20 = predict_win_proba(_mlf, "d20")
             if ml_p7 is not None:
                 match_score = max(0, min(100, match_score + max(-12.0, min(12.0, (ml_p7 - 50) * 0.3))))
         except Exception as _me:
@@ -4825,6 +4826,7 @@ def screen_by_my_pattern() -> dict:
             "hsh_amount_ok":     bool(hsh.get("amount_ok", False)),  # 거래대금 게이트 통과
             "ml_win_proba_d7":   ml_p7,   # 자체 ML 7일 상승확률 % (모델 미학습 시 None)
             "ml_win_proba_d3":   ml_p3,   # 자체 ML 3일 상승확률 %
+            "ml_win_proba_d20":  ml_p20,  # 자체 ML 20일 상승확률 % (사후검증 로깅용)
         })
 
     scored.sort(key=lambda x: x["match_score"], reverse=True)
@@ -4834,11 +4836,14 @@ def screen_by_my_pattern() -> dict:
         return {"error": "매칭 종목 없음"}
 
     # 자체 ML 학습 샘플로 기록 (추천 시점 — 피처·결과는 새벽 추적 job이 사후 보강)
+    # 추천 시점 ML 예측확률도 함께 저장 → 결과가 채워지면 예측 vs 실제 사후검증(라이브 성적표)
     try:
         from db import log_ml_sample
         for p in top[:5]:
             _c = str(p.get("code", ""))
-            log_ml_sample("pattern", _c, p.get("name", ""), "kr" if _c.isdigit() else "us", p.get("current_price"))
+            log_ml_sample("pattern", _c, p.get("name", ""), "kr" if _c.isdigit() else "us", p.get("current_price"),
+                          preds={"d3": p.get("ml_win_proba_d3"), "d7": p.get("ml_win_proba_d7"),
+                                 "d20": p.get("ml_win_proba_d20")})
     except Exception:
         pass
 

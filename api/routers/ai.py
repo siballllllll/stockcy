@@ -1408,10 +1408,17 @@ async def get_holdings_risk(user: dict = Depends(get_current_user)):
 
 @router.get("/ml-status")
 async def get_ml_status(user: dict = Depends(get_current_user)):
-    """자체 ML 모델 현황 — 기간별(단타 d3·스윙 d7·중장기 d20) 학습 표본 수·준비 여부."""
+    """자체 ML 모델 현황 — 기간별(단타 d3·스윙 d7·중장기 d20) 학습 표본 수·준비 여부.
+    + 예측 사후검증(추천 시점 예측확률 vs 실제 결과 — 라이브 성적표)."""
     try:
         from ml_model import ml_status
-        return await asyncio.to_thread(ml_status)
+        res = await asyncio.to_thread(ml_status)
+        try:
+            from db import load_ml_prediction_verification
+            res["verification"] = await asyncio.to_thread(load_ml_prediction_verification)
+        except Exception as _ve:
+            res["verification"] = {"available": False, "error": str(_ve)}
+        return res
     except Exception as e:
         return {"error": str(e), "horizons": {}}
 

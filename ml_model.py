@@ -13,9 +13,11 @@ import os
 from datetime import datetime
 
 # 공통 피처(엔진 무관) — 에이전트·패턴·시나리오·AI추천을 모두 같은 피처로 통일
-# 기본 4개 + 확장 5개(모멘텀·MACD·볼린저%b·ATR) + 시장 구분(is_us).
+# 기본 3개 + 확장 5개(모멘텀·MACD·볼린저%b·ATR) + 시장 구분(is_us).
 # _extra_feats와 EXTRA_FEATURES 동기화 유지.
-_BASE_FEATURES = ["rsi", "ma_aligned", "pos_52w", "vol_ratio"]
+# ma_aligned는 v3.110.0에서 제거 — 전 기간 중요도 0.0(죽은 피처), 제거 시 d3 AUC 0.625→0.64.
+# 호출부 피처 dict에 ma_aligned가 남아 있어도 무해(행렬은 _FEATURES 기준으로만 구성).
+_BASE_FEATURES = ["rsi", "pos_52w", "vol_ratio"]
 EXTRA_FEATURES = ["mom_5", "mom_20", "macd_hist", "bb_pctb", "atr_pct"]
 _FEATURES = _BASE_FEATURES + EXTRA_FEATURES + ["is_us"]
 _FEATURE_DEFAULTS = {"bb_pctb": 0.5}   # 미제공 시 중립값이 0이 아닌 피처
