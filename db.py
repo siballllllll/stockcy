@@ -7,6 +7,32 @@ import sqlite3
 import threading
 from datetime import datetime, timedelta
 
+
+def _fix_curl_ca_bundle():
+    """curl(curl_cffi/yfinance)이 한글 경로('스톡시') 안의 CA 인증서를 못 읽는 문제 우회.
+    증상: US 시세 전부 SSLError(curl error 77) → 'possibly delisted' 오판(NVDA·TSLA까지 실패).
+    해결: certifi 인증서를 ASCII 경로(~/.cacert.pem)로 복사 후 CURL_CA_BUNDLE로 지정.
+    db.py는 모든 모듈이 import하므로 프로세스 전역에 1회 적용된다."""
+    if os.environ.get("CURL_CA_BUNDLE"):
+        return
+    try:
+        import certifi, shutil
+        src = certifi.where()
+        if src.isascii():   # 인증서 경로에 비ASCII가 없으면 문제 없음
+            return
+        dst = os.path.join(os.path.expanduser("~"), ".cacert.pem")
+        if not dst.isascii():
+            return
+        if not os.path.exists(dst) or os.path.getsize(dst) != os.path.getsize(src):
+            shutil.copyfile(src, dst)
+        os.environ["CURL_CA_BUNDLE"] = dst
+        os.environ["SSL_CERT_FILE"] = dst
+    except Exception:
+        pass   # 실패해도 기존 동작 유지 (best-effort)
+
+
+_fix_curl_ca_bundle()
+
 # 구글 스프레드시트 API 호출 429 초과 방지용 메모리 캐시 및 TTL(60초) 정의
 _GSHEET_CACHE = {}
 _GSHEET_CACHE_TTL = timedelta(seconds=60)

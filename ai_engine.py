@@ -4655,8 +4655,30 @@ def screen_by_my_pattern() -> dict:
         return round(best_adj, 1), best_label
 
     scored: list[dict] = []
+    hard_filtered: list[dict] = []   # 실측 저승률 구간이라 추천에서 제외한 후보 (투명성용)
     for code, meta in list(candidates.items())[:60]:   # 최대 60개 (눌림목 유니버스 포함)
         ind = _get_trade_indicators(code, "")           # buy_date 없이 일봉만
+
+        # ── 실측 하드 필터 (v3.111.0) — ML 감점(±12점)으로는 부족한 '독성 구간' 원천 차단 ──
+        # ml_training_samples 561건(d7 라벨) 실측(2026-07-06): 아래 조건 해당 표본은
+        # 승률 23.3%·평균 -6.4%(누적 -576%), 나머지는 48.6%·+1.47%(누적 +691%).
+        # 독성의 원천은 5일 급등(mom_5) — RSI·거래량 폭증은 급등과 겹칠 때만 유해해서
+        # 단독으론 안 거르고 mom_5≥5와 결합해서만 거른다(조용한 고RSI·눌림목 거래량 유입은 통과).
+        _fd  = ind["daily"]; _fmx = _fd.get("ml_extra") or {}
+        _fm5 = _fmx.get("mom_5"); _fvr = _fd.get("volume_ratio"); _frsi = _fd.get("rsi")
+        _toxic = []
+        if _fm5 is not None:
+            if _fm5 >= 10:
+                _toxic.append(f"5일 +{_fm5}% 급등(해당구간 실측 승률 22%)")
+            elif _fm5 >= 5:
+                if _frsi is not None and _frsi >= 70:
+                    _toxic.append(f"5일 +{_fm5}%·RSI {_frsi} 과열 추격(실측 승률 20%)")
+                if _fvr is not None and _fvr >= 4:
+                    _toxic.append(f"5일 +{_fm5}%·거래량 {_fvr}배 폭증 추격(실측 승률 13%)")
+        if _toxic:
+            hard_filtered.append({"code": code, "name": meta.get("name", ""),
+                                  "reason": " · ".join(_toxic)})
+            continue
         if dual_mode:
             p_score = _score_stock_against_profile(ind, personal_profile)
             l_score = _score_stock_against_profile(ind, leading_profile)
@@ -4941,6 +4963,7 @@ def screen_by_my_pattern() -> dict:
             "leading_trades":    leading_profile.get("total_trades") if dual_mode else None,
         },
         "top_picks":    top[:5],
+        "hard_filtered": hard_filtered[:10],   # 실측 저승률 구간으로 제외된 후보 (급등추격 차단 내역)
         "ai_narrative": narrative,
     }
 

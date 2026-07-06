@@ -143,13 +143,9 @@ def track_ml_sample_outcomes(limit: int = 250, max_age_days: int = 60) -> dict:
            ORDER BY decided_at ASC LIMIT ?""",
         (cutoff, int(limit)))
     rows = [dict(r) for r in cur.fetchall()]
-    # 이번에 시도하는 모든 행의 시도 횟수 +1 (성공/실패 무관 — 영구실패 종목 점진 배제)
-    if rows:
-        cur.executemany("UPDATE ml_training_samples SET fill_attempts = COALESCE(fill_attempts,0)+1 WHERE id=?",
-                        [(r["id"],) for r in rows])
-        conn.commit()
     today = datetime.now().date()
     pending = []
+    failed_ids = []   # 이번 실행에서 '해당 종목 데이터 조회 실패'한 행 id
 
     def _feat_at(closes, vols, highs, lows, opens, bi):
         # bi = 판단일 인덱스. 그 시점까지의 데이터로 지표 계산.
@@ -175,12 +171,14 @@ def track_ml_sample_outcomes(limit: int = 250, max_age_days: int = 60) -> dict:
         try:
             decided = datetime.strptime(str(row["decided_at"])[:10], "%Y-%m-%d").date()
         except Exception:
+            failed_ids.append(row["id"])   # 날짜 자체가 깨진 행 — 영영 못 채움
             continue
         if (today - decided).days < 1:
-            continue
+            continue   # 아직 하루도 안 지남 — 실패가 아니라 대기
         raw = str(row["ticker"]).strip()
         is_us = any(ch.isalpha() for ch in raw)
-        tk = raw.upper() if is_us else raw.zfill(6)
+        # BRK.B 등 점 표기는 yfinance에서 BRK-B — 점→하이픈 정규화(과거 영구실패 원인 중 하나)
+        tk = raw.upper().replace(".", "-") if is_us else raw.zfill(6)
         start = (decided - timedelta(days=400)).strftime("%Y-%m-%d")
         end = (decided + timedelta(days=45)).strftime("%Y-%m-%d")   # d20(약 1개월)까지 포함
         try:
@@ -192,6 +190,7 @@ def track_ml_sample_outcomes(limit: int = 250, max_age_days: int = 60) -> dict:
             else:
                 df = fdr.DataReader(tk, start, end)
             if df is None or df.empty:
+                failed_ids.append(row["id"])
                 continue
             base_i = None
             for j, dt in enumerate(df.index):
@@ -201,10 +200,12 @@ def track_ml_sample_outcomes(limit: int = 250, max_age_days: int = 60) -> dict:
                 else:
                     break
             if base_i is None or base_i < 20:
+                failed_ids.append(row["id"])   # 판단일 이전 이력 부족(신규상장 등)
                 continue
             f = _feat_at(df["Close"].values, df["Volume"].values, df["High"].values,
                          df["Low"].values, df["Open"].values, base_i)
             if not f:
+                failed_ids.append(row["id"])
                 continue
             entry = f["entry"]
             def _p(off):
@@ -219,6 +220,7 @@ def track_ml_sample_outcomes(limit: int = 250, max_age_days: int = 60) -> dict:
                             round(entry, 2), r1, r3, r7, r20, label, now, row["id"]))
         except Exception as e:
             print(f"[ml sample track] {tk} 실패: {e}")
+            failed_ids.append(row["id"])
             continue
 
     updated = 0
@@ -233,8 +235,22 @@ def track_ml_sample_outcomes(limit: int = 250, max_age_days: int = 60) -> dict:
             conn.commit(); updated = len(pending)
         except Exception as e:
             print(f"[ml sample track] 저장 실패: {e}")
+
+    # fill_attempts는 '네트워크가 살아있음이 증명된 실행'(성공 1건 이상)에서, 실제 실패한 행만 +1.
+    # 예전엔 스캔 즉시 전원 +1이라 학교망 차단 같은 전체 실패 기간에 정상 종목이 5회를 채우고
+    # 영구 제외되는 오판이 있었음(6/22 이후 표본 136건 라벨 중단의 원인).
+    counted = False
+    if failed_ids and updated > 0:
+        try:
+            cur.executemany(
+                "UPDATE ml_training_samples SET fill_attempts = COALESCE(fill_attempts,0)+1 WHERE id=?",
+                [(i,) for i in failed_ids])
+            conn.commit(); counted = True
+        except Exception as e:
+            print(f"[ml sample track] fill_attempts 갱신 실패: {e}")
     conn.close()
-    return {"updated_now": updated, "scanned": len(rows)}
+    return {"updated_now": updated, "scanned": len(rows), "failed": len(failed_ids),
+            "attempts_counted": counted}
 
 
 def _to_matrix(X):
