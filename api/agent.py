@@ -363,25 +363,33 @@ def _run_one_scan(force: bool = False) -> dict:
                     except Exception as _ue:
                         logger.error(f"[agent] 잠정 수익률 갱신 실패 {ticker}: {_ue}")
 
-                # ── [강제 청산 가드 v3.112.0] 손절·익절 코드 강제 ──
-                # 손절 -3%·익절 +2.5%는 프롬프트 권고일 뿐이라 Gemini가 "긍정 이슈"를 이유로
-                # 손절선 밑에서도 HOLD하는 사례가 실측됨(NVDA -8.85% HOLD, PLTR +9.2% HOLD).
-                # -5% ~ +8% 사이는 Gemini 판단에 맡기고, 그 밖은 판단 없이 코드가 즉시 청산.
+                # ── [강제 청산 가드 v3.113.0] 포지션 성격별 차등 적용 ──
+                # 매수 시 Gemini가 지정한 성격 태그(rating의 '[스윙]'/'[중장기]')로 구분:
+                #  · 스윙: -5% 강제 손절 / +8% 강제 익절 (프롬프트 권고 -3/+2.5의 백스톱)
+                #  · 중장기(태그 없는 기존 보유 포함): 재난용 -20% 손절만, 익절 강제 없음
+                #    — 에이전트 보유가 중장기 관찰 데이터 소스이기도 해서(사용자 결정 07-06)
+                #      차트 구조가 유효한 장기 포지션은 코드가 끊지 않고 Gemini 판단에 맡긴다.
                 forced_exit = False
                 decision = None
                 if position == "HOLDING" and avg_price and avg_price > 0:
                     _fee_rt = 0.21 if market == "국내" else 0.15   # 왕복 수수료+거래세 %
                     _net = (current_price - avg_price) / avg_price * 100.0 - _fee_rt
-                    if _net <= -5.0:
+                    _is_swing = "[스윙]" in str(holding.get("rating") or "")
+                    if _is_swing and _net <= -5.0:
                         forced_exit = True
                         decision = {"action": "SELL", "confidence": 99,
-                                    "reason": f"[강제 손절 가드] 실질 손익 {_net:+.2f}% ≤ -5% — 손절 기준(-3%)을 크게 이탈, 판단 없이 즉시 청산",
-                                    "learning_point": f"손절 지연으로 {_net:+.2f}%까지 확대 — -3% 도달 시점에 청산했어야 함"}
-                    elif _net >= 8.0:
+                                    "reason": f"[강제 손절 가드·스윙] 실질 손익 {_net:+.2f}% ≤ -5% — 스윙 손절 기준(-3%)을 크게 이탈, 판단 없이 즉시 청산",
+                                    "learning_point": f"스윙 손절 지연으로 {_net:+.2f}%까지 확대 — -3% 도달 시점에 청산했어야 함"}
+                    elif _is_swing and _net >= 8.0:
                         forced_exit = True
                         decision = {"action": "SELL", "confidence": 95,
-                                    "reason": f"[강제 익절 가드] 실질 손익 {_net:+.2f}% ≥ +8% — 목표(+2.5%)의 3배 초과 달성, 스윙 수익 확정",
-                                    "learning_point": f"실질 {_net:+.2f}% 익절 확정 (강제 가드)"}
+                                    "reason": f"[강제 익절 가드·스윙] 실질 손익 {_net:+.2f}% ≥ +8% — 스윙 목표(+2.5%)의 3배 초과 달성, 수익 확정",
+                                    "learning_point": f"실질 {_net:+.2f}% 익절 확정 (스윙 강제 가드)"}
+                    elif (not _is_swing) and _net <= -20.0:
+                        forced_exit = True
+                        decision = {"action": "SELL", "confidence": 99,
+                                    "reason": f"[재난 손절 가드·중장기] 실질 손익 {_net:+.2f}% ≤ -20% — 중장기 포지션도 감내 한도를 벗어나 강제 청산",
+                                    "learning_point": f"중장기 보유가 {_net:+.2f}%까지 악화 — 투자 논리 붕괴 시점 재점검 필요"}
 
                 # AI에게 매수/매도/홀딩 판단 요청 (강제 청산이면 Gemini 호출 생략 — 비용 0)
                 if decision is None:
@@ -472,14 +480,17 @@ def _run_one_scan(force: bool = False) -> dict:
                     save_virtual_balance("AI", new_ai_cash)
                     
                     # 3. 포트폴리오 반영 + ai_holdings 즉시 동기화 (중복 매수 방지)
+                    # 포지션 성격 태그(v3.113.0): Gemini가 BUY 시 지정한 horizon(swing/long)을
+                    # rating에 박아 강제 청산 가드가 차등 적용되게 함. 미지정 시 스윙.
+                    _hz_tag = "[중장기]" if str(decision.get("horizon") or "").lower() == "long" else "[스윙]"
                     new_item = {
                         "ticker": ticker,
                         "name": name,
                         "buy_price": current_price,
                         "quantity": qty,
                         "buy_date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                        "rating": f"AI 자동 매수 ({source_korean})",
-                        "buy_reason": f"[{source_korean}] {reason}",   # AI 매수 판단 근거 — 보유종목에 표시
+                        "rating": f"AI 자동 매수 {_hz_tag} ({source_korean})",
+                        "buy_reason": f"{_hz_tag}[{source_korean}] {reason}",   # AI 매수 판단 근거 — 보유종목에 표시
                     }
                     ai_portfolio.append(new_item)
                     ai_holdings[ticker] = new_item  # 즉시 동기화
@@ -488,6 +499,65 @@ def _run_one_scan(force: bool = False) -> dict:
                     # [노이즈 절감] AI 모의매매는 학습 목적 — 매수 텔레그램 알림 비활성.
                     #   체결·학습 기록은 위에서 완료됨. 결과는 앱 내 AI 포트폴리오에서 확인.
                     
+                elif action == "BUY" and position == "HOLDING" and confidence >= 70:
+                    # ── [물타기(추가매수) v3.113.0] 중장기 포지션 한정 ──
+                    # 조건: ①중장기 태그(스윙은 손절 원칙이라 물타기 금지) ②실질 손실 -3%~-15% 구간
+                    #       (그 위는 불필요, 그 아래는 논리 재점검 구간) ③종목당 최대 2회 ④일일 매수한도 공유
+                    _rating_h = str(holding.get("rating") or "")
+                    _fee_rt3 = 0.21 if market == "국내" else 0.15
+                    _net3 = (current_price - avg_price) / avg_price * 100.0 - _fee_rt3 if avg_price else 0.0
+                    _adds = str(holding.get("buy_reason") or "").count("[물타기]")
+                    _block = None
+                    if "[스윙]" in _rating_h:
+                        _block = "스윙 포지션은 물타기 금지 (손절 원칙)"
+                    elif _net3 > -3.0:
+                        _block = f"실질 손익 {_net3:+.2f}% — -3% 이상에서는 물타기 불필요"
+                    elif _net3 <= -15.0:
+                        _block = f"실질 손익 {_net3:+.2f}% — -15% 초과 손실은 물타기가 아니라 논리 재점검 구간"
+                    elif _adds >= 2:
+                        _block = "물타기 한도(종목당 2회) 도달"
+                    elif _get_today_buy_count() >= 3:
+                        _block = "하루 매수 한도(3회) 도달"
+                    if _block:
+                        try:
+                            log_agent_scan(ticker, name, current_price, position, "HOLD", confidence,
+                                f"[{source_korean}] AI가 추가매수(물타기)를 제안했으나 차단: {_block}")
+                        except Exception:
+                            pass
+                        continue
+
+                    from db import load_virtual_balances, save_virtual_balance
+                    balances = load_virtual_balances()
+                    ai_cash = balances.get("AI", 10000000.0)
+                    qty = holding.get("quantity") or (1 if market == "미국" else 10)
+                    base_cost = current_price * qty
+                    fee_rate = 0.00015 if market == "국내" else 0.0007
+                    trade_cost = base_cost * (1 + fee_rate)
+                    if market == "미국":
+                        trade_cost *= _get_usd_krw_rate()
+                    if ai_cash < trade_cost:
+                        try:
+                            log_agent_scan(ticker, name, current_price, position, "HOLD", confidence,
+                                f"[{source_korean}] 물타기 자금 부족으로 보류 (필요: {trade_cost:,.0f}원, 잔고: {ai_cash:,.0f}원)")
+                        except Exception:
+                            pass
+                        continue
+                    save_virtual_balance("AI", ai_cash - trade_cost)
+
+                    # 동일 티커 append → save_portfolio_to_gsheet가 평단 가중평균·수량 합산으로 병합
+                    add_item = {
+                        "ticker": ticker,
+                        "name": name,
+                        "buy_price": current_price,
+                        "quantity": qty,
+                        "buy_date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                        "rating": _rating_h or "AI 자동 매수 [중장기]",
+                        "buy_reason": f"[물타기]({_adds + 1}/2, 평단 {avg_price:,.0f}→현재가 {current_price:,.0f}, 실질 {_net3:+.2f}%) {reason}",
+                    }
+                    ai_portfolio.append(add_item)
+                    save_portfolio_to_gsheet(ai_portfolio, owner=AI_OWNER_NAME)
+                    logger.info(f"AI Agent: {name} 물타기 체결 ({_adds + 1}/2회, {_net3:+.2f}% 구간, {qty}주)")
+
                 elif action == "SELL" and position == "HOLDING" and confidence >= 60:
                     # 최소 4시간 이상 보유 여부 검증 (초단타/스캘핑 강력 방어 가드)
                     buy_date_str = holding.get("buy_date") or holding.get("updated_time")
