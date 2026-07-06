@@ -33,3 +33,7 @@ scratch/*
 !scratch/dev_proxy.js
 !scratch/run_tunnel.py
 cloudflared.exe
+
+# 런타임 데이터 (세션마다 변해 커밋 노이즈 유발)
+data_csv/gemini_usage.jsonl
+data_csv/fx_historical_cache.json

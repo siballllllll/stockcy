@@ -203,6 +203,9 @@ async def mindmap(_credit: dict = Depends(consume_ai_credit)):
 
 # ── 시나리오 분석: 오늘의 매크로 시나리오 ────────────────────────────────────
 
+_SCENARIO_GEN_UNTIL = 0.0   # 시나리오 생성 쿨다운 만료시각 — 동시/연타 생성 이중과금 방지
+
+
 @router.get("/scenarios")
 async def market_scenarios(use_cache: bool = Query(True), user: dict = Depends(get_current_user)):
     """6대 매크로 이슈 A/B 시나리오 분석 (SSE). GSheet 캐시 우선 사용.
@@ -251,6 +254,14 @@ async def market_scenarios(use_cache: bool = Query(True), user: dict = Depends(g
             if not is_admin:
                 yield _sse({"status": "error", "message": "시나리오 생성은 관리자만 가능합니다. 관리자가 생성하면 모두에게 표시됩니다. (읽기 전용)"})
                 return
+
+        # ── 중복 생성 가드 (v3.110.2) — 아침 보충 루프/다른 탭과 동시 생성 시 이중 과금 방지 ──
+        import time as _t
+        global _SCENARIO_GEN_UNTIL
+        if _t.time() < _SCENARIO_GEN_UNTIL:
+            yield _sse({"status": "error", "message": "시나리오 생성이 이미 진행 중이거나 방금 시도됐습니다. 4~5분 후 다시 시도해주세요. (중복 과금 방지)"})
+            return
+        _SCENARIO_GEN_UNTIL = _t.time() + 300   # 5분 쿨다운 (성공 시 캐시가 흡수, 실패 시 연타 차단)
 
         yield _sse({"status": "running", "message": "🔍 Google Search로 오늘의 매크로 이슈 분석 중... (최대 4분 소요)"})
         try:

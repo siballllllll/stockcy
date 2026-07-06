@@ -468,13 +468,18 @@ def start_scenario_tracking_scheduler():
     print("[scenario track] 시나리오 적중률 추적 스케줄러 시작 (매일 07:00)")
 
 
-# ── 10-b1b. 메인 시나리오 아침 보충 (평일 08:00 이후 그날 1회 — 부팅·상시가동 무관) ──
+# ── 10-b1b. 메인 시나리오 아침 보충 (평일 08~11시 그날 1회 — 부팅·상시가동 무관) ──
 _LAST_MAIN_SCENARIO_DATE = ""
+_MAIN_SCENARIO_ATTEMPTS: dict = {}   # {date: 시도횟수} — 실패 무한 재시도(과금 폭주) 방지
 
 def _main_scenario_morning_loop():
-    """평일 아침(08:00 이후) 오늘 메인 시나리오 캐시가 없으면 1회 생성.
+    """평일 아침(08~11시) 오늘 메인 시나리오 캐시가 없으면 1회 생성.
     06:10 미국장 슬롯을 PC가 꺼져 놓치거나 월요일(06:10 슬롯 없음)인 빈틈을 메운다.
-    이미 캐시에 있으면 생성하지 않아 중복 AI 비용이 없다(보충 = 안전망)."""
+
+    [비용 가드 v3.110.2] 07-06 폭주 사후분석: 캐시 만료 + 생성 실패(파싱)가 겹치자
+    5분마다 무한 재시도 + 대시보드 자동생성과 중복 → 15분에 9회(422원) 과금.
+    → ①시간창 08~11시 제한(기존 hour>=8은 사실상 종일 조건이었음)
+      ②하루 최대 3회 시도 후 그날 중단  ③TTL 12→16h(저녁까지 커버, 밤 재생성 차단)."""
     global _LAST_MAIN_SCENARIO_DATE
     import datetime as _dt
     _time.sleep(20)   # 서버 안정화 후 시작
@@ -482,17 +487,20 @@ def _main_scenario_morning_loop():
         try:
             now = _dt.datetime.now()
             today = now.strftime("%Y-%m-%d")
-            if now.weekday() < 5 and now.hour >= 8 and _LAST_MAIN_SCENARIO_DATE != today:
+            if (now.weekday() < 5 and 8 <= now.hour < 11
+                    and _LAST_MAIN_SCENARIO_DATE != today
+                    and _MAIN_SCENARIO_ATTEMPTS.get(today, 0) < 3):
                 from db import load_ai_cache, save_ai_cache, save_daily_market_log
                 existing = load_ai_cache("market_scenarios_latest")
                 if existing and "error" not in existing:
                     _LAST_MAIN_SCENARIO_DATE = today   # 이미 있음 → 생성 스킵(비용 0)
                     print(f"[main scenario] 오늘 메인 시나리오 이미 존재 → 보충 스킵 ({today})")
                 else:
+                    _MAIN_SCENARIO_ATTEMPTS[today] = _MAIN_SCENARIO_ATTEMPTS.get(today, 0) + 1
                     from ai_engine import generate_market_scenarios
                     res = generate_market_scenarios()
                     if res and "error" not in res:
-                        save_ai_cache("market_scenarios_latest", res, 12)
+                        save_ai_cache("market_scenarios_latest", res, 16)   # 16h — 아침 생성이 밤까지 커버
                         try:
                             save_daily_market_log("scenarios", res)   # 역사 누적도 함께
                         except Exception:
@@ -500,7 +508,8 @@ def _main_scenario_morning_loop():
                         _LAST_MAIN_SCENARIO_DATE = today
                         print(f"[main scenario] 아침 보충 생성 완료 ({today})")
                     else:
-                        print(f"[main scenario] 아침 보충 생성 실패/빈결과 — 다음 틱에 재시도 ({today})")
+                        print(f"[main scenario] 아침 보충 실패 ({_MAIN_SCENARIO_ATTEMPTS[today]}/3회) — "
+                              f"{'오늘 중단' if _MAIN_SCENARIO_ATTEMPTS[today] >= 3 else '다음 틱 재시도'} ({today})")
         except Exception as e:
             print(f"[main scenario] 보충 루프 오류: {e}")
         _time.sleep(300)   # 5분마다 체크
