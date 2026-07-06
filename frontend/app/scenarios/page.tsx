@@ -55,12 +55,20 @@ interface Scenario {
   probability_pct: number;
   market_direction: string;
   trigger: string;
+  checkpoints?: string[];        // v3.114.0 딥다이브 — 시나리오 판정 관찰 신호
   economic_analysis: string;
   rising_stocks: StockEntry[];
   falling_stocks: StockEntry[];
   theme_stocks: ThemeStock[];
   short_strategy: string;
   long_strategy: string;
+}
+
+// v3.114.0 딥다이브 — 이슈 전용 심층 블록 (관전 레벨·향후 일정)
+interface IssueDeepAnalysis {
+  background?: string;
+  key_levels?: Array<{ name: string; level: string; meaning: string }>;
+  watch_calendar?: Array<{ date: string; event: string; why: string }>;
 }
 
 interface Issue {
@@ -70,6 +78,11 @@ interface Issue {
   urgency?: string;
   category?: string;
   scenarios: Scenario[];
+  deep_analysis?: IssueDeepAnalysis;
+  scout_status?: string;         // "신규" | "새국면" (딥다이브 생성분)
+  carried?: boolean;             // 지속 이슈 이월 (재생성 없음)
+  carried_days?: number;         // D+n
+  update_note?: string;          // 이월 이슈의 오늘 한 줄 업데이트
 }
 
 interface DetailResult {
@@ -667,6 +680,18 @@ function ScenarioContent({ scenario, issueTitle }: { scenario: Scenario; issueTi
         </div>
       )}
 
+      {/* 판정 체크포인트 (v3.114.0 딥다이브) — 이 시나리오로 가는지 관찰할 신호 */}
+      {(scenario.checkpoints?.length ?? 0) > 0 && (
+        <div style={{ background: "rgba(0,0,0,0.3)", border: "1px solid var(--color-border)", borderRadius: "6px", padding: "10px 14px" }}>
+          <div style={{ fontSize: "0.72rem", fontWeight: 800, color: "var(--color-muted)", marginBottom: "4px" }}>✅ 판정 체크포인트</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
+            {scenario.checkpoints!.map((cp, i) => (
+              <div key={i} style={{ fontSize: "0.83rem", color: "var(--color-text)", lineHeight: 1.5 }}>· {cp}</div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* 경제 분석 */}
       {scenario.economic_analysis && (
         <div style={{ background: "rgba(0,0,0,0.2)", borderLeft: "3px solid var(--color-accent)", borderRadius: "0 6px 6px 0", padding: "10px 14px" }}>
@@ -847,6 +872,23 @@ function IssuePanel({ issue }: { issue: Issue }) {
               {issue.category}
             </span>
           )}
+          {issue.carried ? (
+            <span style={{
+              padding: "1px 8px", borderRadius: "10px", fontSize: "0.72rem", fontWeight: 800,
+              background: "rgba(148,163,184,0.14)", border: "1px solid var(--color-muted)", color: "var(--color-muted)",
+            }}>
+              🔁 지속 D+{issue.carried_days ?? 1}
+            </span>
+          ) : issue.scout_status ? (
+            <span style={{
+              padding: "1px 8px", borderRadius: "10px", fontSize: "0.72rem", fontWeight: 800,
+              background: issue.scout_status === "신규" ? "rgba(52,211,153,0.14)" : "rgba(96,165,250,0.14)",
+              border: `1px solid ${issue.scout_status === "신규" ? "#34d399" : "#60a5fa"}`,
+              color: issue.scout_status === "신규" ? "#34d399" : "#60a5fa",
+            }}>
+              {issue.scout_status === "신규" ? "✨ 신규" : "🔄 새 국면"}
+            </span>
+          ) : null}
         </div>
         <h2 style={{ fontSize: "1.1rem", fontWeight: 800, margin: "0 0 8px 0", color: "var(--color-text)" }}>
           {issue.title}
@@ -856,7 +898,51 @@ function IssuePanel({ issue }: { issue: Issue }) {
             {issue.summary}
           </div>
         )}
+        {issue.carried && issue.update_note && (
+          <div style={{ marginTop: "6px", background: "rgba(148,163,184,0.08)", borderLeft: "3px solid var(--color-muted)", padding: "8px 14px", borderRadius: "0 6px 6px 0", fontSize: "0.82rem", color: "var(--color-muted)", lineHeight: 1.5 }}>
+            오늘 업데이트: {issue.update_note}
+          </div>
+        )}
       </div>
+
+      {/* 이슈 심층 블록 (v3.114.0 딥다이브) — 배경·관전 레벨·향후 일정 */}
+      {issue.deep_analysis && (issue.deep_analysis.background || (issue.deep_analysis.key_levels?.length ?? 0) > 0 || (issue.deep_analysis.watch_calendar?.length ?? 0) > 0) && (
+        <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+          {issue.deep_analysis.background && (
+            <div style={{ background: "rgba(0,0,0,0.2)", borderLeft: "3px solid var(--color-accent)", borderRadius: "0 6px 6px 0", padding: "10px 14px" }}>
+              <div style={{ fontSize: "0.72rem", fontWeight: 800, color: "var(--color-muted)", marginBottom: "4px" }}>구조적 배경</div>
+              <div style={{ fontSize: "0.85rem", color: "var(--color-text)", lineHeight: 1.6 }}>{issue.deep_analysis.background}</div>
+            </div>
+          )}
+          {(issue.deep_analysis.key_levels?.length ?? 0) > 0 && (
+            <div style={{ background: "rgba(0,0,0,0.25)", border: "1px solid var(--color-border)", borderRadius: "6px", padding: "10px 14px" }}>
+              <div style={{ fontSize: "0.72rem", fontWeight: 800, color: "var(--color-muted)", marginBottom: "6px" }}>📐 관전 레벨</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: "5px" }}>
+                {issue.deep_analysis.key_levels!.map((kl, i) => (
+                  <div key={i} style={{ fontSize: "0.83rem", lineHeight: 1.5, color: "var(--color-text)" }}>
+                    <strong style={{ color: "var(--color-warning)" }}>{kl.name}</strong>
+                    {kl.level && <span style={{ fontWeight: 700 }}> {kl.level}</span>}
+                    {kl.meaning && <span style={{ color: "var(--color-muted)" }}> — {kl.meaning}</span>}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+          {(issue.deep_analysis.watch_calendar?.length ?? 0) > 0 && (
+            <div style={{ background: "rgba(0,0,0,0.25)", border: "1px solid var(--color-border)", borderRadius: "6px", padding: "10px 14px" }}>
+              <div style={{ fontSize: "0.72rem", fontWeight: 800, color: "var(--color-muted)", marginBottom: "6px" }}>📅 향후 일정</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: "5px" }}>
+                {issue.deep_analysis.watch_calendar!.map((wc, i) => (
+                  <div key={i} style={{ fontSize: "0.83rem", lineHeight: 1.5, color: "var(--color-text)" }}>
+                    <strong style={{ color: "var(--color-accent)" }}>{wc.date}</strong> {wc.event}
+                    {wc.why && <span style={{ color: "var(--color-muted)" }}> — {wc.why}</span>}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* 시나리오 탭 */}
       {scenarios.length > 0 && (

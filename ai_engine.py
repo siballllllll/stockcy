@@ -829,10 +829,8 @@ def generate_market_commentary() -> dict:
                 "commentary": "잠시 후 다시 시도해주세요."}
 
 
-def _recent_scenario_context(days: int = 4) -> str:
-    """최근 며칠간 생성한 시나리오의 이슈 제목을 모아 '반복 회피' 지시문을 만든다.
-    AI가 매일 백지에서 같은 상시 테마(반도체·연준·비트코인)로만 수렴하는 문제를 막기 위해,
-    최근에 이미 다룬 이슈를 프롬프트에 주입해 '새로운 각도/전개'를 요구한다."""
+def _recent_issue_titles(days: int = 5) -> list:
+    """최근 며칠간 생성한 시나리오 이슈 제목 목록 (스카우트 대조·반복 회피 공용)."""
     try:
         from db import list_daily_market_log_dates, load_daily_market_log
         seen = []
@@ -842,6 +840,18 @@ def _recent_scenario_context(days: int = 4) -> str:
                 t = str(issue.get("title") or "").strip()
                 if t and t not in seen:
                     seen.append(t)
+        return seen
+    except Exception as e:
+        print(f"[recent issue titles] {e}")
+        return []
+
+
+def _recent_scenario_context(days: int = 4) -> str:
+    """최근 며칠간 생성한 시나리오의 이슈 제목을 모아 '반복 회피' 지시문을 만든다.
+    AI가 매일 백지에서 같은 상시 테마(반도체·연준·비트코인)로만 수렴하는 문제를 막기 위해,
+    최근에 이미 다룬 이슈를 프롬프트에 주입해 '새로운 각도/전개'를 요구한다."""
+    try:
+        seen = _recent_issue_titles(days)
         if not seen:
             return ""
         joined = " / ".join(seen[:16])
@@ -857,8 +867,8 @@ def _recent_scenario_context(days: int = 4) -> str:
         return ""
 
 
-def generate_market_scenarios() -> dict:
-    """오늘의 주요 이슈별 시나리오 — 전 영역, 단타/장타 전략 분리. 최근 이슈 반복 회피 적용."""
+def _generate_market_scenarios_legacy() -> dict:
+    """[레거시 폴백] 단일 호출 방식 — 2단계 파이프라인(스카우트→딥다이브) 실패 시에만 사용."""
     prompt = (
         "당신은 월스트리트 20년 경력의 매크로 전략가이자 퀀트 트레이더입니다.\n반드시 모든 출력을 한국어(한글)로 작성하세요. 영어 문장으로 답변하면 안 됩니다 — 영문은 종목 티커·기업 고유명사에만 허용합니다. 한자(漢字)는 절대 금지.\n"
         "구글 검색으로 오늘 글로벌 금융시장(주식·암호화폐 포함)에 가장 큰 영향을 줄 수 있는\n"
@@ -938,6 +948,221 @@ def generate_market_scenarios() -> dict:
         return res
     except Exception as e:
         return {"error": _friendly_error(e), "issues": []}
+
+
+# ── 시나리오 2단계 파이프라인 (v3.114.0) ─────────────────────────────────────
+# 문제: 단일 16k 호출은 ①상시 테마(연준·AI반도체·크립토)가 매일 슬롯 점유(반복)
+#       ②최대 4개 한정 ③토큰이 넓고 얇게 발려 이슈당 디테일 부족.
+# 해결: 스카우트(저비용 발굴·분류) → 신규/새국면만 이슈별 딥다이브(병렬) → 지속 이슈는
+#       어제 로그에서 이월(재생성 0원, D+n 배지). 화면엔 6~8개, 이슈당 깊이 2~3배.
+
+_SCENARIO_DEEP_MAX = 4      # 딥다이브(신규 생성) 이슈 수 상한 — 비용 상한선
+_SCENARIO_CARRY_MAX = 4     # 이월(지속) 이슈 수 상한
+_SCENARIO_CARRY_DAYS = 4    # 이월 최대 기간 — 이보다 오래된 지속 이슈는 자연 소멸
+
+
+def _scout_market_issues(recent_titles: list) -> list:
+    """1단계 스카우트 — 오늘의 이슈 후보를 넓게 발굴하고 최근 이슈와 대조해 분류.
+    출력이 짧아 저비용(검색 포함, thinking 억제). 실패 시 예외 전파(호출부가 레거시 폴백)."""
+    recent_block = ("\n".join(f"- {t}" for t in recent_titles[:20])) if recent_titles else "(없음)"
+    prompt = (
+        "당신은 월스트리트 20년 경력의 매크로 전략가입니다.\n"
+        "반드시 모든 출력을 한국어(한글)로 작성하세요. 영문은 종목 티커·고유명사에만 허용. 한자 금지.\n"
+        "구글 검색으로 오늘 글로벌 금융시장(주식·암호화폐·매크로·지정학·산업)에 영향을 줄 이슈 후보를 "
+        "6~10개 넓게 발굴하세요. 파급력 큰 순서로 정렬(impact_rank 1이 최대).\n\n"
+        "【최근 며칠간 이미 다룬 이슈 목록】\n"
+        f"{recent_block}\n\n"
+        "각 후보를 위 목록과 대조해 status를 분류하세요:\n"
+        "- '신규': 위 목록에 없는 새 이슈 (오늘 새로 부상)\n"
+        "- '새국면': 목록에 있지만 오늘 명확히 새로운 촉매·수치·전개가 확인됨 (carry_of에 목록의 원제목, new_catalyst에 무엇이 달라졌는지)\n"
+        "- '지속': 목록에 있고 어제와 본질적으로 같은 상황 (carry_of에 원제목, new_catalyst에 오늘 한 줄 업데이트)\n"
+        "⚠️ 연준·AI반도체·암호화폐 같은 상시 테마를 습관적으로 '새국면'이라 하지 마세요 — "
+        "구체적 신규 촉매(발표·수치·일정·사건)를 한 개 이상 적을 수 있을 때만 새국면입니다.\n"
+        "⚠️ '신규' 이슈를 최소 2개 이상 발굴하려 노력하세요 (정책·실적·수급·산업·국내 고유 이슈 등).\n\n"
+        "아래 JSON 형식으로만 응답 (백틱·주석 금지):\n"
+        '{"candidates": [{"title": "이슈 제목", "summary": "현황 한 줄", '
+        '"category": "주식/암호화폐/매크로/지정학", "urgency": "긴급/보통/장기", '
+        '"impact_rank": 1, "status": "신규/새국면/지속", "carry_of": "원제목(신규면 빈값)", '
+        '"new_catalyst": "오늘 확인된 촉매·업데이트 한 줄"}]}'
+    )
+    response = _call_gemini(prompt, use_search=True, temperature=0.5,
+                            timeout_sec=70, max_output_tokens=2500, thinking=False)
+    res = _parse_json_response(response)
+    cands = res.get("candidates") if isinstance(res, dict) else None
+    if not isinstance(cands, list) or not cands:
+        raise ValueError("스카우트 결과 비어있음")
+    out = []
+    for c in cands:
+        if isinstance(c, dict) and str(c.get("title") or "").strip():
+            out.append(c)
+    out.sort(key=lambda c: int(c.get("impact_rank") or 99))
+    return out
+
+
+def _deep_dive_issue(stub: dict) -> dict:
+    """2단계 딥다이브 — 이슈 1개에 토큰을 온전히 써서 깊게 생성.
+    기존 이슈 스키마 유지 + deep_analysis(관전 레벨·일정)·checkpoints 확장."""
+    title = str(stub.get("title") or "").strip()
+    catalyst = str(stub.get("new_catalyst") or "").strip()
+    prompt = (
+        "당신은 월스트리트 20년 경력의 매크로 전략가이자 퀀트 트레이더입니다.\n"
+        "반드시 모든 출력을 한국어(한글)로 작성하세요. 영어 문장 금지 — 영문은 종목 티커·고유명사에만 허용. 한자(漢字) 절대 금지.\n"
+        f"오늘의 분석 대상 이슈(단 하나): [{title}]\n"
+        + (f"오늘 확인된 촉매: {catalyst}\n" if catalyst else "") +
+        "구글 검색으로 이 이슈 하나만 깊게 파고들어 A(낙관)/B(비관) 시나리오를 작성하세요.\n"
+        "이슈 하나에 집중하는 만큼, 표면적 요약이 아니라 '수치·일정·레벨·과거 사례'가 박힌 구체적 분석이어야 합니다.\n\n"
+        "⚠️ [종목 신뢰성 원칙 — 최우선 적용]\n"
+        "rising_stocks, falling_stocks, theme_stocks의 모든 종목은 구글 검색으로 반드시 검증:\n"
+        "① 국내: 6자리 코드가 실제 KRX(KOSPI/KOSDAQ) 상장 코드인지 ② 미국: NYSE/NASDAQ 실존 심볼인지.\n"
+        "확인 안 되는 종목·거래정지·상폐 절차 종목 절대 금지.\n\n"
+        "【종목 선정 규칙】\n"
+        "- rising_stocks/falling_stocks: 이 이슈에 실제로 영향받는 국내·미국 종목 (억지로 채우지 말 것).\n"
+        "- 국내 ticker=6자리 숫자(예: 005930), 미국 ticker=심볼(예: NVDA).\n"
+        "- ⛔ 유럽·일본·중국 등 제3국 거래소 종목(BMW, LVMH, 토요타 등) 금지 — KRX·NYSE·NASDAQ 상장 종목만. 해외 이슈라도 그 이슈에 연동되는 국내·미국 종목으로 표현하세요.\n"
+        "【theme_stocks 규칙】 rising/falling에 없는 '추가 수혜주' 4~6개, 국내만, 대형주(시총 10조↑) 금지.\n"
+        "- 단타·스윙(2~3개, horizon='단타'): 시총 1조 미만 코스닥 우선, 과거 동일 이슈 때 동반 급등 이력 근거.\n"
+        "- 중장기(2~3개, horizon='중장기'): 구조적 수혜 성장주·가치주, 실적 관점.\n"
+        "【확률 규칙】 A+B=100. 40~60 몰림 금지(게으른 5:5 실패). 근거 우열 반영해 5~95에서 과감·세밀하게. "
+        "끝자리 0·5 금지(73·62·81처럼).\n\n"
+        "반드시 아래 JSON 형식으로만 응답 (백틱·주석 금지):\n"
+        "{\n"
+        f'  "title": "{title}",\n'
+        '  "summary": "현황 요약 (2문장, 오늘 확인된 수치·사실 포함)",\n'
+        '  "urgency": "긴급/보통/장기",\n'
+        '  "category": "주식/암호화폐/매크로/지정학",\n'
+        '  "deep_analysis": {\n'
+        '    "background": "이 이슈의 구조적 배경과 이해관계 (2~3문장 — 왜 지금 중요한가)",\n'
+        '    "key_levels": [{"name": "관전 지표/가격 (예: 코스피, 환율, BTC, 미10년물)", "level": "구체적 수치·레벨", "meaning": "돌파/이탈 시 의미 한 줄"}],\n'
+        '    "watch_calendar": [{"date": "MM-DD", "event": "향후 1~2주 내 관련 일정·발표", "why": "왜 중요한지 한 줄"}]\n'
+        "  },\n"
+        '  "scenarios": [\n'
+        "    {\n"
+        '      "label": "A",\n'
+        '      "title": "시나리오 제목",\n'
+        '      "probability_pct": 확률 정수(5~95, 확률 규칙 엄수),\n'
+        '      "probability": "높음/보통/낮음 (pct와 일치: 70+높음/40~69보통/40미만낮음)",\n'
+        '      "market_direction": "강세/약세/혼조",\n'
+        '      "trigger": "현실화 조건 (1문장)",\n'
+        '      "checkpoints": ["이 시나리오로 가고 있는지 판정할 관찰 신호 2~3개 (수치·날짜 포함)"],\n'
+        '      "economic_analysis": "경제적 영향 + PER/밸류에이션 + 오늘 확인된 촉매·수치·일정 (4~6문장, 깊게)",\n'
+        '      "rising_stocks": [{"name": "종목명", "ticker": "국내=6자리/미국=심볼", "reason": "이유 (이슈와의 연결고리 구체적으로)", "valuation_note": "PER 코멘트", "signal": "매우 강력 추천/추천/중간추천/비추천/매우 비추천", "signal_reason": "현재 매수 관점 한 줄", "expected_gain_pct": "단기 목표 상승률 (예: 8.0)", "expected_loss_pct": "손절 기준율 (예: -3.0)"}],\n'
+        '      "falling_stocks": [{"name": "종목명", "ticker": "코드", "reason": "이유", "valuation_note": "PER 코멘트", "signal": "매우 강력 추천/추천/중간추천/비추천/매우 비추천", "signal_reason": "한 줄", "expected_gain_pct": "기대 변동률 (예: -12.0)", "expected_loss_pct": "손절 기준율 (예: 5.0)"}],\n'
+        '      "theme_stocks": [{"name": "종목명", "ticker": "6자리코드", "horizon": "단타 또는 중장기", "type": "직접관련주 또는 간접테마주", "historical_pattern": "과거 유사 이슈 때 움직임 (1문장)", "reason": "수혜 이유 + 시총 규모", "signal": "매우 강력 추천/추천/중간추천/비추천/매우 비추천", "signal_reason": "한 줄", "expected_gain_pct": "기대 상승률 (예: 12.0)", "expected_loss_pct": "손절 기준율 (예: -4.0)"}],\n'
+        '      "short_strategy": "단타 전략: 진입 타이밍·청산 조건 (2문장, 구체적 가격/조건)",\n'
+        '      "long_strategy": "장타 전략: 포지션 방향·보유 기간·리밸런싱 조건 (2문장)"\n'
+        "    }\n"
+        "  ]\n"
+        "}\n"
+        "scenarios에는 A와 B 두 개를 모두 포함하세요."
+    )
+    response = _call_gemini(prompt, use_search=True, temperature=0.6,
+                            timeout_sec=140, max_output_tokens=7000, thinking=True)
+    issue = _parse_json_response(response)
+    if not isinstance(issue, dict) or not issue.get("scenarios"):
+        raise ValueError(f"딥다이브 결과 불량: {title}")
+    issue["title"] = issue.get("title") or title
+    issue["scout_status"] = stub.get("status") or "신규"
+    return issue
+
+
+def _carry_over_issues(scout_carries: list) -> list:
+    """지속 이슈 이월 — 최근 로그에서 원본 이슈를 찾아 재생성 없이 재사용(비용 0).
+    D+n 계산용 first_seen 유지, _SCENARIO_CARRY_DAYS 초과분은 자연 소멸."""
+    from db import list_daily_market_log_dates, load_daily_market_log
+    from datetime import datetime as _dt
+    # 최근 로그들에서 제목 → (이슈, 로그날짜) 매핑 (가장 최신 버전 우선)
+    title_map = {}
+    try:
+        for di in (list_daily_market_log_dates("scenarios", 6) or [])[:6]:
+            d = di.get("log_date")
+            log = load_daily_market_log(d, "scenarios") or {}
+            for issue in (log.get("issues") or []):
+                t = str(issue.get("title") or "").strip()
+                if t and t not in title_map:
+                    title_map[t] = (issue, d)
+    except Exception as e:
+        print(f"[scenario carry] 로그 로드 실패: {e}")
+        return []
+    today = _dt.now().date()
+    out = []
+    for stub in scout_carries:
+        src_title = str(stub.get("carry_of") or stub.get("title") or "").strip()
+        hit = title_map.get(src_title)
+        if not hit:   # 완전 일치 실패 시 부분 일치 폴백
+            for t, v in title_map.items():
+                if src_title and (src_title in t or t in src_title):
+                    hit = v
+                    break
+        if not hit:
+            continue
+        issue, log_date = hit
+        issue = dict(issue)   # 원본 로그 오염 방지
+        first_seen = str(issue.get("first_seen") or log_date or "")[:10]
+        try:
+            days = (today - _dt.strptime(first_seen, "%Y-%m-%d").date()).days
+        except Exception:
+            days = 1
+        if days > _SCENARIO_CARRY_DAYS:
+            continue   # 너무 오래된 지속 이슈는 소멸 (재부상하면 스카우트가 신규/새국면으로 올림)
+        issue["carried"] = True
+        issue["first_seen"] = first_seen
+        issue["carried_days"] = max(1, days)
+        issue["update_note"] = str(stub.get("new_catalyst") or "").strip()
+        out.append(issue)
+        if len(out) >= _SCENARIO_CARRY_MAX:
+            break
+    return out
+
+
+def generate_market_scenarios() -> dict:
+    """오늘의 주요 이슈별 시나리오 — 2단계 파이프라인(스카우트→이슈별 병렬 딥다이브+이월).
+    실패 시 레거시 단일 호출로 폴백. 반환 스키마는 기존과 동일({"issues": [...]}) + 확장 필드."""
+    import concurrent.futures as _fut
+    from datetime import datetime as _dt
+    try:
+        recent = _recent_issue_titles(5)
+        cands = _scout_market_issues(recent)
+
+        new_stubs = [c for c in cands if str(c.get("status") or "") in ("신규", "새국면")][:_SCENARIO_DEEP_MAX]
+        carry_stubs = [c for c in cands if str(c.get("status") or "") == "지속"]
+        if not new_stubs:   # 전부 지속이면 최상위 1개는 새국면 취급해 갱신 (전량 이월 방지)
+            if cands:
+                new_stubs = [cands[0]]
+                carry_stubs = [c for c in carry_stubs if c is not cands[0]]
+
+        # 딥다이브 병렬 실행 (이슈당 별도 호출 — 깊이 확보, 총 소요는 max(개별))
+        deep_issues = []
+        with _fut.ThreadPoolExecutor(max_workers=_SCENARIO_DEEP_MAX) as ex:
+            futs = {ex.submit(_deep_dive_issue, s): s for s in new_stubs}
+            for f in _fut.as_completed(futs):
+                try:
+                    deep_issues.append(f.result())
+                except Exception as de:
+                    print(f"[scenario deep] '{futs[f].get('title')}' 실패: {de}")
+        if not deep_issues:
+            raise ValueError("딥다이브 전멸")
+
+        # 스카우트 순위 순서 유지
+        order = {str(s.get("title")): i for i, s in enumerate(new_stubs)}
+        deep_issues.sort(key=lambda i: order.get(str(i.get("title")), 99))
+        today_str = _dt.now().strftime("%Y-%m-%d")
+        for it in deep_issues:
+            it.setdefault("first_seen", today_str)
+
+        carried = _carry_over_issues(carry_stubs)
+        issues = (deep_issues + carried)[:_SCENARIO_DEEP_MAX + _SCENARIO_CARRY_MAX]
+        for n, it in enumerate(issues, 1):
+            it["issue_no"] = n
+
+        res = {"issues": issues, "pipeline": "scout_deep_v2",
+               "generated_at": _dt.now().strftime("%Y-%m-%d %H:%M:%S")}
+        _fix_scenario_names(res)
+        _diversify_probabilities(res)
+        _override_targets(res)   # 이월 이슈도 현재가 기준 타점 재계산
+        return res
+    except Exception as e:
+        print(f"[scenario pipeline] 2단계 실패 → 레거시 폴백: {e}")
+        return _generate_market_scenarios_legacy()
 
 
 @st.cache_data(ttl=300)
