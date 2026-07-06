@@ -875,7 +875,7 @@ def _generate_market_scenarios_legacy() -> dict:
         "주요 이슈를 최대 4개까지 파악하세요. 실제로 중요한 이슈만 포함하고, 억지로 채우지 마세요. 시장에서 실제로 유의미할 때만 비트코인·암호화폐 이슈를 포함하고, 매일 기계적으로 넣지는 마세요.\n"
         "이슈는 시장 파급력이 큰 순서대로 정렬하세요 (issue_no 1이 가장 중요).\n"
         "(예: 미·중 무역협상, 반도체, 전쟁·지정학, 연준 금리, 유가, 비트코인 법안/ETF, SpaceX 등)\n"
-        + _recent_scenario_context() +
+        + _recent_scenario_context() + _current_market_snapshot() +
         "\n각 이슈별로 2가지 시나리오(A: 낙관, B: 비관)를 작성하세요.\n"
         "PER/밸류에이션 관점을 반드시 포함하고, 단타전략과 장타전략을 구분해서 작성하세요.\n"
         "economic_analysis에는 '오늘 새로 확인된 촉매·수치·일정'을 최소 1개 구체적으로 담아, 어제와 다른 분석이 되게 하세요.\n\n"
@@ -960,6 +960,53 @@ _SCENARIO_DEEP_MAX = 4      # 딥다이브(신규 생성) 이슈 수 상한 — 
 _SCENARIO_CARRY_MAX = 4     # 이월(지속) 이슈 수 상한
 _SCENARIO_CARRY_DAYS = 4    # 이월 최대 기간 — 이보다 오래된 지속 이슈는 자연 소멸
 
+_MKT_SNAPSHOT_CACHE = {"t": 0.0, "text": ""}   # 30분 캐시 — 딥다이브 병렬 호출이 공유
+
+
+def _current_market_snapshot() -> str:
+    """현재 지수·환율·BTC 실측 레벨 프롬프트 블록 (best-effort, 30분 캐시).
+    Gemini가 key_levels·경제분석에 학습 시점의 옛 수치(코스피 2,600pt 등)를 지어내는
+    환각이 실측됨(2026-07-07, 실제 코스피 8,051pt) → 실측값을 그라운딩으로 주입."""
+    import time as _time
+    if _time.time() - _MKT_SNAPSHOT_CACHE["t"] < 1800 and _MKT_SNAPSHOT_CACHE["text"]:
+        return _MKT_SNAPSHOT_CACHE["text"]
+    parts = []
+    try:
+        import FinanceDataReader as fdr
+        from datetime import datetime as _dt, timedelta as _td
+        _start = (_dt.now() - _td(days=10)).strftime("%Y-%m-%d")
+        for code, label, unit in [("KS11", "코스피", "pt"), ("KQ11", "코스닥", "pt"),
+                                  ("US500", "S&P500", "pt"), ("USD/KRW", "원달러 환율", "원")]:
+            try:
+                v = float(fdr.DataReader(code, _start)["Close"].dropna().iloc[-1])
+                parts.append(f"{label} {v:,.0f}{unit}")
+            except Exception:
+                continue
+    except Exception:
+        pass
+    try:
+        import yfinance as yf
+        import numpy as _np
+        arr = _np.asarray(yf.download("BTC-USD", period="5d", progress=False, timeout=8)["Close"]).ravel()
+        arr = arr[~_np.isnan(arr)]
+        if len(arr):
+            parts.append(f"비트코인 {float(arr[-1]):,.0f}달러")
+    except Exception:
+        pass
+    if not parts:
+        return ""
+    from datetime import datetime as _dt2
+    text = (
+        f"\n【현재 시장 실측 레벨 — {_dt2.now().strftime('%Y-%m-%d')} 기준, 시스템이 직접 조회한 값】\n"
+        f"{' / '.join(parts)}\n"
+        "⚠️ 관전 레벨(key_levels)·경제분석의 모든 지수·가격 수치는 반드시 위 실측값을 기준으로 "
+        "±몇 % 범위에서 제시하세요. 당신의 기억 속 과거 레벨(예: 코스피 2,600pt대, 비트코인 4만달러대)은 "
+        "현재와 전혀 다르므로 절대 사용 금지 — 위 실측값과 동떨어진 수치는 오류로 간주됩니다.\n"
+    )
+    _MKT_SNAPSHOT_CACHE["t"] = _time.time()
+    _MKT_SNAPSHOT_CACHE["text"] = text
+    return text
+
 
 def _scout_market_issues(recent_titles: list) -> list:
     """1단계 스카우트 — 오늘의 이슈 후보를 넓게 발굴하고 최근 이슈와 대조해 분류.
@@ -1008,7 +1055,8 @@ def _deep_dive_issue(stub: dict) -> dict:
         "당신은 월스트리트 20년 경력의 매크로 전략가이자 퀀트 트레이더입니다.\n"
         "반드시 모든 출력을 한국어(한글)로 작성하세요. 영어 문장 금지 — 영문은 종목 티커·고유명사에만 허용. 한자(漢字) 절대 금지.\n"
         f"오늘의 분석 대상 이슈(단 하나): [{title}]\n"
-        + (f"오늘 확인된 촉매: {catalyst}\n" if catalyst else "") +
+        + (f"오늘 확인된 촉매: {catalyst}\n" if catalyst else "")
+        + _current_market_snapshot() +
         "구글 검색으로 이 이슈 하나만 깊게 파고들어 A(낙관)/B(비관) 시나리오를 작성하세요.\n"
         "이슈 하나에 집중하는 만큼, 표면적 요약이 아니라 '수치·일정·레벨·과거 사례'가 박힌 구체적 분석이어야 합니다.\n\n"
         "⚠️ [종목 신뢰성 원칙 — 최우선 적용]\n"
@@ -1055,10 +1103,24 @@ def _deep_dive_issue(stub: dict) -> dict:
         "}\n"
         "scenarios에는 A와 B 두 개를 모두 포함하세요."
     )
-    response = _call_gemini(prompt, use_search=True, temperature=0.6,
-                            timeout_sec=140, max_output_tokens=7000, thinking=True)
-    issue = _parse_json_response(response)
-    if not isinstance(issue, dict) or not issue.get("scenarios"):
+    # 검색 그라운딩과 JSON mime는 동시 사용 불가 → 산문으로 응답하는 경우가 간헐 발생.
+    # 파싱 실패 시 'JSON만' 리마인더를 붙여 1회 재시도 (실측: 중국 지표 이슈가 마크다운 산문으로 탈락).
+    issue = None
+    for attempt in range(2):
+        p = prompt if attempt == 0 else (
+            prompt + "\n\n⚠️ 직전 응답이 JSON이 아니어서 폐기됐습니다. 설명·마크다운 없이 '{'로 시작하는 JSON 객체만 출력하세요.")
+        try:
+            response = _call_gemini(p, use_search=True, temperature=0.6 if attempt == 0 else 0.4,
+                                    timeout_sec=140, max_output_tokens=7000, thinking=True)
+            parsed = _parse_json_response(response)
+            if isinstance(parsed, dict) and parsed.get("scenarios"):
+                issue = parsed
+                break
+        except Exception as e:
+            if attempt == 1:
+                raise
+            print(f"[scenario deep retry] '{title}' 1차 실패: {e}")
+    if not issue:
         raise ValueError(f"딥다이브 결과 불량: {title}")
     issue["title"] = issue.get("title") or title
     issue["scout_status"] = stub.get("status") or "신규"
@@ -1170,8 +1232,9 @@ def analyze_custom_issue(keyword: str) -> dict:
     """사용자 지정 이슈 키워드에 대한 A/B 시나리오 분석 + Python Override."""
     prompt = (
         f"당신은 월스트리트 20년 경력의 매크로 전략가이자 퀀트 트레이더입니다.\n반드시 모든 출력을 한국어(한글)로 작성하세요. 영어 문장으로 답변하면 안 됩니다 — 영문은 종목 티커·기업 고유명사에만 허용합니다. 한자(漢字)는 절대 금지.\n"
-        f"사용자가 지정한 이슈 키워드: [{keyword}]\n\n"
-        "구글 검색으로 이 이슈의 최신 현황을 파악한 후, A(낙관)·B(비관) 두 가지 시나리오를 작성하세요.\n\n"
+        f"사용자가 지정한 이슈 키워드: [{keyword}]\n"
+        + _current_market_snapshot() +
+        "\n구글 검색으로 이 이슈의 최신 현황을 파악한 후, A(낙관)·B(비관) 두 가지 시나리오를 작성하세요.\n\n"
         "⚠️ [종목 신뢰성 원칙 — 최우선 적용]\n"
         "모든 종목은 구글 검색으로 반드시 검증하세요:\n"
         "- 국내 ticker: KOSPI/KOSDAQ 6자리 숫자 코드 (예: 005930)\n"
