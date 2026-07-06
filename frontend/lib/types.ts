@@ -144,6 +144,8 @@ export interface StockReport {
   long_term_period:        string;
   long_term_target:        string;
   long_term_analysis:      string;
+  /** 자체 ML 상승확률 % (우리 매매결과 학습·확률보정) — 모델 미학습 시 없음 */
+  ml_win_proba?:           { d3?: number; d7?: number; d20?: number };
   error?:                  string;
 }
 
@@ -191,6 +193,8 @@ export interface KrStockReport {
   long_term_target:           string;
   long_term_target_pct?:      string;
   long_term_analysis:         string;
+  /** 자체 ML 상승확률 % (우리 매매결과 학습·확률보정) — 모델 미학습 시 없음 */
+  ml_win_proba?:              { d3?: number; d7?: number; d20?: number };
   error?:                     string;
 }
 

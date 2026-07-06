@@ -1642,6 +1642,16 @@ function SearchPageInner() {
                     <span style={{ fontWeight: 800, fontSize: "1rem", padding: "4px 12px", borderRadius: "6px", background: aiResult.rating?.includes("추천") ? "rgba(0,200,83,0.15)" : "rgba(255,75,75,0.1)", color: aiResult.rating?.includes("추천") ? "#00c853" : "#ff4b4b", border: `1px solid ${aiResult.rating?.includes("추천") ? "#00c853" : "#ff4b4b"}` }}>
                       {aiResult.rating || "분석 완료"}
                     </span>
+                    {aiResult.ml_win_proba?.d7 != null && (() => {
+                      const p = aiResult.ml_win_proba;
+                      const good = p.d7 >= 55; const bad = p.d7 <= 42;
+                      const c = good ? "#34d399" : bad ? "#f87171" : "#a5b4fc";
+                      return (
+                        <span style={{ fontSize: "0.8rem", fontWeight: 800, padding: "3px 10px", borderRadius: "6px", background: `${c}18`, border: `1px solid ${c}66`, color: c }} title={`자체 ML 상승확률 (우리 매매결과 학습·확률보정): 3일 ${p.d3 ?? "-"}% / 7일 ${p.d7}% / 20일 ${p.d20 ?? "-"}%`}>
+                          🤖 ML 7일 {p.d7}%
+                        </span>
+                      );
+                    })()}
                     {aiResult.verified_name && aiResult.ticker_mismatch && (
                       <span style={{ fontSize: "0.8rem", color: "var(--color-warning)" }}>⚠️ 실제 종목: {aiResult.verified_name}</span>
                     )}

@@ -1561,6 +1561,20 @@ function PortfolioTab({ gapBulkMap }: { gapBulkMap: Record<string, any> }) {
                     📋 판단: {parsed.verdict}
                   </div>
                 )}
+                {parsed.ml_win_proba?.d7 != null && (() => {
+                  const p = parsed.ml_win_proba;
+                  const good = p.d7 >= 55; const bad = p.d7 <= 42;
+                  const c = good ? "#34d399" : bad ? "#f87171" : "#a5b4fc";
+                  return (
+                    <div style={{ padding: "6px 12px", background: `${c}14`, border: `1px solid ${c}55`, borderRadius: "8px", fontSize: "0.78rem", display: "flex", gap: "10px", alignItems: "center", flexWrap: "wrap" }}>
+                      <span style={{ fontWeight: 800, color: c }}>🤖 자체 ML 상승확률</span>
+                      {p.d3 != null && <span>3일 <b style={{ color: c }}>{p.d3}%</b></span>}
+                      <span>7일 <b style={{ color: c }}>{p.d7}%</b></span>
+                      {p.d20 != null && <span>20일 <b style={{ color: c }}>{p.d20}%</b></span>}
+                      <span style={{ color: "var(--color-muted)", fontSize: "0.68rem" }}>우리 매매결과 학습·확률보정 — {bad ? "통계적 불리(물타기 주의)" : good ? "통계적 뒷받침" : "중립"}</span>
+                    </div>
+                  );
+                })()}
                 {String(parsed.price_zone || "").trim() && (() => {
                   const pz = String(parsed.price_zone).trim();
                   const cheap = pz.includes("저평가"); const rich = pz.includes("고평가");

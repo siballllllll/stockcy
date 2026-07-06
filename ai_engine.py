@@ -1502,6 +1502,36 @@ def analyze_autonomous_trading(ticker: str, name: str, current_price: float, mar
 
 
 @st.cache_data(ttl=300)
+def _ml_win_context(ticker: str) -> tuple:
+    """자체 ML 상승확률 컨텍스트 — (프롬프트 블록 str, 수치 dict) 반환.
+    패턴 스크리너(v3.108.0)에 이어 매도타이밍·종목리포트에도 주입하는 공용 헬퍼.
+    _get_trade_indicators로 판단시점 지표+확장피처(ml_extra)를 얻어 d3/d7/d20 확률 예측.
+    모델 미학습·지표 수집 실패 시 ("", {}) — 호출부는 조용히 생략(리포트 품질 저하 없음)."""
+    try:
+        from ml_model import predict_win_proba
+        ind = _get_trade_indicators(str(ticker).strip(), "")
+        d = (ind or {}).get("daily") or {}
+        if d.get("rsi") is None:
+            return "", {}
+        f = {"rsi": d.get("rsi"), "ma_aligned": 1.0 if d.get("ma_aligned") else 0.0,
+             "pos_52w": d.get("pos_52w_pct"), "vol_ratio": d.get("volume_ratio"),
+             "is_us": 0.0 if str(ticker).strip().isdigit() else 1.0}
+        f.update(d.get("ml_extra") or {})
+        probas = {h: predict_win_proba(f, h) for h in ("d3", "d7", "d20")}
+        if all(v is None for v in probas.values()):
+            return "", {}
+        parts = [f"{lbl} {probas[h]}%" for h, lbl in (("d3", "3일"), ("d7", "7일"), ("d20", "20일"))
+                 if probas[h] is not None]
+        line = ("[자체 ML 상승확률 — 이 시스템의 실제 추천·매매 결과로 학습된 통계 모델 (확률보정 완료)]\n"
+                + " · ".join(parts)
+                + "\n※ 7일 확률 40% 미만 = 통계적으로 불리한 구간(신중·보수 판단의 근거), "
+                  "55% 이상 = 통계적 뒷받침. 분석 본문에 이 수치를 반드시 언급하고 판단에 반영하세요.")
+        return line, {k: v for k, v in probas.items() if v is not None}
+    except Exception as e:
+        print(f"[ml ctx] {ticker} 실패: {e}")
+        return "", {}
+
+
 def analyze_sell_timing(ticker: str, name: str, avg_price: float, current_price: float, market: str = "KR", buy_reason: str = "", owner: str = "") -> dict:
     """평단가 기준 AI 매도 타이밍 분석. 최초 매수 사유가 있으면 논리 유효성 + 그 사유 유형의 내 과거 승률도 반영."""
     pnl_pct = (current_price - avg_price) / avg_price * 100 if avg_price > 0 else 0
@@ -1530,6 +1560,9 @@ def analyze_sell_timing(ticker: str, name: str, avg_price: float, current_price:
         avg_str = f"${avg_price:.2f}"
         cp_str  = f"${current_price:.2f}"
 
+    # 자체 ML 상승확률 — 물타기/청산 판단에 통계적 근거 주입 (v3.109.0)
+    ml_line, ml_probas = _ml_win_context(ticker)
+
     prompt = f"""당신은 개인 투자자의 실전 포트폴리오를 관리하는 전문 트레이딩 어드바이저입니다.\n반드시 모든 출력을 한국어(한글)로 작성하세요. 영어 문장으로 답변하면 안 됩니다 — 영문은 종목 티커·기업 고유명사에만 허용합니다. 한자(漢字)는 절대 금지.
 
 [보유 종목 현황]
@@ -1539,6 +1572,8 @@ def analyze_sell_timing(ticker: str, name: str, avg_price: float, current_price:
 현재 수익률: {sign}{pnl_pct:.2f}%
 {("최초 매수 선정이유(투자자 본인 작성): " + str(buy_reason).strip()) if str(buy_reason).strip() else "최초 매수 선정이유: (작성 안 됨)"}
 {reason_perf_line}
+{ml_line}
+{("★ 위 자체 ML 확률을 매도 판단에 반영하세요: 7일 확률이 40% 미만이면 '반등 기대 물타기'를 강하게 억제하고 청산·비중축소 쪽으로 기울이고, 55% 이상이면 보유/추가매수 논리의 통계적 근거로 언급하세요. 단 ML은 기술적 지표 기반이므로 펀더멘털 훼손 여부 판단(아래 원칙)이 항상 우선입니다." if ml_line else "")}
 
 구글 검색으로 {name}({ticker})의 최신 뉴스, 차트 흐름, 수급 동향, 거시경제 변수를 파악하세요.
 위 투자자가 보유 중인 포지션 기준으로, 지금 매도하는 것이 좋은지, 기다려야 하는지, 타이밍을 어떻게 잡아야 하는지 분석하세요.
@@ -1589,6 +1624,8 @@ def analyze_sell_timing(ticker: str, name: str, avg_price: float, current_price:
             raise _last or ValueError("no_response")
         # 평단 계산은 AI에 맡기지 않고 Python으로 정확히: 추가매수 비율별 평단·손익분기 표 생성
         if isinstance(res, dict) and "error" not in res:
+            if ml_probas:
+                res["ml_win_proba"] = ml_probas   # {"d3": %, "d7": %, "d20": %} — UI 배지용
             import re as _re
             def _num(x):
                 s = _re.sub(r"[^0-9.\-]", "", str(x or ""))
@@ -1637,13 +1674,17 @@ def generate_stock_report(ticker, current_price, change_pct):
     except Exception:
         pass
 
+    # 자체 ML 상승확률 — rating·단기전망에 통계적 근거 주입 (v3.109.0)
+    ml_line, ml_probas = _ml_win_context(ticker)
+    ml_section = ("\n" + ml_line + "\n") if ml_line else ""
+
     prompt = f"""
 당신은 월스트리트 전문 애널리스트입니다.\n반드시 모든 출력을 한국어(한글)로 작성하세요. 영어 문장으로 답변하면 안 됩니다 — 영문은 종목 티커·기업 고유명사에만 허용합니다. 한자(漢字)는 절대 금지.
 현재 {ticker}의 주가는 ${current_price} ({change_pct}%)입니다.
 
 [실시간 최신 영문 뉴스 팩트시트 (RAG)]
 {news_txt}
-{factsheet_section}
+{factsheet_section}{ml_section}
 [재무 팩트시트 활용 지침] 위 팩트시트가 있으면 재무 수치(FCF·영업이익 추이·EV/EBITDA)를 지어내지 말고 그 값을 근거로 쓰고, '재무 국면' 분류를 long_term_analysis와 key_issues에 반드시 반영하세요(순환 바닥 vs 구조적 쇠퇴 구분).
 
 [분석 원칙 — 냉철한 리스크 차감 및 낙관 편향(Optimism Bias) 절대 금지]
@@ -1713,6 +1754,8 @@ def generate_stock_report(ticker, current_price, change_pct):
                 "buy_target": "-", "sell_target": "-", "stop_loss": "-",
                 "analysis": "AI 응답 형식 오류입니다 (예상과 다른 형식). 잠시 후 다시 시도해주세요.",
             }
+        if ml_probas:
+            res["ml_win_proba"] = ml_probas   # 자체 ML 상승확률 — UI 배지용
 
         # [Python Override - Conditional & No-Fallback - 동적 하이브리드 타점 적용]
         try:
@@ -2319,9 +2362,13 @@ def generate_kr_stock_report(stock_code: str, name: str, price_data: dict, inves
     except Exception:
         pass
 
+    # 자체 ML 상승확률 — rating·단기전망에 통계적 근거 주입 (v3.109.0)
+    ml_line, ml_probas = _ml_win_context(stock_code)
+    ml_section = ("\n" + ml_line + "\n") if ml_line else ""
+
     prompt = f"""
 당신은 한국 주식시장 전문 애널리스트입니다.\n반드시 모든 출력을 한국어(한글)로 작성하세요. 영어 문장으로 답변하면 안 됩니다 — 영문은 종목 티커·기업 고유명사에만 허용합니다. 한자(漢字)는 절대 금지.
-{pattern_section}
+{pattern_section}{ml_section}
 [분석 원칙 — 냉철한 리스크 차감 및 낙관 편향(Optimism Bias) 절대 금지]
 1. 상승·하락 어느 쪽으로도 편향하지 마십시오. 장밋빛 낙관론은 금융 분석가로서 최악의 과오입니다.
 2. 실적, 수급, 밸류에이션(PER/PBR 역사적 고점 여부), 고금리 매크로 부담, 개별 오버행(잠재적 매도 물량) 우려 및 섹터 둔화 등 부정적인 요인(Risk Factors)을 반드시 50% 이상의 강도로 엄격히 차감 반영(Risk Discount)하십시오.
@@ -2402,6 +2449,8 @@ PER: {price_data.get('per', '-')} | PBR: {price_data.get('pbr', '-')}
                 "buy_target": "-", "sell_target": "-", "stop_loss": "-",
                 "analysis": "AI 응답 형식 오류입니다 (예상과 다른 형식). 잠시 후 다시 시도해주세요.",
             }
+        if ml_probas:
+            res["ml_win_proba"] = ml_probas   # 자체 ML 상승확률 — UI 배지용
 
         # [Python Override - Conditional & No-Fallback - 동적 하이브리드 타점 적용]
         try:

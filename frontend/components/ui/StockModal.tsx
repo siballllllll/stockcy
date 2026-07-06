@@ -173,6 +173,21 @@ function HoldVerdict({ r }: { r: any }) {
   );
 }
 
+// ── 자체 ML 상승확률 칩 (KR/US 리포트 공용) ──────────────────────────────────
+function MlProbaChip({ p }: { p?: { d3?: number; d7?: number; d20?: number } }) {
+  if (p?.d7 == null) return null;
+  const good = p.d7 >= 55; const bad = p.d7 <= 42;
+  const c = good ? "#34d399" : bad ? "#f87171" : "#a5b4fc";
+  return (
+    <span
+      style={{ fontSize: "0.75rem", fontWeight: 800, padding: "3px 9px", borderRadius: "6px", background: `${c}18`, border: `1px solid ${c}66`, color: c, whiteSpace: "nowrap" }}
+      title={`자체 ML 상승확률 (우리 매매결과 학습·확률보정): 3일 ${p.d3 ?? "-"}% / 7일 ${p.d7}% / 20일 ${p.d20 ?? "-"}%`}
+    >
+      🤖 ML 7일 {p.d7}%
+    </span>
+  );
+}
+
 // ── KR 리포트 결과 카드 ───────────────────────────────────────────────────────
 function KrReport({ r }: { r: KrStockReport }) {
   const variantMap: Record<string, "success"|"info"|"warning"|"muted"|"danger"> = {
@@ -192,6 +207,7 @@ function KrReport({ r }: { r: KrStockReport }) {
         <span style={{ fontSize: "0.75rem", color: "var(--color-muted)" }}>단기 등급</span>
         <Badge variant={v}>{r.rating}</Badge>
         <Badge variant="muted">{r.short_term_view_pct}</Badge>
+        <MlProbaChip p={r.ml_win_proba} />
         {r.ticker_mismatch && <Badge variant="warning">종목명 불일치 확인</Badge>}
       </div>
 
@@ -270,6 +286,7 @@ function UsReport({ r }: { r: StockReport }) {
       <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap" }}>
         <Badge variant={v}>{r.rating}</Badge>
         <Badge variant="muted">{r.short_term_view_pct}</Badge>
+        <MlProbaChip p={r.ml_win_proba} />
       </div>
 
       <HoldVerdict r={r} />
