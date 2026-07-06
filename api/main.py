@@ -613,6 +613,7 @@ def start_watchlist_alert_scheduler():
 # ── 10-c. 외국인·기관 수급 일일 스냅샷 스케줄러 (세력 자금 이동 추적용) ──────────
 _LAST_SUPPLY_SNAPSHOT_DATE = ""
 _SUPPLY_SNAPSHOT_ATTEMPTS: dict = {}   # {date: 시도횟수} — 휴장일 무한 재시도 방지
+_SUPPLY_SNAPSHOT_NEXT_TS = 0.0         # 실패 후 다음 시도 허용 시각 — 재시도 10분 간격
 
 def _supply_snapshot_loop():
     """평일 장 마감(15:45 KST) 이후 '아무 때나' 외국인·기관 수급 스냅샷을 DB에 적재.
@@ -622,15 +623,18 @@ def _supply_snapshot_loop():
     안 떠 있으면 그날치를 영영 놓쳤다(6/23 이후 전면 중단의 원인). 이제:
       ① 창 확대: 15:45 이후면 저녁·밤 아무 때나 오늘치 미적재 시 즉시 적재.
       ② 시작 시 캐치업: 루프 첫 iteration에서 바로 조건 평가 → 뒤늦게 켜도 그날치 확보.
-    DB에 오늘치가 이미 있으면(재시작 후에도) 건너뛴다. 휴장일(saved=0)은 5회까지만 시도."""
-    global _LAST_SUPPLY_SNAPSHOT_DATE
+    DB에 오늘치가 이미 있으면(재시작 후에도) 건너뛴다.
+    [v3.110.3] 07-06 실측: KIS 가집계가 15:55경에야 발행돼 기존 2분×5회(15:46~54) 창이
+    전부 헛스윙 → 실패 시 재시도를 10분 간격·최대 8회로 변경(15:45~17시대 커버)."""
+    global _LAST_SUPPLY_SNAPSHOT_DATE, _SUPPLY_SNAPSHOT_NEXT_TS
     import datetime as _dt
     while True:
         try:
             now = _dt.datetime.now()
             today = now.strftime("%Y-%m-%d")
             after_close = now.hour > 15 or (now.hour == 15 and now.minute >= 45)
-            if now.weekday() < 5 and after_close and _LAST_SUPPLY_SNAPSHOT_DATE != today:
+            if (now.weekday() < 5 and after_close and _LAST_SUPPLY_SNAPSHOT_DATE != today
+                    and _time.time() >= _SUPPLY_SNAPSHOT_NEXT_TS):
                 # 재시작 대비: DB에 오늘치가 이미 있으면 재적재하지 않고 완료 처리
                 already = False
                 try:
@@ -640,7 +644,7 @@ def _supply_snapshot_loop():
                     pass
                 if already:
                     _LAST_SUPPLY_SNAPSHOT_DATE = today
-                elif _SUPPLY_SNAPSHOT_ATTEMPTS.get(today, 0) < 5:
+                elif _SUPPLY_SNAPSHOT_ATTEMPTS.get(today, 0) < 8:
                     _SUPPLY_SNAPSHOT_ATTEMPTS[today] = _SUPPLY_SNAPSHOT_ATTEMPTS.get(today, 0) + 1
                     try:
                         from data_kr import snapshot_frgn_inst_today, snapshot_sector_flow_today
@@ -651,9 +655,11 @@ def _supply_snapshot_loop():
                             _LAST_SUPPLY_SNAPSHOT_DATE = today   # 성공 시에만 완료 처리
                             print(f"[supply snapshot] 종목 {saved}건 / 섹터 {sr.get('sectors', 0)}개 ({today})")
                         else:
-                            print(f"[supply snapshot] 데이터 없음(휴장 가능) — 재시도 {_SUPPLY_SNAPSHOT_ATTEMPTS[today]}/5 ({today})")
+                            _SUPPLY_SNAPSHOT_NEXT_TS = _time.time() + 600   # 발행 지연 대비 10분 뒤 재시도
+                            print(f"[supply snapshot] 데이터 없음(발행 지연/휴장) — 10분 후 재시도 {_SUPPLY_SNAPSHOT_ATTEMPTS[today]}/8 ({today})")
                     except Exception as e:
-                        print(f"[supply snapshot] 오류: {e}")
+                        _SUPPLY_SNAPSHOT_NEXT_TS = _time.time() + 600   # 오류도 10분 간격으로만 재시도
+                        print(f"[supply snapshot] 오류(10분 후 재시도): {e}")
         except Exception:
             pass
         _time.sleep(120)
