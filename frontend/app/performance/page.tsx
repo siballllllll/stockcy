@@ -270,6 +270,7 @@ function MlStatusPanel() {
         if (!ver.available) return (
           <div style={{ fontSize: "0.68rem", color: "var(--color-muted)", marginTop: "10px", padding: "8px 10px", background: "rgba(255,255,255,0.03)", borderRadius: "8px", lineHeight: 1.5 }}>
             🔬 <b>예측 사후검증</b>: {ver.reason || "예측 기록 수집 중"}
+            <div style={{ color: "#a5b4fc", marginTop: "3px" }}>🏁 <b>v4.0 승격 게이트</b> (확정): 검증표본 100건+ · 실전 AUC 0.6+ · '55%+ 예측' 구간 실제 승률 50%+</div>
           </div>
         );
         const HL: Record<string, string> = { d3: "단타(3일)", d7: "스윙(7일)", d20: "중장기(20일)" };
@@ -293,6 +294,9 @@ function MlStatusPanel() {
               </div>
             ))}
             <div style={{ fontSize: "0.62rem", color: "var(--color-muted)", marginTop: "4px" }}>※ 보정이 잘 됐다면 각 구간의 실제 승률이 예측 구간과 비슷해야 합니다 (예: '55% 이상' 구간 → 실제 승률 ≈ 55%+).</div>
+            <div style={{ fontSize: "0.64rem", color: "#a5b4fc", marginTop: "5px", padding: "5px 8px", background: "rgba(99,102,241,0.08)", borderRadius: "6px", lineHeight: 1.5 }}>
+              🏁 <b>v4.0 승격 게이트</b> (확정): 검증표본 <b>100건+</b> · 실전 AUC <b>0.6+</b> · '55%+ 예측' 구간 실제 승률 <b>50%+</b> — 셋 다 충족되면 스톡시 4.0(자체 학습 두뇌) 선언
+            </div>
           </div>
         );
       })()}
