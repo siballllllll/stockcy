@@ -3440,9 +3440,15 @@ def load_agent_learning_summary() -> dict:
 
         rules = []
 
+        # [v3.112.0] 규칙은 '실현 손익(is_realized=1)'에서만 뽑는다 + 최소 표본 10건.
+        # 기존엔 보유 중 잠정치(mark-to-market) 포함 + 표본 3건이면 규칙이 생성돼,
+        # 하락장에 물린 보유종목의 잠정 손실이 "이 조건 승률 15~33%" 같은 노이즈 규칙을 만들고
+        # 그 규칙이 프롬프트에 주입돼 에이전트가 모든 매수를 기각하는 마비(206스캔 전부 HOLD)를 유발했음.
+        rule_rows = [r for r in rows if r["is_realized"] == 1]
+
         def _bucket_winrate(predicate, label):
-            subset = [r for r in rows if predicate(r)]
-            if len(subset) < 3:
+            subset = [r for r in rule_rows if predicate(r)]
+            if len(subset) < 10:
                 return None
             w = sum(1 for r in subset if (r["outcome_return"] or 0) > 0)
             avg = sum(r["outcome_return"] or 0 for r in subset) / len(subset)

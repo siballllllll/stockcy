@@ -1285,19 +1285,24 @@ def analyze_autonomous_trading(ticker: str, name: str, current_price: float, mar
         try:
             ind = _get_trade_indicators(ticker, "")
             daily = ind.get("daily", {})
+            _mlx = daily.get("ml_extra") or {}   # 확장 피처(모멘텀·볼린저%b 등) — 눌림목 판정용
             ind_snapshot = {
                 "rsi":        daily.get("rsi"),
                 "ma_aligned": daily.get("ma_aligned"),
                 "pos_52w":    daily.get("pos_52w_pct"),
                 "vol_ratio":  daily.get("volume_ratio"),
                 "gap_pct":    daily.get("gap_pct"),
+                "mom_5":      _mlx.get("mom_5"),     # 에이전트 급등추격 하드필터가 사용
+                "bb_pctb":    _mlx.get("bb_pctb"),
             }
             tech_info = (
                 f"\n[기술적 지표] RSI(14)={daily.get('rsi','N/A')}, "
                 f"MA정배열(5>20>60)={'O' if daily.get('ma_aligned') else 'X'}, "
                 f"52주위치={daily.get('pos_52w_pct','N/A')}%, "
                 f"거래량비율(20일평균대비)={daily.get('volume_ratio','N/A')}배, "
-                f"당일갭={daily.get('gap_pct','N/A')}%"
+                f"당일갭={daily.get('gap_pct','N/A')}%, "
+                f"5일모멘텀={_mlx.get('mom_5','N/A')}%, "
+                f"볼린저%b={_mlx.get('bb_pctb','N/A')} (0=하단·1=상단)"
             )
             # 하승훈式 결정론 시그널(돌파눌림목·볼린저상단돌파·MACD히스토전환) — BUY 판단 가점 신호
             _hsh = daily.get("hsh") or {}
@@ -1336,9 +1341,10 @@ def analyze_autonomous_trading(ticker: str, name: str, current_price: float, mar
                     for r in top_rules
                 )
                 learning_info = (
-                    f"\n[★ 나의 과거 모의매매 학습 결과 — {summary['sample']}건 기준, 전체 승률 {summary.get('overall_win_rate',0)}%]\n"
+                    f"\n[★ 나의 과거 모의매매 학습 결과 — 실현 거래 {summary.get('realized_trades', 0)}건 기준]\n"
                     f"{rule_lines}\n"
-                    f"  → 위 통계에서 승률 높은 조건과 현재 종목 상태가 일치하면 적극적으로, 승률 낮은 조건이면 신중하게 판단하세요."
+                    f"  → 승률과 평균 수익률을 함께 보세요(승률이 낮아도 평균 수익이 크게 양수면 유효한 조건). "
+                    f"이 통계는 참고 신호이며, 위 실측 플레이북(눌림목 우선)이 우선합니다. 낮은 승률을 이유로 모든 매수를 기각하지 마세요."
                 )
         except Exception:
             pass
@@ -1439,6 +1445,11 @@ def analyze_autonomous_trading(ticker: str, name: str, current_price: float, mar
 - 당신은 스캘핑(초단타)을 절대 하지 않으며, 하루 1~3회 내외로 극도로 신중하게 매매하는 중단기/스윙 트레이더입니다.\n반드시 모든 출력을 한국어(한글)로 작성하세요. 영어 문장으로 답변하면 안 됩니다 — 영문은 종목 티커·기업 고유명사에만 허용합니다. 한자(漢字)는 절대 금지. 잦은 거래는 잦은 수수료와 슬리피지 손실을 부릅니다.
 - SELL은 수수료 공제 후 실질 손익률이 최소 +2.50% 이상(안정적인 스윙 수익실현) 또는 -3.0% 이하(안정적인 스윙 손절)일 때만 고려하세요. (0.3% 내외의 이익으로 조기 청산하는 단타성 매도는 엄격히 금지됩니다.)
 - BUY는 1분/5분 차트의 일시적 노이즈에 유혹당하지 말고, 일봉/시간봉 상 확실한 눌림목이나 바닥 다지기가 확인되어 최소 몇 시간에서 며칠간 진득하게 보유할 만한 가치가 있는 강력한 타점에서만 결정하세요. 확신이 없다면 무조건 HOLD하세요.
+- [★ 실측 매매 플레이북 — 이 시스템의 실전 추천 561건 사후 검증 결과] 매수 형태별 실제 7일 승률:
+  · 볼린저 %b 0.2 미만 '눌림목' 매수: 승률 62~71% (최상. 특히 52주 상위권 강한 종목의 눌림목은 승률 66.7%·평균 +6.1%로 기대값 최상)
+  · 5일 모멘텀 +10% 이상 '급등 추격' 매수: 승률 22%, 평균 -8% (최악 — 어떤 재료·수급 근거가 있어도 BUY 금지)
+  · 볼린저 상단(%b 0.8+) 돌파 추격: 승률 27% (금지)
+  → BUY는 눌림목 형태(볼린저 하단권·5일 모멘텀 마이너스·조용한 거래량)에 부합할 때 가장 적극적으로, 이미 오른 종목은 눌림을 기다리세요.
 - 보유 중(HOLDING)일 때, 뚜렷한 추세 이탈이 없고 실질 손익률이 목표 청산 구간(+2.50% 이상 또는 -3.0% 이하)에 도달하지 않았다면 차분하게 추세를 길러가며 보유(HOLD) 상태를 유지하세요.
 
 만약 미보유(NONE) 상태라면, 지금이 매수 적기인지(BUY) 아니면 관망할지(HOLD) 결정하세요.

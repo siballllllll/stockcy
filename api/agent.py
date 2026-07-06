@@ -363,12 +363,32 @@ def _run_one_scan(force: bool = False) -> dict:
                     except Exception as _ue:
                         logger.error(f"[agent] 잠정 수익률 갱신 실패 {ticker}: {_ue}")
 
-                # AI에게 매수/매도/홀딩 판단 요청
-                logger.info(f"AI Agent: {name}({ticker}) 분석 중... (Position: {position})")
-                
-                decision = analyze_autonomous_trading(
-                    ticker, name, current_price, market, position, avg_price
-                )
+                # ── [강제 청산 가드 v3.112.0] 손절·익절 코드 강제 ──
+                # 손절 -3%·익절 +2.5%는 프롬프트 권고일 뿐이라 Gemini가 "긍정 이슈"를 이유로
+                # 손절선 밑에서도 HOLD하는 사례가 실측됨(NVDA -8.85% HOLD, PLTR +9.2% HOLD).
+                # -5% ~ +8% 사이는 Gemini 판단에 맡기고, 그 밖은 판단 없이 코드가 즉시 청산.
+                forced_exit = False
+                decision = None
+                if position == "HOLDING" and avg_price and avg_price > 0:
+                    _fee_rt = 0.21 if market == "국내" else 0.15   # 왕복 수수료+거래세 %
+                    _net = (current_price - avg_price) / avg_price * 100.0 - _fee_rt
+                    if _net <= -5.0:
+                        forced_exit = True
+                        decision = {"action": "SELL", "confidence": 99,
+                                    "reason": f"[강제 손절 가드] 실질 손익 {_net:+.2f}% ≤ -5% — 손절 기준(-3%)을 크게 이탈, 판단 없이 즉시 청산",
+                                    "learning_point": f"손절 지연으로 {_net:+.2f}%까지 확대 — -3% 도달 시점에 청산했어야 함"}
+                    elif _net >= 8.0:
+                        forced_exit = True
+                        decision = {"action": "SELL", "confidence": 95,
+                                    "reason": f"[강제 익절 가드] 실질 손익 {_net:+.2f}% ≥ +8% — 목표(+2.5%)의 3배 초과 달성, 스윙 수익 확정",
+                                    "learning_point": f"실질 {_net:+.2f}% 익절 확정 (강제 가드)"}
+
+                # AI에게 매수/매도/홀딩 판단 요청 (강제 청산이면 Gemini 호출 생략 — 비용 0)
+                if decision is None:
+                    logger.info(f"AI Agent: {name}({ticker}) 분석 중... (Position: {position})")
+                    decision = analyze_autonomous_trading(
+                        ticker, name, current_price, market, position, avg_price
+                    )
 
                 if not decision: continue
                 
@@ -387,6 +407,19 @@ def _run_one_scan(force: bool = False) -> dict:
                     logger.error(f"[agent] scan log 저장 실패: {ex}")
                 
                 if action == "BUY" and position == "NONE" and confidence >= 60:
+                    # [실측 하드필터 v3.112.0] 스크리너(v3.111.0)와 동일 기준 — 급등 추격 매수 차단.
+                    # 실측 561건: 5일 +10%↑ 승률 22%, (+5%↑ AND RSI70↑/거래량4배↑) 승률 13~20%.
+                    _snap = decision.get("_indicators") or {}
+                    _m5 = _snap.get("mom_5"); _rsi_s = _snap.get("rsi") or 0; _vr_s = _snap.get("vol_ratio") or 0
+                    if _m5 is not None and (_m5 >= 10 or (_m5 >= 5 and (_rsi_s >= 70 or _vr_s >= 4))):
+                        logger.info(f"AI Agent: {name} 매수 차단 - 급등 추격 구간 (5일 모멘텀 {_m5:+.1f}%, 실측 저승률 하드필터)")
+                        try:
+                            log_agent_scan(ticker, name, current_price, position, "HOLD", confidence,
+                                f"[{source_korean}] AI는 BUY 결정을 내렸으나 실측 하드필터(5일 {_m5:+.1f}% 급등 추격 구간, 과거 승률 22% 이하)로 매수를 차단합니다.")
+                        except Exception:
+                            pass
+                        continue
+
                     # 하루 매수 한도(3회) 검증 (과도한 매매 제한)
                     today_buy_count = _get_today_buy_count()
                     if today_buy_count >= 3:
@@ -471,7 +504,8 @@ def _run_one_scan(force: bool = False) -> dict:
                         except Exception as parse_err:
                             logger.error(f"Failed to parse buy_date '{buy_date_str}': {parse_err}")
                             
-                    if not is_holding_time_valid:
+                    # 강제 청산 가드는 리스크 관리라 4시간 최소보유 예외 (스캘핑 방지 목적과 무관)
+                    if not is_holding_time_valid and not forced_exit:
                         logger.info(f"AI Agent: {name} 매도 제한 - 최소 보유 시간(4시간) 미달. (현재 보유 시간: {holding_hours:.1f}시간)")
                         try:
                             log_agent_scan(ticker, name, current_price, position, "HOLD", confidence,
