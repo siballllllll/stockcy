@@ -513,10 +513,44 @@ def _run_one_scan(force: bool = False) -> dict:
                     _is_swing = "[스윙]" in str(holding.get("rating") or "")
                     _peak, _partial = _pos_state(ticker, current_price)   # 고점 갱신 + 부분익절 여부
                     if _is_swing and _net <= -5.0:
-                        forced_exit = True
-                        decision = {"action": "SELL", "confidence": 99,
-                                    "reason": f"[강제 손절 가드·스윙] 실질 손익 {_net:+.2f}% ≤ -5% — 스윙 손절 기준(-3%)을 크게 이탈, 판단 없이 즉시 청산",
-                                    "learning_point": f"스윙 손절 지연으로 {_net:+.2f}%까지 확대 — -3% 도달 시점에 청산했어야 함"}
+                        # [스마트 손절 v3.125.0] -5%~-8% 구간은 '지금 이 순간'의 회복 지표를 보고 유예.
+                        # 실측: 눌림목 계열이 -5% 터치 후 7일 내 플러스 회복 37.3% — 회복 지표(ML 55%+
+                        # 또는 볼린저 하단권=과매도 지지) 우세 시 즉시 자르지 않고 Gemini 판단에 넘긴다.
+                        # -8% 밑은 무조건 손절(하드 플로어). 유예는 매 스캔(30분)마다 재평가됨.
+                        _rescue = False
+                        _rescue_note = ""
+                        if _net > -8.0:
+                            try:
+                                from ai_engine import _get_trade_indicators
+                                from ml_model import predict_win_proba
+                                _d2 = _get_trade_indicators(ticker, "").get("daily", {})
+                                _mlx2 = _d2.get("ml_extra") or {}
+                                _f2 = {"rsi": _d2.get("rsi"), "pos_52w": _d2.get("pos_52w_pct"),
+                                       "vol_ratio": _d2.get("volume_ratio"),
+                                       "is_us": 0.0 if str(ticker).strip().isdigit() else 1.0}
+                                _f2.update(_mlx2)
+                                _ml7r = predict_win_proba(_f2, "d7")
+                                _bb2 = _mlx2.get("bb_pctb")
+                                if (_ml7r is not None and _ml7r >= 55.0) or (_bb2 is not None and _bb2 <= 0.2):
+                                    _rescue = True
+                                    _rescue_note = f"ML d7 {_ml7r}% · 볼린저 %b {_bb2}"
+                            except Exception as _re2:
+                                logger.error(f"[smart stop] {ticker} 회복 지표 확인 실패: {_re2}")
+                        if _rescue:
+                            logger.info(f"AI Agent: {name} 손절 유예 - 실질 {_net:+.2f}%, 회복 지표 우세 ({_rescue_note})")
+                            try:
+                                log_agent_scan(ticker, name, current_price, position, "HOLD", 70,
+                                    f"[손절 유예] 실질 {_net:+.2f}%로 손절선 이탈이나 회복 지표 우세({_rescue_note}) — -8% 하드 플로어까지 유예, 최종 판단은 AI에게 위임")
+                            except Exception:
+                                pass
+                            # forced_exit 미설정 → 아래에서 Gemini가 회복 근거를 보고 최종 판단
+                        else:
+                            forced_exit = True
+                            decision = {"action": "SELL", "confidence": 99,
+                                        "reason": (f"[강제 손절 가드·스윙] 실질 손익 {_net:+.2f}% — "
+                                                   + ("-8% 하드 플로어 이탈, 회복 여부 무관 즉시 청산" if _net <= -8.0
+                                                      else "손절선(-5%) 이탈 + 회복 지표 열세, 즉시 청산")),
+                                        "learning_point": f"스윙 손절 {_net:+.2f}% 확정 — 회복 지표 열세 구간은 버티지 않는다"}
                     elif _is_swing and _net >= 8.0 and not _partial:
                         # [부분 익절 v3.117.0] 전량 익절 → 절반 익절 + 잔여 트레일링.
                         # 기존 +8% 전량 청산은 +142% 같은 대시세 꼬리를 전부 놓치는 구조였음.
