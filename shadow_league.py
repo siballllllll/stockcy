@@ -333,8 +333,8 @@ def shadow_detail(owner: str, limit: int = 30) -> dict:
                FROM portfolio WHERE UPPER(owner)=? ORDER BY updated_time DESC""", (owner.upper(),))
         holdings = [dict(r) for r in cur.fetchall()]
         cur.execute(
-            """SELECT sell_date, ticker, name, quantity, buy_price, sell_price, profit_pct,
-                      result, learning_point, buy_reason
+            """SELECT sell_date, buy_date, ticker, name, quantity, buy_price, sell_price,
+                      profit, profit_pct, result, learning_point, buy_reason
                FROM trade_history WHERE owner=? ORDER BY sell_date DESC LIMIT ?""",
             (owner, int(limit)))
         trades = [dict(r) for r in cur.fetchall()]

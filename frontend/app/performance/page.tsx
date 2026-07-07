@@ -393,37 +393,68 @@ function MlStatusPanel() {
   );
 }
 
-// ── 섀도우 개별 상세 — 보유 종목 + 최근 거래 (+진입 컨텍스트) ────────────────────
+// ── 섀도우 개별 상세 — 보유 종목 + 최근 거래 (매수시각·수량·금액·근거·매도사유) ──
 function ShadowDetail({ owner }: { owner: string }) {
   const { data } = useSWR(`${B}/api/ai/shadow-league/detail?owner=${owner}`, fetcher, { refreshInterval: 60000 });
   if (!data) return <div style={{ fontSize: "0.8rem", color: "var(--color-muted)", padding: "12px" }}>불러오는 중…</div>;
-  const ctxChip = (ctx: any) => {
+  const isUs = (tk: string) => /[A-Za-z]/.test(String(tk || ""));
+  const money = (v: number, tk: string) => isUs(tk) ? `$${Number(v).toLocaleString(undefined, { maximumFractionDigits: 2 })}` : `${Number(v).toLocaleString()}원`;
+  const dt = (s: any) => String(s || "").slice(5, 16);   // "MM-DD HH:MM"
+  const heldFor = (buy: any, sell?: any) => {
+    try {
+      const a = new Date(String(buy).replace(" ", "T"));
+      const b = sell ? new Date(String(sell).replace(" ", "T")) : new Date();
+      const h = Math.max(0, (b.getTime() - a.getTime()) / 3600000);
+      return h < 24 ? `${h.toFixed(1)}시간` : `${Math.floor(h / 24)}일`;
+    } catch { return ""; }
+  };
+  const ctxChips = (ctx: any) => {
     if (!ctx) return null;
     const bits: string[] = [];
     if (ctx.regime && ctx.regime !== "?") bits.push(`레짐:${ctx.regime}`);
-    if (ctx.issue) bits.push("이슈");
-    if (ctx.supply) bits.push("수급");
-    if (ctx.bb != null) bits.push(`bb ${ctx.bb}`);
+    if (ctx.issue) bits.push("이슈연관");
+    if (ctx.supply) bits.push("수급상위");
+    if (ctx.bb != null) bits.push(`볼린저 ${ctx.bb}`);
     if (ctx.m5 != null) bits.push(`5일 ${ctx.m5 > 0 ? "+" : ""}${ctx.m5}%`);
+    if (ctx.rsi != null) bits.push(`RSI ${ctx.rsi}`);
     if (ctx.ml7 != null) bits.push(`ML ${ctx.ml7}%`);
     if (!bits.length) return null;
-    return <span style={{ fontSize: "0.66rem", color: "var(--color-muted)" }}>{bits.join(" · ")}</span>;
+    return (
+      <div style={{ display: "flex", gap: "4px", flexWrap: "wrap", marginTop: "4px" }}>
+        {bits.map((b, i) => (
+          <span key={i} style={{ fontSize: "0.64rem", padding: "1px 7px", borderRadius: "9px",
+            background: "rgba(255,255,255,0.05)", border: "1px solid var(--color-border)", color: "var(--color-muted)" }}>{b}</span>
+        ))}
+      </div>
+    );
   };
+  const reasonLine = (label: string, text: any, color: string) => text ? (
+    <div style={{ fontSize: "0.74rem", marginTop: "3px", lineHeight: 1.45 }}>
+      <span style={{ fontWeight: 800, color, fontSize: "0.68rem" }}>{label}</span>{" "}
+      <span style={{ color: "var(--color-text)" }}>{String(text)}</span>
+    </div>
+  ) : (
+    <div style={{ fontSize: "0.7rem", marginTop: "3px", color: "var(--color-muted)" }}>
+      <span style={{ fontWeight: 800, fontSize: "0.68rem" }}>{label}</span> 기록 없음 (컨텍스트 기록 이전 거래)
+    </div>
+  );
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
       <div>
         <div style={{ fontWeight: 800, fontSize: "0.88rem", marginBottom: "6px" }}>📦 보유 중 ({data.holdings?.length ?? 0}종목)</div>
         {!data.holdings?.length && <div style={{ fontSize: "0.78rem", color: "var(--color-muted)" }}>보유 없음</div>}
         {(data.holdings ?? []).map((h: any) => (
-          <div key={h.ticker} style={{ padding: "7px 10px", borderTop: "1px solid var(--color-border)", fontSize: "0.8rem" }}>
+          <div key={h.ticker} style={{ padding: "9px 10px", borderTop: "1px solid var(--color-border)", fontSize: "0.8rem" }}>
             <div style={{ display: "flex", justifyContent: "space-between", gap: "8px" }}>
               <b>{h.name} <span style={{ color: "var(--color-muted)", fontWeight: 500 }}>({h.ticker})</span></b>
-              <span>{Number(h.quantity).toLocaleString()}주 × {Number(h.buy_price).toLocaleString()}</span>
+              <span style={{ fontSize: "0.7rem", color: "var(--color-muted)" }}>보유 {heldFor(h.buy_date)}</span>
             </div>
-            <div style={{ display: "flex", justifyContent: "space-between", gap: "8px", marginTop: "2px" }}>
-              {ctxChip(h.ctx) ?? <span />}
-              <span style={{ fontSize: "0.66rem", color: "var(--color-muted)" }}>{String(h.buy_date || "").slice(0, 16)}</span>
+            <div style={{ fontSize: "0.76rem", color: "var(--color-subtle)", marginTop: "2px" }}>
+              매수 <b>{dt(h.buy_date)}</b> · {Number(h.quantity).toLocaleString()}주 × {money(h.buy_price, h.ticker)}
+              {" = "}<b>{money(h.quantity * h.buy_price, h.ticker)}</b>
             </div>
+            {reasonLine("매수 근거", h.ctx?.note, "#34d399")}
+            {ctxChips(h.ctx)}
           </div>
         ))}
       </div>
@@ -431,18 +462,24 @@ function ShadowDetail({ owner }: { owner: string }) {
         <div style={{ fontWeight: 800, fontSize: "0.88rem", marginBottom: "6px" }}>📜 최근 거래 ({data.trades?.length ?? 0}건)</div>
         {!data.trades?.length && <div style={{ fontSize: "0.78rem", color: "var(--color-muted)" }}>아직 실현 거래 없음 — 청산(-5%/+8%/10일)이 발생하면 여기 쌓입니다.</div>}
         {(data.trades ?? []).map((t: any, i: number) => (
-          <div key={i} style={{ padding: "7px 10px", borderTop: "1px solid var(--color-border)", fontSize: "0.8rem" }}>
+          <div key={i} style={{ padding: "9px 10px", borderTop: "1px solid var(--color-border)", fontSize: "0.8rem" }}>
             <div style={{ display: "flex", justifyContent: "space-between", gap: "8px" }}>
-              <b>{t.name}</b>
+              <b>{t.name} <span style={{ color: "var(--color-muted)", fontWeight: 500 }}>({t.ticker})</span></b>
               <b style={{ color: (t.profit_pct ?? 0) >= 0 ? "#34d399" : "var(--color-danger)" }}>
                 {(t.profit_pct ?? 0) >= 0 ? "+" : ""}{Number(t.profit_pct ?? 0).toFixed(2)}%
+                {t.profit != null && <span style={{ fontWeight: 600, fontSize: "0.7rem" }}> ({(t.profit >= 0 ? "+" : "") + money(Math.round(t.profit), t.ticker)})</span>}
               </b>
             </div>
-            <div style={{ fontSize: "0.7rem", color: "var(--color-subtle)", marginTop: "2px" }}>{t.learning_point}</div>
-            <div style={{ display: "flex", justifyContent: "space-between", gap: "8px", marginTop: "2px" }}>
-              {ctxChip(t.ctx) ?? <span />}
-              <span style={{ fontSize: "0.66rem", color: "var(--color-muted)" }}>{String(t.sell_date || "").slice(0, 16)}</span>
+            <div style={{ fontSize: "0.76rem", color: "var(--color-subtle)", marginTop: "2px" }}>
+              매수 <b>{dt(t.buy_date)}</b> → 매도 <b>{dt(t.sell_date)}</b>
+              <span style={{ color: "var(--color-muted)" }}> (보유 {heldFor(t.buy_date, t.sell_date)})</span>
             </div>
+            <div style={{ fontSize: "0.76rem", color: "var(--color-subtle)", marginTop: "1px" }}>
+              {Number(t.quantity).toLocaleString()}주 × {money(t.buy_price, t.ticker)} → {money(t.sell_price, t.ticker)}
+            </div>
+            {reasonLine("매수 근거", t.ctx?.note, "#34d399")}
+            {reasonLine("매도 사유", t.learning_point, "#f87171")}
+            {ctxChips(t.ctx)}
           </div>
         ))}
       </div>
