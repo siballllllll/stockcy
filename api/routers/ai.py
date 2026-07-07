@@ -1434,6 +1434,17 @@ async def get_ml_status(user: dict = Depends(get_current_user)):
         return {"error": str(e), "horizons": {}}
 
 
+@router.get("/shadow-league")
+async def get_shadow_league(_admin: dict = Depends(require_admin)):
+    """섀도우 리그 성적표(관리자 전용) — 메인 에이전트 vs 대조군 전략(순수 눌림목·ML 순종)
+    실현 성적 비교. 어떤 매매 형태의 승률이 높은지 실측하는 A/B 리그."""
+    try:
+        from shadow_league import shadow_league_status
+        return await asyncio.to_thread(shadow_league_status)
+    except Exception as e:
+        return {"error": str(e), "players": []}
+
+
 @router.post("/ml-train")
 async def post_ml_train(_admin: dict = Depends(require_admin)):
     """자체 ML 모델 즉시 학습(관리자 전용, scikit-learn 로컬·무과금).

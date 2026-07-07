@@ -284,6 +284,7 @@ def _run_one_scan(force: bool = False) -> dict:
     force=True면 휴장이어도 진행(수동 점검용). 반환: 스캔 요약 dict.
     블로킹 호출이 많아 반드시 워커 스레드(to_thread)에서 실행할 것."""
     summary: dict = {"scanned": 0, "buy": 0, "sell": 0, "hold": 0, "skipped": None}
+    shadow_candidates: list = []   # 섀도우 리그에 넘길 (지표 포함) 후보 — 메인 스캔 결과 재사용
     if True:
         try:
             kr_open = _is_market_open("국내")
@@ -558,6 +559,12 @@ def _run_one_scan(force: bool = False) -> dict:
                 confidence = decision.get("confidence", 50)
                 
                 logger.info(f"[agent] {name} -> {action} (신뢰도: {confidence}%)")
+
+                # 섀도우 리그 후보 수집 (v3.118.0) — 이미 수집된 지표·시세 재사용 (추가 다운로드 0)
+                _ind_sh = decision.get("_indicators") or {}
+                if _ind_sh:
+                    shadow_candidates.append({"ticker": ticker, "name": name, "market": market,
+                                              "price": current_price, "ind": _ind_sh})
 
                 # 고민 일지(scan log) 기록
                 summary["scanned"] += 1
@@ -878,6 +885,15 @@ def _run_one_scan(force: bool = False) -> dict:
                     # [노이즈 절감] AI 모의매매는 학습 목적 — 매도 텔레그램 알림 비활성.
                     #   체결·학습 기록은 위에서 완료됨. 결과는 앱 내 AI 포트폴리오에서 확인.
                     
+            # ── 섀도우 리그 (v3.118.0) — 대조군 전략 가상매매 (Gemini 무호출, 비용 0) ──
+            try:
+                from shadow_league import run_shadow_cycle
+                summary["shadow"] = run_shadow_cycle(
+                    shadow_candidates, kr_open=kr_open, us_open=us_open,
+                    force=force, usdkrw=_get_usd_krw_rate())
+            except Exception as _se:
+                logger.error(f"[shadow] 사이클 오류: {_se}")
+
             logger.info(f"[agent] 1주기 스캔 완료. scanned={summary['scanned']} buy={summary['buy']} sell={summary['sell']} hold={summary['hold']}")
 
         except Exception as e:

@@ -186,6 +186,58 @@ function MarketLogArchive() {
   );
 }
 
+// ── 섀도우 리그 (v3.118.0) — 메인 vs 대조군 전략 실측 비교 (관리자 전용) ─────────
+function ShadowLeaguePanel() {
+  const { user } = useAuth();
+  const isAdmin = user?.role === "admin";
+  const { data } = useSWR(isAdmin ? `${B}/api/ai/shadow-league` : null, fetcher, { refreshInterval: 0 });
+  if (!isAdmin || !data?.players?.length) return null;
+  return (
+    <div className="stockcy-card" style={{ padding: "1rem 1.2rem" }}>
+      <div style={{ fontWeight: 800, fontSize: "1rem", marginBottom: "4px" }}>
+        🥊 섀도우 리그 <span style={{ fontSize: "0.72rem", fontWeight: 600, color: "var(--color-muted)" }}>— 같은 시장에서 다른 전략으로 경쟁 중 (대조군 실측)</span>
+      </div>
+      <div style={{ fontSize: "0.74rem", color: "var(--color-muted)", marginBottom: "10px" }}>
+        섀도우는 Gemini 없이 규칙·ML만으로 매매하는 가상 트레이더입니다. 전략당 실현 30건 이상 쌓이면 승자 규칙의 메인 반영을 제안합니다.
+      </div>
+      <div style={{ overflowX: "auto" }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.82rem" }}>
+          <thead>
+            <tr style={{ color: "var(--color-muted)", fontSize: "0.72rem" }}>
+              <th style={{ textAlign: "left", padding: "4px 8px" }}>전략</th>
+              <th style={{ textAlign: "right", padding: "4px 8px" }}>실현 거래</th>
+              <th style={{ textAlign: "right", padding: "4px 8px" }}>승률</th>
+              <th style={{ textAlign: "right", padding: "4px 8px" }}>평균 수익률</th>
+              <th style={{ textAlign: "right", padding: "4px 8px" }}>보유 중</th>
+              <th style={{ textAlign: "right", padding: "4px 8px" }}>현금</th>
+            </tr>
+          </thead>
+          <tbody>
+            {data.players.map((p: any) => (
+              <tr key={p.owner} style={{ borderTop: "1px solid var(--color-border)" }}>
+                <td style={{ padding: "6px 8px", fontWeight: 700 }}>{p.label}</td>
+                <td style={{ padding: "6px 8px", textAlign: "right" }}>{p.realized_trades}건</td>
+                <td style={{ padding: "6px 8px", textAlign: "right", fontWeight: 700,
+                  color: p.win_rate == null ? "var(--color-muted)" : p.win_rate >= 50 ? "#34d399" : "var(--color-danger)" }}>
+                  {p.win_rate == null ? "—" : `${p.win_rate}%`}
+                </td>
+                <td style={{ padding: "6px 8px", textAlign: "right",
+                  color: (p.avg_pct ?? 0) >= 0 ? "#34d399" : "var(--color-danger)" }}>
+                  {p.avg_pct == null ? "—" : `${p.avg_pct > 0 ? "+" : ""}${p.avg_pct}%`}
+                </td>
+                <td style={{ padding: "6px 8px", textAlign: "right" }}>{p.open_positions}종목</td>
+                <td style={{ padding: "6px 8px", textAlign: "right", color: "var(--color-muted)" }}>
+                  {p.cash == null ? "—" : `${Number(p.cash).toLocaleString()}원`}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 // ── 자체 ML 모델 현황 ────────────────────────────────────────────────────────────
 function MlStatusPanel() {
   const { data, mutate } = useSWR(`${B}/api/ai/ml-status`, fetcher, { refreshInterval: 0 });
@@ -314,6 +366,7 @@ export default function PerformancePage() {
       <div style={{ fontSize: "0.82rem", color: "var(--color-muted)", marginTop: "-8px" }}>이 시스템이 실제로 맞고 있는지, 그때 시장을 어떻게 봤는지, 내 자산이 어떻게 변했는지를 한 곳에서.</div>
       <EngineScoreboard />
       <MlStatusPanel />
+      <ShadowLeaguePanel />
       {/* 시나리오 적중률·추적 종목 상세 (시나리오 페이지에서 이동) */}
       <ScenarioTrackingPanel />
       <EquityCurve />
