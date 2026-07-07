@@ -275,6 +275,131 @@ def run_shadow_cycle(candidates: list, kr_open: bool, us_open: bool, force: bool
     return out
 
 
+# ── 리그 큐레이터 (v3.126.0) — 섀도우 총괄 어시스턴트 ────────────────────────
+# 매일 장 마감 후: 결정론 분석(랜덤 대조군 대비·매트릭스 주목 셀·최근 추세 변화)
+# → Gemini 1콜(무검색·저가)로 애널리스트 코멘트 생성(이전 회차를 이어받아 누적 학습)
+# → shadow_insights 테이블에 보관 + /performance·텔레그램 브리핑 노출.
+
+def _insights_table(cur):
+    cur.execute("""CREATE TABLE IF NOT EXISTS shadow_insights (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, created_at TEXT, insight_date TEXT UNIQUE,
+        facts TEXT, commentary TEXT)""")
+
+
+def analyze_league(min_n: int = 5) -> dict:
+    """결정론 리그 분석 — 큐레이터의 팩트 수집 단계 (Gemini 없이 매일 무료 실행 가능).
+    반환: {"findings": [문장...], "trend": [...], "cells": 매트릭스 상위}"""
+    status = shadow_league_status()
+    players = {p["owner"]: p for p in status.get("players", [])}
+    findings, trend = [], []
+    # 1) 랜덤 대조군(E) 대비 — '운인지 실력인지' 판정
+    base = players.get("SHADOW_E")
+    if base and base.get("win_rate") is not None and (base.get("realized_trades") or 0) >= 8:
+        for o, p in players.items():
+            if o == "SHADOW_E" or (p.get("realized_trades") or 0) < 8 or p.get("win_rate") is None:
+                continue
+            diff = p["win_rate"] - base["win_rate"]
+            if abs(diff) >= 10:
+                findings.append(f"{p['label']}: 랜덤 대조군 대비 승률 {diff:+.1f}%p — {'실력 신호' if diff > 0 else '전략 열위 신호'}")
+    # 2) 매트릭스 주목 셀 — 리그 전체 평균 승률과의 편차가 큰 상황
+    syn = shadow_synthesis(min_n=min_n)
+    cells = syn.get("cells") or []
+    all_wr = [p.get("win_rate") for p in players.values()
+              if str(p.get("owner", "")).startswith("SHADOW") and p.get("win_rate") is not None]
+    league_avg = (sum(all_wr) / len(all_wr)) if all_wr else None
+    if league_avg is not None:
+        for c in cells:
+            dev = c["win_rate"] - league_avg
+            if abs(dev) >= 15 and c["n"] >= 8:
+                findings.append(
+                    f"주목 셀: {str(c['strategy']).replace('SHADOW_', '섀도우 ')} × {c['situation']} — "
+                    f"승률 {c['win_rate']}% (리그 평균 대비 {dev:+.1f}%p, {c['n']}건)")
+    # 3) 최근 7일 vs 이전 추세 — 전략별 승률 변화 감지
+    conn = _conn(); cur = conn.cursor()
+    try:
+        for o in SHADOWS + ("AI_AGENT",):
+            cur.execute("""SELECT
+                SUM(CASE WHEN sell_date >= date('now','-7 day') THEN 1 ELSE 0 END) rn,
+                AVG(CASE WHEN sell_date >= date('now','-7 day') THEN (CASE WHEN profit_pct>0 THEN 100.0 ELSE 0 END) END) rw,
+                SUM(CASE WHEN sell_date <  date('now','-7 day') THEN 1 ELSE 0 END) pn,
+                AVG(CASE WHEN sell_date <  date('now','-7 day') THEN (CASE WHEN profit_pct>0 THEN 100.0 ELSE 0 END) END) pw
+                FROM trade_history WHERE owner=?""", (o,))
+            r = cur.fetchone()
+            if r and (r["rn"] or 0) >= 5 and (r["pn"] or 0) >= 5 and r["rw"] is not None and r["pw"] is not None:
+                delta = r["rw"] - r["pw"]
+                if abs(delta) >= 12:
+                    lbl = players.get(o, {}).get("label", o)
+                    trend.append(f"{lbl}: 최근 7일 승률 {r['rw']:.0f}% (이전 {r['pw']:.0f}%, {delta:+.0f}%p) — 레짐 변화 가능성")
+    finally:
+        conn.close()
+    return {"findings": findings, "trend": trend, "cells": cells[:8],
+            "league_avg": round(league_avg, 1) if league_avg is not None else None}
+
+
+def curator_daily_report(use_gemini: bool = True) -> dict:
+    """리그 큐레이터 일일 리포트 — 분석 팩트를 요약하고(무료), Gemini가 이전 회차를
+    이어받아 코멘트를 씀(하루 1콜·무검색·저가). shadow_insights에 날짜별 1건 보관."""
+    a = analyze_league()
+    status = shadow_league_status()
+    today = datetime.now().strftime("%Y-%m-%d")
+    fact_lines = []
+    for p in status.get("players", []):
+        fact_lines.append(f"- {p['label']}: 실현 {p.get('realized_trades')}건 승률 {p.get('win_rate')}% 평균 {p.get('avg_pct')}% 보유 {p.get('open_positions')}")
+    fact_lines += [f"- {f}" for f in a["findings"]] + [f"- {t}" for t in a["trend"]]
+    for c in a["cells"][:6]:
+        fact_lines.append(f"- 셀: {c['strategy']}×{c['situation']} 승률 {c['win_rate']}% ({c['n']}건)")
+    facts = "\n".join(fact_lines)
+
+    conn = _conn(); cur = conn.cursor()
+    _insights_table(cur)
+    cur.execute("SELECT insight_date, commentary FROM shadow_insights ORDER BY insight_date DESC LIMIT 1")
+    prev = cur.fetchone()
+    prev_txt = f"[직전 회차({prev['insight_date']}) 코멘트]\n{prev['commentary']}\n\n" if prev else ""
+    conn.close()
+
+    commentary = ""
+    if use_gemini:
+        try:
+            from ai_engine import _call_gemini
+            prompt = (
+                "당신은 'AI 트레이딩 전략 리그'를 총괄하는 수석 애널리스트입니다.\n"
+                "반드시 한국어로만 작성하세요. 한자 금지.\n"
+                "리그: 7개 전략(메인 Gemini하이브리드 + 섀도우 A눌림목/B ML순종/C이슈×구간/D수급/E랜덤대조군/F모멘텀추격)이 "
+                "동일 시장에서 경쟁 중. 목적은 승자 선발이 아니라 '어떤 상황에서 어떤 진입이 통하는가'를 찾아 통합 패턴을 합성하는 것.\n\n"
+                + prev_txt +
+                f"[오늘({today}) 실측 팩트]\n{facts}\n\n"
+                "위 팩트만 근거로(추측 금지, 표본 적으면 적다고 명시) 다음을 작성:\n"
+                "1) 오늘의 핵심 관찰 2~3문장 (직전 회차와 달라진 점이 있으면 반드시 비교)\n"
+                "2) 승률이 오르는 조건에 대한 가설 1개 (검증에 필요한 표본 수 명시)\n"
+                "3) 다음 관찰 포인트 1문장\n"
+                "총 6문장 이내, 담백하게."
+            )
+            resp = _call_gemini(prompt, use_search=False, temperature=0.4,
+                                timeout_sec=40, max_output_tokens=800, thinking=False)
+            commentary = (resp.text if hasattr(resp, "text") else str(resp)).strip()
+        except Exception as e:
+            commentary = f"(코멘트 생성 실패: {e})"
+    conn = _conn(); cur = conn.cursor()
+    _insights_table(cur)
+    cur.execute("INSERT OR REPLACE INTO shadow_insights (created_at, insight_date, facts, commentary) VALUES (?, ?, ?, ?)",
+                (datetime.now().strftime("%Y-%m-%d %H:%M:%S"), today, facts, commentary))
+    conn.commit(); conn.close()
+    return {"date": today, "facts": facts, "commentary": commentary,
+            "findings": a["findings"], "trend": a["trend"]}
+
+
+def latest_curator_insight() -> dict:
+    """가장 최근 큐레이터 인사이트 (성과 탭·브리핑 노출용)."""
+    try:
+        conn = _conn(); cur = conn.cursor()
+        _insights_table(cur)
+        cur.execute("SELECT insight_date, commentary FROM shadow_insights ORDER BY insight_date DESC LIMIT 1")
+        r = cur.fetchone(); conn.close()
+        return {"date": r["insight_date"], "commentary": r["commentary"]} if r else {}
+    except Exception:
+        return {}
+
+
 def format_league_briefing() -> str:
     """리그 진행 브리핑 (텔레그램 자동 발송용) — 순위·1라운드 진행률·매트릭스 상위 셀.
     터미널/Claude 세션과 무관하게 백엔드 스케줄러(월·목 16:40)가 발송한다."""
@@ -297,6 +422,9 @@ def format_league_briefing() -> str:
                       if str(p.get("owner", "")).startswith("SHADOW"))
     lines += ["", f"📈 1라운드 진행률: {shadow_done}/180 (전략당 실현 30건 목표)",
               "→ 달성 시 상황별 통합 패턴 1차 합성 + 2라운드(보유기간 리그) 시작"]
+    ins = latest_curator_insight()
+    if ins.get("commentary"):
+        lines += ["", f"🧠 큐레이터 코멘트 ({ins.get('date')}):", ins["commentary"]]
     return "\n".join(lines)
 
 
@@ -422,6 +550,10 @@ def shadow_league_status() -> dict:
         conn.close()
     try:
         out["synthesis"] = shadow_synthesis()   # 전략×상황 매트릭스 (표본 5건+ 셀만)
+    except Exception:
+        pass
+    try:
+        out["curator"] = latest_curator_insight()   # 큐레이터 최신 코멘트
     except Exception:
         pass
     return out

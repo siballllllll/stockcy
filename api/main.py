@@ -371,6 +371,37 @@ def start_league_brief_scheduler():
     print("[league brief] 섀도우 리그 브리핑 스케줄러 시작 (월·목 16:40)")
 
 
+# ── 10-b2. 리그 큐레이터 스케줄러 (평일 16:20, 브리핑 20분 전) ─────────────────
+# 섀도우 총괄 어시스턴트: 매일 장 마감 후 결정론 분석 + Gemini 코멘트(1콜·무검색·~2원).
+# 이전 회차 코멘트를 이어받아 누적 학습 — '어떤 때에 승률이 오르는가'를 계속 추적.
+_LAST_CURATOR_DATE = ""
+
+def _curator_loop():
+    global _LAST_CURATOR_DATE
+    import datetime as _dt
+    while True:
+        try:
+            now = _dt.datetime.now()
+            today = now.strftime("%Y-%m-%d")
+            if (now.weekday() < 5
+                and now.hour == 16 and now.minute >= 20
+                and _LAST_CURATOR_DATE != today):
+                from shadow_league import curator_daily_report
+                r = curator_daily_report()
+                _LAST_CURATOR_DATE = today
+                print(f"[curator] 일일 리포트 저장: {today} ({len(r.get('commentary',''))}자)")
+        except Exception as e:
+            print(f"[curator] 오류: {e}")
+        _time.sleep(120)
+
+
+@app.on_event("startup")
+def start_curator_scheduler():
+    t = _threading.Thread(target=_curator_loop, daemon=True)
+    t.start()
+    print("[curator] 리그 큐레이터 스케줄러 시작 (평일 16:20)")
+
+
 # ── 10-b. 시나리오 적중률 자동 추적 스케줄러 ──────────────────────────────────
 _LAST_SCENARIO_TRACK_DATE = ""
 

@@ -252,6 +252,13 @@ function ShadowLeaguePanel({ selected, onSelect }: { selected: string | null; on
           </tbody>
         </table>
       </div>
+      {/* 리그 큐레이터 — 섀도우 총괄 어시스턴트의 일일 코멘트 (매일 16:20 자동 생성) */}
+      {data.curator?.commentary && (
+        <div style={{ marginTop: "12px", padding: "10px 12px", background: "rgba(52,211,153,0.06)", border: "1px solid rgba(52,211,153,0.22)", borderRadius: "8px" }}>
+          <div style={{ fontWeight: 800, fontSize: "0.85rem", marginBottom: "5px" }}>🧠 리그 큐레이터 <span style={{ fontSize: "0.68rem", fontWeight: 600, color: "var(--color-muted)" }}>— 총괄 어시스턴트 일일 분석 ({data.curator.date})</span></div>
+          <div style={{ fontSize: "0.8rem", color: "var(--color-text)", lineHeight: 1.6, whiteSpace: "pre-wrap" }}>{data.curator.commentary}</div>
+        </div>
+      )}
       {/* 전략×상황 매트릭스 — 리그의 최종 목적(상황별 최적 기법 합성). 표본 5건+ 셀부터 자동 표시 */}
       {(data.synthesis?.cells?.length ?? 0) > 0 && (
         <div style={{ marginTop: "12px", padding: "10px 12px", background: "rgba(99,102,241,0.06)", border: "1px solid rgba(99,102,241,0.2)", borderRadius: "8px" }}>
