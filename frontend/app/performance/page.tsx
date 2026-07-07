@@ -1,10 +1,14 @@
 "use client";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import dynamic from "next/dynamic";
 import useSWR from "swr";
 import { MarkdownLite } from "@/components/ui/MarkdownLite";
 import { ScenarioTrackingPanel } from "@/app/scenarios/page";
 import { useAuth } from "@/lib/auth-context";
+
+// AI 에이전트 대시보드(구 상단 탭)를 리그 우측 패널로 임베드 — 무거워서 지연 로드
+const AgentDashboard = dynamic(() => import("@/app/agent/page"), { ssr: false });
 
 const B = "/backend";
 const fetcher = (url: string) => fetch(url).then((r) => (r.ok ? r.json() : null));
@@ -186,8 +190,9 @@ function MarketLogArchive() {
   );
 }
 
-// ── 섀도우 리그 (v3.118.0) — 메인 vs 대조군 전략 실측 비교 (관리자 전용) ─────────
-function ShadowLeaguePanel() {
+// ── 섀도우 리그 — 메인 vs 대조군 전략 실측 비교 (관리자 전용) ─────────
+// 행 클릭 → 우측 상세 패널 토글 (메인=에이전트 대시보드 임베드, 섀도우=보유·거래 상세)
+function ShadowLeaguePanel({ selected, onSelect }: { selected: string | null; onSelect: (owner: string) => void }) {
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
   const { data } = useSWR(isAdmin ? `${B}/api/ai/shadow-league` : null, fetcher, { refreshInterval: 0 });
@@ -198,7 +203,7 @@ function ShadowLeaguePanel() {
         🥊 섀도우 리그 <span style={{ fontSize: "0.72rem", fontWeight: 600, color: "var(--color-muted)" }}>— 같은 시장에서 다른 전략으로 경쟁 중 (대조군 실측)</span>
       </div>
       <div style={{ fontSize: "0.74rem", color: "var(--color-muted)", marginBottom: "10px" }}>
-        섀도우는 Gemini 없이 규칙·ML만으로 매매하는 가상 트레이더입니다. 전략당 실현 30건 이상 쌓이면 승자 규칙의 메인 반영을 제안합니다.
+        전략을 클릭하면 오른쪽에 상세(보유·거래)가 열립니다. 목적은 승자 선발이 아니라 전략×상황 매트릭스로 우리만의 통합 패턴을 합성하는 것.
       </div>
       <div style={{ overflowX: "auto" }}>
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.82rem" }}>
@@ -214,8 +219,12 @@ function ShadowLeaguePanel() {
           </thead>
           <tbody>
             {data.players.map((p: any) => (
-              <tr key={p.owner} style={{ borderTop: "1px solid var(--color-border)" }}>
-                <td style={{ padding: "6px 8px", fontWeight: 700 }}>{p.label}</td>
+              <tr key={p.owner} onClick={() => onSelect(p.owner)}
+                style={{ borderTop: "1px solid var(--color-border)", cursor: "pointer",
+                  background: selected === p.owner ? "rgba(99,102,241,0.12)" : "transparent" }}>
+                <td style={{ padding: "6px 8px", fontWeight: 700 }}>
+                  {selected === p.owner ? "▶ " : ""}{p.label}
+                </td>
                 <td style={{ padding: "6px 8px", textAlign: "right" }}>{p.realized_trades}건</td>
                 <td style={{ padding: "6px 8px", textAlign: "right", fontWeight: 700,
                   color: p.win_rate == null ? "var(--color-muted)" : p.win_rate >= 50 ? "#34d399" : "var(--color-danger)" }}>
@@ -359,18 +368,105 @@ function MlStatusPanel() {
   );
 }
 
-export default function PerformancePage() {
+// ── 섀도우 개별 상세 — 보유 종목 + 최근 거래 (+진입 컨텍스트) ────────────────────
+function ShadowDetail({ owner }: { owner: string }) {
+  const { data } = useSWR(`${B}/api/ai/shadow-league/detail?owner=${owner}`, fetcher, { refreshInterval: 60000 });
+  if (!data) return <div style={{ fontSize: "0.8rem", color: "var(--color-muted)", padding: "12px" }}>불러오는 중…</div>;
+  const ctxChip = (ctx: any) => {
+    if (!ctx) return null;
+    const bits: string[] = [];
+    if (ctx.regime && ctx.regime !== "?") bits.push(`레짐:${ctx.regime}`);
+    if (ctx.issue) bits.push("이슈");
+    if (ctx.supply) bits.push("수급");
+    if (ctx.bb != null) bits.push(`bb ${ctx.bb}`);
+    if (ctx.m5 != null) bits.push(`5일 ${ctx.m5 > 0 ? "+" : ""}${ctx.m5}%`);
+    if (ctx.ml7 != null) bits.push(`ML ${ctx.ml7}%`);
+    if (!bits.length) return null;
+    return <span style={{ fontSize: "0.66rem", color: "var(--color-muted)" }}>{bits.join(" · ")}</span>;
+  };
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: "16px", maxWidth: "1100px" }}>
-      <h1 style={{ fontSize: "1.5rem", fontWeight: 800, margin: 0 }}>📊 성과 · 기록</h1>
-      <div style={{ fontSize: "0.82rem", color: "var(--color-muted)", marginTop: "-8px" }}>이 시스템이 실제로 맞고 있는지, 그때 시장을 어떻게 봤는지, 내 자산이 어떻게 변했는지를 한 곳에서.</div>
-      <EngineScoreboard />
-      <MlStatusPanel />
-      <ShadowLeaguePanel />
-      {/* 시나리오 적중률·추적 종목 상세 (시나리오 페이지에서 이동) */}
-      <ScenarioTrackingPanel />
-      <EquityCurve />
-      <MarketLogArchive />
+    <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
+      <div>
+        <div style={{ fontWeight: 800, fontSize: "0.88rem", marginBottom: "6px" }}>📦 보유 중 ({data.holdings?.length ?? 0}종목)</div>
+        {!data.holdings?.length && <div style={{ fontSize: "0.78rem", color: "var(--color-muted)" }}>보유 없음</div>}
+        {(data.holdings ?? []).map((h: any) => (
+          <div key={h.ticker} style={{ padding: "7px 10px", borderTop: "1px solid var(--color-border)", fontSize: "0.8rem" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", gap: "8px" }}>
+              <b>{h.name} <span style={{ color: "var(--color-muted)", fontWeight: 500 }}>({h.ticker})</span></b>
+              <span>{Number(h.quantity).toLocaleString()}주 × {Number(h.buy_price).toLocaleString()}</span>
+            </div>
+            <div style={{ display: "flex", justifyContent: "space-between", gap: "8px", marginTop: "2px" }}>
+              {ctxChip(h.ctx) ?? <span />}
+              <span style={{ fontSize: "0.66rem", color: "var(--color-muted)" }}>{String(h.buy_date || "").slice(0, 16)}</span>
+            </div>
+          </div>
+        ))}
+      </div>
+      <div>
+        <div style={{ fontWeight: 800, fontSize: "0.88rem", marginBottom: "6px" }}>📜 최근 거래 ({data.trades?.length ?? 0}건)</div>
+        {!data.trades?.length && <div style={{ fontSize: "0.78rem", color: "var(--color-muted)" }}>아직 실현 거래 없음 — 청산(-5%/+8%/10일)이 발생하면 여기 쌓입니다.</div>}
+        {(data.trades ?? []).map((t: any, i: number) => (
+          <div key={i} style={{ padding: "7px 10px", borderTop: "1px solid var(--color-border)", fontSize: "0.8rem" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", gap: "8px" }}>
+              <b>{t.name}</b>
+              <b style={{ color: (t.profit_pct ?? 0) >= 0 ? "#34d399" : "var(--color-danger)" }}>
+                {(t.profit_pct ?? 0) >= 0 ? "+" : ""}{Number(t.profit_pct ?? 0).toFixed(2)}%
+              </b>
+            </div>
+            <div style={{ fontSize: "0.7rem", color: "var(--color-subtle)", marginTop: "2px" }}>{t.learning_point}</div>
+            <div style={{ display: "flex", justifyContent: "space-between", gap: "8px", marginTop: "2px" }}>
+              {ctxChip(t.ctx) ?? <span />}
+              <span style={{ fontSize: "0.66rem", color: "var(--color-muted)" }}>{String(t.sell_date || "").slice(0, 16)}</span>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+const OWNER_LABEL: Record<string, string> = {
+  AI_AGENT: "🤖 메인 에이전트 (Gemini 하이브리드)",
+  SHADOW_A: "🥷 섀도우 A — 순수 눌림목",
+  SHADOW_B: "🥷 섀도우 B — ML 순종",
+  SHADOW_C: "🥷 섀도우 C — 이슈×구간",
+  SHADOW_D: "🥷 섀도우 D — 수급 추종",
+  SHADOW_E: "🎲 섀도우 E — 랜덤 대조군",
+  SHADOW_F: "🔥 섀도우 F — 모멘텀 추격",
+};
+
+export default function PerformancePage() {
+  // 리그 행 클릭 → 우측 상세 패널 토글 (같은 행 재클릭 시 닫힘)
+  const [selOwner, setSelOwner] = useState<string | null>(null);
+  const toggleOwner = (o: string) => setSelOwner((cur) => (cur === o ? null : o));
+  return (
+    <div style={{ display: "flex", gap: "16px", alignItems: "flex-start", flexWrap: "wrap" }}>
+      <div style={{ display: "flex", flexDirection: "column", gap: "16px", maxWidth: "1100px", flex: "1 1 620px", minWidth: 0 }}>
+        <h1 style={{ fontSize: "1.5rem", fontWeight: 800, margin: 0 }}>📊 성과 · 기록</h1>
+        <div style={{ fontSize: "0.82rem", color: "var(--color-muted)", marginTop: "-8px" }}>이 시스템이 실제로 맞고 있는지, 그때 시장을 어떻게 봤는지, 내 자산이 어떻게 변했는지를 한 곳에서.</div>
+        <EngineScoreboard />
+        <MlStatusPanel />
+        <ShadowLeaguePanel selected={selOwner} onSelect={toggleOwner} />
+        {/* 시나리오 적중률·추적 종목 상세 (시나리오 페이지에서 이동) */}
+        <ScenarioTrackingPanel />
+        <EquityCurve />
+        <MarketLogArchive />
+      </div>
+      {selOwner && (
+        <div style={{ flex: "1 1 480px", minWidth: "360px", maxWidth: "820px", position: "sticky", top: "12px", maxHeight: "calc(100vh - 24px)", overflowY: "auto" }}>
+          <div className="stockcy-card" style={{ padding: "0.9rem 1.1rem" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "8px", marginBottom: "10px" }}>
+              <div style={{ fontWeight: 800, fontSize: "0.95rem" }}>{OWNER_LABEL[selOwner] ?? selOwner}</div>
+              <button onClick={() => setSelOwner(null)}
+                style={{ border: "1px solid var(--color-border)", background: "transparent", color: "var(--color-muted)",
+                  borderRadius: "7px", padding: "3px 10px", fontSize: "0.74rem", cursor: "pointer" }}>
+                ✕ 닫기
+              </button>
+            </div>
+            {selOwner === "AI_AGENT" ? <AgentDashboard /> : <ShadowDetail owner={selOwner} />}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

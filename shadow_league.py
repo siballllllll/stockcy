@@ -320,6 +320,36 @@ def shadow_synthesis(min_n: int = 5) -> dict:
             "note": "전략×상황별 실측 승률 — 상황별 최적 기법을 합성해 통합 패턴을 만들기 위한 매트릭스"}
 
 
+def shadow_detail(owner: str, limit: int = 30) -> dict:
+    """개별 섀도우 상세 — 보유 종목 + 최근 거래 (/performance 리그 우측 패널용).
+    buy_reason의 진입 컨텍스트 JSON은 서버에서 파싱해 ctx로 내려준다."""
+    import json as _json
+    if owner not in SHADOWS:
+        return {"error": "unknown owner", "holdings": [], "trades": []}
+    conn = _conn(); cur = conn.cursor()
+    try:
+        cur.execute(
+            """SELECT ticker, name, quantity, buy_price, updated_time AS buy_date, buy_reason
+               FROM portfolio WHERE UPPER(owner)=? ORDER BY updated_time DESC""", (owner.upper(),))
+        holdings = [dict(r) for r in cur.fetchall()]
+        cur.execute(
+            """SELECT sell_date, ticker, name, quantity, buy_price, sell_price, profit_pct,
+                      result, learning_point, buy_reason
+               FROM trade_history WHERE owner=? ORDER BY sell_date DESC LIMIT ?""",
+            (owner, int(limit)))
+        trades = [dict(r) for r in cur.fetchall()]
+    finally:
+        conn.close()
+    for row in holdings + trades:
+        br = str(row.pop("buy_reason", "") or "")
+        if br.startswith("{"):
+            try:
+                row["ctx"] = _json.loads(br)
+            except Exception:
+                pass
+    return {"owner": owner, "holdings": holdings, "trades": trades}
+
+
 def shadow_league_status() -> dict:
     """리그 성적표 — 메인(AI_AGENT) vs 섀도우들의 실현 성적 비교 (/performance용)."""
     conn = _conn(); cur = conn.cursor()

@@ -1445,6 +1445,16 @@ async def get_shadow_league(_admin: dict = Depends(require_admin)):
         return {"error": str(e), "players": []}
 
 
+@router.get("/shadow-league/detail")
+async def get_shadow_detail(owner: str, _admin: dict = Depends(require_admin)):
+    """섀도우 개별 상세(보유+최근 거래) — 리그 성적표 우측 패널용."""
+    try:
+        from shadow_league import shadow_detail
+        return await asyncio.to_thread(shadow_detail, owner)
+    except Exception as e:
+        return {"error": str(e), "holdings": [], "trades": []}
+
+
 @router.post("/ml-train")
 async def post_ml_train(_admin: dict = Depends(require_admin)):
     """자체 ML 모델 즉시 학습(관리자 전용, scikit-learn 로컬·무과금).
