@@ -457,20 +457,24 @@ function ShadowDetail({ owner }: { owner: string }) {
                   ? <b style={{ fontSize: "1.05rem", color: c }}>{up ? "+" : ""}{Number(h.eval_pct).toFixed(2)}%</b>
                   : <span style={{ fontSize: "0.7rem", color: "var(--color-muted)" }}>시세 조회 불가</span>}
               </div>
-              {/* 금액 한 줄 — 산 금액 → 지금 금액 (차액) */}
-              <div style={{ display: "flex", justifyContent: "space-between", gap: "8px", marginTop: "5px",
-                background: "rgba(255,255,255,0.04)", borderRadius: "6px", padding: "6px 10px", fontSize: "0.85rem" }}>
-                <span>매수 <b>{money(buyAmt, h.ticker)}</b></span>
-                {evalAmt != null ? (
-                  <span>평가 <b style={{ color: c }}>{money(evalAmt, h.ticker)}</b>
-                    <span style={{ color: c, fontSize: "0.72rem" }}> ({diff! >= 0 ? "+" : ""}{money(Math.round(diff!), h.ticker)})</span>
-                  </span>
-                ) : <span style={{ color: "var(--color-muted)" }}>평가 —</span>}
+              {/* 금액 박스 — 단가/수량/총액이 줄 단위로 정렬돼 한눈에 */}
+              <div style={{ display: "flex", flexDirection: "column", gap: "3px", marginTop: "5px",
+                background: "rgba(255,255,255,0.04)", borderRadius: "6px", padding: "7px 10px", fontSize: "0.84rem" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", gap: "8px" }}>
+                  <span>매수 <b>{money(h.buy_price, h.ticker)}</b><span style={{ color: "var(--color-muted)", fontSize: "0.72rem" }}>/주 × {Number(h.quantity).toLocaleString()}주</span></span>
+                  <b>{money(buyAmt, h.ticker)}</b>
+                </div>
+                {h.current_price != null && evalAmt != null ? (
+                  <div style={{ display: "flex", justifyContent: "space-between", gap: "8px" }}>
+                    <span>현재 <b style={{ color: c }}>{money(h.current_price, h.ticker)}</b><span style={{ color: "var(--color-muted)", fontSize: "0.72rem" }}>/주</span></span>
+                    <span>평가 <b style={{ color: c }}>{money(evalAmt, h.ticker)}</b>
+                      <span style={{ color: c, fontSize: "0.72rem" }}> ({diff! >= 0 ? "+" : ""}{money(Math.round(diff!), h.ticker)})</span>
+                    </span>
+                  </div>
+                ) : <div style={{ color: "var(--color-muted)", fontSize: "0.74rem" }}>현재가 조회 불가 (장외/네트워크)</div>}
               </div>
               <div style={{ fontSize: "0.72rem", color: "var(--color-muted)", marginTop: "3px" }}>
-                {Number(h.quantity).toLocaleString()}주 × {money(h.buy_price, h.ticker)}
-                {h.current_price != null && <> → 현재가 {money(h.current_price, h.ticker)}</>}
-                {" · "}매수 {dt(h.buy_date)} · 보유 {heldFor(h.buy_date)}
+                매수 {dt(h.buy_date)} · 보유 {heldFor(h.buy_date)}
               </div>
               {reasonLine("매수 근거", h.ctx?.note, "var(--color-danger)")}
               {ctxChips(h.ctx)}
@@ -495,15 +499,20 @@ function ShadowDetail({ owner }: { owner: string }) {
                   {t.profit != null && <span style={{ fontWeight: 600, fontSize: "0.72rem" }}> ({(t.profit >= 0 ? "+" : "") + money(Math.round(t.profit), t.ticker)})</span>}
                 </b>
               </div>
-              {/* 금액 한 줄 — 산 금액 → 판 금액 */}
-              <div style={{ display: "flex", justifyContent: "space-between", gap: "8px", marginTop: "5px",
-                background: "rgba(255,255,255,0.04)", borderRadius: "6px", padding: "6px 10px", fontSize: "0.85rem" }}>
-                <span>매수 <b>{money(buyAmt, t.ticker)}</b></span>
-                <span>매도 <b style={{ color: c }}>{money(sellAmt, t.ticker)}</b></span>
+              {/* 금액 박스 — 단가/수량/총액 줄 정렬 (매수 → 매도) */}
+              <div style={{ display: "flex", flexDirection: "column", gap: "3px", marginTop: "5px",
+                background: "rgba(255,255,255,0.04)", borderRadius: "6px", padding: "7px 10px", fontSize: "0.84rem" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", gap: "8px" }}>
+                  <span>매수 <b>{money(t.buy_price, t.ticker)}</b><span style={{ color: "var(--color-muted)", fontSize: "0.72rem" }}>/주 × {Number(t.quantity).toLocaleString()}주</span></span>
+                  <b>{money(buyAmt, t.ticker)}</b>
+                </div>
+                <div style={{ display: "flex", justifyContent: "space-between", gap: "8px" }}>
+                  <span>매도 <b style={{ color: c }}>{money(t.sell_price, t.ticker)}</b><span style={{ color: "var(--color-muted)", fontSize: "0.72rem" }}>/주</span></span>
+                  <b style={{ color: c }}>{money(sellAmt, t.ticker)}</b>
+                </div>
               </div>
               <div style={{ fontSize: "0.72rem", color: "var(--color-muted)", marginTop: "3px" }}>
-                {Number(t.quantity).toLocaleString()}주 × {money(t.buy_price, t.ticker)} → {money(t.sell_price, t.ticker)}
-                {" · "}{dt(t.buy_date)} → {dt(t.sell_date)} (보유 {heldFor(t.buy_date, t.sell_date)})
+                {dt(t.buy_date)} → {dt(t.sell_date)} (보유 {heldFor(t.buy_date, t.sell_date)})
               </div>
               {reasonLine("매수 근거", t.ctx?.note, "var(--color-danger)")}
               {reasonLine("매도 사유", t.learning_point, "var(--color-primary)")}
