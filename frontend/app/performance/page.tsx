@@ -226,11 +226,11 @@ function ShadowLeaguePanel({ selected, onSelect }: { selected: string | null; on
                 <td style={{ padding: "6px 8px", fontWeight: 700 }}>{p.label}</td>
                 <td style={{ padding: "6px 8px", textAlign: "right" }}>{p.realized_trades}건</td>
                 <td style={{ padding: "6px 8px", textAlign: "right", fontWeight: 700,
-                  color: p.win_rate == null ? "var(--color-muted)" : p.win_rate >= 50 ? "#34d399" : "var(--color-danger)" }}>
+                  color: p.win_rate == null ? "var(--color-muted)" : p.win_rate >= 50 ? "var(--color-danger)" : "var(--color-primary)" }}>
                   {p.win_rate == null ? "—" : `${p.win_rate}%`}
                 </td>
                 <td style={{ padding: "6px 8px", textAlign: "right",
-                  color: (p.avg_pct ?? 0) >= 0 ? "#34d399" : "var(--color-danger)" }}>
+                  color: (p.avg_pct ?? 0) >= 0 ? "var(--color-danger)" : "var(--color-primary)" }}>
                   {p.avg_pct == null ? "—" : `${p.avg_pct > 0 ? "+" : ""}${p.avg_pct}%`}
                 </td>
                 <td style={{ padding: "6px 8px", textAlign: "right" }}>{p.open_positions}종목</td>
@@ -260,7 +260,7 @@ function ShadowLeaguePanel({ selected, onSelect }: { selected: string | null; on
             {data.synthesis.cells.slice(0, 12).map((c: any, i: number) => (
               <div key={i} style={{ display: "flex", justifyContent: "space-between", gap: "8px", fontSize: "0.78rem" }}>
                 <span><b>{String(c.strategy).replace("SHADOW_", "섀도우 ")}</b> × {c.situation} <span style={{ color: "var(--color-muted)" }}>({c.n}건)</span></span>
-                <span style={{ fontWeight: 700, color: c.win_rate >= 50 ? "#34d399" : "var(--color-danger)" }}>
+                <span style={{ fontWeight: 700, color: c.win_rate >= 50 ? "var(--color-danger)" : "var(--color-primary)" }}>
                   승률 {c.win_rate}% · 평균 {c.avg_pct > 0 ? "+" : ""}{c.avg_pct}%
                 </span>
               </div>
@@ -453,7 +453,7 @@ function ShadowDetail({ owner }: { owner: string }) {
               매수 <b>{dt(h.buy_date)}</b> · {Number(h.quantity).toLocaleString()}주 × {money(h.buy_price, h.ticker)}
               {" = "}<b>{money(h.quantity * h.buy_price, h.ticker)}</b>
             </div>
-            {reasonLine("매수 근거", h.ctx?.note, "#34d399")}
+            {reasonLine("매수 근거", h.ctx?.note, "var(--color-danger)")}
             {ctxChips(h.ctx)}
           </div>
         ))}
@@ -465,7 +465,7 @@ function ShadowDetail({ owner }: { owner: string }) {
           <div key={i} style={{ padding: "9px 10px", borderTop: "1px solid var(--color-border)", fontSize: "0.8rem" }}>
             <div style={{ display: "flex", justifyContent: "space-between", gap: "8px" }}>
               <b>{t.name} <span style={{ color: "var(--color-muted)", fontWeight: 500 }}>({t.ticker})</span></b>
-              <b style={{ color: (t.profit_pct ?? 0) >= 0 ? "#34d399" : "var(--color-danger)" }}>
+              <b style={{ color: (t.profit_pct ?? 0) >= 0 ? "var(--color-danger)" : "var(--color-primary)" }}>
                 {(t.profit_pct ?? 0) >= 0 ? "+" : ""}{Number(t.profit_pct ?? 0).toFixed(2)}%
                 {t.profit != null && <span style={{ fontWeight: 600, fontSize: "0.7rem" }}> ({(t.profit >= 0 ? "+" : "") + money(Math.round(t.profit), t.ticker)})</span>}
               </b>
@@ -477,8 +477,8 @@ function ShadowDetail({ owner }: { owner: string }) {
             <div style={{ fontSize: "0.76rem", color: "var(--color-subtle)", marginTop: "1px" }}>
               {Number(t.quantity).toLocaleString()}주 × {money(t.buy_price, t.ticker)} → {money(t.sell_price, t.ticker)}
             </div>
-            {reasonLine("매수 근거", t.ctx?.note, "#34d399")}
-            {reasonLine("매도 사유", t.learning_point, "#f87171")}
+            {reasonLine("매수 근거", t.ctx?.note, "var(--color-danger)")}
+            {reasonLine("매도 사유", t.learning_point, "var(--color-primary)")}
             {ctxChips(t.ctx)}
           </div>
         ))}
