@@ -339,6 +339,38 @@ def start_daily_alert_scheduler():
     print("[daily alert] 일일 알림 스케줄러 시작 (평일 08:30)")
 
 
+# ── 10-a. 섀도우 리그 진행 브리핑 스케줄러 (텔레그램, 월·목 16:40) ─────────────
+# 사용자 요청(2026-07-07): 터미널/Claude 세션이 닫혀도 리그 진행상황을 받아보고 싶음
+# → 백엔드가 장 마감 후 주 2회 텔레그램으로 직접 발송 (무료, 세션 무관).
+_LAST_LEAGUE_BRIEF_DATE = ""
+
+def _league_brief_loop():
+    global _LAST_LEAGUE_BRIEF_DATE
+    import datetime as _dt
+    while True:
+        try:
+            now = _dt.datetime.now()
+            today = now.strftime("%Y-%m-%d")
+            if (now.weekday() in (0, 3)          # 월·목
+                and now.hour == 16 and now.minute >= 40
+                and _LAST_LEAGUE_BRIEF_DATE != today):
+                from shadow_league import format_league_briefing
+                from telegram_bot import send_message
+                if send_message(format_league_briefing()):
+                    _LAST_LEAGUE_BRIEF_DATE = today
+                    print(f"[league brief] 발송 완료: {today}")
+        except Exception as e:
+            print(f"[league brief] 오류: {e}")
+        _time.sleep(120)
+
+
+@app.on_event("startup")
+def start_league_brief_scheduler():
+    t = _threading.Thread(target=_league_brief_loop, daemon=True)
+    t.start()
+    print("[league brief] 섀도우 리그 브리핑 스케줄러 시작 (월·목 16:40)")
+
+
 # ── 10-b. 시나리오 적중률 자동 추적 스케줄러 ──────────────────────────────────
 _LAST_SCENARIO_TRACK_DATE = ""
 

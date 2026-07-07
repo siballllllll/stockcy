@@ -274,6 +274,31 @@ def run_shadow_cycle(candidates: list, kr_open: bool, us_open: bool, force: bool
     return out
 
 
+def format_league_briefing() -> str:
+    """리그 진행 브리핑 (텔레그램 자동 발송용) — 순위·1라운드 진행률·매트릭스 상위 셀.
+    터미널/Claude 세션과 무관하게 백엔드 스케줄러(월·목 16:40)가 발송한다."""
+    s = shadow_league_status()
+    players = s.get("players", [])
+    ranked = sorted(players, key=lambda p: (p.get("win_rate") if p.get("win_rate") is not None else -1), reverse=True)
+    lines = [f"🥊 섀도우 리그 브리핑 ({s.get('as_of', '')})", ""]
+    for i, p in enumerate(ranked, 1):
+        wr = p.get("win_rate"); avg = p.get("avg_pct"); n = p.get("realized_trades") or 0
+        lines.append(f"{i}. {p.get('label')}")
+        lines.append(f"   실현 {n}건 · 승률 {wr if wr is not None else '—'}% · 평균 {('%+.2f%%' % avg) if avg is not None else '—'} · 보유 {p.get('open_positions')}종목")
+    cells = (s.get("synthesis") or {}).get("cells") or []
+    if cells:
+        lines += ["", "🧩 전략×상황 매트릭스 상위:"]
+        for c in cells[:5]:
+            lines.append(f"· {str(c['strategy']).replace('SHADOW_', '섀도우 ')} × {c['situation']}: 승률 {c['win_rate']}% (평균 {c['avg_pct']:+.2f}%, {c['n']}건)")
+    else:
+        lines += ["", "🧩 매트릭스: 아직 표본 5건+ 셀 없음 (수집 중)"]
+    shadow_done = sum(min(30, p.get("realized_trades") or 0) for p in players
+                      if str(p.get("owner", "")).startswith("SHADOW"))
+    lines += ["", f"📈 1라운드 진행률: {shadow_done}/180 (전략당 실현 30건 목표)",
+              "→ 달성 시 상황별 통합 패턴 1차 합성 + 2라운드(보유기간 리그) 시작"]
+    return "\n".join(lines)
+
+
 def shadow_synthesis(min_n: int = 5) -> dict:
     """전략×상황 매트릭스 — 리그의 최종 목적. '누가 이기냐'가 아니라 각 기법이
     어떤 상황(레짐·이슈·수급·변동 구간)에서 유리한지를 실측해, 상황별 최적 기법을
