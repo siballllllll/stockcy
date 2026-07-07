@@ -1583,6 +1583,9 @@ def analyze_autonomous_trading(ticker: str, name: str, current_price: float, mar
                 "mom_5":      _mlx.get("mom_5"),     # 에이전트 급등추격 하드필터가 사용
                 "bb_pctb":    _mlx.get("bb_pctb"),
                 "px_daily":   daily.get("current_price"),   # 일봉 기준가 — 실시간가 순단 검증용
+                # 20일선 이격도(%) — 섀도우 C '지지 구간 재접근' 판정용 (v3.119.0)
+                "ma20_dist":  (round((float(daily["current_price"]) / float(daily["ma20"]) - 1) * 100, 2)
+                               if daily.get("ma20") and daily.get("current_price") else None),
             }
             tech_info = (
                 f"\n[기술적 지표] RSI(14)={daily.get('rsi','N/A')}, "

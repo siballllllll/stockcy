@@ -16,7 +16,11 @@
   기계적으로 매수. 감·해설 없이 데이터 규칙만.
 - SHADOW_B "ML 순종": 자체 ML 7일 확률 55%+ 종목만, 확률로 사이징. ML을 그대로
   믿으면 얼마나 버는지 측정(사후검증의 실전판).
+- SHADOW_C "이슈×구간" (v3.119.0): 재료(최근 시나리오 등장 종목)가 있으면서 차트상
+  지지 구간(볼린저 하단권 또는 20일선 ±3% 재접근)에 온 종목만 매수 — 사용자 실제
+  매매 스타일(재료 보고 눌림 대기 진입)의 결정론 재현.
 청산(공통, 결정론): 실질 -5% 손절 / +8% 익절 / 10일 타임스탑(d7 호라이즌 정합).
+⚠️ 청산 규칙을 통일해야 리그가 '진입 방식'만의 우열을 측정한다 — 전략별 청산 변경 금지.
 """
 import logging
 from datetime import datetime
@@ -30,7 +34,7 @@ EXIT_STOP = -5.0              # 실질 손절 %
 EXIT_TAKE = 8.0               # 실질 익절 %
 EXIT_DAYS = 10                # 타임스탑 (달력일 ≈ 7거래일, d7 호라이즌 정합)
 
-SHADOWS = ("SHADOW_A", "SHADOW_B")
+SHADOWS = ("SHADOW_A", "SHADOW_B", "SHADOW_C")
 
 
 def _conn():
@@ -118,10 +122,10 @@ def _price_of(tk: str, market: str):
         return 0.0
 
 
-def _wants_buy(owner: str, ind: dict) -> tuple:
-    """전략별 매수 판정 → (매수여부, 사이징 배수, 근거 한 줄)."""
+def _wants_buy(owner: str, ind: dict, tk: str = "", ctx: dict = None) -> tuple:
+    """전략별 매수 판정 → (매수여부, 사이징 배수, 근거 한 줄). ctx: 사이클 공용 컨텍스트."""
     bb = ind.get("bb_pctb"); m5 = ind.get("mom_5"); vr = ind.get("vol_ratio")
-    rsi = ind.get("rsi"); ml7 = ind.get("ml_d7")
+    rsi = ind.get("rsi"); ml7 = ind.get("ml_d7"); ma20d = ind.get("ma20_dist")
     if owner == "SHADOW_A":
         # 순수 눌림목 — 실측 승률 62~71% 구간의 기계적 재현
         ok = (bb is not None and bb < 0.25 and m5 is not None and m5 <= -3
@@ -132,6 +136,14 @@ def _wants_buy(owner: str, ind: dict) -> tuple:
         ok = ml7 is not None and ml7 >= 55.0
         mult = 1.0 + min(0.5, max(0.0, ((ml7 or 55) - 55) / 20.0)) if ok else 1.0
         return ok, mult, f"ML d7 {ml7}%"
+    if owner == "SHADOW_C":
+        # 이슈×구간 — 재료(최근 시나리오 등장)가 있는 종목이 지지 구간에 왔을 때만
+        linked = int((ctx or {}).get("scenario_map", {}).get(tk, 0)) > 0
+        zone = ((bb is not None and bb <= 0.35)
+                or (ma20d is not None and -3.0 <= ma20d <= 1.0))
+        not_hot = m5 is None or m5 < 5.0   # 급등 중 재료주 추격 배제
+        ok = linked and zone and not_hot
+        return ok, 1.0, f"이슈연관×지지구간(bb {bb}·MA20 {ma20d}%·5일 {m5}%)"
     return False, 1.0, ""
 
 
@@ -140,6 +152,13 @@ def run_shadow_cycle(candidates: list, kr_open: bool, us_open: bool, force: bool
     [{ticker, name, market, price, ind}] (ind = decision._indicators, ml_d7 포함)."""
     out = {}
     conn = _conn(); cur = conn.cursor()
+    # 사이클 공용 컨텍스트 — 섀도우 C의 '이슈 연관' 판정용 (최근 시나리오 등장 종목 맵)
+    ctx = {"scenario_map": {}}
+    try:
+        from db import load_scenario_stocks_set
+        ctx["scenario_map"] = load_scenario_stocks_set() or {}
+    except Exception as e:
+        logger.error(f"[shadow] 시나리오 맵 로드 실패: {e}")
     try:
         today = datetime.now()
         for owner in SHADOWS:
@@ -183,7 +202,7 @@ def run_shadow_cycle(candidates: list, kr_open: bool, us_open: bool, force: bool
                 if not force and ((_mkt == "국내" and not kr_open) or (_mkt == "미국" and not us_open)):
                     continue
                 ind = c.get("ind") or {}
-                ok, mult, note = _wants_buy(owner, ind)
+                ok, mult, note = _wants_buy(owner, ind, tk=tk, ctx=ctx)
                 if not ok:
                     continue
                 price = float(c.get("price") or 0)
@@ -216,7 +235,7 @@ def shadow_league_status() -> dict:
     conn = _conn(); cur = conn.cursor()
     out = {"as_of": datetime.now().strftime("%Y-%m-%d %H:%M"), "players": []}
     label = {"AI_AGENT": "메인 (Gemini 하이브리드)", "SHADOW_A": "섀도우 A (순수 눌림목)",
-             "SHADOW_B": "섀도우 B (ML 순종)"}
+             "SHADOW_B": "섀도우 B (ML 순종)", "SHADOW_C": "섀도우 C (이슈×구간)"}
     try:
         for owner in ("AI_AGENT",) + SHADOWS:
             cur.execute(
