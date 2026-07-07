@@ -203,7 +203,7 @@ function ShadowLeaguePanel({ selected, onSelect }: { selected: string | null; on
         🥊 섀도우 리그 <span style={{ fontSize: "0.72rem", fontWeight: 600, color: "var(--color-muted)" }}>— 같은 시장에서 다른 전략으로 경쟁 중 (대조군 실측)</span>
       </div>
       <div style={{ fontSize: "0.74rem", color: "var(--color-muted)", marginBottom: "10px" }}>
-        전략을 클릭하면 오른쪽에 상세(보유·거래)가 열립니다. 목적은 승자 선발이 아니라 전략×상황 매트릭스로 우리만의 통합 패턴을 합성하는 것.
+        [상세] 버튼을 누르면 오른쪽에 해당 전략의 창(보유·거래)이 열리고, 다시 누르면 닫힙니다. 목적은 승자 선발이 아니라 전략×상황 매트릭스로 우리만의 통합 패턴을 합성하는 것.
       </div>
       <div style={{ overflowX: "auto" }}>
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.82rem" }}>
@@ -215,16 +215,15 @@ function ShadowLeaguePanel({ selected, onSelect }: { selected: string | null; on
               <th style={{ textAlign: "right", padding: "4px 8px" }}>평균 수익률</th>
               <th style={{ textAlign: "right", padding: "4px 8px" }}>보유 중</th>
               <th style={{ textAlign: "right", padding: "4px 8px" }}>현금</th>
+              <th style={{ textAlign: "center", padding: "4px 8px" }}></th>
             </tr>
           </thead>
           <tbody>
             {data.players.map((p: any) => (
-              <tr key={p.owner} onClick={() => onSelect(p.owner)}
-                style={{ borderTop: "1px solid var(--color-border)", cursor: "pointer",
+              <tr key={p.owner}
+                style={{ borderTop: "1px solid var(--color-border)",
                   background: selected === p.owner ? "rgba(99,102,241,0.12)" : "transparent" }}>
-                <td style={{ padding: "6px 8px", fontWeight: 700 }}>
-                  {selected === p.owner ? "▶ " : ""}{p.label}
-                </td>
+                <td style={{ padding: "6px 8px", fontWeight: 700 }}>{p.label}</td>
                 <td style={{ padding: "6px 8px", textAlign: "right" }}>{p.realized_trades}건</td>
                 <td style={{ padding: "6px 8px", textAlign: "right", fontWeight: 700,
                   color: p.win_rate == null ? "var(--color-muted)" : p.win_rate >= 50 ? "#34d399" : "var(--color-danger)" }}>
@@ -237,6 +236,16 @@ function ShadowLeaguePanel({ selected, onSelect }: { selected: string | null; on
                 <td style={{ padding: "6px 8px", textAlign: "right" }}>{p.open_positions}종목</td>
                 <td style={{ padding: "6px 8px", textAlign: "right", color: "var(--color-muted)" }}>
                   {p.cash == null ? "—" : `${Number(p.cash).toLocaleString()}원`}
+                </td>
+                <td style={{ padding: "6px 8px", textAlign: "center" }}>
+                  <button onClick={() => onSelect(p.owner)}
+                    style={{ fontSize: "0.72rem", fontWeight: 700, padding: "3px 10px", borderRadius: "7px",
+                      cursor: "pointer", whiteSpace: "nowrap",
+                      border: `1px solid ${selected === p.owner ? "var(--color-accent)" : "var(--color-border)"}`,
+                      background: selected === p.owner ? "rgba(99,102,241,0.18)" : "rgba(255,255,255,0.04)",
+                      color: selected === p.owner ? "var(--color-text)" : "var(--color-muted)" }}>
+                    {selected === p.owner ? "▼ 닫기" : "상세 ▶"}
+                  </button>
                 </td>
               </tr>
             ))}
