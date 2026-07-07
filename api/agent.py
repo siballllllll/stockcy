@@ -203,6 +203,82 @@ def _position_size(cash_krw: float, price: float, market: str, confidence: float
     return qty, budget
 
 
+# ── 시장 레짐 스위치 (v3.117.0) ──────────────────────────────────────────────
+# 실측 근거: 2026-05 표본 승률 4.5% vs 6월 47.4% — 시장 국면이 개별 지표보다 큼.
+# 지수 20일 모멘텀: 공격(+1%↑) / 중립 / 수비(-3%↓). 수비 국면엔 신규 진입 스캔 생략.
+_REGIME_CACHE = {"t": 0.0, "kr": ("중립", 0.0), "us": ("중립", 0.0)}
+
+
+def _market_regime(market: str) -> tuple:
+    """(레짐 라벨, 20일 모멘텀%) 반환. 6시간 캐시, 조회 실패 시 직전값 유지."""
+    import time as _t
+    if _t.time() - _REGIME_CACHE["t"] > 21600:
+        _REGIME_CACHE["t"] = _t.time()   # 실패해도 재시도 폭주 방지
+        try:
+            import FinanceDataReader as fdr
+            from datetime import timedelta
+            start = (datetime.now() - timedelta(days=70)).strftime("%Y-%m-%d")
+            for key, code in (("kr", "KS11"), ("us", "US500")):
+                try:
+                    c = fdr.DataReader(code, start)["Close"].dropna()
+                    if len(c) >= 21:
+                        mom = (float(c.iloc[-1]) / float(c.iloc[-21]) - 1) * 100
+                        label = "공격" if mom >= 1.0 else ("수비" if mom <= -3.0 else "중립")
+                        _REGIME_CACHE[key] = (label, round(mom, 2))
+                except Exception as _re:
+                    logger.error(f"[regime] {code} 조회 실패: {_re}")
+        except Exception:
+            pass
+    return _REGIME_CACHE["kr" if market == "국내" else "us"]
+
+
+# ── 포지션 상태 (v3.117.0) — 트레일링 스탑용 고점·부분익절 여부 추적 ─────────
+def _pos_state(ticker: str, current_price: float = None) -> tuple:
+    """(peak_price, partial_taken) 조회. current_price를 주면 고점 갱신도 수행."""
+    try:
+        from db import get_db_conn
+        conn = get_db_conn(); cur = conn.cursor()
+        cur.execute("""CREATE TABLE IF NOT EXISTS agent_position_state (
+            ticker TEXT PRIMARY KEY, peak_price REAL, partial_taken INTEGER DEFAULT 0, updated_at TEXT)""")
+        cur.execute("SELECT peak_price, partial_taken FROM agent_position_state WHERE ticker=?", (ticker,))
+        row = cur.fetchone()
+        peak = float(row["peak_price"]) if row and row["peak_price"] else 0.0
+        partial = bool(row["partial_taken"]) if row else False
+        if current_price and current_price > peak:
+            cur.execute(
+                "INSERT OR REPLACE INTO agent_position_state (ticker, peak_price, partial_taken, updated_at) VALUES (?, ?, ?, ?)",
+                (ticker, float(current_price), 1 if partial else 0, datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
+            conn.commit()
+            peak = float(current_price)
+        conn.close()
+        return peak, partial
+    except Exception as e:
+        logger.error(f"[pos state] {ticker}: {e}")
+        return 0.0, False
+
+
+def _pos_state_write(ticker: str, peak: float = None, partial: bool = None, clear: bool = False):
+    """포지션 상태 기록/삭제 — 신규 매수 시 리셋, 부분익절 시 플래그, 전량 청산 시 삭제."""
+    try:
+        from db import get_db_conn
+        conn = get_db_conn(); cur = conn.cursor()
+        cur.execute("""CREATE TABLE IF NOT EXISTS agent_position_state (
+            ticker TEXT PRIMARY KEY, peak_price REAL, partial_taken INTEGER DEFAULT 0, updated_at TEXT)""")
+        if clear:
+            cur.execute("DELETE FROM agent_position_state WHERE ticker=?", (ticker,))
+        else:
+            cur.execute("SELECT peak_price, partial_taken FROM agent_position_state WHERE ticker=?", (ticker,))
+            row = cur.fetchone()
+            new_peak = float(peak) if peak is not None else (float(row["peak_price"]) if row and row["peak_price"] else 0.0)
+            new_partial = (1 if partial else 0) if partial is not None else (int(row["partial_taken"]) if row else 0)
+            cur.execute(
+                "INSERT OR REPLACE INTO agent_position_state (ticker, peak_price, partial_taken, updated_at) VALUES (?, ?, ?, ?)",
+                (ticker, new_peak, new_partial, datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
+        conn.commit(); conn.close()
+    except Exception as e:
+        logger.error(f"[pos state write] {ticker}: {e}")
+
+
 def _run_one_scan(force: bool = False) -> dict:
     """에이전트 1회 스캔(동기). 백그라운드 루프와 수동 트리거가 공유.
     force=True면 휴장이어도 진행(수동 점검용). 반환: 스캔 요약 dict.
@@ -386,6 +462,14 @@ def _run_one_scan(force: bool = False) -> dict:
                 if not ticker: continue
                 if not force and not _is_market_open(market):
                     continue
+
+                # [시장 레짐 스위치 v3.117.0] 수비 국면(지수 20일 모멘텀 -3%↓)에는
+                # 미보유 종목 신규진입 스캔 자체를 생략 — 5월 승률 4.5% 같은 하락장 방어 + Gemini 비용 절약.
+                # 보유 종목은 계속 평가(매도·물타기 판단은 하락장일수록 중요).
+                _regime, _regime_mom = _market_regime(market)
+                if _regime == "수비" and ticker not in ai_holdings and not force:
+                    summary["regime_skipped"] = (summary.get("regime_skipped") or 0) + 1
+                    continue
                     
                 # 현재가 조회
                 current_price = 0
@@ -426,16 +510,32 @@ def _run_one_scan(force: bool = False) -> dict:
                     _fee_rt = 0.21 if market == "국내" else 0.15   # 왕복 수수료+거래세 %
                     _net = (current_price - avg_price) / avg_price * 100.0 - _fee_rt
                     _is_swing = "[스윙]" in str(holding.get("rating") or "")
+                    _peak, _partial = _pos_state(ticker, current_price)   # 고점 갱신 + 부분익절 여부
                     if _is_swing and _net <= -5.0:
                         forced_exit = True
                         decision = {"action": "SELL", "confidence": 99,
                                     "reason": f"[강제 손절 가드·스윙] 실질 손익 {_net:+.2f}% ≤ -5% — 스윙 손절 기준(-3%)을 크게 이탈, 판단 없이 즉시 청산",
                                     "learning_point": f"스윙 손절 지연으로 {_net:+.2f}%까지 확대 — -3% 도달 시점에 청산했어야 함"}
-                    elif _is_swing and _net >= 8.0:
+                    elif _is_swing and _net >= 8.0 and not _partial:
+                        # [부분 익절 v3.117.0] 전량 익절 → 절반 익절 + 잔여 트레일링.
+                        # 기존 +8% 전량 청산은 +142% 같은 대시세 꼬리를 전부 놓치는 구조였음.
+                        forced_exit = True
+                        _hold_q = float(holding.get("quantity") or 0)
+                        if _hold_q >= 2:
+                            _half = int(_hold_q // 2)
+                            decision = {"action": "SELL", "confidence": 95, "sell_qty": _half,
+                                        "reason": f"[부분 익절 가드·스윙] 실질 {_net:+.2f}% ≥ +8% — 절반({_half}주) 익절 확정, 잔여는 고점 대비 -7% 트레일링으로 대시세 추적",
+                                        "learning_point": f"+8% 도달 절반 익절, 잔여 트레일링 전환 (실질 {_net:+.2f}%)"}
+                        else:
+                            decision = {"action": "SELL", "confidence": 95,
+                                        "reason": f"[강제 익절 가드·스윙] 실질 손익 {_net:+.2f}% ≥ +8% — 1주 포지션이라 전량 수익 확정",
+                                        "learning_point": f"실질 {_net:+.2f}% 익절 확정 (스윙 강제 가드)"}
+                    elif _is_swing and _partial and _peak > 0 and current_price <= _peak * 0.93 and _net > 0:
+                        # [트레일링 스탑 v3.117.0] 부분 익절 후 잔여분 — 고점 대비 -7% 이탈 시 수익 확정
                         forced_exit = True
                         decision = {"action": "SELL", "confidence": 95,
-                                    "reason": f"[강제 익절 가드·스윙] 실질 손익 {_net:+.2f}% ≥ +8% — 스윙 목표(+2.5%)의 3배 초과 달성, 수익 확정",
-                                    "learning_point": f"실질 {_net:+.2f}% 익절 확정 (스윙 강제 가드)"}
+                                    "reason": f"[트레일링 스탑·스윙] 고점 {_peak:,.0f} 대비 -7% 이탈 (현재 {current_price:,.0f}) — 잔여 전량 수익 확정 (실질 {_net:+.2f}%)",
+                                    "learning_point": f"트레일링 스탑 발동 — 고점 대비 -7%, 최종 {_net:+.2f}% 확정"}
                     elif (not _is_swing) and _net <= -30.0:
                         # 중장기 재난선 -30% — 물타기 허용 구간(-25%까지, v3.115.0)과 겹치지 않게 여유 확보.
                         # 실측: d7 -15%↓ 표본 36건은 d20까지 평균 -9.7%p 추가 하락(반등 13.9%) — 바닥 아래 바닥 방어선.
@@ -518,6 +618,8 @@ def _run_one_scan(force: bool = False) -> dict:
                     _rate_sz = _get_usd_krw_rate() if market == "미국" else 1.0
                     qty, _budget = _position_size(ai_cash, current_price, market, confidence,
                                                   ml_d7=_snap.get("ml_d7"), usdkrw=_rate_sz)
+                    if _regime == "중립" and qty > 1:
+                        qty = max(1, int(qty * 0.8))   # 중립 국면 — 포지션 20% 축소
                     if qty < 1:
                         logger.info(f"AI Agent: {name} 매수 보류 - 예산({_budget:,.0f}원) 대비 주가 높음")
                         try:
@@ -569,6 +671,7 @@ def _run_one_scan(force: bool = False) -> dict:
                     ai_portfolio.append(new_item)
                     ai_holdings[ticker] = new_item  # 즉시 동기화
                     save_portfolio_to_gsheet(ai_portfolio, owner=AI_OWNER_NAME)
+                    _pos_state_write(ticker, peak=current_price, partial=False)   # 트레일링 고점 초기화
                     
                     # [노이즈 절감] AI 모의매매는 학습 목적 — 매수 텔레그램 알림 비활성.
                     #   체결·학습 기록은 위에서 완료됨. 결과는 앱 내 AI 포트폴리오에서 확인.
@@ -585,6 +688,8 @@ def _run_one_scan(force: bool = False) -> dict:
                     _block = None
                     if "[스윙]" in _rating_h:
                         _block = "스윙 포지션은 물타기 금지 (손절 원칙)"
+                    elif _regime == "수비":
+                        _block = f"시장 수비 국면(20일 모멘텀 {_regime_mom:+.1f}%) — 하락장 물타기 보류"
                     elif _net3 > -3.0:
                         _block = f"실질 손익 {_net3:+.2f}% — -3% 이상에서는 물타기 불필요"
                     elif _net3 <= -25.0:
@@ -676,7 +781,11 @@ def _run_one_scan(force: bool = False) -> dict:
                         continue
 
                     # 매도 체결 로직 및 거래세/수수료 공제
-                    qty = holding["quantity"]
+                    # [부분 익절 v3.117.0] decision.sell_qty가 있으면 그 수량만 매도(잔여는 트레일링)
+                    _hold_qty = float(holding["quantity"])
+                    _sell_qty = decision.get("sell_qty")
+                    qty = min(float(_sell_qty), _hold_qty) if _sell_qty else _hold_qty
+                    partial_exit = qty < _hold_qty
                     bp = holding["buy_price"]
                     sp = current_price
                     
@@ -730,29 +839,41 @@ def _run_one_scan(force: bool = False) -> dict:
 
                     # 2-b. 자기학습 루프 — 이 종목의 가장 최근 '미확정' BUY 판단에 실제 결과(수익률) 확정 기록
                     #   (보유 중 잠정값이 채워져 있을 수 있으므로 is_realized=0 행을 찾아 확정값으로 교체 + is_realized=1)
+                    #   부분 익절은 잔여분이 남아있으므로 확정하지 않음(전량 청산 시 확정).
                     try:
-                        from db import get_db_conn
-                        _conn = get_db_conn()
-                        _cur = _conn.cursor()
-                        _cur.execute(
-                            """UPDATE agent_decisions
-                               SET outcome_return = ?, outcome_checked_at = ?, is_realized = 1
-                               WHERE id = (
-                                   SELECT id FROM agent_decisions
-                                   WHERE ticker = ? AND action='BUY' AND COALESCE(is_realized, 0) = 0
-                                   ORDER BY decided_at DESC LIMIT 1
-                               )""",
-                            (float(profit_pct), datetime.now().strftime("%Y-%m-%d %H:%M:%S"), ticker)
-                        )
-                        _conn.commit()
-                        _conn.close()
+                        if not partial_exit:
+                            from db import get_db_conn
+                            _conn = get_db_conn()
+                            _cur = _conn.cursor()
+                            _cur.execute(
+                                """UPDATE agent_decisions
+                                   SET outcome_return = ?, outcome_checked_at = ?, is_realized = 1
+                                   WHERE id = (
+                                       SELECT id FROM agent_decisions
+                                       WHERE ticker = ? AND action='BUY' AND COALESCE(is_realized, 0) = 0
+                                       ORDER BY decided_at DESC LIMIT 1
+                                   )""",
+                                (float(profit_pct), datetime.now().strftime("%Y-%m-%d %H:%M:%S"), ticker)
+                            )
+                            _conn.commit()
+                            _conn.close()
                     except Exception as _le:
                         logger.error(f"agent learning update failed: {_le}")
 
-                    # 3. 보유종목(AI)에서 삭제 + ai_holdings 즉시 동기화 (매도 후 재매수 방지)
-                    ai_portfolio = [p for p in ai_portfolio if p["ticker"] != ticker]
-                    ai_holdings.pop(ticker, None)  # 즉시 동기화
-                    save_portfolio_to_gsheet(ai_portfolio, owner=AI_OWNER_NAME)
+                    # 3. 포트폴리오 반영 — 부분 익절이면 잔여 수량 갱신, 전량이면 삭제
+                    if partial_exit:
+                        _remain = _hold_qty - qty
+                        for p in ai_portfolio:
+                            if p["ticker"] == ticker:
+                                p["quantity"] = _remain
+                        holding["quantity"] = _remain   # ai_holdings 동기화 (동일 객체)
+                        save_portfolio_to_gsheet(ai_portfolio, owner=AI_OWNER_NAME)
+                        _pos_state_write(ticker, partial=True)   # 잔여분 트레일링 모드 전환
+                    else:
+                        ai_portfolio = [p for p in ai_portfolio if p["ticker"] != ticker]
+                        ai_holdings.pop(ticker, None)  # 즉시 동기화 (매도 후 재매수 방지)
+                        save_portfolio_to_gsheet(ai_portfolio, owner=AI_OWNER_NAME)
+                        _pos_state_write(ticker, clear=True)     # 고점·부분익절 상태 제거
                     
                     # [노이즈 절감] AI 모의매매는 학습 목적 — 매도 텔레그램 알림 비활성.
                     #   체결·학습 기록은 위에서 완료됨. 결과는 앱 내 AI 포트폴리오에서 확인.
