@@ -1582,6 +1582,7 @@ def analyze_autonomous_trading(ticker: str, name: str, current_price: float, mar
                 "gap_pct":    daily.get("gap_pct"),
                 "mom_5":      _mlx.get("mom_5"),     # 에이전트 급등추격 하드필터가 사용
                 "bb_pctb":    _mlx.get("bb_pctb"),
+                "px_daily":   daily.get("current_price"),   # 일봉 기준가 — 실시간가 순단 검증용
             }
             tech_info = (
                 f"\n[기술적 지표] RSI(14)={daily.get('rsi','N/A')}, "
@@ -1748,7 +1749,7 @@ def analyze_autonomous_trading(ticker: str, name: str, current_price: float, mar
 만약 미보유(NONE) 상태라면, 지금이 매수 적기인지(BUY) 아니면 관망할지(HOLD) 결정하고, BUY라면 이 포지션의 성격(horizon)을 함께 정하세요 — 눌림목 스윙이면 'swing', 차트 구조와 기업가치가 수주~수개월 보유를 지지하면 'long'.
 만약 보유중(HOLDING) 상태라면 SELL / HOLD / BUY(추가매수) 중 결정하세요:
 - SELL·HOLD는 위 스윙 트레이더 핵심 규칙을 완벽히 엄수.
-- BUY(물타기·추가매수)는 다음을 전부 충족할 때만: ①중장기 관점의 투자 논리가 여전히 유효(재료 소멸·구조 붕괴 아님) ②현재가가 눌림목 형태(볼린저 하단권, 투매 아닌 조정) ③실질 손익 -3%~-15% 구간. 단기 반등을 노린 물타기는 금지. 확신 없으면 HOLD.
+- BUY(물타기·추가매수)는 다음을 전부 충족할 때만: ①중장기 관점의 투자 논리가 여전히 유효(재료 소멸·구조 붕괴 아님) ②현재가가 눌림목 형태(볼린저 하단권, 투매 아닌 조정) ③실질 손익 -3%~-25% 구간. -15% 이하 깊은 구간의 물타기는 투자 논리가 아주 확실할 때만(확신도 80 이상으로 표현) — 통계적으로 -15% 이상 밀린 종목의 86%는 더 떨어졌으므로, 하락 이유가 이슈 소멸·구조 붕괴라면 물타기 대신 SELL을 고려하세요. 단기 반등을 노린 물타기는 금지. 확신 없으면 HOLD.
 
 당신의 결정을 반드시 다음 JSON 형식으로만 응답하세요:
 {{{{

@@ -385,10 +385,12 @@ def _run_one_scan(force: bool = False) -> dict:
                         decision = {"action": "SELL", "confidence": 95,
                                     "reason": f"[강제 익절 가드·스윙] 실질 손익 {_net:+.2f}% ≥ +8% — 스윙 목표(+2.5%)의 3배 초과 달성, 수익 확정",
                                     "learning_point": f"실질 {_net:+.2f}% 익절 확정 (스윙 강제 가드)"}
-                    elif (not _is_swing) and _net <= -20.0:
+                    elif (not _is_swing) and _net <= -30.0:
+                        # 중장기 재난선 -30% — 물타기 허용 구간(-25%까지, v3.115.0)과 겹치지 않게 여유 확보.
+                        # 실측: d7 -15%↓ 표본 36건은 d20까지 평균 -9.7%p 추가 하락(반등 13.9%) — 바닥 아래 바닥 방어선.
                         forced_exit = True
                         decision = {"action": "SELL", "confidence": 99,
-                                    "reason": f"[재난 손절 가드·중장기] 실질 손익 {_net:+.2f}% ≤ -20% — 중장기 포지션도 감내 한도를 벗어나 강제 청산",
+                                    "reason": f"[재난 손절 가드·중장기] 실질 손익 {_net:+.2f}% ≤ -30% — 중장기 포지션도 감내 한도를 벗어나 강제 청산",
                                     "learning_point": f"중장기 보유가 {_net:+.2f}%까지 악화 — 투자 논리 붕괴 시점 재점검 필요"}
 
                 # AI에게 매수/매도/홀딩 판단 요청 (강제 청산이면 Gemini 호출 생략 — 비용 0)
@@ -424,6 +426,18 @@ def _run_one_scan(force: bool = False) -> dict:
                         try:
                             log_agent_scan(ticker, name, current_price, position, "HOLD", confidence,
                                 f"[{source_korean}] AI는 BUY 결정을 내렸으나 실측 하드필터(5일 {_m5:+.1f}% 급등 추격 구간, 과거 승률 22% 이하)로 매수를 차단합니다.")
+                        except Exception:
+                            pass
+                        continue
+
+                    # [가격 순단 가드 v3.114.2] 실시간가가 일봉 기준가와 크게 어긋나면 매수 차단.
+                    # 유니켐(6/11) 사고: 시세 API가 3,970원을 397원(1/10)으로 반환 → 평단 오염+수익률 +755% 오표기.
+                    _pxd = _snap.get("px_daily")
+                    if _pxd and current_price and not (0.55 <= current_price / float(_pxd) <= 1.8):
+                        logger.info(f"AI Agent: {name} 매수 차단 - 가격 소스 불일치 (실시간 {current_price:,.0f} vs 일봉 {float(_pxd):,.0f})")
+                        try:
+                            log_agent_scan(ticker, name, current_price, position, "HOLD", confidence,
+                                f"[{source_korean}] 실시간가({current_price:,.0f})와 일봉 기준가({float(_pxd):,.0f})가 크게 달라 데이터 순단 의심 — 매수 보류.")
                         except Exception:
                             pass
                         continue
@@ -500,9 +514,10 @@ def _run_one_scan(force: bool = False) -> dict:
                     #   체결·학습 기록은 위에서 완료됨. 결과는 앱 내 AI 포트폴리오에서 확인.
                     
                 elif action == "BUY" and position == "HOLDING" and confidence >= 70:
-                    # ── [물타기(추가매수) v3.113.0] 중장기 포지션 한정 ──
-                    # 조건: ①중장기 태그(스윙은 손절 원칙이라 물타기 금지) ②실질 손실 -3%~-15% 구간
-                    #       (그 위는 불필요, 그 아래는 논리 재점검 구간) ③종목당 최대 2회 ④일일 매수한도 공유
+                    # ── [물타기(추가매수) v3.113.0 → v3.115.0 구간 확대] 중장기 포지션 한정 ──
+                    # 사용자 방침: 중장기는 깊은 손실에서도 평단을 내릴 수 있어야 함 → -25%까지 허용.
+                    # 단 실측(d7 -15%↓ 표본의 86%가 d20까지 추가 하락)이 경고하는 '떨어지는 칼날' 방어로
+                    # -15% 이하 깊은 구간은 확신도 80+ 필요, 2회차 물타기는 -15% 이하에서만(간격 확보).
                     _rating_h = str(holding.get("rating") or "")
                     _fee_rt3 = 0.21 if market == "국내" else 0.15
                     _net3 = (current_price - avg_price) / avg_price * 100.0 - _fee_rt3 if avg_price else 0.0
@@ -512,10 +527,14 @@ def _run_one_scan(force: bool = False) -> dict:
                         _block = "스윙 포지션은 물타기 금지 (손절 원칙)"
                     elif _net3 > -3.0:
                         _block = f"실질 손익 {_net3:+.2f}% — -3% 이상에서는 물타기 불필요"
-                    elif _net3 <= -15.0:
-                        _block = f"실질 손익 {_net3:+.2f}% — -15% 초과 손실은 물타기가 아니라 논리 재점검 구간"
+                    elif _net3 <= -25.0:
+                        _block = f"실질 손익 {_net3:+.2f}% — -25% 초과 손실은 물타기 금지 (재난 손절선 -30% 인접)"
+                    elif _net3 <= -15.0 and confidence < 80:
+                        _block = f"실질 손익 {_net3:+.2f}% 깊은 구간 — 확신도 80 이상일 때만 물타기 (현재 {confidence})"
                     elif _adds >= 2:
                         _block = "물타기 한도(종목당 2회) 도달"
+                    elif _adds == 1 and _net3 > -15.0:
+                        _block = f"2회차 물타기는 실질 -15% 이하에서만 (현재 {_net3:+.2f}%, 간격 확보)"
                     elif _get_today_buy_count() >= 3:
                         _block = "하루 매수 한도(3회) 도달"
                     if _block:
