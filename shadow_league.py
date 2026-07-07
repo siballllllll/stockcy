@@ -348,6 +348,12 @@ def curator_daily_report(use_gemini: bool = True) -> dict:
     fact_lines += [f"- {f}" for f in a["findings"]] + [f"- {t}" for t in a["trend"]]
     for c in a["cells"][:6]:
         fact_lines.append(f"- 셀: {c['strategy']}×{c['situation']} 승률 {c['win_rate']}% ({c['n']}건)")
+    # 승자 해부 — 시장에서 실제로 오른 종목들의 전일 프로파일 (리그 밖 학습 소스)
+    try:
+        from winner_autopsy import autopsy_facts_lines
+        fact_lines += autopsy_facts_lines()
+    except Exception:
+        pass
     facts = "\n".join(fact_lines)
 
     conn = _conn(); cur = conn.cursor()

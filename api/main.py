@@ -402,6 +402,38 @@ def start_curator_scheduler():
     print("[curator] 리그 큐레이터 스케줄러 시작 (평일 16:20)")
 
 
+# ── 10-b3. 일일 승자 해부 스케줄러 (평일 15:50, 큐레이터 30분 전) ─────────────
+# '오늘 실제로 오른 종목은 전날 어떤 모습이었나' — 차트·수급·이슈·심리 전조 수집.
+# 하락장에도 매일 배우는 리그 밖 학습 소스 (사용자 방침 2026-07-07).
+_LAST_AUTOPSY_DATE = ""
+
+def _autopsy_loop():
+    global _LAST_AUTOPSY_DATE
+    import datetime as _dt
+    while True:
+        try:
+            now = _dt.datetime.now()
+            today = now.strftime("%Y-%m-%d")
+            if (now.weekday() < 5
+                and (now.hour > 15 or (now.hour == 15 and now.minute >= 50))
+                and now.hour < 22
+                and _LAST_AUTOPSY_DATE != today):
+                from winner_autopsy import run_daily_autopsy
+                r = run_daily_autopsy()
+                _LAST_AUTOPSY_DATE = today
+                print(f"[autopsy] 승자 해부 완료: {today} ({r.get('saved')}건)")
+        except Exception as e:
+            print(f"[autopsy] 오류: {e}")
+        _time.sleep(180)
+
+
+@app.on_event("startup")
+def start_autopsy_scheduler():
+    t = _threading.Thread(target=_autopsy_loop, daemon=True)
+    t.start()
+    print("[autopsy] 일일 승자 해부 스케줄러 시작 (평일 15:50)")
+
+
 # ── 10-b. 시나리오 적중률 자동 추적 스케줄러 ──────────────────────────────────
 _LAST_SCENARIO_TRACK_DATE = ""
 
