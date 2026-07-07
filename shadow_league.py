@@ -25,7 +25,11 @@
   모든 전략의 성적이 '운인지 실력인지'를 가리는 눈금자. 날짜+티커 시드로 결정론화.
 - SHADOW_F "모멘텀 추격" (v3.120.0): 5일 +10%↑ 강세주 추격 — 실측 22% 구간의
   실시간 확인사살용 악마의 변호인. 다른 전략이 금지하는 바로 그 구간만 산다.
-청산(공통, 결정론): 실질 -5% 손절 / +8% 익절 / 10일 타임스탑(d7 호라이즌 정합).
+청산(공통, 결정론) — v3.124.0 개정: **7거래일(≈10일) 순수 타임스탑 + 재난용 -20%만.**
+이전(-5%/+8% 중간청산)은 측정 기준과 모순이었음: 근거 데이터(눌림목 62~71%)는
+'7거래일 무손절 보유' 결과인데 섀도우에 -5% 손절을 달아 급락일 노이즈에 잘려나감
+(2026-07-07 첫날 전원 당일 손절 사태, 사용자 지적). 매수 근거는 기간 만료까지
+지켜보는 게 이 리그의 측정 원칙 — 가상 자금이라 손실 방어보다 측정이 목적.
 ⚠️ 청산 규칙을 통일해야 리그가 '진입 방식'만의 우열을 측정한다 — 전략별 청산 변경 금지.
 """
 import logging
@@ -36,9 +40,8 @@ logger = logging.getLogger("shadow_league")
 SHADOW_START_CASH = 10_000_000.0
 SHADOW_DAILY_BUY_CAP = 5      # 메인(3회)보다 완화 — 가상이므로 표본 축적 우선
 SHADOW_BUDGET_FRAC = 0.12     # 포지션당 현금 12% (메인과 동일 기준)
-EXIT_STOP = -5.0              # 실질 손절 %
-EXIT_TAKE = 8.0               # 실질 익절 %
-EXIT_DAYS = 10                # 타임스탑 (달력일 ≈ 7거래일, d7 호라이즌 정합)
+EXIT_DISASTER = -20.0         # 재난용 손절 % (상폐급 폭락만 차단 — 측정 왜곡 최소화)
+EXIT_DAYS = 10                # 타임스탑 (달력일 ≈ 7거래일, d7 호라이즌 정합) — 주 청산 수단
 
 SHADOWS = ("SHADOW_A", "SHADOW_B", "SHADOW_C", "SHADOW_D", "SHADOW_E", "SHADOW_F")
 
@@ -212,12 +215,10 @@ def run_shadow_cycle(candidates: list, kr_open: bool, us_open: bool, force: bool
                 except Exception:
                     pass
                 reason = None
-                if net <= EXIT_STOP:
-                    reason = f"손절 {net:+.2f}%"
-                elif net >= EXIT_TAKE:
-                    reason = f"익절 {net:+.2f}%"
+                if net <= EXIT_DISASTER:
+                    reason = f"재난 손절 {net:+.2f}% (상폐급 폭락 차단)"
                 elif held_days >= EXIT_DAYS:
-                    reason = f"타임스탑 {held_days}일 ({net:+.2f}%)"
+                    reason = f"기간만료 청산 {held_days}일 ({net:+.2f}%) — 근거를 끝까지 지켜본 결과"
                 if reason:
                     _sell(cur, owner, h, market, px, reason, usdkrw)
                     summary["sell"] += 1
@@ -372,6 +373,17 @@ def shadow_detail(owner: str, limit: int = 30) -> dict:
                 row["ctx"] = _json.loads(br)
             except Exception:
                 pass
+    # 보유 종목 현재가·실질 평가손익 — '산 금액 vs 지금 금액'이 한눈에 보이게 (v3.124.0)
+    for h in holdings:
+        tk = str(h["ticker"])
+        market = "국내" if tk.isdigit() else "미국"
+        try:
+            px = _price_of(tk, market)
+            if px > 0 and h.get("buy_price"):
+                h["current_price"] = px
+                h["eval_pct"] = round((px - float(h["buy_price"])) / float(h["buy_price"]) * 100 - _fee(market), 2)
+        except Exception:
+            pass
     return {"owner": owner, "holdings": holdings, "trades": trades}
 
 
