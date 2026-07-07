@@ -243,6 +243,22 @@ function ShadowLeaguePanel({ selected, onSelect }: { selected: string | null; on
           </tbody>
         </table>
       </div>
+      {/* 전략×상황 매트릭스 — 리그의 최종 목적(상황별 최적 기법 합성). 표본 5건+ 셀부터 자동 표시 */}
+      {(data.synthesis?.cells?.length ?? 0) > 0 && (
+        <div style={{ marginTop: "12px", padding: "10px 12px", background: "rgba(99,102,241,0.06)", border: "1px solid rgba(99,102,241,0.2)", borderRadius: "8px" }}>
+          <div style={{ fontWeight: 800, fontSize: "0.85rem", marginBottom: "6px" }}>🧩 전략×상황 매트릭스 <span style={{ fontSize: "0.68rem", fontWeight: 600, color: "var(--color-muted)" }}>— 상황별 최적 기법 합성용 (표본 5건+ 셀만)</span></div>
+          <div style={{ display: "flex", flexDirection: "column", gap: "3px" }}>
+            {data.synthesis.cells.slice(0, 12).map((c: any, i: number) => (
+              <div key={i} style={{ display: "flex", justifyContent: "space-between", gap: "8px", fontSize: "0.78rem" }}>
+                <span><b>{String(c.strategy).replace("SHADOW_", "섀도우 ")}</b> × {c.situation} <span style={{ color: "var(--color-muted)" }}>({c.n}건)</span></span>
+                <span style={{ fontWeight: 700, color: c.win_rate >= 50 ? "#34d399" : "var(--color-danger)" }}>
+                  승률 {c.win_rate}% · 평균 {c.avg_pct > 0 ? "+" : ""}{c.avg_pct}%
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
