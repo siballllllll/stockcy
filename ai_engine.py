@@ -1597,6 +1597,26 @@ def analyze_autonomous_trading(ticker: str, name: str, current_price: float, mar
             _hsh = daily.get("hsh") or {}
             if _hsh.get("hsh_label"):
                 tech_info += f"\n[하승훈式 시그널 ★] {_hsh.get('hsh_label')} (점수 {_hsh.get('hsh_score')}/5) — 강한 진입 신호이므로 BUY 판단에 가점 요인"
+            # [v3.116.0] 자체 ML 상승확률 주입 — 스크리너·매도타이밍·리포트에 이어 5번째 소비처.
+            # 이미 수집한 daily+_mlx를 재사용하므로 추가 다운로드 0, 예측은 로컬(무과금).
+            try:
+                from ml_model import predict_win_proba
+                _mlf = {"rsi": daily.get("rsi"), "pos_52w": daily.get("pos_52w_pct"),
+                        "vol_ratio": daily.get("volume_ratio"),
+                        "is_us": 0.0 if str(ticker).strip().isdigit() else 1.0}
+                _mlf.update(_mlx)
+                _mp3 = predict_win_proba(_mlf, "d3")
+                _mp7 = predict_win_proba(_mlf, "d7")
+                _mp20 = predict_win_proba(_mlf, "d20")
+                if any(v is not None for v in (_mp3, _mp7, _mp20)):
+                    ind_snapshot["ml_d7"] = _mp7   # 에이전트 포지션 사이징이 사용
+                    tech_info += (
+                        f"\n[★ 자체 ML 상승확률 — 이 시스템의 실제 매매결과 학습 모델] "
+                        f"3일 {_mp3 if _mp3 is not None else '?'}% / 7일 {_mp7 if _mp7 is not None else '?'}% / 20일 {_mp20 if _mp20 is not None else '?'}%. "
+                        "7일 확률 40% 미만이면 다른 신호가 좋아도 강한 감점 요인, 55% 이상이면 통계적 뒷받침 근거로 반영하세요."
+                    )
+            except Exception:
+                pass
         except Exception:
             pass
 

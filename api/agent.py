@@ -178,6 +178,31 @@ def _get_today_buy_count() -> int:
 INTERVAL_SECONDS = 1800  # 30분 주기 (스윙/데이 트레이딩 템포)
 
 
+def _position_size(cash_krw: float, price: float, market: str, confidence: float,
+                   ml_d7=None, usdkrw: float = 1350.0) -> tuple:
+    """[지능형 포지션 사이징 v3.116.0] 고정 수량(국내 10주/미국 1주) → 예산·확신 기반.
+    기존 방식은 NAVER 211만원 vs 유니켐 4만원처럼 금액이 주가에 끌려다녔음.
+    - 기본 예산 = 현금의 12% (풀현금 기준 약 8포지션 분산)
+    - 확신 가중 0.6~1.4배: Gemini confidence(60~100)와 자체 ML 7일 확률(40~70%)의 평균
+    - 하드캡 = 현금의 25% (한 종목 몰빵 방지)
+    반환 (qty, budget_krw). qty 0 = 예산 대비 주가가 너무 높아 진입 스킵."""
+    conf_c = max(0.0, min(1.0, (float(confidence or 60) - 60) / 40.0))
+    ml_c = max(0.0, min(1.0, (float(ml_d7) - 40.0) / 30.0)) if ml_d7 is not None else 0.5
+    mult = 0.6 + 0.8 * ((conf_c + ml_c) / 2)
+    budget = min(cash_krw * 0.12 * mult, cash_krw * 0.25)
+    px_krw = float(price or 0) * (usdkrw if market == "미국" else 1.0)
+    if px_krw <= 0:
+        return 0, budget
+    qty = int(budget // px_krw)
+    if qty < 1:
+        # 고가주 소액 진입 허용: 1주가 예산의 1.5배 이내 + 현금 25% 이내면 1주
+        if px_krw <= budget * 1.5 and px_krw <= cash_krw * 0.25:
+            qty = 1
+        else:
+            return 0, budget
+    return qty, budget
+
+
 def _run_one_scan(force: bool = False) -> dict:
     """에이전트 1회 스캔(동기). 백그라운드 루프와 수동 트리거가 공유.
     force=True면 휴장이어도 진행(수동 점검용). 반환: 스캔 요약 dict.
@@ -287,6 +312,31 @@ def _run_one_scan(force: bool = False) -> dict:
                 except Exception as e:
                     logger.error(f"Failed to fetch US change ranking: {e}")
             
+            # (6) 눌림목 스크리너 후보 편입 (v3.116.0) — 실측 승률 66.7% 엣지를 에이전트가 직접 매매.
+            #     패턴 스크리너 top5는 ml_training_samples(pattern)에 기록됨 → 최근 2일분 재사용(비용 0).
+            #     기존 유니버스는 '핫종목'(실측 승률 22% 구간 다수) 중심이라 좋은 후보가 늘 굶었음.
+            try:
+                from db import get_db_conn
+                _c = get_db_conn(); _cu = _c.cursor()
+                _cu.execute(
+                    """SELECT DISTINCT ticker, name FROM ml_training_samples
+                       WHERE source='pattern' AND decided_at >= date('now','-2 day')
+                       ORDER BY decided_at DESC LIMIT 8""")
+                for _r in _cu.fetchall():
+                    _tk = str(_r["ticker"]).strip()
+                    _tk = _tk.zfill(6) if _tk.isdigit() else _tk.upper()
+                    if _tk and _tk not in seen_tickers:
+                        seen_tickers.add(_tk)
+                        scan_universe.append({
+                            "티커": _tk,
+                            "종목명": _r["name"] or _tk,
+                            "시장": "국내" if _tk.isdigit() else "미국",
+                            "source": "PULLBACK",
+                        })
+                _c.close()
+            except Exception as e:
+                logger.error(f"눌림목 스크리너 후보 로드 실패: {e}")
+
             # 2. AI의 현재 포트폴리오(보유 종목) 조회
             ai_portfolio = load_portfolio_from_gsheet(owner=AI_OWNER_NAME)
             ai_holdings = {p["ticker"]: p for p in ai_portfolio}
@@ -329,7 +379,8 @@ def _run_one_scan(force: bool = False) -> dict:
                     "KR_HOT_VOLUME": "국내 거래대금 핫종목",
                     "KR_HOT_CHANGE": "국내 상승률 핫종목",
                     "US_HOT_VOLUME": "미국 거래대금 핫종목",
-                    "US_HOT_CHANGE": "미국 상승률 핫종목"
+                    "US_HOT_CHANGE": "미국 상승률 핫종목",
+                    "PULLBACK": "눌림목 스크리너 후보"
                 }.get(source_type, "주도주")
                 
                 if not ticker: continue
@@ -462,11 +513,20 @@ def _run_one_scan(force: bool = False) -> dict:
                     from db import load_virtual_balances, save_virtual_balance
                     balances = load_virtual_balances()
                     ai_cash = balances.get("AI", 10000000.0)
-                    
-                    qty = 10  # 국내 10주
-                    if market == "미국":
-                        qty = 1  # 미국 1주
-                    
+
+                    # [지능형 포지션 사이징 v3.116.0] 예산(현금 12%)×확신 가중(Gemini+ML)
+                    _rate_sz = _get_usd_krw_rate() if market == "미국" else 1.0
+                    qty, _budget = _position_size(ai_cash, current_price, market, confidence,
+                                                  ml_d7=_snap.get("ml_d7"), usdkrw=_rate_sz)
+                    if qty < 1:
+                        logger.info(f"AI Agent: {name} 매수 보류 - 예산({_budget:,.0f}원) 대비 주가 높음")
+                        try:
+                            log_agent_scan(ticker, name, current_price, position, "HOLD", confidence,
+                                f"[{source_korean}] 포지션 예산({_budget:,.0f}원) 대비 주가가 높아 매수 보류 (분산 원칙).")
+                        except Exception:
+                            pass
+                        continue
+
                     # 매매 대금 및 매수 수수료 계산 (온라인 기본 수수료 적용)
                     base_cost = current_price * qty
                     fee_rate = 0.00015 if market == "국내" else 0.0007  # 국내 0.015%, 미국 0.07%
@@ -548,7 +608,19 @@ def _run_one_scan(force: bool = False) -> dict:
                     from db import load_virtual_balances, save_virtual_balance
                     balances = load_virtual_balances()
                     ai_cash = balances.get("AI", 10000000.0)
-                    qty = holding.get("quantity") or (1 if market == "미국" else 10)
+                    # 물타기 수량도 지능형 사이징 — 단 기존 보유 수량을 상한으로(평단 조작 방지,
+                    # 한 번의 물타기가 포지션을 2배 초과로 키우지 않게)
+                    _rate_sz = _get_usd_krw_rate() if market == "미국" else 1.0
+                    _q_size, _budget = _position_size(ai_cash, current_price, market, confidence, usdkrw=_rate_sz)
+                    _q_cap = int(holding.get("quantity") or 0) or (1 if market == "미국" else 10)
+                    qty = min(_q_size, _q_cap) if _q_size >= 1 else 0
+                    if qty < 1:
+                        try:
+                            log_agent_scan(ticker, name, current_price, position, "HOLD", confidence,
+                                f"[{source_korean}] 물타기 예산({_budget:,.0f}원) 대비 주가가 높아 보류.")
+                        except Exception:
+                            pass
+                        continue
                     base_cost = current_price * qty
                     fee_rate = 0.00015 if market == "국내" else 0.0007
                     trade_cost = base_cost * (1 + fee_rate)
