@@ -19,6 +19,12 @@
 - SHADOW_C "이슈×구간" (v3.119.0): 재료(최근 시나리오 등장 종목)가 있으면서 차트상
   지지 구간(볼린저 하단권 또는 20일선 ±3% 재접근)에 온 종목만 매수 — 사용자 실제
   매매 스타일(재료 보고 눌림 대기 진입)의 결정론 재현.
+- SHADOW_D "수급 추종" (v3.120.0): 외국인·기관 순매수 상위(KR)만 매수(과열 배제).
+  스마트머니 단독 축의 첫 실측 — 지금까지 스크리너 가점으로만 쓰이던 데이터.
+- SHADOW_E "랜덤 베이스라인" (v3.120.0): 후보 중 무작위 매수. 과학적 대조군 —
+  모든 전략의 성적이 '운인지 실력인지'를 가리는 눈금자. 날짜+티커 시드로 결정론화.
+- SHADOW_F "모멘텀 추격" (v3.120.0): 5일 +10%↑ 강세주 추격 — 실측 22% 구간의
+  실시간 확인사살용 악마의 변호인. 다른 전략이 금지하는 바로 그 구간만 산다.
 청산(공통, 결정론): 실질 -5% 손절 / +8% 익절 / 10일 타임스탑(d7 호라이즌 정합).
 ⚠️ 청산 규칙을 통일해야 리그가 '진입 방식'만의 우열을 측정한다 — 전략별 청산 변경 금지.
 """
@@ -34,7 +40,7 @@ EXIT_STOP = -5.0              # 실질 손절 %
 EXIT_TAKE = 8.0               # 실질 익절 %
 EXIT_DAYS = 10                # 타임스탑 (달력일 ≈ 7거래일, d7 호라이즌 정합)
 
-SHADOWS = ("SHADOW_A", "SHADOW_B", "SHADOW_C")
+SHADOWS = ("SHADOW_A", "SHADOW_B", "SHADOW_C", "SHADOW_D", "SHADOW_E", "SHADOW_F")
 
 
 def _conn():
@@ -144,6 +150,22 @@ def _wants_buy(owner: str, ind: dict, tk: str = "", ctx: dict = None) -> tuple:
         not_hot = m5 is None or m5 < 5.0   # 급등 중 재료주 추격 배제
         ok = linked and zone and not_hot
         return ok, 1.0, f"이슈연관×지지구간(bb {bb}·MA20 {ma20d}%·5일 {m5}%)"
+    if owner == "SHADOW_D":
+        # 수급 추종 — 외국인·기관 순매수 상위(KR)면 매수, 과열만 배제
+        in_supply = tk in (ctx or {}).get("supply_set", set())
+        not_hot = (m5 is None or m5 < 10.0) and (rsi is None or rsi < 70)
+        ok = in_supply and not_hot
+        return ok, 1.0, f"외인·기관 순매수 상위(5일 {m5}%·RSI {rsi})"
+    if owner == "SHADOW_E":
+        # 랜덤 베이스라인 — 날짜+티커 시드 결정론 난수 (같은 날 재스캔해도 판정 불변)
+        import hashlib
+        seed = int(hashlib.md5(f"{datetime.now():%Y-%m-%d}{tk}".encode()).hexdigest()[:8], 16)
+        ok = (seed % 100) < 12   # 후보의 약 12% 무작위 매수
+        return ok, 1.0, "랜덤 대조군"
+    if owner == "SHADOW_F":
+        # 모멘텀 추격 — 5일 +10%↑ 강세주만 (다른 전략이 금지하는 구간의 확인사살)
+        ok = m5 is not None and m5 >= 10.0
+        return ok, 1.0, f"모멘텀 추격(5일 {m5}%)"
     return False, 1.0, ""
 
 
@@ -152,13 +174,20 @@ def run_shadow_cycle(candidates: list, kr_open: bool, us_open: bool, force: bool
     [{ticker, name, market, price, ind}] (ind = decision._indicators, ml_d7 포함)."""
     out = {}
     conn = _conn(); cur = conn.cursor()
-    # 사이클 공용 컨텍스트 — 섀도우 C의 '이슈 연관' 판정용 (최근 시나리오 등장 종목 맵)
-    ctx = {"scenario_map": {}}
+    # 사이클 공용 컨텍스트 — C(이슈 연관 맵)·D(수급 상위 집합) 판정용, 사이클당 1회 로드
+    ctx = {"scenario_map": {}, "supply_set": set()}
     try:
         from db import load_scenario_stocks_set
         ctx["scenario_map"] = load_scenario_stocks_set() or {}
     except Exception as e:
         logger.error(f"[shadow] 시나리오 맵 로드 실패: {e}")
+    if kr_open or force:
+        try:
+            from data_kr import get_kr_frgn_inst_rank
+            _sup = (get_kr_frgn_inst_rank("J", 30, "buy") or []) + (get_kr_frgn_inst_rank("Q", 30, "buy") or [])
+            ctx["supply_set"] = {str(s.get("종목코드", "")).strip().zfill(6) for s in _sup if s.get("종목코드")}
+        except Exception as e:
+            logger.error(f"[shadow] 수급 랭킹 로드 실패: {e}")
     try:
         today = datetime.now()
         for owner in SHADOWS:
@@ -235,7 +264,9 @@ def shadow_league_status() -> dict:
     conn = _conn(); cur = conn.cursor()
     out = {"as_of": datetime.now().strftime("%Y-%m-%d %H:%M"), "players": []}
     label = {"AI_AGENT": "메인 (Gemini 하이브리드)", "SHADOW_A": "섀도우 A (순수 눌림목)",
-             "SHADOW_B": "섀도우 B (ML 순종)", "SHADOW_C": "섀도우 C (이슈×구간)"}
+             "SHADOW_B": "섀도우 B (ML 순종)", "SHADOW_C": "섀도우 C (이슈×구간)",
+             "SHADOW_D": "섀도우 D (수급 추종)", "SHADOW_E": "섀도우 E (랜덤 대조군)",
+             "SHADOW_F": "섀도우 F (모멘텀 추격)"}
     try:
         for owner in ("AI_AGENT",) + SHADOWS:
             cur.execute(
