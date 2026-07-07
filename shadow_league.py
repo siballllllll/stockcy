@@ -68,7 +68,7 @@ def _set_cash(cur, owner: str, amount: float):
 
 
 def _holdings(cur, owner: str) -> list:
-    cur.execute("SELECT ticker, name, quantity, buy_price, updated_time FROM portfolio WHERE UPPER(owner)=?",
+    cur.execute("SELECT ticker, name, quantity, buy_price, updated_time, buy_reason FROM portfolio WHERE UPPER(owner)=?",
                 (owner.upper(),))
     return [dict(r) for r in cur.fetchall()]
 
@@ -107,12 +107,14 @@ def _sell(cur, owner: str, h: dict, market: str, price: float, reason: str, usdk
     pct = (profit / invested * 100) if invested > 0 else 0.0
     revenue = returned * (usdkrw if market == "미국" else 1.0)
     _set_cash(cur, owner, _cash(cur, owner) + revenue)
+    # buy_reason에 진입 시점 컨텍스트(JSON)가 실려 있음 — 전략×상황 합성 분석의 원료.
     cur.execute(
         """INSERT INTO trade_history (owner, sell_date, ticker, name, quantity, buy_price, sell_price,
                profit, profit_pct, result, learning_point, trade_source, trade_type, buy_date, buy_reason)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '섀도우', '가상', ?, '')""",
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '섀도우', '가상', ?, ?)""",
         (owner, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), h["ticker"], h["name"], qty, bp, sp,
-         profit, pct, "수익" if profit >= 0 else "손실", reason, str(h.get("updated_time") or "")))
+         profit, pct, "수익" if profit >= 0 else "손실", reason, str(h.get("updated_time") or ""),
+         str(h.get("buy_reason") or "")))
     cur.execute("DELETE FROM portfolio WHERE UPPER(owner)=? AND ticker=?", (owner.upper(), h["ticker"]))
     return pct
 
@@ -169,9 +171,11 @@ def _wants_buy(owner: str, ind: dict, tk: str = "", ctx: dict = None) -> tuple:
     return False, 1.0, ""
 
 
-def run_shadow_cycle(candidates: list, kr_open: bool, us_open: bool, force: bool = False, usdkrw: float = 1450.0) -> dict:
+def run_shadow_cycle(candidates: list, kr_open: bool, us_open: bool, force: bool = False,
+                     usdkrw: float = 1450.0, regimes: dict = None) -> dict:
     """1주기 섀도우 운용 — 메인 스캔 직후 호출. candidates: 메인 루프가 수집한
-    [{ticker, name, market, price, ind}] (ind = decision._indicators, ml_d7 포함)."""
+    [{ticker, name, market, price, ind}] (ind = decision._indicators, ml_d7 포함).
+    regimes: {'국내': '공격/중립/수비', '미국': ...} — 진입 컨텍스트 기록용."""
     out = {}
     conn = _conn(); cur = conn.cursor()
     # 사이클 공용 컨텍스트 — C(이슈 연관 맵)·D(수급 상위 집합) 판정용, 사이클당 1회 로드
@@ -246,7 +250,18 @@ def run_shadow_cycle(candidates: list, kr_open: bool, us_open: bool, force: bool
                     qty = 1
                 if qty < 1:
                     continue
-                if _buy(cur, owner, tk, c.get("name") or tk, market, price, qty, note, usdkrw):
+                # 진입 컨텍스트 기록 (JSON) — "어떤 상황에서 이 기법이 통했나"를 나중에
+                # 전략×상황 매트릭스로 분석해 하나의 통합 패턴으로 합성하기 위한 원료.
+                import json as _json
+                _ctx_rec = _json.dumps({
+                    "note": note, "regime": (regimes or {}).get(market, "?"),
+                    "bb": ind.get("bb_pctb"), "m5": ind.get("mom_5"), "rsi": ind.get("rsi"),
+                    "vr": ind.get("vol_ratio"), "ml7": ind.get("ml_d7"), "ma20d": ind.get("ma20_dist"),
+                    "p52": ind.get("pos_52w"),
+                    "issue": 1 if int(ctx.get("scenario_map", {}).get(tk, 0)) > 0 else 0,
+                    "supply": 1 if tk in ctx.get("supply_set", set()) else 0,
+                }, ensure_ascii=False)
+                if _buy(cur, owner, tk, c.get("name") or tk, market, price, qty, _ctx_rec, usdkrw):
                     held.add(tk)
                     buys_left -= 1
                     summary["buy"] += 1
@@ -257,6 +272,52 @@ def run_shadow_cycle(candidates: list, kr_open: bool, us_open: bool, force: bool
     finally:
         conn.close()
     return out
+
+
+def shadow_synthesis(min_n: int = 5) -> dict:
+    """전략×상황 매트릭스 — 리그의 최종 목적. '누가 이기냐'가 아니라 각 기법이
+    어떤 상황(레짐·이슈·수급·변동 구간)에서 유리한지를 실측해, 상황별 최적 기법을
+    합친 '우리만의 통합 패턴'을 도출하기 위한 분석. (진입 컨텍스트 JSON 파싱)"""
+    import json as _json
+    conn = _conn(); cur = conn.cursor()
+    cells = {}   # (owner, 상황키) -> [win수, 전체, 수익률합]
+    try:
+        cur.execute(
+            """SELECT owner, profit_pct, buy_reason FROM trade_history
+               WHERE owner LIKE 'SHADOW_%' AND buy_reason LIKE '{%'""")
+        for r in cur.fetchall():
+            try:
+                c = _json.loads(r["buy_reason"])
+            except Exception:
+                continue
+            pct = float(r["profit_pct"] or 0)
+            situations = [f"레짐:{c.get('regime', '?')}"]
+            if c.get("issue"): situations.append("이슈연관")
+            if c.get("supply"): situations.append("수급상위")
+            bb = c.get("bb")
+            if bb is not None:
+                situations.append("볼린저하단" if bb <= 0.35 else ("볼린저상단" if bb >= 0.7 else "볼린저중단"))
+            for s in situations:
+                k = (r["owner"], s)
+                if k not in cells:
+                    cells[k] = [0, 0, 0.0]
+                cells[k][1] += 1
+                cells[k][2] += pct
+                if pct > 0:
+                    cells[k][0] += 1
+    except Exception as e:
+        return {"error": str(e), "cells": []}
+    finally:
+        conn.close()
+    out = []
+    for (owner, situation), (w, n, s) in sorted(cells.items()):
+        if n < min_n:
+            continue   # 표본 부족 셀은 노이즈 — 숨김
+        out.append({"strategy": owner, "situation": situation, "n": n,
+                    "win_rate": round(w / n * 100, 1), "avg_pct": round(s / n, 2)})
+    out.sort(key=lambda x: (x["win_rate"], x["n"]), reverse=True)
+    return {"cells": out, "min_n": min_n,
+            "note": "전략×상황별 실측 승률 — 상황별 최적 기법을 합성해 통합 패턴을 만들기 위한 매트릭스"}
 
 
 def shadow_league_status() -> dict:
@@ -292,4 +353,8 @@ def shadow_league_status() -> dict:
         out["error"] = str(e)
     finally:
         conn.close()
+    try:
+        out["synthesis"] = shadow_synthesis()   # 전략×상황 매트릭스 (표본 5건+ 셀만)
+    except Exception:
+        pass
     return out

@@ -890,7 +890,8 @@ def _run_one_scan(force: bool = False) -> dict:
                 from shadow_league import run_shadow_cycle
                 summary["shadow"] = run_shadow_cycle(
                     shadow_candidates, kr_open=kr_open, us_open=us_open,
-                    force=force, usdkrw=_get_usd_krw_rate())
+                    force=force, usdkrw=_get_usd_krw_rate(),
+                    regimes={"국내": _market_regime("국내")[0], "미국": _market_regime("미국")[0]})
             except Exception as _se:
                 logger.error(f"[shadow] 사이클 오류: {_se}")
 
