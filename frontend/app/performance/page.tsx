@@ -620,7 +620,7 @@ export default function PerformancePage() {
         <MarketLogArchive />
       </div>
       {selOwner && (
-        <div style={{ flex: "1 1 480px", minWidth: "360px", maxWidth: "820px", position: "sticky", top: "12px", maxHeight: "calc(100vh - 24px)", overflowY: "auto" }}>
+        <div style={{ flex: "1.4 1 640px", minWidth: "420px", maxWidth: "1100px", position: "sticky", top: "12px", maxHeight: "calc(100vh - 24px)", overflowY: "auto" }}>
           <div className="stockcy-card" style={{ padding: "0.9rem 1.1rem" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "8px", marginBottom: "10px" }}>
               <div style={{ fontWeight: 800, fontSize: "0.95rem" }}>{OWNER_LABEL[selOwner] ?? selOwner}</div>

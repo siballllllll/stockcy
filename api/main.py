@@ -420,8 +420,12 @@ def _autopsy_loop():
                 and _LAST_AUTOPSY_DATE != today):
                 from winner_autopsy import run_daily_autopsy
                 r = run_daily_autopsy()
-                _LAST_AUTOPSY_DATE = today
-                print(f"[autopsy] 승자 해부 완료: {today} ({r.get('saved')}건)")
+                # 오류로 0건이면 완료 처리하지 않고 다음 틱(3분)에 재시도 — 순단 방어
+                if r.get("saved", 0) > 0 or r.get("note"):
+                    _LAST_AUTOPSY_DATE = today
+                    print(f"[autopsy] 승자 해부 완료: {today} ({r.get('saved')}건)")
+                else:
+                    print(f"[autopsy] 실패, 재시도 예정: {r.get('error')}")
         except Exception as e:
             print(f"[autopsy] 오류: {e}")
         _time.sleep(180)
