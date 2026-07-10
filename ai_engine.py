@@ -338,8 +338,13 @@ _MODEL_FALLBACK = [
 # 등급 산정·심층 시나리오 등 '판단'이 중요한 분석형 함수에만 thinking=True로 적용.
 _THINKING_BUDGET_ON = 2048
 
-# 할당량 소진 여부 (세션 중 반복 호출 방지)
-_QUOTA_EXHAUSTED = False
+# 할당량/속도 제한(429) 차단 만료 시각 — 시간 기반 백오프.
+# [v3.127.2] 기존 불리언 플래그는 한 번 켜지면 모든 호출을 차단해 성공 기회가 없어
+# 영원히 안 풀리는 데드락이었음(7/8 저녁 429 1회 → 7/9~10 이틀간 AI 전면 마비 실측).
+# 429 시 10분 차단 후 자동 재시도 — 순간 속도 제한이면 즉시 회복, 일일 소진이면
+# 10분마다 1회 프로브만 나가고 자정 리셋 후 자연 복구.
+_QUOTA_BLOCK_UNTIL = 0.0
+_QUOTA_BACKOFF_SEC = 600
 
 # API 호출 타임아웃 (초)
 _API_TIMEOUT_SEC = 90
@@ -493,7 +498,7 @@ def _call_gemini(prompt, use_search=False, temperature=0.7, response_mime_type=N
     import concurrent.futures
     import copy
     _timeout = timeout_sec if timeout_sec else _API_TIMEOUT_SEC
-    global _QUOTA_EXHAUSTED
+    global _QUOTA_BLOCK_UNTIL
     # [비용 추적] 어느 기능이 이 호출을 했는지 = 바로 위 호출자 함수명
     try:
         import inspect as _inspect
@@ -501,8 +506,10 @@ def _call_gemini(prompt, use_search=False, temperature=0.7, response_mime_type=N
     except Exception:
         _usage_src = "unknown"
 
-    if _QUOTA_EXHAUSTED:
-        raise Exception("QUOTA_EXHAUSTED: 오늘의 Gemini API 무료 할당량이 소진되었습니다. 내일 자정(한국 기준) 초기화됩니다.")
+    import time as _qt
+    if _qt.time() < _QUOTA_BLOCK_UNTIL:
+        _left = int((_QUOTA_BLOCK_UNTIL - _qt.time()) / 60) + 1
+        raise Exception(f"QUOTA_EXHAUSTED: Gemini 할당량/속도 제한으로 약 {_left}분간 호출을 쉬는 중입니다. 자동 재시도됩니다.")
 
     api_key = os.getenv("GEMINI_API_KEY", "")
     client = genai.Client(api_key=api_key, http_options={"api_version": "v1alpha"})
@@ -541,7 +548,6 @@ def _call_gemini(prompt, use_search=False, temperature=0.7, response_mime_type=N
                     raise Exception(f"API_TIMEOUT: AI 응답 대기 시간({_timeout}초)을 초과했습니다. 잠시 후 다시 시도해주세요.")
                 ex.shutdown(wait=False)
 
-                _QUOTA_EXHAUSTED = False
                 _log_gemini_usage(response, _usage_src, use_search)
                 return response
 
@@ -553,9 +559,9 @@ def _call_gemini(prompt, use_search=False, temperature=0.7, response_mime_type=N
                 if "API_TIMEOUT" in err_str:
                     raise api_err
 
-                # 할당량 초과 — 즉시 중단
+                # 할당량/속도 제한 — 10분 백오프 후 자동 재시도 (영구 차단 금지)
                 if "429" in err_str or "RESOURCE_EXHAUSTED" in err_str:
-                    _QUOTA_EXHAUSTED = True
+                    _QUOTA_BLOCK_UNTIL = _qt.time() + _QUOTA_BACKOFF_SEC
                     raise api_err
 
                 # 서버 일시 오류 — 1회 재시도 후 다음 모델로
