@@ -306,14 +306,24 @@ function SearchPageInner() {
 
   // 시장 전환 시 기본값 리셋
   const prevMarketRef = useRef<string | null>(null);
+  // URL(?market=)이 시킨 시장 전환인지 표시. 이게 없으면, 다른 화면에서 ?q=TSLA&market=US로
+  // 들어올 때 아래 순서로 티커가 날아간다: (1) URL effect가 setMarket("US")+performSearch("TSLA")
+  // → (2) market이 바뀌었으니 이 리셋 effect가 돌아 currentCode를 기본값(AAPL/005930)으로 덮어씀.
+  // MarketProvider 기본값이 "KR"이고 저장도 안 되므로, 새 탭에서 미국 종목을 열면 100% AAPL이 떴다.
+  const urlMarketRef = useRef<string | null>(null);
   useEffect(() => {
     if (prevMarketRef.current !== null && prevMarketRef.current !== market) {
-      setCurrentCode(market === "KR" ? "005930" : "AAPL");
-      setActiveTab("시세");
-      setChartType("daily");
-      setChartPeriod("6M");
-      setAiStatus("idle");
-      setAiResult(null);
+      if (urlMarketRef.current === market) {
+        // URL이 지정한 시장으로의 전환 — 같은 URL이 지정한 종목(q)을 덮어쓰면 안 되므로 리셋 생략.
+        urlMarketRef.current = null;   // 1회만 소비 (이후 수동 전환은 정상 리셋)
+      } else {
+        setCurrentCode(market === "KR" ? "005930" : "AAPL");
+        setActiveTab("시세");
+        setChartType("daily");
+        setChartPeriod("6M");
+        setAiStatus("idle");
+        setAiResult(null);
+      }
     }
     prevMarketRef.current = market;
   }, [market]);
@@ -631,8 +641,10 @@ function SearchPageInner() {
   useEffect(() => {
     const q = searchParams.get("q");
     const m = searchParams.get("market");
-    if (m === "US" && market !== "US") setMarket("US");
-    if (m === "KR" && market !== "KR") setMarket("KR");
+    // 실제로 전환을 일으킬 때만 표시 — 위 리셋 effect가 이 전환 1회를 건너뛰게 해서
+    // 아래 performSearch(q)로 정한 종목이 기본값으로 덮이지 않게 한다.
+    if (m === "US" && market !== "US") { urlMarketRef.current = "US"; setMarket("US"); }
+    if (m === "KR" && market !== "KR") { urlMarketRef.current = "KR"; setMarket("KR"); }
     if (q) performSearch(q);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams]);

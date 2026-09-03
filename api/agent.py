@@ -643,6 +643,33 @@ def _run_one_scan(force: bool = False) -> dict:
                             pass
                         continue
 
+                    # ── [눌림목 진입 게이트 v3.131.0] 섀도우 A 규칙을 메인 매수에도 하드 게이트로 적용 ──
+                    # 실측(8월 이후, 가드 도입 후 구간): 섀도우 A(순수 눌림목) 승률 77.8%·평균 +10.61%,
+                    # 섀도우 C 75.0%·+6.08% vs 메인 58.3%·+4.04%. 랜덤 대조군(E)이 33.3%·-2.51%라
+                    # 상승장 효과가 아니라 전략 효과로 봐야 함. 위 급등추격 필터가 '나쁜 것을 거르는'
+                    # 필터라면 이건 '검증된 구간만 통과시키는' 필터 — LLM이 BUY를 내도 눌림목 형태가
+                    # 아니면 진입하지 않는다. 조건은 shadow_league._wants_buy의 SHADOW_A와 동일하게 유지할 것.
+                    # AGENT_PULLBACK_GATE=0 으로 끄면 기존 동작(LLM 판단대로 진입).
+                    if os.getenv("AGENT_PULLBACK_GATE", "1") != "0":
+                        _bb_g = _snap.get("bb_pctb")
+                        _rsi_g = _snap.get("rsi")
+                        _vr_g = _snap.get("vol_ratio")
+                        _pullback_ok = (_bb_g is not None and _bb_g < 0.25
+                                        and _m5 is not None and _m5 <= -3
+                                        and (_vr_g is None or _vr_g < 2.0)
+                                        and (_rsi_g is None or _rsi_g < 55))
+                        if not _pullback_ok:
+                            logger.info(f"AI Agent: {name} 매수 차단 - 눌림목 게이트 미통과 "
+                                        f"(bb%b {_bb_g}, 5일 {_m5}%, 거래량 {_vr_g}배, RSI {_rsi_g})")
+                            try:
+                                log_agent_scan(ticker, name, current_price, position, "HOLD", confidence,
+                                    f"[{source_korean}] AI는 BUY 결정을 내렸으나 눌림목 진입 게이트 미통과로 보류 "
+                                    f"(볼린저%b {_bb_g}<0.25 / 5일모멘텀 {_m5}%≤-3 / 거래량 {_vr_g}배<2.0 / RSI {_rsi_g}<55 조건). "
+                                    f"실측상 이 조건을 만족한 매수(섀도우 A)가 승률 77.8%·평균 +10.6%로 최상위.")
+                            except Exception:
+                                pass
+                            continue
+
                     # [가격 순단 가드 v3.114.2] 실시간가가 일봉 기준가와 크게 어긋나면 매수 차단.
                     # 유니켐(6/11) 사고: 시세 API가 3,970원을 397원(1/10)으로 반환 → 평단 오염+수익률 +755% 오표기.
                     _pxd = _snap.get("px_daily")
