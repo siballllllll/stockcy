@@ -461,50 +461,320 @@ def _parse_json_response(response) -> dict:
         raise ValueError("no_json_found")
 
 
-def _log_gemini_usage(response, source: str, use_search: bool = False):
-    """[비용 추적] 각 Gemini 호출의 토큰 사용량을 기능(source)별로 JSONL에 1줄 기록.
-    베스트에포트 — 실패해도 본 호출에 절대 영향 주지 않음. 집계: scratch/gemini_cost_report.py"""
+class LLMResponse:
+    """Gemini 및 OpenAI 응답을 동일한 인터페이스(text, model, tokens, latency 등)로 추상화한 래퍼."""
+    def __init__(self, text: str, model: str = "", in_tokens: int = 0, out_tokens: int = 0,
+                 latency_sec: float = 0.0, provider: str = "openai", search_used: bool = False,
+                 raw_response: any = None):
+        self.text = text
+        self.model = model
+        self.in_tokens = in_tokens
+        self.out_tokens = out_tokens
+        self.total_tokens = in_tokens + out_tokens
+        self.latency_sec = round(latency_sec, 3)
+        self.provider = provider
+        self.search_used = search_used
+        self.raw_response = raw_response
+
+    def __str__(self):
+        return self.text
+
+    def __repr__(self):
+        return f"<LLMResponse provider={self.provider} model={self.model} in={self.in_tokens} out={self.out_tokens} lat={self.latency_sec}s>"
+
+
+def _calc_estimated_cost(provider: str, model: str, in_tokens: int, out_tokens: int) -> float:
+    """토큰 수 기반 추정 비용 (USD) 계산."""
+    p = provider.lower()
+    m = model.lower()
+    # 구체적인 모델명부터 매칭 (gpt-4.1-mini가 gpt-4.1에 잘못 매칭되지 않도록 순서 유의)
+    for key in ("gpt-4o-mini", "gpt-4.1-mini", "o3-mini", "gpt-4o", "gpt-4.1"):
+        if key in m:
+            in_rate, out_rate = _OPENAI_COST_TABLE[key]
+            return (in_tokens * in_rate + out_tokens * out_rate) / 1_000_000
+    if "gemini-2.5" in m or "gemini-2.0" in m or "gemini" in p:
+        return (in_tokens * 0.075 + out_tokens * 0.30) / 1_000_000
+    return 0.0
+
+
+_OPENAI_COST_TABLE = {
+    "gpt-4o-mini": (0.15, 0.60),
+    "gpt-4o": (2.50, 10.00),
+    "gpt-4.1-mini": (0.40, 1.60),
+    "gpt-4.1": (2.00, 8.00),
+    "o3-mini": (1.10, 4.40),
+}
+
+
+def _log_llm_usage(response, source: str, use_search: bool = False, provider: str = "gemini", latency_sec: float = 0.0):
+    """[비용/성능 추적] 각 LLM(Gemini/OpenAI) 호출의 토큰·비용·지연시간을 JSONL에 1줄 기록."""
     try:
-        from datetime import datetime  # 모듈 레벨 미import — 로컬 import로 NameError 방지
-        um = getattr(response, "usage_metadata", None)
-        if um is None:
-            return
+        from datetime import datetime
+        if isinstance(response, LLMResponse):
+            in_t = response.in_tokens
+            out_t = response.out_tokens
+            tot_t = response.total_tokens
+            mdl = response.model
+            prov = response.provider
+            lat = response.latency_sec
+        else:
+            # Gemini 원본 응답 객체
+            um = getattr(response, "usage_metadata", None)
+            in_t = int(getattr(um, "prompt_token_count", 0) or 0) if um else 0
+            out_t = int(getattr(um, "candidates_token_count", 0) or 0) if um else 0
+            tot_t = int(getattr(um, "total_token_count", 0) or 0) if um else 0
+            mdl = str(getattr(response, "model_version", "") or getattr(response, "model", "") or "gemini")
+            prov = provider
+            lat = round(latency_sec, 3)
+
+        cost = _calc_estimated_cost(prov, mdl, in_t, out_t)
         rec = {
             "ts": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             "source": source or "unknown",
-            "model": str(getattr(response, "model_version", "") or ""),
-            "in": int(getattr(um, "prompt_token_count", 0) or 0),
-            "out": int(getattr(um, "candidates_token_count", 0) or 0),
-            "think": int(getattr(um, "thoughts_token_count", 0) or 0),
-            "total": int(getattr(um, "total_token_count", 0) or 0),
+            "provider": prov,
+            "model": mdl,
+            "in": in_t,
+            "out": out_t,
+            "total": tot_t,
+            "latency_sec": lat,
+            "cost_usd": round(cost, 6),
             "search": bool(use_search),
         }
-        path = os.path.join(os.path.dirname(__file__), "data_csv", "gemini_usage.jsonl")
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        with open(path, "a", encoding="utf-8") as f:
+
+        # 1. 통합 로깅
+        path_all = os.path.join(os.path.dirname(__file__), "data_csv", "ai_usage.jsonl")
+        os.makedirs(os.path.dirname(path_all), exist_ok=True)
+        with open(path_all, "a", encoding="utf-8") as f:
             f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+
+        # 2. 기존 gemini_usage.jsonl 호환 기록 (Gemini인 경우)
+        if prov == "gemini":
+            path_gem = os.path.join(os.path.dirname(__file__), "data_csv", "gemini_usage.jsonl")
+            with open(path_gem, "a", encoding="utf-8") as f:
+                f.write(json.dumps(rec, ensure_ascii=False) + "\n")
     except Exception:
         pass
 
 
-def _call_gemini(prompt, use_search=False, temperature=0.7, response_mime_type=None, timeout_sec=None, max_output_tokens=8000, thinking=False):
+def _log_gemini_usage(response, source: str, use_search: bool = False):
+    """기존 _log_gemini_usage 호환 래퍼."""
+    _log_llm_usage(response, source, use_search=use_search, provider="gemini")
+
+
+_OPENAI_CLIENT = None
+_OPENAI_CLIENT_LOCK = threading.Lock()
+
+def _get_openai_client():
+    """OpenAI 클라이언트 싱글톤 반환."""
+    global _OPENAI_CLIENT
+    if _OPENAI_CLIENT is None:
+        with _OPENAI_CLIENT_LOCK:
+            if _OPENAI_CLIENT is None:
+                from openai import OpenAI
+                api_key = os.getenv("OPENAI_API_KEY", "")
+                if not api_key:
+                    raise ValueError("OPENAI_API_KEY가 .env 파일에 설정되어 있지 않습니다.")
+                _OPENAI_CLIENT = OpenAI(api_key=api_key)
+    return _OPENAI_CLIENT
+
+
+def _call_openai(prompt, use_search=False, temperature=0.7, response_mime_type=None,
+                 timeout_sec=None, max_output_tokens=8000, model=None, _source=None) -> LLMResponse:
+    """OpenAI API 호출 헬퍼 (Chat Completions / Responses 호환 + 지연시간 및 비용 로깅).
+
+    use_search=True면 Responses API의 web_search 도구로 실시간 웹 검색을
+    실제로 수행한다 (그냥 켜기만 하고 검색은 안 하면 Gemini 대비 시황·뉴스 그라운딩이
+    통째로 빠지는 것과 같아서, 반드시 실검색 경로를 타도록 분리했다).
+    _source: 호출 출처(기능명) 강제 지정 — _call_llm 경유 시 원래 호출자 함수명을 그대로
+    비용 로그에 남기기 위함 (지정 없으면 직접 호출자를 inspect로 추정).
+    """
+    import inspect as _inspect
+    import time as _t
+    if _source:
+        _usage_src = _source
+    else:
+        try:
+            _usage_src = _inspect.stack()[1].function
+        except Exception:
+            _usage_src = "unknown"
+
+    _timeout = timeout_sec if timeout_sec else _API_TIMEOUT_SEC
+    target_model = model or os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+    client = _get_openai_client()
+
+    start_t = _t.perf_counter()
+    try:
+        if use_search:
+            # ── 실시간 웹 검색 그라운딩 (Responses API) ──────────────────────
+            kwargs = {
+                "model": target_model,
+                "input": prompt,
+                "tools": [{"type": "web_search"}],
+                "temperature": temperature,
+                "timeout": _timeout,
+            }
+            if max_output_tokens:
+                kwargs["max_output_tokens"] = max_output_tokens
+            response = client.responses.create(**kwargs)
+            latency = _t.perf_counter() - start_t
+
+            res_text = getattr(response, "output_text", "") or ""
+            usage = getattr(response, "usage", None)
+            in_tokens = int(getattr(usage, "input_tokens", 0) or 0) if usage else 0
+            out_tokens = int(getattr(usage, "output_tokens", 0) or 0) if usage else 0
+            actual_model = getattr(response, "model", target_model)
+        else:
+            messages = [
+                {"role": "user", "content": prompt}
+            ]
+            kwargs = {
+                "model": target_model,
+                "messages": messages,
+                "temperature": temperature,
+                "timeout": _timeout,
+            }
+            if max_output_tokens:
+                kwargs["max_tokens"] = max_output_tokens
+
+            # JSON 응답 요청 처리 — prompt에 'json' 단어가 포함되어야 json_object 모드가 동작함
+            if response_mime_type == "application/json" or "json" in prompt.lower():
+                kwargs["response_format"] = {"type": "json_object"}
+
+            response = client.chat.completions.create(**kwargs)
+            latency = _t.perf_counter() - start_t
+
+            res_text = response.choices[0].message.content or ""
+            in_tokens = int(getattr(response.usage, "prompt_tokens", 0) or 0)
+            out_tokens = int(getattr(response.usage, "completion_tokens", 0) or 0)
+            actual_model = getattr(response, "model", target_model)
+
+        llm_res = LLMResponse(
+            text=res_text,
+            model=actual_model,
+            in_tokens=in_tokens,
+            out_tokens=out_tokens,
+            latency_sec=latency,
+            provider="openai",
+            search_used=bool(use_search),
+            raw_response=response
+        )
+        _log_llm_usage(llm_res, _usage_src, use_search=use_search, provider="openai", latency_sec=latency)
+        return llm_res
+
+    except Exception as e:
+        latency = _t.perf_counter() - start_t
+        print(f"[_call_openai 에러] model={target_model} latency={latency:.2f}s error={e}")
+        raise e
+
+
+def _call_llm(prompt, use_search=False, temperature=0.7, response_mime_type=None,
+              timeout_sec=None, max_output_tokens=8000, thinking=False,
+              provider=None, model=None):
+    """통합 LLM 라우터 (AI_PROVIDER 환경변수 또는 provider 인자에 따라 분기).
+    
+    지원 모드:
+    - 'gemini' (기본): 기존 Gemini API 호출
+    - 'openai': OpenAI API 호출
+    - 'benchmark': Gemini와 OpenAI를 동시 실행하여 지연시간/비용/성능 비교 로깅
+
+    [비용 로그 출처 보존] _call_gemini/_call_openai는 "바로 위 호출자 함수명"을
+    inspect로 추정해 ai_usage.jsonl의 source로 남긴다. 이 라우터를 한 겹 거치면
+    그 추정값이 항상 "_call_llm"이 되어 기능별 비용 추적(예: generate_market_scenarios가
+    비용의 주범이라는 식의 분석)이 무력화되므로, 진짜 호출자를 여기서 한 번만 잡아
+    _source로 그대로 흘려보낸다.
+    """
+    import inspect as _inspect
+    try:
+        _caller_src = _inspect.stack()[1].function
+    except Exception:
+        _caller_src = "unknown"
+
+    active_provider = (provider or os.getenv("AI_PROVIDER", "gemini")).strip().lower()
+
+    if active_provider == "benchmark":
+        import time as _t
+        # 1. Gemini 호출
+        t0 = _t.perf_counter()
+        gem_res = None
+        gem_err = None
+        try:
+            gem_res = _call_gemini(prompt, use_search=use_search, temperature=temperature,
+                                   response_mime_type=response_mime_type, timeout_sec=timeout_sec,
+                                   max_output_tokens=max_output_tokens, thinking=thinking,
+                                   _source=_caller_src)
+        except Exception as ge:
+            gem_err = ge
+
+        # 2. OpenAI 호출
+        oai_res = None
+        oai_err = None
+        try:
+            oai_res = _call_openai(prompt, use_search=use_search, temperature=temperature,
+                                   response_mime_type=response_mime_type, timeout_sec=timeout_sec,
+                                   max_output_tokens=max_output_tokens, model=model, _source=_caller_src)
+        except Exception as oe:
+            oai_err = oe
+
+        print(f"[BENCHMARK] Gemini={'OK' if gem_res else str(gem_err)} | OpenAI={'OK' if oai_res else str(oai_err)}")
+        if oai_res is not None:
+            return oai_res
+        if gem_res is not None:
+            return gem_res
+        raise gem_err or oai_err or Exception("All LLM providers failed in benchmark mode")
+
+    elif active_provider == "openai":
+        return _call_openai(prompt, use_search=use_search, temperature=temperature,
+                            response_mime_type=response_mime_type, timeout_sec=timeout_sec,
+                            max_output_tokens=max_output_tokens, model=model, _source=_caller_src)
+    else:
+        import time as _t
+        t0 = _t.perf_counter()
+        gem_res = _call_gemini(prompt, use_search=use_search, temperature=temperature,
+                               response_mime_type=response_mime_type, timeout_sec=timeout_sec,
+                               max_output_tokens=max_output_tokens, thinking=thinking,
+                               _source=_caller_src)
+        lat = _t.perf_counter() - t0
+        text = getattr(gem_res, "text", "") or str(gem_res)
+        um = getattr(gem_res, "usage_metadata", None)
+        in_t = int(getattr(um, "prompt_token_count", 0) or 0) if um else 0
+        out_t = int(getattr(um, "candidates_token_count", 0) or 0) if um else 0
+        mdl = str(getattr(gem_res, "model_version", "") or getattr(gem_res, "model", "") or "gemini-2.5-flash")
+        
+        return LLMResponse(
+            text=text,
+            model=mdl,
+            in_tokens=in_t,
+            out_tokens=out_t,
+            latency_sec=lat,
+            provider="gemini",
+            search_used=bool(use_search),
+            raw_response=gem_res
+        )
+
+
+def _call_gemini(prompt, use_search=False, temperature=0.7, response_mime_type=None, timeout_sec=None, max_output_tokens=8000, thinking=False, _source=None):
     """Gemini API 호출 공통 헬퍼 (모델 폴백 + 재시도 + 타임아웃).
     [비용방어] gemini-2.5 계열은 기본적으로 thinking_budget=0으로 thinking 토큰(출력 토큰으로 과금되는
     주범)을 차단한다. thinking=True를 주면 _THINKING_BUDGET_ON(제한된 예산)만큼 추론을 켠다 —
     등급 산정·심층 시나리오 등 '판단'이 중요한 분석형 함수에만 사용할 것.
     기본 max_output_tokens=8000 — 구조화 JSON이 잘리지 않도록 충분히 확보하되 출력은 자연 종료(STOP).
     초장문 시나리오가 필요하면 호출부에서 명시적으로 더 늘릴 것.
+    _source: 호출 출처(기능명) 강제 지정 — _call_llm 경유 시 원래 호출자 함수명을 그대로
+    비용 로그에 남기기 위함 (지정 없으면 직접 호출자를 inspect로 추정).
     """
     import concurrent.futures
     import copy
     _timeout = timeout_sec if timeout_sec else _API_TIMEOUT_SEC
     global _QUOTA_BLOCK_UNTIL
-    # [비용 추적] 어느 기능이 이 호출을 했는지 = 바로 위 호출자 함수명
-    try:
-        import inspect as _inspect
-        _usage_src = _inspect.stack()[1].function
-    except Exception:
-        _usage_src = "unknown"
+    # [비용 추적] 어느 기능이 이 호출을 했는지 = 바로 위 호출자 함수명 (없으면 강제 지정값 사용)
+    if _source:
+        _usage_src = _source
+    else:
+        try:
+            import inspect as _inspect
+            _usage_src = _inspect.stack()[1].function
+        except Exception:
+            _usage_src = "unknown"
 
     import time as _qt
     if _qt.time() < _QUOTA_BLOCK_UNTIL:
@@ -750,7 +1020,7 @@ def generate_daily_briefing():
     }
     """
     try:
-        response = _call_gemini(prompt, use_search=True, temperature=0.7)
+        response = _call_llm(prompt, use_search=True, temperature=0.7)
         return _parse_json_response(response)
     except Exception as e:
         return {"error": _friendly_error(e), "sectors": []}
@@ -812,7 +1082,7 @@ def generate_market_commentary() -> dict:
 
 형식: 첫 줄은 제목(마크다운 기호 없이 한 줄, 칼럼 제목답게 함축적이고 품위 있게), 그 다음 줄부터 본문(마크다운 문단, 핵심은 **굵게**, 적당한 이모지)."""
     try:
-        response = _call_gemini(prompt, use_search=True, temperature=0.85,
+        response = _call_llm(prompt, use_search=True, temperature=0.85,
                                 max_output_tokens=4096, timeout_sec=95)
         text = _strip_hanja((getattr(response, "text", "") or "").strip())
         if not text:
@@ -946,7 +1216,7 @@ def _generate_market_scenarios_legacy() -> dict:
         "}"
     )
     try:
-        response = _call_gemini(prompt, use_search=True, temperature=0.6, timeout_sec=220, max_output_tokens=16000, thinking=True)
+        response = _call_llm(prompt, use_search=True, temperature=0.6, timeout_sec=220, max_output_tokens=16000, thinking=True)
         res = _parse_json_response(response)
         _fix_scenario_names(res)
         _diversify_probabilities(res)
@@ -1038,7 +1308,7 @@ def _scout_market_issues(recent_titles: list) -> list:
         '"impact_rank": 1, "status": "신규/새국면/지속", "carry_of": "원제목(신규면 빈값)", '
         '"new_catalyst": "오늘 확인된 촉매·업데이트 한 줄"}]}'
     )
-    response = _call_gemini(prompt, use_search=True, temperature=0.5,
+    response = _call_llm(prompt, use_search=True, temperature=0.5,
                             timeout_sec=70, max_output_tokens=2500, thinking=False)
     res = _parse_json_response(response)
     cands = res.get("candidates") if isinstance(res, dict) else None
@@ -1116,7 +1386,7 @@ def _deep_dive_issue(stub: dict) -> dict:
         p = prompt if attempt == 0 else (
             prompt + "\n\n⚠️ 직전 응답이 JSON이 아니어서 폐기됐습니다. 설명·마크다운 없이 '{'로 시작하는 JSON 객체만 출력하세요.")
         try:
-            response = _call_gemini(p, use_search=True, temperature=0.6 if attempt == 0 else 0.4,
+            response = _call_llm(p, use_search=True, temperature=0.6 if attempt == 0 else 0.4,
                                     timeout_sec=140, max_output_tokens=7000, thinking=True)
             parsed = _parse_json_response(response)
             if isinstance(parsed, dict) and parsed.get("scenarios"):
@@ -1291,7 +1561,7 @@ def analyze_custom_issue(keyword: str) -> dict:
         "}"
     )
     try:
-        response = _call_gemini(prompt, use_search=True, temperature=0.6, timeout_sec=220, max_output_tokens=16000, thinking=True)
+        response = _call_llm(prompt, use_search=True, temperature=0.6, timeout_sec=220, max_output_tokens=16000, thinking=True)
         res = _parse_json_response(response)
 
         _fix_scenario_names(res)
@@ -1320,7 +1590,7 @@ def expand_mindmap_keywords(topic: str, context: str = "") -> dict:
         '{"keywords": [{"label": "짧은키워드", "desc": "한 줄 설명"}]}'
     )
     try:
-        response = _call_gemini(
+        response = _call_llm(
             prompt, use_search=False, temperature=0.85,
             response_mime_type="application/json",
             timeout_sec=40, max_output_tokens=1200, thinking=False,
@@ -1407,7 +1677,7 @@ def generate_scenario_detail(issue_title: str, scenario_title: str, economic_ana
         "}"
     )
     try:
-        response = _call_gemini(prompt, use_search=False, temperature=0.5, timeout_sec=45, max_output_tokens=8000, thinking=True)
+        response = _call_llm(prompt, use_search=False, temperature=0.5, timeout_sec=45, max_output_tokens=8000, thinking=True)
         res = _parse_json_response(response)
         # [Python Override - 실시간 현재가 기반 단타 & 장타 타점 교정]
         try:
@@ -1538,7 +1808,7 @@ def generate_mindmap_data():
       D[금리 인하 우려] -->|악재| E(비트코인 하락)
     '''
     try:
-        response = _call_gemini(prompt, use_search=False, temperature=0.5)
+        response = _call_llm(prompt, use_search=False, temperature=0.5)
         code = response.text.replace('```mermaid', '').replace('```', '').strip()
         if not code.startswith('graph'):
             code = 'graph TD\n' + code
@@ -1725,12 +1995,6 @@ def analyze_autonomous_trading(ticker: str, name: str, current_price: float, mar
         if ticker_clean in shadow_anchors_map:
             shadow_warning = f"\n[★ ⚠️ 쉐도우 자산 연동 감지] 이 종목은 {shadow_anchors_map[ticker_clean]}로 인해 시장에서 급등락하는 대표적 지분연동/간접 수혜 쉐도우 종목입니다. 본업 실적보다 연계 자산(비트코인, 스페이스X, 초전도성 검증 등)의 외생적 요소로 요동치므로, 신중하고 극도로 방어적인 포지션을 결정하세요."
 
-        api_key = os.environ.get("GEMINI_API_KEY")
-        if not api_key:
-            return {"action": "HOLD", "confidence": 0, "reason": "API Key Error"}
-            
-        client = genai.Client(api_key=api_key, http_options={"api_version": "v1alpha"})
-            
         # 수수료 정보 계산 (AI에게 실질 손익 기준 제시)
         if market == "국내":
             fee_roundtrip_pct = 0.21   # 매수 0.015% + 매도 0.015% + 거래세 0.18%
@@ -1756,16 +2020,17 @@ def analyze_autonomous_trading(ticker: str, name: str, current_price: float, mar
             if position == "NONE" else ""
         )
 
-        system_instruction = f"""당신은 월스트리트 출신의 냉철한 AI 퀀트 트레이더입니다.\n반드시 모든 출력을 한국어(한글)로 작성하세요. 영어 문장으로 답변하면 안 됩니다 — 영문은 종목 티커·기업 고유명사에만 허용합니다. 한자(漢字)는 절대 금지.{shadow_warning}
-지금 당신은 [{name} ({ticker})] 종목에 대해 {position} 상태입니다.\n반드시 모든 출력을 한국어(한글)로 작성하세요. 영어 문장으로 답변하면 안 됩니다 — 영문은 종목 티커·기업 고유명사에만 허용합니다. 한자(漢字)는 절대 금지.
+        full_prompt = f"""당신은 월스트리트 출신의 냉철한 AI 퀀트 트레이더입니다.
+반드시 모든 출력을 한국어(한글)로 작성하세요. 영어 문장으로 답변하면 안 됩니다 — 영문은 종목 티커·기업 고유명사에만 허용합니다. 한자(漢字)는 절대 금지.{shadow_warning}
+지금 당신은 [{name} ({ticker})] 종목에 대해 {position} 상태입니다.
 시장: {market}
 현재가: {current_price:,} | 평단가: {avg_price:,}
 수수료 구조: 왕복 {fee_roundtrip_pct:.2f}% (매수+매도+거래세 합산)
 수수료 공제 후 실질 손익률: {net_pct:+.2f}%
-추가정보: {info}
+추가정보: {info}{tech_info}
 
 [핵심 규칙 - 반드시 준수]
-- 당신은 스캘핑(초단타)을 절대 하지 않으며, 하루 1~3회 내외로 극도로 신중하게 매매하는 중단기/스윙 트레이더입니다.\n반드시 모든 출력을 한국어(한글)로 작성하세요. 영어 문장으로 답변하면 안 됩니다 — 영문은 종목 티커·기업 고유명사에만 허용합니다. 한자(漢字)는 절대 금지. 잦은 거래는 잦은 수수료와 슬리피지 손실을 부릅니다.
+- 당신은 스캘핑(초단타)을 절대 하지 않으며, 하루 1~3회 내외로 극도로 신중하게 매매하는 중단기/스윙 트레이더입니다. 잦은 거래는 잦은 수수료와 슬리피지 손실을 부릅니다.
 - SELL은 수수료 공제 후 실질 손익률이 최소 +2.50% 이상(안정적인 스윙 수익실현) 또는 -3.0% 이하(안정적인 스윙 손절)일 때만 고려하세요. (0.3% 내외의 이익으로 조기 청산하는 단타성 매도는 엄격히 금지됩니다.)
 - BUY는 1분/5분 차트의 일시적 노이즈에 유혹당하지 말고, 일봉/시간봉 상 확실한 눌림목이나 바닥 다지기가 확인되어 최소 몇 시간에서 며칠간 진득하게 보유할 만한 가치가 있는 강력한 타점에서만 결정하세요. 확신이 없다면 무조건 HOLD하세요.
 - [★ 실측 매매 플레이북 — 이 시스템의 실전 추천 561건 사후 검증 결과] 매수 형태별 실제 7일 승률:
@@ -1781,29 +2046,24 @@ def analyze_autonomous_trading(ticker: str, name: str, current_price: float, mar
 - BUY(물타기·추가매수)는 다음을 전부 충족할 때만: ①중장기 관점의 투자 논리가 여전히 유효(재료 소멸·구조 붕괴 아님) ②현재가가 눌림목 형태(볼린저 하단권, 투매 아닌 조정) ③실질 손익 -3%~-25% 구간. -15% 이하 깊은 구간의 물타기는 투자 논리가 아주 확실할 때만(확신도 80 이상으로 표현) — 통계적으로 -15% 이상 밀린 종목의 86%는 더 떨어졌으므로, 하락 이유가 이슈 소멸·구조 붕괴라면 물타기 대신 SELL을 고려하세요. 단기 반등을 노린 물타기는 금지. 확신 없으면 HOLD.
 
 당신의 결정을 반드시 다음 JSON 형식으로만 응답하세요:
-{{{{
+{{
   "action": "BUY" 또는 "SELL" 또는 "HOLD",
   "confidence": 1에서 100 사이의 확신도 (정수),
   "reason": "결정에 대한 명확한 사유 (1-2문장 이내)"{hz_field}{lp_field}
-}}}}
+}}
 절대 다른 마크다운이나 설명을 덧붙이지 마세요."""
 
-        response = client.models.generate_content(
-            model="gemini-2.5-flash",
-            contents="이 종목에 대해 어떻게 처분해야 할까?",
-            config=types.GenerateContentConfig(
-                system_instruction=system_instruction,
-                temperature=0.3,
-                response_mime_type="application/json",
-                # [비용방어] 이 호출은 _call_gemini를 거치지 않아 thinking_budget=0 기본방어가
-                # 적용되지 않았음 → thinking 토큰이 출력으로 과금되던 누수. 명시적으로 0 차단.
-                thinking_config=types.ThinkingConfig(thinking_budget=0),
-            ),
+        response = _call_llm(
+            prompt=full_prompt,
+            use_search=False,
+            temperature=0.3,
+            response_mime_type="application/json"
         )
-        _log_gemini_usage(response, "analyze_autonomous_trading(agent)", use_search=False)
-        res_text = response.text.strip()
+        res_text = str(response).strip()
         if res_text.startswith("```json"):
-            res_text = res_text[7:-3]
+            res_text = res_text[7:-3].strip()
+        elif res_text.startswith("```"):
+            res_text = res_text[3:-3].strip()
         result_dict = json.loads(res_text)
         
         # 지표 스냅샷을 결과에 병합 (에이전트 기록용)
@@ -1949,7 +2209,7 @@ def analyze_sell_timing(ticker: str, name: str, avg_price: float, current_price:
         _last = None
         for _attempt in range(2):
             try:
-                response = _call_gemini(prompt, use_search=True, temperature=0.4, timeout_sec=90)
+                response = _call_llm(prompt, use_search=True, temperature=0.4, timeout_sec=90)
                 res = _parse_json_response(response)
                 break
             except Exception as _pe:
@@ -2080,7 +2340,7 @@ def generate_stock_report(ticker, current_price, change_pct):
 """
     try:
         # RAG 뉴스 정보가 이미 완벽하게 주입되었으므로 딜레이 최소화를 위해 use_search=False로 설정
-        response = _call_gemini(prompt, use_search=False, temperature=0.7, max_output_tokens=6000, thinking=True)
+        response = _call_llm(prompt, use_search=False, temperature=0.7, max_output_tokens=6000, thinking=True)
         res = _parse_json_response(response)
 
         # AI가 객체가 아닌 배열/문자열 등 비정상 형식으로 응답한 경우 오류 dict 반환 (이후 .get 크래시 방지)
@@ -2210,7 +2470,7 @@ def discover_hot_day_trading_stock(context=""):
     ⚠️ [수치 산정 주의] 최종 타점은 시스템이 실시간 현재가를 재조회하여 강제 덮어쓰기 하므로, AI는 최적의 종목 발굴 논리에만 집중하세요.
     """
     try:
-        response = _call_gemini(prompt, use_search=True, temperature=0.8)
+        response = _call_llm(prompt, use_search=True, temperature=0.8)
         res = _parse_json_response(response)
 
         # [Python Override - Hallucination Prevention]
@@ -2565,7 +2825,7 @@ KOSDAQ: {kosdaq.get('index',0):,.2f}  ({kosdaq.get('change_pct',0):+.2f}%)
 ③ code가 실제 KRX 6자리 코드인지 확인하세요 (숫자 6자리 형식)."""
 
     try:
-        response = _call_gemini(prompt, use_search=True, temperature=0.35)
+        response = _call_llm(prompt, use_search=True, temperature=0.35)
         result = _parse_json_response(response)
 
         # 종목명-코드 정합성 교정 — AI가 name/code를 잘못 짝짓는 경우(예: '한국정보공학'에
@@ -2775,7 +3035,7 @@ PER: {price_data.get('per', '-')} | PBR: {price_data.get('pbr', '-')}
 !! [딥링크] 종목 언급 시 반드시 '종목명(6자리코드)' 형식: 삼성전자(005930), SK하이닉스(000660) 등
 """
     try:
-        response = _call_gemini(prompt, use_search=True, temperature=0.7, max_output_tokens=6000, thinking=True)
+        response = _call_llm(prompt, use_search=True, temperature=0.7, max_output_tokens=6000, thinking=True)
         res = _parse_json_response(response)
 
         # AI가 객체가 아닌 배열/문자열 등 비정상 형식으로 응답한 경우 오류 dict 반환 (이후 .get 크래시 방지)
@@ -2915,7 +3175,7 @@ def analyze_box_pattern(ticker: str, name: str, price_data: dict, market: str = 
 }}"""
 
     try:
-        response = _call_gemini(prompt, use_search=True, temperature=0.5)
+        response = _call_llm(prompt, use_search=True, temperature=0.5)
         res = _parse_json_response(response)
         # [Python Override - 정량 계산값으로 강제 덮어쓰기]
         res["support_line"] = sup_str
@@ -2976,7 +3236,7 @@ def generate_dynamic_themes():
     }
     """
     try:
-        response = _call_gemini(prompt, use_search=True, temperature=0.7)
+        response = _call_llm(prompt, use_search=True, temperature=0.7)
         result = _parse_json_response(response)
         if result and "error" not in result:
             save_ai_cache(_DT_KEY, result, ttl_hours=0.5)  # DB 캐시 30분
@@ -3064,7 +3324,7 @@ def analyze_kr_hot_sectors() -> dict:
 }}"""
 
     try:
-        response = _call_gemini(prompt, use_search=True, temperature=0.5)
+        response = _call_llm(prompt, use_search=True, temperature=0.5)
         result = _parse_json_response(response)
         _update_hs_cache(result)  # 모듈 레벨 캐시도 갱신
         if result and "error" not in result:
@@ -3138,7 +3398,7 @@ def analyze_today_market() -> dict:
 }}"""
 
     try:
-        response = _call_gemini(prompt, use_search=True, temperature=0.4)
+        response = _call_llm(prompt, use_search=True, temperature=0.4)
         return _parse_json_response(response)
     except Exception as e:
         if "QUOTA" in str(e) or "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
@@ -3175,7 +3435,7 @@ def analyze_market_pattern(keyword: str) -> dict:
   "key_stocks_to_watch": ["주목할 국내 종목명1", "종목명2", "종목명3"]
 }}"""
     try:
-        response = _call_gemini(prompt, use_search=True, temperature=0.5)
+        response = _call_llm(prompt, use_search=True, temperature=0.5)
         return _parse_json_response(response)
     except Exception as e:
         return {"keyword": keyword, "error": _friendly_error(e)}
@@ -3193,7 +3453,7 @@ def generate_related_stocks(ticker: str, sector: str = "") -> list:
   ...
 ]"""
     try:
-        response = _call_gemini(prompt, use_search=True, temperature=0.5)
+        response = _call_llm(prompt, use_search=True, temperature=0.5)
         result = _parse_json_response(response)
         return result if isinstance(result, list) else []
     except Exception:
@@ -3376,7 +3636,7 @@ DOW    : {dow.get('price',0):,.2f}  ({dow.get('change_pct',0):+.2f}%)
 ③ ticker가 실제 NYSE/NASDAQ 상장 심볼인지 확인하세요."""
 
     try:
-        response = _call_gemini(prompt, use_search=True, temperature=0.35)
+        response = _call_llm(prompt, use_search=True, temperature=0.35)
         return _parse_json_response(response)
     except Exception as e:
         return {"error": _friendly_error(e), "picks": []}
@@ -3423,7 +3683,7 @@ def analyze_us_today_market() -> dict:
 }}"""
 
     try:
-        response = _call_gemini(prompt, use_search=True, temperature=0.4)
+        response = _call_llm(prompt, use_search=True, temperature=0.4)
         return _parse_json_response(response)
     except Exception as e:
         if "QUOTA" in str(e) or "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
@@ -3483,7 +3743,7 @@ def analyze_us_hot_sectors() -> dict:
 }}"""
 
     try:
-        response = _call_gemini(prompt, use_search=True, temperature=0.5)
+        response = _call_llm(prompt, use_search=True, temperature=0.5)
         return _parse_json_response(response)
     except Exception as e:
         if "QUOTA" in str(e) or "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
@@ -3557,7 +3817,7 @@ def analyze_sector_theme_linkage(sector_name: str, stocks_with_data: list) -> di
 }}"""
 
     try:
-        resp = _call_gemini(prompt, use_search=True, temperature=0.3)
+        resp = _call_llm(prompt, use_search=True, temperature=0.3)
         return _parse_json_response(resp)
     except Exception as e:
         if "QUOTA" in str(e) or "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
@@ -3653,7 +3913,7 @@ PER: {price_data.get('per','-')}  PBR: {price_data.get('pbr','-')}
 }}"""
 
     try:
-        resp = _call_gemini(prompt, use_search=True, temperature=0.3)
+        resp = _call_llm(prompt, use_search=True, temperature=0.3)
         res = _parse_json_response(resp)
         # [Python Override - 진입 타이밍 조건부]
         try:
@@ -3737,7 +3997,7 @@ def generate_macro_phase_analysis():
     }}
     """
     try:
-        response = _call_gemini(prompt, use_search=False, temperature=0.5)
+        response = _call_llm(prompt, use_search=False, temperature=0.5)
         return _parse_json_response(response)
     except Exception as e:
         if "QUOTA" in str(e) or "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
@@ -3791,7 +4051,7 @@ def analyze_sector_rotation(market_type, raw_market_data):
     형식: 마크다운을 활용하여 가독성 있게 작성하세요.
     """
     try:
-        response = _call_gemini(prompt, use_search=True, temperature=0.7)
+        response = _call_llm(prompt, use_search=True, temperature=0.7)
         if hasattr(response, 'text'):
             return _strip_hanja(response.text)
         return str(response)
@@ -3858,7 +4118,7 @@ def analyze_trade_history(trades: list, past_lessons: list = None) -> dict:
 }}"""
 
     try:
-        response = _call_gemini(prompt, use_search=True, temperature=0.4)
+        response = _call_llm(prompt, use_search=True, temperature=0.4)
         return _parse_json_response(response)
     except Exception as e:
         return {"error": _friendly_error(e), "summary": {}, "trades": []}
@@ -3915,7 +4175,7 @@ def analyze_trading_patterns(records: list) -> dict:
     )
 
     try:
-        response = _call_gemini(prompt, use_search=False, temperature=0.4)
+        response = _call_llm(prompt, use_search=False, temperature=0.4)
         return _parse_json_response(response)
     except Exception as e:
         return {"error": _friendly_error(e)}
@@ -3949,9 +4209,14 @@ def recommend_entry_price(ticker: str, name: str, market: str, current_price: fl
 오직 JSON만 출력하세요. 마크다운 백틱(```json)도 사용하지 마세요.
 """
     try:
-        # _call_gemini 경유: thinking_budget=0(과금 차단) + 비용 로깅 + 모델 폴백 자동 적용
-        response = _call_gemini(prompt, use_search=False, temperature=0.3, response_mime_type="application/json")
-        return json.loads(response.text)
+        # _call_llm 경유: AI_PROVIDER (openai / gemini / benchmark) 자동 라우팅 + 비용 로깅
+        response = _call_llm(prompt, use_search=False, temperature=0.3, response_mime_type="application/json")
+        res_text = str(response).strip()
+        if res_text.startswith("```json"):
+            res_text = res_text[7:-3].strip()
+        elif res_text.startswith("```"):
+            res_text = res_text[3:-3].strip()
+        return json.loads(res_text)
     except Exception as e:
         return {"error": str(e), "recommended_price": current_price, "reason": "AI 타점 추천에 실패했습니다. 현재가를 기준으로 분석을 보완합니다."}
 
@@ -3986,7 +4251,7 @@ def analyze_trade_postmortem(ticker: str, name: str, market: str, buy_price: flo
         "}"
     )
     try:
-        response = _call_gemini(prompt, use_search=False, temperature=0.7, timeout_sec=45)
+        response = _call_llm(prompt, use_search=False, temperature=0.7, timeout_sec=45)
         res = _parse_json_response(response)
         return res
     except Exception as e:
@@ -4025,7 +4290,7 @@ def analyze_shadow_sector_catalyst(ticker: str, name: str, market: str) -> dict:
   "partner_company": "연계된 대형 고객사 또는 지분 보유사 이름 (예: 두나무 / 스페이스X / 현대차 등, 없으면 '-')"
 }}"""
     try:
-        response = _call_gemini(prompt, use_search=True, temperature=0.3, timeout_sec=60)
+        response = _call_llm(prompt, use_search=True, temperature=0.3, timeout_sec=60)
         return _parse_json_response(response)
     except Exception as e:
         print(f"analyze_shadow_sector_catalyst error: {e}")
@@ -4068,7 +4333,7 @@ def discover_shadow_stocks(keyword: str) -> dict:
   ]
 }}"""
     try:
-        response = _call_gemini(prompt, use_search=True, temperature=0.3, timeout_sec=60)
+        response = _call_llm(prompt, use_search=True, temperature=0.3, timeout_sec=60)
         return _parse_json_response(response)
     except Exception as e:
         print(f"discover_shadow_stocks error: {e}")
@@ -4159,7 +4424,7 @@ def analyze_overnight_gap_risk(ticker: str, name: str, market: str) -> dict:
   "stop_loss": "손절가 (숫자만, 예: 11800, 불가 시 N/A)"
 }}"""
     try:
-        response = _call_gemini(prompt, use_search=True, temperature=0.3, timeout_sec=60)
+        response = _call_llm(prompt, use_search=True, temperature=0.3, timeout_sec=60)
     except Exception as e:
         print(f"analyze_overnight_gap_risk call error: {e}")
         return {
@@ -4549,7 +4814,7 @@ def analyze_leading_room_patterns() -> dict:
 투자자가 실제로 활용할 수 있는 구체적 인사이트로 작성해주세요."""
 
     try:
-        response = _call_gemini(prompt, use_search=False, temperature=0.5, timeout_sec=90)
+        response = _call_llm(prompt, use_search=False, temperature=0.5, timeout_sec=90)
         narrative = _strip_hanja(response.text if hasattr(response, "text") else str(response))
     except Exception as e:
         narrative = f"AI 분석 오류: {str(e)}"
@@ -5282,7 +5547,7 @@ def screen_by_my_pattern() -> dict:
 단기 모멘텀 트레이딩 관점에서 구체적이고 실전적으로, 특히 '이미 오른 종목의 남은 여력 근거'를 분명히 답해주세요."""
 
     try:
-        response = _call_gemini(prompt, use_search=True, temperature=0.4, timeout_sec=60)
+        response = _call_llm(prompt, use_search=True, temperature=0.4, timeout_sec=60)
         narrative = _strip_hanja(response.text if hasattr(response, "text") else str(response))
     except Exception as e:
         narrative = f"AI 분석 오류: {str(e)}"
@@ -5449,7 +5714,7 @@ def analyze_agent_daily_issues() -> dict:
 }}"""
 
     try:
-        response = _call_gemini(prompt, use_search=True, temperature=0.4, timeout_sec=90)
+        response = _call_llm(prompt, use_search=True, temperature=0.4, timeout_sec=90)
         result = _parse_json_response(response)
         issues = result.get("issues", []) if isinstance(result, dict) else []
         if issues:
@@ -5727,7 +5992,7 @@ RSI {reentry_rsi_low} ~ {reentry_rsi_high} 구간에서 매수했을 때 승률�
 - 이것은 참고용 분석이며 투자 권유가 아님을 인지하고 신중하게 판단"""
 
     try:
-        response = _call_gemini(prompt, use_search=False, temperature=0.4, timeout_sec=90, max_output_tokens=8000, thinking=True)
+        response = _call_llm(prompt, use_search=False, temperature=0.4, timeout_sec=90, max_output_tokens=8000, thinking=True)
         result = _parse_json_response(response)
     except Exception as e:
         return {"error": f"AI 분석 오류: {str(e)}"}
@@ -6582,7 +6847,7 @@ def detect_us_supply_rotation() -> dict:
 실전 투자자가 바로 활용할 수 있게 구체적으로 답해주세요."""
 
     try:
-        response = _call_gemini(prompt, use_search=False, temperature=0.5, timeout_sec=90)
+        response = _call_llm(prompt, use_search=False, temperature=0.5, timeout_sec=90)
         raw = response.text if hasattr(response, "text") and response.text else str(response)
         narrative = _strip_hanja(raw)
     except Exception as e:
@@ -6700,7 +6965,7 @@ def detect_realtime_supply_rotation() -> dict:
 실전 투자자가 즉시 활용할 수 있는 구체적인 분석을 해주세요."""
 
     try:
-        response = _call_gemini(prompt, use_search=False, temperature=0.5, timeout_sec=90)
+        response = _call_llm(prompt, use_search=False, temperature=0.5, timeout_sec=90)
         raw = response.text if hasattr(response, "text") and response.text else str(response)
         narrative = _strip_hanja(raw)
     except Exception as e:

@@ -1,6 +1,7 @@
 "use client";
 /**
  * 관리자 콘솔 (Phase 4b) — AI 사용 신청 승인 + 유저별 크레딧/사용량/계정 on·off.
+ * + AI 엔진 대시보드 (프로바이더 전환, 사용량 통계, 벤치마크)
  * 관리자만 접근 가능 (백엔드도 require_admin 으로 이중 보호).
  */
 import { useState } from "react";
@@ -203,6 +204,170 @@ export default function AdminPage() {
           </table>
         </div>
       </section>
+
+      {/* AI 엔진 대시보드 */}
+      <AiEngineDashboard />
     </div>
+  );
+}
+
+/* ── AI 엔진 대시보드 컴포넌트 ─────────────────────────────────────────────── */
+function AiEngineDashboard() {
+  const fetcher = (u: string) => fetch(u, { cache: "no-store", headers: { "ngrok-skip-browser-warning": "69420" } }).then(r => r.json());
+
+  const { data: stats, mutate: mutateStats } = useSWR("/backend/api/admin/ai-stats?days=7", fetcher, { refreshInterval: 30000 });
+  const { data: providerInfo, mutate: mutateProvider } = useSWR("/backend/api/admin/ai-provider", fetcher, { refreshInterval: 10000 });
+
+  const [switching, setSwitching] = useState(false);
+  const [switchMsg, setSwitchMsg] = useState<string | null>(null);
+  const [selectedProvider, setSelectedProvider] = useState("openai");
+  const [selectedModel, setSelectedModel] = useState("gpt-4o-mini");
+  const [benchRunning, setBenchRunning] = useState(false);
+  const [benchResult, setBenchResult] = useState<any>(null);
+
+  async function switchProvider() {
+    setSwitching(true);
+    setSwitchMsg(null);
+    const res = await fetch("/backend/api/admin/ai-provider/switch", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "ngrok-skip-browser-warning": "69420" },
+      body: JSON.stringify({ provider: selectedProvider, openai_model: selectedModel }),
+    }).then(r => r.json());
+    setSwitching(false);
+    if (res?.success) {
+      setSwitchMsg(`✅ ${res.message}`);
+      mutateProvider();
+      mutateStats();
+    } else {
+      setSwitchMsg(`❌ ${res?.error || "전환 실패"}`);
+    }
+  }
+
+  async function runBenchmark() {
+    setBenchRunning(true);
+    setBenchResult(null);
+    const res = await fetch("/backend/api/admin/ai-benchmark/run", {
+      method: "POST",
+      headers: { "ngrok-skip-browser-warning": "69420" },
+    }).then(r => r.json());
+    setBenchRunning(false);
+    setBenchResult(res);
+    mutateStats();
+  }
+
+  const providerColor: Record<string, string> = {
+    openai: "#10a37f",
+    gemini: "#4285f4",
+    benchmark: "#f59e0b",
+  };
+
+  const s = stats?.stats ?? {};
+
+  return (
+    <section style={{ background: "var(--color-card)", border: "1px solid var(--color-border)", borderRadius: "12px", padding: "1.2rem", display: "flex", flexDirection: "column", gap: "1rem" }}>
+      <h2 style={{ fontSize: "1rem", fontWeight: 700 }}>🤖 AI 엔진 대시보드</h2>
+
+      {/* 현재 상태 */}
+      <div style={{ display: "flex", gap: "0.8rem", flexWrap: "wrap" }}>
+        <div style={{ background: "var(--color-surface)", borderRadius: "8px", padding: "0.7rem 1rem", display: "flex", flexDirection: "column", gap: "2px" }}>
+          <span style={{ fontSize: "0.7rem", color: "var(--color-muted)" }}>현재 프로바이더</span>
+          <span style={{ fontWeight: 800, fontSize: "1.1rem", color: providerColor[providerInfo?.provider] ?? "#fff" }}>
+            {providerInfo?.provider?.toUpperCase() ?? "—"}
+          </span>
+        </div>
+        <div style={{ background: "var(--color-surface)", borderRadius: "8px", padding: "0.7rem 1rem", display: "flex", flexDirection: "column", gap: "2px" }}>
+          <span style={{ fontSize: "0.7rem", color: "var(--color-muted)" }}>OpenAI 모델</span>
+          <span style={{ fontWeight: 700, fontSize: "0.9rem" }}>{providerInfo?.openai_model ?? "—"}</span>
+        </div>
+        <div style={{ background: "var(--color-surface)", borderRadius: "8px", padding: "0.7rem 1rem", display: "flex", flexDirection: "column", gap: "2px" }}>
+          <span style={{ fontSize: "0.7rem", color: "var(--color-muted)" }}>Gemini Key</span>
+          <span style={{ fontWeight: 700, color: providerInfo?.gemini_key_set ? "#34d399" : "var(--color-danger)" }}>{providerInfo?.gemini_key_set ? "✅ 설정됨" : "❌ 없음"}</span>
+        </div>
+        <div style={{ background: "var(--color-surface)", borderRadius: "8px", padding: "0.7rem 1rem", display: "flex", flexDirection: "column", gap: "2px" }}>
+          <span style={{ fontSize: "0.7rem", color: "var(--color-muted)" }}>OpenAI Key</span>
+          <span style={{ fontWeight: 700, color: providerInfo?.openai_key_set ? "#34d399" : "var(--color-danger)" }}>{providerInfo?.openai_key_set ? "✅ 설정됨" : "❌ 없음"}</span>
+        </div>
+      </div>
+
+      {/* 사용량 통계 (최근 7일) */}
+      {Object.keys(s).length > 0 && (
+        <div>
+          <div style={{ fontSize: "0.78rem", color: "var(--color-muted)", marginBottom: "0.5rem" }}>📊 최근 7일 사용량</div>
+          <div style={{ display: "flex", gap: "0.8rem", flexWrap: "wrap" }}>
+            {Object.entries(s).map(([provider, d]: [string, any]) => (
+              <div key={provider} style={{ background: "var(--color-surface)", borderRadius: "8px", padding: "0.8rem 1rem", minWidth: "180px", borderTop: `3px solid ${providerColor[provider] ?? "#888"}` }}>
+                <div style={{ fontWeight: 800, fontSize: "0.9rem", marginBottom: "0.4rem", color: providerColor[provider] ?? "#fff" }}>
+                  {provider === "openai" ? "🟢 OpenAI" : provider === "gemini" ? "🔵 Gemini" : "🟡 Benchmark"}
+                </div>
+                <div style={{ fontSize: "0.78rem", display: "flex", flexDirection: "column", gap: "2px", color: "var(--color-muted)" }}>
+                  <span>호출 수: <b style={{ color: "var(--color-text)" }}>{d.calls.toLocaleString()}회</b></span>
+                  <span>총 토큰: <b style={{ color: "var(--color-text)" }}>{d.total_tokens.toLocaleString()}</b></span>
+                  <span>총 비용: <b style={{ color: "#fbbf24" }}>${d.cost_usd_total.toFixed(4)} (₩{d.cost_krw_total.toFixed(1)})</b></span>
+                  <span>평균 응답: <b style={{ color: "var(--color-text)" }}>{d.avg_latency_sec != null ? `${d.avg_latency_sec}초` : "—"}</b></span>
+                  <span>검색 포함: <b style={{ color: "var(--color-text)" }}>{d.search_calls}회</b></span>
+                  {Object.entries(d.models).map(([m, cnt]: [string, any]) => (
+                    <span key={m} style={{ fontSize: "0.7rem" }}>└ {m}: {cnt}회</span>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* 프로바이더 전환 */}
+      <div style={{ display: "flex", flexWrap: "wrap", alignItems: "flex-end", gap: "0.6rem" }}>
+        <label style={{ display: "flex", flexDirection: "column", gap: "3px", fontSize: "0.72rem", color: "var(--color-muted)" }}>
+          프로바이더
+          <select value={selectedProvider} onChange={e => setSelectedProvider(e.target.value)}
+            style={{ padding: "6px 8px", borderRadius: "6px", border: "1px solid var(--color-border)", background: "var(--color-bg)", color: "var(--color-text)", fontSize: "0.85rem" }}>
+            <option value="openai">OpenAI</option>
+            <option value="gemini">Gemini</option>
+            <option value="benchmark">Benchmark (둘 다)</option>
+          </select>
+        </label>
+        {(selectedProvider === "openai" || selectedProvider === "benchmark") && (
+          <label style={{ display: "flex", flexDirection: "column", gap: "3px", fontSize: "0.72rem", color: "var(--color-muted)" }}>
+            OpenAI 모델
+            <select value={selectedModel} onChange={e => setSelectedModel(e.target.value)}
+              style={{ padding: "6px 8px", borderRadius: "6px", border: "1px solid var(--color-border)", background: "var(--color-bg)", color: "var(--color-text)", fontSize: "0.85rem" }}>
+              <option value="gpt-4o-mini">gpt-4o-mini (저비용)</option>
+              <option value="gpt-4o">gpt-4o (고성능)</option>
+              <option value="gpt-4.1-mini">gpt-4.1-mini</option>
+            </select>
+          </label>
+        )}
+        <button onClick={switchProvider} disabled={switching} className="stockcy-btn stockcy-btn-primary" style={{ padding: "7px 16px", fontSize: "0.85rem", opacity: switching ? 0.6 : 1 }}>
+          {switching ? "전환 중…" : "⚡ 즉시 전환"}
+        </button>
+        {switchMsg && <span style={{ fontSize: "0.8rem", fontWeight: 600 }}>{switchMsg}</span>}
+      </div>
+
+      {/* 벤치마크 */}
+      <div>
+        <button onClick={runBenchmark} disabled={benchRunning}
+          style={{ padding: "7px 18px", fontSize: "0.85rem", borderRadius: "8px", border: "1px solid #f59e0b", background: "transparent", color: "#f59e0b", cursor: benchRunning ? "not-allowed" : "pointer", fontWeight: 700, opacity: benchRunning ? 0.6 : 1 }}>
+          {benchRunning ? "⏳ 벤치마크 실행 중 (10~15초)…" : "🏁 OpenAI vs Gemini 벤치마크 실행"}
+        </button>
+        {benchResult && (
+          <div style={{ marginTop: "0.7rem", display: "flex", gap: "0.8rem", flexWrap: "wrap" }}>
+            {Object.entries(benchResult.results ?? {}).map(([prov, r]: [string, any]) => (
+              <div key={prov} style={{ background: "var(--color-surface)", borderRadius: "8px", padding: "0.7rem 1rem", minWidth: "200px", borderTop: `3px solid ${providerColor[prov] ?? "#888"}` }}>
+                <div style={{ fontWeight: 700, marginBottom: "0.3rem", color: providerColor[prov] ?? "#fff" }}>{prov.toUpperCase()}</div>
+                {r.status === "ok" ? (
+                  <div style={{ fontSize: "0.78rem", display: "flex", flexDirection: "column", gap: "2px" }}>
+                    <span>⏱ {r.latency_sec}초</span>
+                    <span>추천가: <b>{r.result?.recommended_price?.toLocaleString()}</b></span>
+                    <span style={{ color: "var(--color-muted)", fontSize: "0.7rem" }}>{r.result?.reason?.slice(0, 60)}…</span>
+                  </div>
+                ) : (
+                  <div style={{ color: "var(--color-danger)", fontSize: "0.78rem" }}>❌ {r.error}</div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </section>
   );
 }
