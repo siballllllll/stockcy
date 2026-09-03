@@ -787,8 +787,11 @@ class AnalysisHistoryRequest(BaseModel):
 
 
 @router.post("/analysis-history")
-async def save_analysis_history(req: AnalysisHistoryRequest):
-    """종목 AI 분석 결과를 GSheet 이력에 저장."""
+async def save_analysis_history(req: AnalysisHistoryRequest, _user: dict = Depends(get_current_user)):
+    """종목 AI 분석 결과를 이력(analysis_history)에 저장 — 사후 적중률 검증용.
+
+    [v3.137.0] 인증 추가. 지금까지 호출부가 없어 드러나지 않았지만, 공개 도메인에 열린
+    무인증 DB 쓰기 경로였다. 프론트를 연결하면서 로그인 사용자로 제한한다."""
     from db import save_stock_analysis_history
     ok = await asyncio.to_thread(
         save_stock_analysis_history,

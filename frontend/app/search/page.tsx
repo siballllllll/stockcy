@@ -27,6 +27,24 @@ function _saveAiCache(code: string, result: any, price?: number) {
     localStorage.setItem(_aiKey(code), JSON.stringify({ result, ts: Date.now(), price: Number(price) || 0 }));
   } catch {}
 }
+// [v3.137.0] AI 종목분석 결과를 서버 이력(analysis_history)에 기록.
+// 백엔드에 POST /api/ai/analysis-history와 일일 사후추적(track_ai_recommendation_outcomes),
+// 결과 컬럼(d1/d3/d7_return)까지 다 만들어져 있었는데 프론트에서 부르는 곳이 없어
+// 테이블이 계속 0건이었다 — 매번 돈 내고 분석하고 화면에 한 번 띄운 뒤 버려온 셈.
+// 이걸 기록해야 목표가·손절가가 실제로 맞았는지(적중률)를 사후에 검증할 수 있다.
+// 추가 AI 호출이 없으므로 과금은 0. 실패해도 화면 동작에 영향이 없도록 완전 무시한다.
+// 주의: SSE 분석이 새로 끝난 시점에서만 호출할 것 — 캐시 복원 경로에서 부르면 중복 적재된다.
+function _logAnalysisHistory(market: "KR" | "US", ticker: string, name: string, price: number | undefined, result: any) {
+  if (!ticker || !_isValidAiResult(result)) return;
+  try {
+    fetch("/backend/api/ai/analysis-history", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ market, ticker, name: name || ticker, current_price: price ?? null, analysis: result }),
+    }).catch(() => {});
+  } catch {}
+}
+
 // 반환: { result, ts, price } (없으면 null)
 function _loadAiCache(code: string): { result: any; ts: number; price: number } | null {
   if (typeof window === "undefined" || !code) return null;
@@ -857,7 +875,7 @@ function SearchPageInner() {
           try {
             const parsed = JSON.parse(line.slice(5).trim());
             if (parsed.status === "running") setAiMsg(parsed.message ?? aiMsg);
-            else if (parsed.status === "done") { gotTerminal = true; setAiResult(parsed.result); setAiMeta({ ts: Date.now(), price }); setAiStatus("done"); _saveAiCache(currentCode, parsed.result, price); notifyDone(`stock-${currentCode}`, `${stockName || currentCode} AI 분석`, `/search?q=${currentCode}&market=KR`); }
+            else if (parsed.status === "done") { gotTerminal = true; setAiResult(parsed.result); setAiMeta({ ts: Date.now(), price }); setAiStatus("done"); _saveAiCache(currentCode, parsed.result, price); _logAnalysisHistory("KR", currentCode, stockName, price, parsed.result); notifyDone(`stock-${currentCode}`, `${stockName || currentCode} AI 분석`, `/search?q=${currentCode}&market=KR`); }
             else if (parsed.status === "error") { gotTerminal = true; setAiMsg(`❌ ${parsed.message}`); setAiStatus("error"); }
           } catch {}
         }
@@ -903,7 +921,7 @@ function SearchPageInner() {
           try {
             const parsed = JSON.parse(line.slice(5).trim());
             if (parsed.status === "running") setAiMsg(parsed.message ?? aiMsg);
-            else if (parsed.status === "done") { gotTerminal = true; setAiResult(parsed.result); setAiMeta({ ts: Date.now(), price }); setAiStatus("done"); _saveAiCache(currentCode, parsed.result, price); notifyDone(`stock-${currentCode}`, `${stockName || currentCode} AI 분석`, `/search?q=${currentCode}&market=US`); }
+            else if (parsed.status === "done") { gotTerminal = true; setAiResult(parsed.result); setAiMeta({ ts: Date.now(), price }); setAiStatus("done"); _saveAiCache(currentCode, parsed.result, price); _logAnalysisHistory("US", currentCode, stockName, price, parsed.result); notifyDone(`stock-${currentCode}`, `${stockName || currentCode} AI 분석`, `/search?q=${currentCode}&market=US`); }
             else if (parsed.status === "error") { gotTerminal = true; setAiMsg(`❌ ${parsed.message}`); setAiStatus("error"); }
           } catch {}
         }
