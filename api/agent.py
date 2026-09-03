@@ -598,7 +598,7 @@ def _run_one_scan(force: bool = False) -> dict:
                                 _secondary_provider = "gemini" if _primary_provider == "openai" else "openai"
                                 _secondary_decision = analyze_autonomous_trading(
                                     ticker, name, current_price, market, position, avg_price,
-                                    provider=_secondary_provider, record_decision=False
+                                    provider=_secondary_provider, record_decision=False, allow_failover=False
                                 )
                                 from ai_engine import log_engine_benchmark
                                 log_engine_benchmark(ticker, name, market, position,

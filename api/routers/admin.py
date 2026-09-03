@@ -198,15 +198,18 @@ async def get_ai_provider(_admin: dict = Depends(require_admin)):
 
 
 class ProviderSwitchRequest(BaseModel):
-    provider: str   # "openai" | "gemini" | "benchmark"
+    provider: str   # "openai" | "gemini" | "hybrid" | "benchmark"
     openai_model: str = ""  # "gpt-4o-mini" | "gpt-4o" | ""
 
 
 @router.post("/ai-provider/switch")
 async def switch_ai_provider(req: ProviderSwitchRequest, _admin: dict = Depends(require_admin)):
-    """런타임에 AI 프로바이더를 전환 (재시작 없이 즉시 적용)."""
+    """런타임에 AI 프로바이더를 전환 (재시작 없이 즉시 적용).
+    'openai'/'gemini'는 실패 시 반대 엔진으로 자동 failover, 'hybrid'는 검색 필요 여부로
+    역할 분담(검색=Gemini, 판단=OpenAI) 후 실패 시 반대쪽으로 failover, 'benchmark'는
+    항상 둘 다 호출(failover 아님, 비용 2배)."""
     import os
-    valid = {"openai", "gemini", "benchmark"}
+    valid = {"openai", "gemini", "hybrid", "benchmark"}
     if req.provider not in valid:
         return {"success": False, "error": f"유효하지 않은 provider: {req.provider}. 허용값: {valid}"}
 

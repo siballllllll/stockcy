@@ -762,13 +762,20 @@ def _call_openai(prompt, use_search=False, temperature=0.7, response_mime_type=N
 
 def _call_llm(prompt, use_search=False, temperature=0.7, response_mime_type=None,
               timeout_sec=None, max_output_tokens=8000, thinking=False,
-              provider=None, model=None):
+              provider=None, model=None, allow_failover=True):
     """통합 LLM 라우터 (AI_PROVIDER 환경변수 또는 provider 인자에 따라 분기).
-    
+
     지원 모드:
-    - 'gemini' (기본): 기존 Gemini API 호출
-    - 'openai': OpenAI API 호출
-    - 'benchmark': Gemini와 OpenAI를 동시 실행하여 지연시간/비용/성능 비교 로깅
+    - 'gemini' (기본): Gemini 우선 호출. 실패 시(할당량 소진·타임아웃·장애 등) OpenAI로 자동 전환.
+    - 'openai': OpenAI 우선 호출. 실패 시 Gemini로 자동 전환.
+    - 'hybrid': 역할 분담 — use_search=True(실시간 검색/그라운딩 필요)면 Gemini 우선,
+      False(냉철한 판단·JSON 구조화)면 OpenAI 우선. 각각 실패 시 반대쪽으로 자동 전환.
+    - 'benchmark': Gemini와 OpenAI를 항상 동시 실행해 지연시간/비용/성능을 나란히 로깅
+      (failover가 아니라 매 호출 2배 비용 — 비교/실험 전용, 상시 운영 비추천).
+
+    allow_failover=False: provider를 명시적으로 강제 지정해 "그 엔진 자체의" 응답이 필요한
+    호출(예: 엔진 비교 벤치마크에서 참고 엔진의 판단을 따로 관측할 때)에서, 실패 시 반대
+    엔진으로 조용히 대체되어 비교 표본이 오염되는 것을 막는다.
 
     [비용 로그 출처 보존] _call_gemini/_call_openai는 "바로 위 호출자 함수명"을
     inspect로 추정해 ai_usage.jsonl의 source로 남긴다. 이 라우터를 한 겹 거치면
@@ -784,42 +791,7 @@ def _call_llm(prompt, use_search=False, temperature=0.7, response_mime_type=None
 
     active_provider = (provider or os.getenv("AI_PROVIDER", "gemini")).strip().lower()
 
-    if active_provider == "benchmark":
-        import time as _t
-        # 1. Gemini 호출
-        t0 = _t.perf_counter()
-        gem_res = None
-        gem_err = None
-        try:
-            gem_res = _call_gemini(prompt, use_search=use_search, temperature=temperature,
-                                   response_mime_type=response_mime_type, timeout_sec=timeout_sec,
-                                   max_output_tokens=max_output_tokens, thinking=thinking,
-                                   _source=_caller_src)
-        except Exception as ge:
-            gem_err = ge
-
-        # 2. OpenAI 호출
-        oai_res = None
-        oai_err = None
-        try:
-            oai_res = _call_openai(prompt, use_search=use_search, temperature=temperature,
-                                   response_mime_type=response_mime_type, timeout_sec=timeout_sec,
-                                   max_output_tokens=max_output_tokens, model=model, _source=_caller_src)
-        except Exception as oe:
-            oai_err = oe
-
-        print(f"[BENCHMARK] Gemini={'OK' if gem_res else str(gem_err)} | OpenAI={'OK' if oai_res else str(oai_err)}")
-        if oai_res is not None:
-            return oai_res
-        if gem_res is not None:
-            return gem_res
-        raise gem_err or oai_err or Exception("All LLM providers failed in benchmark mode")
-
-    elif active_provider == "openai":
-        return _call_openai(prompt, use_search=use_search, temperature=temperature,
-                            response_mime_type=response_mime_type, timeout_sec=timeout_sec,
-                            max_output_tokens=max_output_tokens, model=model, _source=_caller_src)
-    else:
+    def _call_gem():
         import time as _t
         t0 = _t.perf_counter()
         gem_res = _call_gemini(prompt, use_search=use_search, temperature=temperature,
@@ -832,17 +804,60 @@ def _call_llm(prompt, use_search=False, temperature=0.7, response_mime_type=None
         in_t = int(getattr(um, "prompt_token_count", 0) or 0) if um else 0
         out_t = int(getattr(um, "candidates_token_count", 0) or 0) if um else 0
         mdl = str(getattr(gem_res, "model_version", "") or getattr(gem_res, "model", "") or "gemini-2.5-flash")
-        
         return LLMResponse(
-            text=text,
-            model=mdl,
-            in_tokens=in_t,
-            out_tokens=out_t,
-            latency_sec=lat,
-            provider="gemini",
-            search_used=bool(use_search),
-            raw_response=gem_res
+            text=text, model=mdl, in_tokens=in_t, out_tokens=out_t, latency_sec=lat,
+            provider="gemini", search_used=bool(use_search), raw_response=gem_res
         )
+
+    def _call_oai():
+        return _call_openai(prompt, use_search=use_search, temperature=temperature,
+                            response_mime_type=response_mime_type, timeout_sec=timeout_sec,
+                            max_output_tokens=max_output_tokens, model=model, _source=_caller_src)
+
+    if active_provider == "benchmark":
+        import time as _t
+        gem_res = None
+        gem_err = None
+        try:
+            gem_res = _call_gem()
+        except Exception as ge:
+            gem_err = ge
+
+        oai_res = None
+        oai_err = None
+        try:
+            oai_res = _call_oai()
+        except Exception as oe:
+            oai_err = oe
+
+        print(f"[BENCHMARK] Gemini={'OK' if gem_res else str(gem_err)} | OpenAI={'OK' if oai_res else str(oai_err)}")
+        if oai_res is not None:
+            return oai_res
+        if gem_res is not None:
+            return gem_res
+        raise gem_err or oai_err or Exception("All LLM providers failed in benchmark mode")
+
+    if active_provider == "hybrid":
+        if use_search:
+            primary, secondary, primary_name, secondary_name = _call_gem, _call_oai, "gemini", "openai"
+        else:
+            primary, secondary, primary_name, secondary_name = _call_oai, _call_gem, "openai", "gemini"
+    elif active_provider == "openai":
+        primary, secondary, primary_name, secondary_name = _call_oai, _call_gem, "openai", "gemini"
+    else:
+        primary, secondary, primary_name, secondary_name = _call_gem, _call_oai, "gemini", "openai"
+
+    try:
+        return primary()
+    except Exception as e1:
+        if not allow_failover:
+            raise
+        print(f"[failover] {primary_name} 호출 실패({e1}) → {secondary_name}로 전환")
+        try:
+            return secondary()
+        except Exception:
+            # 둘 다 실패하면 1차(원래 활성 엔진) 에러가 원인 파악에 더 유용하므로 그걸 올린다.
+            raise e1
 
 
 def _call_gemini(prompt, use_search=False, temperature=0.7, response_mime_type=None, timeout_sec=None, max_output_tokens=8000, thinking=False, _source=None):
@@ -1912,11 +1927,14 @@ def generate_mindmap_data():
     except Exception as e:
         return f"graph TD\n  A[\"분석 시스템\"] --> B[\"{str(e)[:30]}\"]"
 def analyze_autonomous_trading(ticker: str, name: str, current_price: float, market: str, position: str, avg_price: float,
-                                provider: str = None, record_decision: bool = True) -> dict:
+                                provider: str = None, record_decision: bool = True, allow_failover: bool = True) -> dict:
     """AI 자율 매매 에이전트를 위한 매수/매도/홀딩 판단 함수.
     position: "NONE" (미보유) 또는 "HOLDING" (보유중)
     provider: None이면 AI_PROVIDER 환경변수(기본 엔진) 사용. "gemini"/"openai"로 강제 지정 가능
     (엔진 비교 벤치마크용 — 지정 시 캐시 키에 포함되어 기본 엔진 결과와 캐시가 섞이지 않음).
+    allow_failover: False면 provider로 지정한 엔진이 실패해도 반대 엔진으로 대체하지 않고 그대로
+    예외를 올림 — 엔진 비교 벤치마크에서 "참고 엔진"이 조용히 기본 엔진으로 바뀌어 비교가
+    무의미해지는 것을 방지(이 경우 caller가 실패를 감수해야 함).
     record_decision: False면 agent_decisions 자기학습 테이블에 기록하지 않음 — 실거래로 이어지지 않는
     벤치마크용 그림자 호출이 실현 안 될 BUY row로 학습 데이터를 오염시키는 것을 방지."""
     try:
@@ -2160,7 +2178,8 @@ def analyze_autonomous_trading(ticker: str, name: str, current_price: float, mar
             use_search=False,
             temperature=0.3,
             response_mime_type="application/json",
-            provider=provider
+            provider=provider,
+            allow_failover=allow_failover
         )
         res_text = str(response).strip()
         if res_text.startswith("```json"):
