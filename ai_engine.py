@@ -1927,7 +1927,8 @@ def generate_mindmap_data():
     except Exception as e:
         return f"graph TD\n  A[\"분석 시스템\"] --> B[\"{str(e)[:30]}\"]"
 def analyze_autonomous_trading(ticker: str, name: str, current_price: float, market: str, position: str, avg_price: float,
-                                provider: str = None, record_decision: bool = True, allow_failover: bool = True) -> dict:
+                                provider: str = None, record_decision: bool = True, allow_failover: bool = True,
+                                hold_days: int = None, horizon_tag: str = "") -> dict:
     """AI 자율 매매 에이전트를 위한 매수/매도/홀딩 판단 함수.
     position: "NONE" (미보유) 또는 "HOLDING" (보유중)
     provider: None이면 AI_PROVIDER 환경변수(기본 엔진) 사용. "gemini"/"openai"로 강제 지정 가능
@@ -2140,6 +2141,29 @@ def analyze_autonomous_trading(ticker: str, name: str, current_price: float, mar
             if position == "NONE" else ""
         )
 
+        # ── [장기 정체 포지션 재점검 v3.133.0] ──────────────────────────────────
+        # 강제 청산 규칙이 없는 레거시/중장기 보유분은 코드가 끊지 않는다(사용자 결정).
+        # 대신 '정리 여부 판단'을 LLM에게 명시적으로 맡기되, 판단에 필요한 실측을 함께 준다.
+        # 그동안 이 포지션들은 매 스캔 HOLD만 반복되며 2~3개월씩 묶여 있었는데,
+        # 프롬프트에 "오래 들고 있다"는 사실 자체가 없어서 재점검 계기가 없었다.
+        stale_block = ""
+        if position == "HOLDING" and hold_days is not None and hold_days >= 21 and "[스윙]" not in str(horizon_tag):
+            stale_block = f"""
+
+[★ 장기 정체 포지션 재점검 — 반드시 이 관점으로 판단하세요]
+이 종목은 매수 후 {hold_days}일째 보유 중이며, 강제 익절·손절 규칙이 적용되지 않는 포지션입니다.
+이 시스템의 실측 데이터:
+  · 21일 이상 보유한 실현 거래 23건: 승률 30.4%, 평균 -11.01%
+  · 눌림목 진입의 통계적 우위는 7일에 정점(승률 55.2%)을 찍고 20일이면 소멸(31.5%, -5.78%)
+즉 "언젠가 오르겠지"로 계속 들고 있는 것은 이 시스템에서 통계적으로 손실 전략이었습니다.
+지금 다음을 냉정하게 판단하세요:
+  ① 처음 매수했던 투자 논리(재료·차트 구조·수급)가 지금도 유효한가? 소멸했다면 SELL.
+  ② 지금 이 자금을 계속 여기 묶어두는 것이, 새로운 눌림목 기회에 쓰는 것보다 나은가?
+     (아니라면 손실 중이어도 SELL — 기회비용도 손실입니다)
+  ③ 명확한 반등 근거(지지선 확인, 수급 유입, 재료 부활)가 지금 보이는가? 없다면 SELL.
+위 셋 중 하나라도 부정적이면 SELL을 우선 고려하세요. 단순히 "손실 중이라 팔기 아깝다"는
+이유로 HOLD하지 마세요 — 그것이 위 30.4% 승률을 만든 판단입니다."""
+
         full_prompt = f"""당신은 월스트리트 출신의 냉철한 AI 퀀트 트레이더입니다.
 반드시 모든 출력을 한국어(한글)로 작성하세요. 영어 문장으로 답변하면 안 됩니다 — 영문은 종목 티커·기업 고유명사에만 허용합니다. 한자(漢字)는 절대 금지.{shadow_warning}
 지금 당신은 [{name} ({ticker})] 종목에 대해 {position} 상태입니다.
@@ -2147,7 +2171,7 @@ def analyze_autonomous_trading(ticker: str, name: str, current_price: float, mar
 현재가: {current_price:,} | 평단가: {avg_price:,}
 수수료 구조: 왕복 {fee_roundtrip_pct:.2f}% (매수+매도+거래세 합산)
 수수료 공제 후 실질 손익률: {net_pct:+.2f}%
-추가정보: {info}{tech_info}
+추가정보: {info}{tech_info}{stale_block}
 
 [핵심 규칙 - 반드시 준수]
 - 당신은 스캘핑(초단타)을 절대 하지 않으며, 하루 1~3회 내외로 극도로 신중하게 매매하는 중단기/스윙 트레이더입니다. 잦은 거래는 잦은 수수료와 슬리피지 손실을 부릅니다.

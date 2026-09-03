@@ -604,9 +604,20 @@ def _run_one_scan(force: bool = False) -> dict:
 
                 # AI에게 매수/매도/홀딩 판단 요청 (강제 청산이면 Gemini 호출 생략 — 비용 0)
                 if decision is None:
-                    logger.info(f"AI Agent: {name}({ticker}) 분석 중... (Position: {position})")
+                    # 보유 일수·포지션 성격을 함께 넘겨, 강제 청산 규칙이 없는 장기 정체 포지션은
+                    # LLM이 '정리 여부'를 실측 근거와 함께 명시적으로 재점검하게 한다(v3.133.0).
+                    _hd = None
+                    if position == "HOLDING":
+                        _bdt = (holding or {}).get("buy_date") or (holding or {}).get("updated_time")
+                        if _bdt:
+                            try:
+                                _hd = (datetime.now() - datetime.strptime(str(_bdt)[:10], "%Y-%m-%d")).days
+                            except Exception:
+                                _hd = None
+                    logger.info(f"AI Agent: {name}({ticker}) 분석 중... (Position: {position}, 보유 {_hd}일)")
                     decision = analyze_autonomous_trading(
-                        ticker, name, current_price, market, position, avg_price
+                        ticker, name, current_price, market, position, avg_price,
+                        hold_days=_hd, horizon_tag=str((holding or {}).get("rating") or "")
                     )
 
                     # [엔진 비교 벤치마크 v3.129.0 — 기본 off] AGENT_AI_BENCHMARK=1일 때만,
