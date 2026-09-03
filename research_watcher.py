@@ -87,7 +87,7 @@ def run_research_watch(push: bool = True, limit_per: int = 6) -> dict:
 
     issues = []
     try:
-        from ai_engine import _call_gemini
+        from ai_engine import _call_llm
         joined = "\n\n---\n\n".join(f"[{p['channel']}] {p['text']}" for p in new_posts[:12])
         prompt = (
             "다음은 증권사 리서치/이슈 텔레그램 채널의 최신 글들입니다. 투자 관점에서 핵심만 추려주세요.\n"
@@ -97,9 +97,14 @@ def run_research_watch(push: bool = True, limit_per: int = 6) -> dict:
             'JSON 배열로만 출력: [{"issue":"...","sector":"...","stocks":[{"name":"삼성전자","ticker":"005930"}],"direction":"긍정"}]\n\n'
             + joined
         )
-        resp = _call_gemini(prompt, use_search=False, temperature=0.4,
-                            response_mime_type="application/json", max_output_tokens=4000)
-        # _call_gemini은 GenerateContentResponse 객체를 반환 → .text 로 추출
+        # [절충] provider="gemini" 고정 — 이 프롬프트는 최상위 JSON '배열'을 요구하는데,
+        # OpenAI는 response_mime_type=json일 때 json_object 모드(최상위가 반드시 객체)로 동작해
+        # {"issues":[...]}처럼 감싸서 낸다. _parse_json_array가 첫 '['~마지막 ']'을 잘라내 대개
+        # 통과하지만, 배열이 둘 이상 섞이면 조용히 0건이 되므로 평상시엔 Gemini를 쓴다.
+        # 단 _call_llm 경유이므로 Gemini가 죽으면 OpenAI로 failover는 된다(완전 실패보다는 나음).
+        resp = _call_llm(prompt, use_search=False, temperature=0.4, provider="gemini",
+                         response_mime_type="application/json", max_output_tokens=4000)
+        # 응답 객체(LLMResponse 또는 GenerateContentResponse) → .text 로 추출
         if isinstance(resp, str):
             raw = resp
         else:

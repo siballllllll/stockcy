@@ -366,7 +366,7 @@ def curator_daily_report(use_gemini: bool = True) -> dict:
     commentary = ""
     if use_gemini:
         try:
-            from ai_engine import _call_gemini
+            from ai_engine import _call_llm
             prompt = (
                 "당신은 'AI 트레이딩 전략 리그'를 총괄하는 수석 애널리스트입니다.\n"
                 "반드시 한국어로만 작성하세요. 한자 금지.\n"
@@ -380,8 +380,9 @@ def curator_daily_report(use_gemini: bool = True) -> dict:
                 "3) 다음 관찰 포인트 1문장\n"
                 "총 6문장 이내, 담백하게."
             )
-            resp = _call_gemini(prompt, use_search=False, temperature=0.4,
-                                timeout_sec=40, max_output_tokens=800, thinking=False)
+            # _call_llm 경유: hybrid 모드에선 use_search=False라 OpenAI가 1차, 실패 시 Gemini로 failover.
+            resp = _call_llm(prompt, use_search=False, temperature=0.4,
+                             timeout_sec=40, max_output_tokens=800, thinking=False)
             commentary = (resp.text if hasattr(resp, "text") else str(resp)).strip()
         except Exception as e:
             commentary = f"(코멘트 생성 실패: {e})"
