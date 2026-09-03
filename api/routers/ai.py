@@ -1298,7 +1298,7 @@ async def get_screener_feedback_stats(_admin: dict = Depends(require_admin)):
 
 
 @router.post("/screener-backtest/run")
-async def run_screener_backtest():
+async def run_screener_backtest(_user: dict = Depends(get_current_user)):
     """패턴 스크리너 추천 종목의 +1/+3/+7일 사후 성과 백테스트 실행."""
     from ai_engine import backtest_screener_picks
     result = await asyncio.to_thread(backtest_screener_picks)
@@ -1318,7 +1318,7 @@ class StockIssuesReq(BaseModel):
 
 
 @router.post("/stock-issues")
-async def stock_issues(req: StockIssuesReq):
+async def stock_issues(req: StockIssuesReq, _user: dict = Depends(get_current_user)):
     """종목 → 최근(21일) 등장 이슈(시나리오) 맵. 즐겨찾기 '왜 오르는지' 배지용."""
     from db import get_stock_issues
     return await asyncio.to_thread(get_stock_issues, req.tickers, 21)
@@ -1635,7 +1635,7 @@ async def capital_rotation(ticker: str = "", user: dict = Depends(get_current_us
 
 
 @router.post("/alert/send-daily")
-async def send_daily_alert_now():
+async def send_daily_alert_now(_user: dict = Depends(get_current_user)):
     """텔레그램 일일 알림 즉시 발송 (수동 트리거)."""
     from ai_engine import send_daily_alert
     return await asyncio.to_thread(send_daily_alert)
@@ -1650,7 +1650,7 @@ async def preview_daily_alert():
 
 
 @router.post("/alert/send-scenario")
-async def send_scenario_alert_now():
+async def send_scenario_alert_now(_user: dict = Depends(get_current_user)):
     """오늘의 시나리오 텔레그램 알림 즉시 발송 (수동 트리거)."""
     from ai_engine import send_scenario_alert
     return await asyncio.to_thread(send_scenario_alert)
@@ -1665,7 +1665,7 @@ async def preview_scenario_alert():
 
 
 @router.post("/alert/send-scenario-tracking")
-async def send_scenario_tracking_alert_now():
+async def send_scenario_tracking_alert_now(_user: dict = Depends(get_current_user)):
     """시나리오 추적 결과(등장가 대비 수익률) 텔레그램 즉시 발송 (수동 트리거)."""
     from ai_engine import send_scenario_tracking_alert
     return await asyncio.to_thread(send_scenario_tracking_alert)
@@ -1680,7 +1680,7 @@ async def preview_scenario_tracking_alert():
 
 
 @router.post("/scenario-tracking/run")
-async def run_scenario_tracking():
+async def run_scenario_tracking(_user: dict = Depends(get_current_user)):
     """시나리오 등장 종목의 사후 가격 추적 실행."""
     from ai_engine import track_scenario_stocks_performance
     return await asyncio.to_thread(track_scenario_stocks_performance)

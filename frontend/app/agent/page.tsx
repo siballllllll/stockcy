@@ -2,6 +2,7 @@
 import { useState, useMemo, useEffect, useCallback, useRef } from "react";
 import useSWR from "swr";
 import { api } from "@/lib/api";
+import { getToken } from "@/lib/auth-context";
 import { Brain, TrendingUp, History, Clock, Loader2, Sparkles } from "lucide-react";
 import { StatusBox } from "@/components/ui/StatusBox";
 import { AiCostBadge } from "@/components/ui/AiCostBadge";
@@ -161,7 +162,13 @@ export default function AgentDashboardPage() {
     setScanningNow(true);
     setScanNowMsg("AI 에이전트 스캔 실행 중... (최대 수십 초)");
     try {
-      const res = await fetch("/backend/api/portfolio/agent/scan-now", { method: "POST" });
+      // [v3.137.1] 이 엔드포인트는 원래부터 get_current_user가 걸려 있는데 토큰을 안 실어
+      // 401로 실패해왔다("서버 응답 오류 (401)"). 인증 헤더 추가.
+      const _tk = getToken();
+      const res = await fetch("/backend/api/portfolio/agent/scan-now", {
+        method: "POST",
+        headers: _tk ? { Authorization: `Bearer ${_tk}` } : {},
+      });
       const raw = await res.text();
       let j: any = null;
       try { j = JSON.parse(raw); } catch { /* 비-JSON 응답 */ }

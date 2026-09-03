@@ -1149,7 +1149,12 @@ export function ScenarioTrackingPanel() {
     setRunning(true);
     setMsg("가격 추적 중... (수십 초 걸릴 수 있어요)");
     try {
-      const res = await fetch("/backend/api/ai/scenario-tracking/run", { method: "POST" });
+      // [v3.137.1] 백엔드가 이 엔드포인트를 로그인 필수로 바꿨으므로 토큰을 싣는다.
+      const _tk = getToken();
+      const res = await fetch("/backend/api/ai/scenario-tracking/run", {
+        method: "POST",
+        headers: _tk ? { Authorization: `Bearer ${_tk}` } : {},
+      });
       const txt = await res.text();
       let json: any = null;
       try { json = JSON.parse(txt); } catch { /* 비-JSON */ }

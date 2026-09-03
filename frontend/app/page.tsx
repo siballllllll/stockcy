@@ -10,9 +10,19 @@ import { StockModal } from "@/components/ui/StockModal";
 import type { StockInfo } from "@/components/ui/StockModal";
 import { MarkdownLite } from "@/components/ui/MarkdownLite";
 import { AiCostBadge } from "@/components/ui/AiCostBadge";
-import { useAuth } from "@/lib/auth-context";
+import { useAuth, getToken } from "@/lib/auth-context";
 import { api } from "@/lib/api";
 import useSWR from "swr";
+
+// [v3.137.1] 인증 헤더를 실은 POST — 백엔드의 해당 엔드포인트들이 무인증으로 열려 있던 것을
+// 막으면서, 여기 생 fetch 호출들도 토큰을 싣도록 맞춘다. api.ts의 req()는 30초 타임아웃이라
+// 백테스트(최대 600초)에는 쓸 수 없어 헬퍼를 따로 둔다.
+function _authedPost(path: string): Promise<Response> {
+  const headers: Record<string, string> = { "ngrok-skip-browser-warning": "69420" };
+  const token = getToken();
+  if (token) headers["Authorization"] = `Bearer ${token}`;
+  return fetch(path, { method: "POST", headers });
+}
 
 function EntryTimingStats() {
   const [source, setSource] = useState<"leading" | "personal">("leading");
@@ -161,7 +171,7 @@ function DailyAlertCard() {
     setSending(true);
     setMsg("발송 중...");
     try {
-      const res = await fetch("/backend/api/ai/alert/send-daily", { method: "POST" });
+      const res = await _authedPost("/backend/api/ai/alert/send-daily");
       const json = await res.json();
       if (json.sent) {
         setMsg(`✅ 텔레그램 발송 완료`);
@@ -213,7 +223,7 @@ function BacktestStats() {
     setRunning(true);
     setMsg("백테스트 실행 중...");
     try {
-      const res = await fetch("/backend/api/ai/screener-backtest/run", { method: "POST" });
+      const res = await _authedPost("/backend/api/ai/screener-backtest/run");
       const json = await res.json();
       if (json.error) {
         setMsg(`⚠️ ${json.error}`);
