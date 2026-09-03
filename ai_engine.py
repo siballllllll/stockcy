@@ -2024,12 +2024,18 @@ def analyze_autonomous_trading(ticker: str, name: str, current_price: float, mar
                 _mp7 = predict_win_proba(_mlf, "d7")
                 _mp20 = predict_win_proba(_mlf, "d20")
                 if any(v is not None for v in (_mp3, _mp7, _mp20)):
-                    ind_snapshot["ml_d7"] = _mp7   # 에이전트 포지션 사이징이 사용
-                    tech_info += (
-                        f"\n[★ 자체 ML 상승확률 — 이 시스템의 실제 매매결과 학습 모델] "
-                        f"3일 {_mp3 if _mp3 is not None else '?'}% / 7일 {_mp7 if _mp7 is not None else '?'}% / 20일 {_mp20 if _mp20 is not None else '?'}%. "
-                        "7일 확률 40% 미만이면 다른 신호가 좋아도 강한 감점 요인, 55% 이상이면 통계적 뒷받침 근거로 반영하세요."
-                    )
+                    # ml_d7은 계속 담는다 — 섀도우 B(ML 순종 대조군)가 이 값으로 판정하고,
+                    # 사후검증(pred_d7 vs 실제)도 이 기록에 의존한다.
+                    ind_snapshot["ml_d7"] = _mp7
+                    # [v3.136.0] 다만 LLM 프롬프트 주입은 차단 — 실전 AUC 0.524로 복귀 기준
+                    # 미달인 확률을 "통계적 뒷받침"이라고 제시하면 판단을 노이즈로 흔든다.
+                    from ml_model import ml_decisions_enabled
+                    if ml_decisions_enabled():
+                        tech_info += (
+                            f"\n[★ 자체 ML 상승확률 — 이 시스템의 실제 매매결과 학습 모델] "
+                            f"3일 {_mp3 if _mp3 is not None else '?'}% / 7일 {_mp7 if _mp7 is not None else '?'}% / 20일 {_mp20 if _mp20 is not None else '?'}%. "
+                            "7일 확률 40% 미만이면 다른 신호가 좋아도 강한 감점 요인, 55% 이상이면 통계적 뒷받침 근거로 반영하세요."
+                        )
             except Exception:
                 pass
         except Exception:
@@ -2265,7 +2271,11 @@ def _ml_win_context(ticker: str) -> tuple:
     _get_trade_indicators로 판단시점 지표+확장피처(ml_extra)를 얻어 d3/d7/d20 확률 예측.
     모델 미학습·지표 수집 실패 시 ("", {}) — 호출부는 조용히 생략(리포트 품질 저하 없음)."""
     try:
-        from ml_model import predict_win_proba
+        from ml_model import predict_win_proba, ml_decisions_enabled
+        # [v3.136.0] 매도타이밍·종목리포트 주입 차단 — 실전 AUC 0.524로 복귀 기준 미달.
+        # 호출부는 ("", {})를 조용히 생략하도록 이미 구현돼 있어 부작용이 없다.
+        if not ml_decisions_enabled():
+            return "", {}
         ind = _get_trade_indicators(str(ticker).strip(), "")
         d = (ind or {}).get("daily") or {}
         if d.get("rsi") is None:
@@ -5554,7 +5564,10 @@ def screen_by_my_pattern() -> dict:
             ml_p7 = predict_win_proba(_mlf, "d7")
             ml_p3 = predict_win_proba(_mlf, "d3")
             ml_p20 = predict_win_proba(_mlf, "d20")
-            if ml_p7 is not None:
+            # [v3.136.0] 예측값은 계속 기록하되(사후검증·재학습 판정용) 점수 보정은 게이트로 차단.
+            # 실전 AUC 0.524(d7)로 복귀 기준 미달 — 노이즈로 후보 순위를 흔들지 않는다.
+            from ml_model import ml_decisions_enabled
+            if ml_p7 is not None and ml_decisions_enabled():
                 match_score = max(0, min(100, match_score + max(-12.0, min(12.0, (ml_p7 - 50) * 0.3))))
         except Exception as _me:
             print(f"[screener ml] {code} 예측 실패: {_me}")

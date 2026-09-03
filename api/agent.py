@@ -179,17 +179,31 @@ def _get_today_buy_count() -> int:
 INTERVAL_SECONDS = 1800  # 30분 주기 (스윙/데이 트레이딩 템포)
 
 
-def _position_size(cash_krw: float, price: float, market: str, confidence: float,
-                   ml_d7=None, usdkrw: float = 1350.0) -> tuple:
-    """[지능형 포지션 사이징 v3.116.0] 고정 수량(국내 10주/미국 1주) → 예산·확신 기반.
-    기존 방식은 NAVER 211만원 vs 유니켐 4만원처럼 금액이 주가에 끌려다녔음.
-    - 기본 예산 = 현금의 12% (풀현금 기준 약 8포지션 분산)
-    - 확신 가중 0.6~1.4배: Gemini confidence(60~100)와 자체 ML 7일 확률(40~70%)의 평균
-    - 하드캡 = 현금의 25% (한 종목 몰빵 방지)
+def _position_size(cash_krw: float, price: float, market: str,
+                   bb_pctb=None, mom_5=None, usdkrw: float = 1350.0) -> tuple:
+    """[포지션 사이징 v3.136.0] 배수 근거를 '눌림목 깊이'로 교체.
+
+    기존(v3.116.0)은 Gemini confidence와 자체 ML 확률의 평균으로 0.6~1.4배를 매겼는데,
+    2026-09-03 실측에서 두 입력 모두 신호가 아님이 확인됐다:
+      · confidence — 실현된 BUY 판단 52건 중 42건(81%)이 값 70. 사실상 상수라
+        (confidence-60)/40이 늘 0.25로 고정, 신호처럼 생긴 상수를 곱하고 있었다.
+      · ML d7 — 실전 AUC 0.524로 복귀 게이트(0.6) 미달. 노이즈.
+    대신 눌림목 깊이는 실측에서 단조 관계가 확인됐다(게이트 통과 259건, d7 기준):
+      %b 0.00-0.05 승률 63.5%(+5.18%) · 0.05-0.10 57.1% · 0.10-0.17 52.9% · 0.17-0.25 43.9%
+      5일 모멘텀 -10%↓ 56.2%(+3.34%) · -6~-10% 55.6% · -3~-6% 52.1%
+    그래서 %b를 주 배수로, 5일 모멘텀을 보조 가산으로 쓴다. 배수 범위(0.6~1.4)와
+    예산 비율(12%)·하드캡(25%)은 기존과 동일해 전체 리스크 프로필은 바뀌지 않는다.
+
+    bb_pctb가 없으면(물타기 등 지표 미수집 경로) 중립 1.0배.
     반환 (qty, budget_krw). qty 0 = 예산 대비 주가가 너무 높아 진입 스킵."""
-    conf_c = max(0.0, min(1.0, (float(confidence or 60) - 60) / 40.0))
-    ml_c = max(0.0, min(1.0, (float(ml_d7) - 40.0) / 30.0)) if ml_d7 is not None else 0.5
-    mult = 0.6 + 0.8 * ((conf_c + ml_c) / 2)
+    if bb_pctb is None:
+        mult = 1.0
+    else:
+        _b = float(bb_pctb)
+        mult = 1.4 if _b < 0.05 else 1.0 if _b < 0.10 else 0.85 if _b < 0.17 else 0.7
+        # 깊은 눌림(5일 -10%↓)은 소폭 가산 — 같은 %b라도 실측 승률·평균이 더 좋았다.
+        if mom_5 is not None and float(mom_5) <= -10.0:
+            mult = min(1.4, mult + 0.1)
     budget = min(cash_krw * 0.12 * mult, cash_krw * 0.25)
     px_krw = float(price or 0) * (usdkrw if market == "미국" else 1.0)
     if px_krw <= 0:
@@ -532,9 +546,14 @@ def _run_one_scan(force: bool = False) -> dict:
                                 _f2.update(_mlx2)
                                 _ml7r = predict_win_proba(_f2, "d7")
                                 _bb2 = _mlx2.get("bb_pctb")
-                                if (_ml7r is not None and _ml7r >= 55.0) or (_bb2 is not None and _bb2 <= 0.2):
+                                # [v3.136.0] ML 조건 차단 — 실전 AUC 0.524로 복귀 기준 미달.
+                                # 손절 유예는 실측 근거가 남아있는 볼린저 하단권(과매도 지지)만으로 판단한다.
+                                # (ML 55%+ 조건은 애초에 거의 발화하지 않았다 — 예측 분포가 55 위로 잘 안 감)
+                                from ml_model import ml_decisions_enabled
+                                _ml_ok = (_ml7r is not None and _ml7r >= 55.0) and ml_decisions_enabled()
+                                if _ml_ok or (_bb2 is not None and _bb2 <= 0.2):
                                     _rescue = True
-                                    _rescue_note = f"ML d7 {_ml7r}% · 볼린저 %b {_bb2}"
+                                    _rescue_note = (f"ML d7 {_ml7r}% · " if _ml_ok else "") + f"볼린저 %b {_bb2}"
                             except Exception as _re2:
                                 logger.error(f"[smart stop] {ticker} 회복 지표 확인 실패: {_re2}")
                         if _rescue:
@@ -736,10 +755,12 @@ def _run_one_scan(force: bool = False) -> dict:
                     balances = load_virtual_balances()
                     ai_cash = balances.get("AI", 10000000.0)
 
-                    # [지능형 포지션 사이징 v3.116.0] 예산(현금 12%)×확신 가중(Gemini+ML)
+                    # [포지션 사이징 v3.136.0] 예산(현금 12%) × 눌림목 깊이 가중
+                    # (기존 confidence+ML 가중은 실측에서 각각 상수·노이즈로 확인돼 교체)
                     _rate_sz = _get_usd_krw_rate() if market == "미국" else 1.0
-                    qty, _budget = _position_size(ai_cash, current_price, market, confidence,
-                                                  ml_d7=_snap.get("ml_d7"), usdkrw=_rate_sz)
+                    qty, _budget = _position_size(ai_cash, current_price, market,
+                                                  bb_pctb=_snap.get("bb_pctb"), mom_5=_m5,
+                                                  usdkrw=_rate_sz)
                     if _regime == "중립" and qty > 1:
                         qty = max(1, int(qty * 0.8))   # 중립 국면 — 포지션 20% 축소
                     if qty < 1:
@@ -846,7 +867,8 @@ def _run_one_scan(force: bool = False) -> dict:
                     # 물타기 수량도 지능형 사이징 — 단 기존 보유 수량을 상한으로(평단 조작 방지,
                     # 한 번의 물타기가 포지션을 2배 초과로 키우지 않게)
                     _rate_sz = _get_usd_krw_rate() if market == "미국" else 1.0
-                    _q_size, _budget = _position_size(ai_cash, current_price, market, confidence, usdkrw=_rate_sz)
+                    # 물타기 경로는 지표 스냅샷을 따로 수집하지 않으므로 중립 배수(1.0)로 계산된다.
+                    _q_size, _budget = _position_size(ai_cash, current_price, market, usdkrw=_rate_sz)
                     _q_cap = int(holding.get("quantity") or 0) or (1 if market == "미국" else 10)
                     qty = min(_q_size, _q_cap) if _q_size >= 1 else 0
                     if qty < 1:
