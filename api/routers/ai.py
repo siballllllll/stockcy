@@ -300,13 +300,19 @@ def _extract_scenario_stocks(result: dict) -> list:
     issues = result.get("issues") or [result]
     for issue in issues:
         for sc in issue.get("scenarios", []) or []:
+            # [확률 보정 v3.134.0] 시나리오의 확률·분기를 종목에 붙여 내려보낸다.
+            # 이래야 나중에 "확률 70%대 시나리오의 수혜주가 실제로 더 올랐는가"를 검증할 수 있다.
+            sc_prob = sc.get("probability_pct")
+            sc_label = str(sc.get("label") or "").strip()
             for group, role in [("rising_stocks", "수혜"), ("falling_stocks", "피해"), ("theme_stocks", "테마")]:
                 for s in sc.get(group, []) or []:
                     ticker = str(s.get("ticker") or "").strip()
                     name = str(s.get("name") or ticker).strip()
                     if ticker and name:
                         # theme_stocks만 horizon(단타/중장기) 보유. rising/falling은 미지정.
-                        stocks.append({"ticker": ticker, "name": name, "role": role, "horizon": str(s.get("horizon") or "").strip()})
+                        stocks.append({"ticker": ticker, "name": name, "role": role,
+                                       "horizon": str(s.get("horizon") or "").strip(),
+                                       "probability_pct": sc_prob, "scenario_label": sc_label})
     # 중복 제거 (티커 단위)
     seen = set()
     deduped = []

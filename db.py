@@ -517,6 +517,11 @@ def init_local_db():
         "ALTER TABLE ml_training_samples ADD COLUMN pred_d20 REAL",
         "ALTER TABLE screener_backtest_results ADD COLUMN market TEXT DEFAULT 'kr'",
         "ALTER TABLE scenario_stocks ADD COLUMN horizon TEXT",
+        # [확률 보정 v3.134.0] 이 종목을 낳은 시나리오의 확률/분기를 함께 남긴다.
+        # 이게 없어서 "73% 시나리오가 실제로 73% 맞았는지"를 단 한 번도 검증할 수 없었다
+        # (제목 조인 시도 6,576건 중 매칭 0건 — agent_scenarios는 최근 20건만 보존).
+        "ALTER TABLE scenario_stocks ADD COLUMN probability_pct INTEGER",
+        "ALTER TABLE scenario_stocks ADD COLUMN scenario_label TEXT",
         "ALTER TABLE portfolio ADD COLUMN buy_reason TEXT DEFAULT ''",
         "ALTER TABLE trade_history ADD COLUMN buy_reason TEXT DEFAULT ''",
         "ALTER TABLE agent_decisions ADD COLUMN is_realized INTEGER DEFAULT 0",
@@ -3747,6 +3752,12 @@ def save_scenario_stocks(scenario_keyword: str, scenario_title: str, stocks: lis
             name = str(s.get("name") or ticker).strip()
             role = str(s.get("role") or s.get("type") or "").strip()
             horizon = str(s.get("horizon") or "").strip()
+            # 확률 보정용 — 이 종목을 낳은 시나리오의 확률·분기(A/B). 없으면 NULL.
+            try:
+                prob_pct = int(round(float(s.get("probability_pct")))) if s.get("probability_pct") is not None else None
+            except (TypeError, ValueError):
+                prob_pct = None
+            sc_label = str(s.get("scenario_label") or "").strip() or None
             market = "us" if any(c.isalpha() for c in ticker) else "kr"
             if not ticker:
                 continue
@@ -3758,9 +3769,11 @@ def save_scenario_stocks(scenario_keyword: str, scenario_title: str, stocks: lis
                 continue
             cursor.execute(
                 """INSERT INTO scenario_stocks
-                   (scenario_keyword, scenario_title, ticker, name, market, role, horizon, captured_at, updated_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                (scenario_keyword, scenario_title, ticker, name, market, role, horizon, now, now)
+                   (scenario_keyword, scenario_title, ticker, name, market, role, horizon, captured_at, updated_at,
+                    probability_pct, scenario_label)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (scenario_keyword, scenario_title, ticker, name, market, role, horizon, now, now,
+                 prob_pct, sc_label)
             )
             # 자체 ML 학습 샘플로도 기록 (피해=하락기대는 제외, 상승 기대 종목만)
             if role != "피해":
@@ -3772,6 +3785,53 @@ def save_scenario_stocks(scenario_keyword: str, scenario_title: str, stocks: lis
         conn.close()
     except Exception as e:
         print(f"save_scenario_stocks error: {e}")
+
+
+def scenario_probability_calibration(days: int = 365) -> dict:
+    """[확률 보정 v3.134.0] 시나리오가 말한 확률이 실제로 맞았는지 측정한다.
+
+    확률대(50%미만/50-64/65-79/80+)별로 '수혜'로 지목된 종목의 실제 d7 상승 비율을 낸다.
+    확률이 보정돼 있다면 확률대가 높을수록 상승 비율도 높아야 한다(단조 증가).
+    probability_pct는 v3.134.0부터 기록되므로, 그 이전 데이터는 표본에 잡히지 않는다
+    (sample=0이면 아직 축적 중이라는 뜻이지 오류가 아니다)."""
+    try:
+        conn = get_db_conn()
+        cur = conn.cursor()
+        cur.execute(
+            """SELECT probability_pct AS p, role, d7_return AS r
+               FROM scenario_stocks
+               WHERE probability_pct IS NOT NULL AND d7_return IS NOT NULL
+                 AND captured_at >= date('now', ?)""",
+            (f"-{int(days)} day",)
+        )
+        rows = [dict(x) for x in cur.fetchall()]
+        conn.close()
+    except Exception as e:
+        print(f"scenario_probability_calibration error: {e}")
+        return {"sample": 0, "error": str(e)}
+
+    if not rows:
+        return {"sample": 0, "note": "probability_pct 기록 이후 데이터가 아직 없습니다 (v3.134.0부터 수집)."}
+
+    buckets = {"50%미만": [], "50-64%": [], "65-79%": [], "80%+": []}
+    for r in rows:
+        if "수혜" not in str(r.get("role") or ""):
+            continue          # 상승 기대 종목만 — '피해'는 방향이 반대라 같은 축에서 못 본다
+        p = r["p"]
+        k = "80%+" if p >= 80 else "65-79%" if p >= 65 else "50-64%" if p >= 50 else "50%미만"
+        buckets[k].append(r["r"])
+
+    out = []
+    for k, v in buckets.items():
+        if not v:
+            continue
+        wins = sum(1 for x in v if x > 0)
+        out.append({
+            "bucket": k, "n": len(v),
+            "actual_up_rate_pct": round(wins / len(v) * 100, 1),
+            "avg_return_pct": round(sum(v) / len(v), 2),
+        })
+    return {"sample": sum(b["n"] for b in out), "buckets": out}
 
 
 def load_scenario_stocks_by_ticker(ticker: str) -> list:

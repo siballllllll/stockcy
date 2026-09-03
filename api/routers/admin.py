@@ -264,6 +264,15 @@ async def run_ai_benchmark(_admin: dict = Depends(require_admin)):
     }
 
 
+@router.get("/scenario-calibration")
+async def scenario_calibration(days: int = 365, _admin: dict = Depends(require_admin)):
+    """[v3.134.0] 시나리오가 제시한 확률이 실제로 맞았는지 — 확률대별 실제 상승 비율.
+    확률이 보정돼 있다면 확률대가 높을수록 상승 비율도 높아야 한다.
+    probability_pct는 v3.134.0부터 기록되므로 sample=0이면 아직 축적 중이라는 뜻."""
+    from db import scenario_probability_calibration
+    return scenario_probability_calibration(days=days)
+
+
 @router.get("/ai-engine-benchmark-report")
 async def ai_engine_benchmark_report(days: int = 30, _admin: dict = Depends(require_admin)):
     """[v3.129.0] 자율매매 스캔 중 축적된 '기본 엔진 vs 참고 엔진' 판단 비교 리포트.
