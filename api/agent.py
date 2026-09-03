@@ -580,6 +580,28 @@ def _run_one_scan(force: bool = False) -> dict:
                                     "reason": f"[재난 손절 가드·중장기] 실질 손익 {_net:+.2f}% ≤ -30% — 중장기 포지션도 감내 한도를 벗어나 강제 청산",
                                     "learning_point": f"중장기 보유가 {_net:+.2f}%까지 악화 — 투자 논리 붕괴 시점 재점검 필요"}
 
+                    # ── [시간 손절 v3.132.0] 스윙 포지션이 목표 구간에 못 닿은 채 오래 끌면 청산 ──
+                    # 근거(ml_training_samples 264건, 눌림목 게이트 통과분의 보유기간별 성적):
+                    #   1일 48.5%/+0.10% · 3일 42.3%/-0.89% · 7일 55.2%/+2.07% · 20일 31.5%/-5.78%
+                    # 엣지가 7일에 정점을 찍고 20일이면 소멸해 마이너스로 돌아선다. 즉 눌림목 진입은
+                    # "일주일 안에 되면 먹고 아니면 접는" 매매지, 오래 들고 있을수록 좋아지지 않는다.
+                    # 실현거래도 같은 방향: 21일+ 23건 승률 30.4%/-11.01%.
+                    # d7(정점) 이후 여유를 두되 d20(소멸) 전에 끊도록 14일로 잡음.
+                    if (not forced_exit) and _is_swing:
+                        _hold_days = None
+                        _bd = holding.get("buy_date") or holding.get("updated_time")
+                        if _bd:
+                            try:
+                                _hold_days = (datetime.now() - datetime.strptime(str(_bd)[:10], "%Y-%m-%d")).days
+                            except Exception:
+                                _hold_days = None
+                        if _hold_days is not None and _hold_days >= 14:
+                            forced_exit = True
+                            decision = {"action": "SELL", "confidence": 90,
+                                        "reason": (f"[시간 손절·스윙] 보유 {_hold_days}일 경과 — 눌림목 엣지는 7일에 정점(승률 55%)을 찍고 "
+                                                   f"20일이면 소멸(31%·-5.8%). 목표 구간 미도달 상태로 기간이 지나 실질 {_net:+.2f}%에 정리."),
+                                        "learning_point": f"스윙 시간 손절 {_hold_days}일 경과, {_net:+.2f}% — 일주일 내 안 되는 눌림목은 끌지 않는다"}
+
                 # AI에게 매수/매도/홀딩 판단 요청 (강제 청산이면 Gemini 호출 생략 — 비용 0)
                 if decision is None:
                     logger.info(f"AI Agent: {name}({ticker}) 분석 중... (Position: {position})")
@@ -747,7 +769,15 @@ def _run_one_scan(force: bool = False) -> dict:
                     # 3. 포트폴리오 반영 + ai_holdings 즉시 동기화 (중복 매수 방지)
                     # 포지션 성격 태그(v3.113.0): Gemini가 BUY 시 지정한 horizon(swing/long)을
                     # rating에 박아 강제 청산 가드가 차등 적용되게 함. 미지정 시 스윙.
-                    _hz_tag = "[중장기]" if str(decision.get("horizon") or "").lower() == "long" else "[스윙]"
+                    # [v3.132.0] 눌림목 게이트가 켜져 있으면 신규 진입은 정의상 전부 눌림목 매매이고,
+                    # 그 엣지는 7일짜리(20일이면 소멸)라 '중장기'로 태그할 근거가 없다. LLM이 horizon:long을
+                    # 줘도 무시하고 스윙으로 고정 — 중장기 태그는 강제 익절·손절이 모두 면제라, 눌림목 진입에
+                    # 붙으면 엣지가 사라진 뒤에도 계속 들고 있게 된다(실현거래 21일+ 23건 승률 30.4%·-11.01%).
+                    # 게이트를 끄면(AGENT_PULLBACK_GATE=0) 기존처럼 LLM의 horizon 판단을 존중한다.
+                    if os.getenv("AGENT_PULLBACK_GATE", "1") != "0":
+                        _hz_tag = "[스윙]"
+                    else:
+                        _hz_tag = "[중장기]" if str(decision.get("horizon") or "").lower() == "long" else "[스윙]"
                     new_item = {
                         "ticker": ticker,
                         "name": name,
