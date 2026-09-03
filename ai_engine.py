@@ -843,6 +843,13 @@ def _call_llm(prompt, use_search=False, temperature=0.7, response_mime_type=None
     except Exception as e1:
         if not allow_failover:
             raise
+        # [v3.136.3] 프로세스 종료 중 실패는 폴백하지 않는다.
+        # _call_gemini는 호출마다 ThreadPoolExecutor를 만드는데, 인터프리터 종료가 시작되면
+        # "cannot schedule new futures after interpreter shutdown"으로 실패한다. 이때 폴백하면
+        # 어차피 버려질 응답을 받으려고 반대 엔진을 유료로 호출하게 된다(재시작마다 반복).
+        # 엔진 장애가 아니라 우리 쪽 생명주기 문제이므로 그대로 올린다.
+        if "interpreter shutdown" in str(e1) or "cannot schedule new futures" in str(e1):
+            raise
         print(f"[failover] {primary_name} 호출 실패({e1}) → {secondary_name}로 전환")
         try:
             return secondary()
