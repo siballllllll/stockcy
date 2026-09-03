@@ -4516,6 +4516,62 @@ def save_screener_picks(picks: list):
         print(f"save_screener_picks error: {e}")
 
 
+def load_latest_screener_picks(days: int = 7) -> dict:
+    """[v3.136.2] 스케줄러가 매일 저장해둔 패턴 스크리너 픽을 조회한다(무과금).
+
+    화면의 '내 패턴 스크리너'는 버튼을 눌러 그 자리에서 새로 돌리는 SSE 경로라, 매일 자동
+    저장된 픽(하루 5건)은 볼 방법이 없었다. 같은 작업을 다시 돌리며 AI 비용을 또 쓰는 대신
+    저장분을 바로 보여주기 위한 조회 함수.
+
+    실측 성적도 함께 반환한다 — 이 픽들의 과거 d7 성적은 승률 29.6%·평균 -4.54%(186건)이고
+    match_score는 높을수록 좋다는 관계가 확인되지 않았다(70+ 구간이 오히려 승률 20%).
+    화면에 픽만 띄우면 '보이니까 사고 싶어지는' 효과가 생기므로 성적을 같이 노출한다.
+    """
+    try:
+        conn = get_db_conn()
+        cur = conn.cursor()
+        cur.execute(
+            """SELECT picked_date, ticker, name, match_score, signal, rsi, vol_ratio,
+                      pos_52w, ma_aligned, market, price, hsh_label
+               FROM screener_picks
+               WHERE picked_date >= date('now', ?)
+               ORDER BY picked_date DESC, match_score DESC""",
+            (f"-{int(days)} day",)
+        )
+        picks = [dict(r) for r in cur.fetchall()]
+
+        # 실측 성적 — screener_picks를 ml_training_samples(source='pattern')와 조인
+        cur.execute(
+            """SELECT m.d7_return AS r
+               FROM screener_picks s
+               JOIN ml_training_samples m
+                 ON s.ticker = m.ticker AND substr(m.decided_at, 1, 10) = s.picked_date
+               WHERE m.source = 'pattern' AND m.d7_return IS NOT NULL"""
+        )
+        rets = [x["r"] for x in cur.fetchall()]
+        conn.close()
+
+        track = None
+        if rets:
+            wins = sum(1 for x in rets if x > 0)
+            track = {
+                "n": len(rets),
+                "win_rate_pct": round(wins / len(rets) * 100, 1),
+                "avg_return_pct": round(sum(rets) / len(rets), 2),
+            }
+
+        latest = picks[0]["picked_date"] if picks else None
+        return {
+            "picks": picks,
+            "latest_date": latest,
+            "days": days,
+            "track_record": track,
+        }
+    except Exception as e:
+        print(f"load_latest_screener_picks error: {e}")
+        return {"picks": [], "latest_date": None, "days": days, "track_record": None, "error": str(e)}
+
+
 def load_screener_feedback_stats() -> dict:
     """스크리너 피드백 통계: 추천 이력 + 리딩방 매칭/비매칭 성과 비교."""
     try:

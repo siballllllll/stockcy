@@ -456,6 +456,68 @@ function ExitGuidance() {
   );
 }
 
+// ── 저장된 패턴 스크리너 픽 (v3.136.2) ─────────────────────────────────────────
+// 스케줄러가 매일 뽑아 screener_picks에 저장하는 5건은 그동안 화면에 표시되는 경로가
+// 없었다(아래 SSE 패널은 버튼을 눌러 그 자리에서 새로 돌리는 유료 경로). 저장분을
+// 진입 즉시 무과금으로 보여준다. 실측 성적을 함께 띄우는 것은 의도적이다 — 픽만
+// 보이면 근거 없이 사고 싶어지는데, 이 픽들의 과거 성적은 승률 29.6%·평균 -4.54%다.
+function SavedPicksPanel() {
+  const router = useRouter();
+  const { data } = useSWR<{ picks: any[]; latest_date: string | null; track_record: any }>(
+    "saved-screener-picks",
+    async () => {
+      const res = await fetch("/backend/api/ai/pattern-screener/latest?days=7");
+      return res.json();
+    },
+    { refreshInterval: 300000 }
+  );
+  const picks = data?.picks ?? [];
+  if (picks.length === 0) return null;
+
+  const latest = data?.latest_date;
+  const todayPicks = picks.filter(p => p.picked_date === latest);
+  const tr = data?.track_record;
+
+  return (
+    <div className="stockcy-card" style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
+      <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", flexWrap: "wrap", gap: "0.5rem" }}>
+        <div style={{ fontWeight: 800, fontSize: "0.95rem" }}>
+          📌 자동 저장된 픽 <span style={{ color: "var(--color-muted)", fontWeight: 600, fontSize: "0.8rem" }}>{latest} · 매일 자동 실행</span>
+        </div>
+        {tr && (
+          <div style={{ fontSize: "0.72rem", color: tr.win_rate_pct >= 50 ? "#34d399" : "#f87171" }}>
+            실측 성적 {tr.n}건 · 7일 승률 {tr.win_rate_pct}% · 평균 {tr.avg_return_pct > 0 ? "+" : ""}{tr.avg_return_pct}%
+          </div>
+        )}
+      </div>
+
+      {tr && tr.win_rate_pct < 50 && (
+        <div style={{ fontSize: "0.72rem", color: "#fbbf24", background: "rgba(245,158,11,0.1)", border: "1px solid rgba(245,158,11,0.25)", borderRadius: "6px", padding: "6px 9px", lineHeight: 1.5 }}>
+          ⚠️ 이 스크리너의 과거 추천은 7일 기준 승률 {tr.win_rate_pct}%·평균 {tr.avg_return_pct}%였고,
+          점수(match_score)가 높을수록 결과가 좋다는 관계도 확인되지 않았습니다. 매수 근거로 단독 사용하지 마세요.
+        </div>
+      )}
+
+      <div style={{ display: "flex", flexDirection: "column", gap: "5px" }}>
+        {todayPicks.map((p: any) => (
+          <div key={`${p.picked_date}-${p.ticker}`}
+               onClick={() => router.push(`/search?q=${p.ticker}&market=${p.market === "us" ? "US" : "KR"}`)}
+               style={{ display: "flex", alignItems: "center", gap: "8px", padding: "8px 10px", background: "var(--color-elevated)", borderRadius: "8px", border: "1px solid var(--color-border)", cursor: "pointer" }}>
+            <span style={{ fontWeight: 700, flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              {p.name} <span style={{ color: "var(--color-muted)", fontSize: "0.75rem" }}>{p.ticker}</span>
+            </span>
+            {p.hsh_label && (
+              <span style={{ fontSize: "0.7rem", padding: "2px 6px", borderRadius: "5px", background: "rgba(245,158,11,0.15)", color: "#fbbf24" }}>{p.hsh_label}</span>
+            )}
+            <span style={{ fontSize: "0.75rem", color: "var(--color-muted)" }}>RSI {p.rsi ?? "?"}</span>
+            <span style={{ fontWeight: 800, fontSize: "0.8rem", color: "var(--color-muted)" }}>{p.match_score}점</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ── 교차검증(컨플루언스) 탭 ────────────────────────────────────────────────────
 function ConfluenceTab({ onSelect }: { onSelect: (s: StockInfo) => void }) {
   const { data } = useSWR<{ picks: any[] }>(
@@ -668,6 +730,8 @@ export default function Dashboard() {
 
       {/* 내 패턴 스크리너 */}
       {activeTab === "mypattern" && (
+        <>
+        <SavedPicksPanel />
         <SSEPanel
           status={myPick.status} message={myPick.message}
           result={myPick.result} fromCache={myPick.fromCache} completedAt={myPick.completedAt}
@@ -905,6 +969,7 @@ export default function Dashboard() {
             </div>
           )}
         </SSEPanel>
+        </>
       )}
 
       {/* 수급 이동 감지 — KR/US 토글 */}

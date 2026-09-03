@@ -1252,6 +1252,17 @@ def resume_gap_bulk_job_if_any():
 
 # ── 리딩방 패턴 AI 분석 ────────────────────────────────────────────────────────
 
+@router.get("/pattern-screener/latest")
+async def pattern_screener_latest(days: int = 7, _user: dict = Depends(get_current_user)):
+    """[v3.136.2] 스케줄러가 매일 저장해둔 패턴 스크리너 픽 조회 (AI 호출 없음, 무과금).
+
+    POST /pattern-screener는 그 자리에서 새로 돌리는 경로(1~2분·과금)라, 매일 자동 저장된
+    픽을 볼 수단이 없었다. 화면 진입 시 이 엔드포인트로 저장분을 즉시 띄우고, 새로 돌리고
+    싶을 때만 기존 POST를 쓰면 된다. 실측 성적(track_record)도 함께 반환한다."""
+    from db import load_latest_screener_picks
+    return await asyncio.to_thread(load_latest_screener_picks, days)
+
+
 @router.post("/pattern-screener")
 async def pattern_screener(_credit: dict = Depends(consume_ai_credit)):
     """내 거래 패턴 기반 오늘의 단기 추천 종목 (SSE)."""
