@@ -259,3 +259,14 @@ async def run_ai_benchmark(_admin: dict = Depends(require_admin)):
         "benchmark_target": "recommend_entry_price(삼성전자, 74500원)",
         "results": results,
     }
+
+
+@router.get("/ai-engine-benchmark-report")
+async def ai_engine_benchmark_report(days: int = 30, _admin: dict = Depends(require_admin)):
+    """[v3.129.0] 자율매매 스캔 중 축적된 '기본 엔진 vs 참고 엔진' 판단 비교 리포트.
+    AGENT_AI_BENCHMARK=1일 때만 표본이 쌓인다 (기본은 off — 켜져 있지 않으면 sample=0)."""
+    import os
+    from ai_engine import get_engine_benchmark_report
+    report = get_engine_benchmark_report(days=days)
+    report["benchmark_enabled"] = os.environ.get("AGENT_AI_BENCHMARK") == "1"
+    return report

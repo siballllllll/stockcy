@@ -129,6 +129,18 @@ async def _boost_threadpool():
     except Exception as e:
         print(f"[startup] 스레드풀 토큰 상향 실패: {e}")
 
+    # asyncio.to_thread()가 쓰는 기본 executor는 AnyIO 풀과 별개(CPU코어+4, 이 앱에선 18개)이며
+    # 위 200개짜리 확장이 적용되지 않는다. 자율매매 스캔(api/agent.py)·가격알림 루프(api/background.py)·
+    # ai.py의 다수 to_thread 호출이 전부 이 좁은 풀을 공유해서, LLM 호출 몇 개만 오래 걸려도
+    # 풀이 고갈되며 앱 전체의 asyncio.to_thread 기반 작업이 줄줄이 대기(=응답없음처럼 보임)했다.
+    try:
+        import asyncio
+        from concurrent.futures import ThreadPoolExecutor
+        asyncio.get_event_loop().set_default_executor(ThreadPoolExecutor(max_workers=64))
+        print("[startup] asyncio.to_thread 기본 executor 워커 = 64")
+    except Exception as e:
+        print(f"[startup] asyncio 기본 executor 확장 실패: {e}")
+
 
 # ── 8. 백그라운드 전종목 가격 캐시 스케줄러 ──────────────────────────────────
 import threading as _threading

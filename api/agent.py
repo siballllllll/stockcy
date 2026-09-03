@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import os
 from datetime import datetime
 from db import (
     load_favorites,
@@ -585,6 +586,26 @@ def _run_one_scan(force: bool = False) -> dict:
                     decision = analyze_autonomous_trading(
                         ticker, name, current_price, market, position, avg_price
                     )
+
+                    # [엔진 비교 벤치마크 v3.129.0 — 기본 off] AGENT_AI_BENCHMARK=1일 때만,
+                    # 실거래엔 쓰지 않는 '다른 엔진'의 참고 판단을 추가로 물어 축적한다.
+                    # 이 호출은 record_decision=False라 자기학습 테이블은 건드리지 않는다.
+                    # 주의: 켜면 스캔마다 LLM 호출이 2배가 되어 비용도 2배로 늘어난다.
+                    if os.getenv("AGENT_AI_BENCHMARK") == "1":
+                        try:
+                            _primary_provider = (os.getenv("AI_PROVIDER", "gemini") or "gemini").strip().lower()
+                            if _primary_provider in ("openai", "gemini"):
+                                _secondary_provider = "gemini" if _primary_provider == "openai" else "openai"
+                                _secondary_decision = analyze_autonomous_trading(
+                                    ticker, name, current_price, market, position, avg_price,
+                                    provider=_secondary_provider, record_decision=False
+                                )
+                                from ai_engine import log_engine_benchmark
+                                log_engine_benchmark(ticker, name, market, position,
+                                                     _primary_provider, decision,
+                                                     _secondary_provider, _secondary_decision)
+                        except Exception as _be:
+                            logger.error(f"[engine benchmark] {ticker}: {_be}")
 
                 if not decision: continue
                 

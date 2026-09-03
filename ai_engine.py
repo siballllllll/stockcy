@@ -556,9 +556,98 @@ def _log_llm_usage(response, source: str, use_search: bool = False, provider: st
         pass
 
 
-def _log_gemini_usage(response, source: str, use_search: bool = False):
+def _log_gemini_usage(response, source: str, use_search: bool = False, latency_sec: float = 0.0):
     """기존 _log_gemini_usage 호환 래퍼."""
-    _log_llm_usage(response, source, use_search=use_search, provider="gemini")
+    _log_llm_usage(response, source, use_search=use_search, provider="gemini", latency_sec=latency_sec)
+
+
+def log_engine_benchmark(ticker: str, name: str, market: str, position: str,
+                          primary_provider: str, primary: dict,
+                          secondary_provider: str, secondary: dict):
+    """[엔진 비교 벤치마크 v3.129.0] 실거래를 결정한 기본 엔진과, 참고용으로 물어본
+    다른 엔진의 매매 판단을 나란히 JSONL에 축적한다 (실행은 항상 기본 엔진만).
+    나중에 '두 엔진이 얼마나 자주 다른 판단을 내리는지 / 어느 쪽이 확신도가 더 후한지'를
+    집계하는 데 쓴다 (실현손익 귀속까지는 아직 없음 — 향후 표본이 쌓이면 확장)."""
+    try:
+        from datetime import datetime
+        rec = {
+            "ts": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "ticker": ticker, "name": name, "market": market, "position": position,
+            "primary_provider": primary_provider,
+            "primary_action": (primary or {}).get("action"),
+            "primary_confidence": (primary or {}).get("confidence"),
+            "secondary_provider": secondary_provider,
+            "secondary_action": (secondary or {}).get("action"),
+            "secondary_confidence": (secondary or {}).get("confidence"),
+            "agree": (primary or {}).get("action") == (secondary or {}).get("action"),
+        }
+        path = os.path.join(os.path.dirname(__file__), "data_csv", "ai_engine_benchmark.jsonl")
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "a", encoding="utf-8") as f:
+            f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+    except Exception:
+        pass
+
+
+def get_engine_benchmark_report(days: int = 30) -> dict:
+    """log_engine_benchmark로 쌓인 표본을 집계 — 합의율, 프로바이더별 평균 확신도, 액션 분포."""
+    from datetime import datetime, timedelta
+    from collections import Counter
+    path = os.path.join(os.path.dirname(__file__), "data_csv", "ai_engine_benchmark.jsonl")
+    cutoff = datetime.now() - timedelta(days=days)
+    rows = []
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    d = json.loads(line)
+                    if datetime.strptime(d["ts"], "%Y-%m-%d %H:%M:%S") >= cutoff:
+                        rows.append(d)
+                except Exception:
+                    continue
+    except FileNotFoundError:
+        pass
+
+    if not rows:
+        return {"sample": 0, "period_days": days}
+
+    agree_n = sum(1 for r in rows if r.get("agree"))
+    by_provider = {}
+    for key in ("primary", "secondary"):
+        actions = Counter(r.get(f"{key}_action") for r in rows)
+        confs = [r.get(f"{key}_confidence") for r in rows if r.get(f"{key}_confidence") is not None]
+        prov_names = Counter(r.get(f"{key}_provider") for r in rows)
+        for prov, n in prov_names.items():
+            by_provider.setdefault(prov, {"n": 0, "actions": Counter(), "conf_sum": 0.0, "conf_n": 0})
+        for r in rows:
+            p = r.get(f"{key}_provider")
+            a = r.get(f"{key}_action")
+            c = r.get(f"{key}_confidence")
+            if p is None:
+                continue
+            by_provider[p]["n"] += 1
+            by_provider[p]["actions"][a] += 1
+            if c is not None:
+                by_provider[p]["conf_sum"] += c
+                by_provider[p]["conf_n"] += 1
+
+    provider_stats = {}
+    for prov, s in by_provider.items():
+        provider_stats[prov] = {
+            "n": s["n"],
+            "action_dist": dict(s["actions"]),
+            "avg_confidence": round(s["conf_sum"] / s["conf_n"], 1) if s["conf_n"] else None,
+        }
+
+    return {
+        "sample": len(rows),
+        "period_days": days,
+        "agree_rate_pct": round(agree_n / len(rows) * 100, 1),
+        "provider_stats": provider_stats,
+    }
 
 
 _OPENAI_CLIENT = None
@@ -574,7 +663,11 @@ def _get_openai_client():
                 api_key = os.getenv("OPENAI_API_KEY", "")
                 if not api_key:
                     raise ValueError("OPENAI_API_KEY가 .env 파일에 설정되어 있지 않습니다.")
-                _OPENAI_CLIENT = OpenAI(api_key=api_key)
+                # max_retries=0: SDK 기본 재시도(2회)가 켜져 있으면 timeout_sec가 시도당 예산이 되어
+                # 최악의 경우 timeout_sec의 3배까지 조용히 늘어남(에러 없이 성공) — 자율매매 스캔이
+                # 순차 동기 호출이라 이게 누적되면 스캔 1회가 몇 분씩 걸려 백엔드가 멈춘 것처럼 보임.
+                # 상위(_call_llm)에 이미 모델 폴백 로직이 있으므로 SDK 이중 재시도는 불필요.
+                _OPENAI_CLIENT = OpenAI(api_key=api_key, max_retries=0)
     return _OPENAI_CLIENT
 
 
@@ -781,6 +874,9 @@ def _call_gemini(prompt, use_search=False, temperature=0.7, response_mime_type=N
         _left = int((_QUOTA_BLOCK_UNTIL - _qt.time()) / 60) + 1
         raise Exception(f"QUOTA_EXHAUSTED: Gemini 할당량/속도 제한으로 약 {_left}분간 호출을 쉬는 중입니다. 자동 재시도됩니다.")
 
+    import time as _gt
+    _start_t = _gt.perf_counter()
+
     api_key = os.getenv("GEMINI_API_KEY", "")
     client = genai.Client(api_key=api_key, http_options={"api_version": "v1alpha"})
 
@@ -818,7 +914,7 @@ def _call_gemini(prompt, use_search=False, temperature=0.7, response_mime_type=N
                     raise Exception(f"API_TIMEOUT: AI 응답 대기 시간({_timeout}초)을 초과했습니다. 잠시 후 다시 시도해주세요.")
                 ex.shutdown(wait=False)
 
-                _log_gemini_usage(response, _usage_src, use_search)
+                _log_gemini_usage(response, _usage_src, use_search, latency_sec=_gt.perf_counter() - _start_t)
                 return response
 
             except Exception as api_err:
@@ -1815,17 +1911,23 @@ def generate_mindmap_data():
         return code
     except Exception as e:
         return f"graph TD\n  A[\"분석 시스템\"] --> B[\"{str(e)[:30]}\"]"
-def analyze_autonomous_trading(ticker: str, name: str, current_price: float, market: str, position: str, avg_price: float) -> dict:
+def analyze_autonomous_trading(ticker: str, name: str, current_price: float, market: str, position: str, avg_price: float,
+                                provider: str = None, record_decision: bool = True) -> dict:
     """AI 자율 매매 에이전트를 위한 매수/매도/홀딩 판단 함수.
     position: "NONE" (미보유) 또는 "HOLDING" (보유중)
-    """
+    provider: None이면 AI_PROVIDER 환경변수(기본 엔진) 사용. "gemini"/"openai"로 강제 지정 가능
+    (엔진 비교 벤치마크용 — 지정 시 캐시 키에 포함되어 기본 엔진 결과와 캐시가 섞이지 않음).
+    record_decision: False면 agent_decisions 자기학습 테이블에 기록하지 않음 — 실거래로 이어지지 않는
+    벤치마크용 그림자 호출이 실현 안 될 BUY row로 학습 데이터를 오염시키는 것을 방지."""
     try:
         from db import load_ai_cache, save_ai_cache
-        
+
         # [초정밀 비용 세이브 락] 1차 캐시 확인 (NONE 종목은 4시간, HOLDING 종목은 30분 유효)
         # 가격 버킷: 현재가를 2% 단위로 반올림하여 캐시 키에 포함 → 가격 크게 변동 시 캐시 무효화
         price_bucket = round(current_price / max(current_price * 0.02, 1)) if current_price > 0 else 0
         cache_key = f"auto_trade_{ticker}_{position}_{market}_{price_bucket}"
+        if provider:
+            cache_key += f"_{provider}"
         cached_res = load_ai_cache(cache_key)
         if cached_res:
             return cached_res
@@ -2057,7 +2159,8 @@ def analyze_autonomous_trading(ticker: str, name: str, current_price: float, mar
             prompt=full_prompt,
             use_search=False,
             temperature=0.3,
-            response_mime_type="application/json"
+            response_mime_type="application/json",
+            provider=provider
         )
         res_text = str(response).strip()
         if res_text.startswith("```json"):
@@ -2071,7 +2174,7 @@ def analyze_autonomous_trading(ticker: str, name: str, current_price: float, mar
 
         # BUY 판단이면 학습 테이블에 지표와 함께 기록 (나중에 결과 채워짐)
         try:
-            if str(result_dict.get("action", "")).upper() == "BUY":
+            if record_decision and str(result_dict.get("action", "")).upper() == "BUY":
                 from db import save_agent_decision
                 save_agent_decision({
                     "ticker": ticker, "name": name, "market": market,
