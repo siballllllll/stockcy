@@ -72,10 +72,21 @@ def _model_path(horizon: str) -> str:
     return os.path.join(os.path.dirname(os.path.abspath(__file__)), f"ml_win_model_{horizon}.joblib")
 
 
+# [v3.136.1] 학습에서 제외하는 표본 소스.
+# 'scenario'(시나리오 등장 종목)는 2026-09-03 사후검증에서 예측력 0으로 측정됐다 —
+# 수혜로 지목된 종목의 d7 상승률 31.0%(5,108건) vs 피해로 지목된 종목 34.9%(945건).
+# 방향을 반대로 찍은 수준도 아니고 그냥 신호가 없다. 원인은 시나리오가 이슈마다
+# rising/falling 칸을 억지로 채우게 돼 있어 종목 배정이 임의적이었던 것(v3.135.0에서 수정).
+# 이 소스가 학습셋의 67%(748건 중 500건)를 차지해, 모델이 노이즈에서 패턴을 찾다 과적합했다
+# (학습 CV AUC 0.658 → 실전 0.524). 신호 없는 라벨은 표본이 많을수록 해롭다.
+# v3.135.0 이후 생성분은 선정 기준이 달라졌으므로, 충분히 쌓이면 재편입을 재검토할 것.
+EXCLUDED_SOURCES = ("scenario",)
+
+
 def build_training_set(horizon: str = "d7"):
     """기간별 라벨 학습 데이터 → (X: list[dict], y: list[int], dates: list[str]).
     y=1(상승)/0(하락). decided_at 오름차순 정렬 — 시계열 CV·최근성 가중치의 전제.
-    소스: ml_training_samples(패턴·시나리오·AI추천)의 해당 dN_return."""
+    소스: ml_training_samples 중 EXCLUDED_SOURCES를 제외한 것의 해당 dN_return."""
     col = HORIZONS.get(horizon, "d7_return")
     from db import get_db_conn
     conn = get_db_conn(); cur = conn.cursor()
@@ -83,12 +94,15 @@ def build_training_set(horizon: str = "d7"):
     try:
         # 확장 피처(mom_5 등)는 ml_training_samples에만 존재 → 그 컬럼이 채워진 행만 사용.
         # agent_decisions는 확장 피처가 없어 통합 피처셋 학습에서 제외(28건 손실 < 9피처 이득).
+        _ph = ",".join("?" for _ in EXCLUDED_SOURCES)
         cur.execute(
             f"""SELECT ticker, decided_at, rsi, ma_aligned, pos_52w, vol_ratio,
                        mom_5, mom_20, macd_hist, bb_pctb, atr_pct, {col} AS ret
                 FROM ml_training_samples
                 WHERE {col} IS NOT NULL AND rsi IS NOT NULL AND mom_5 IS NOT NULL
-                ORDER BY decided_at ASC"""
+                  AND COALESCE(source, '') NOT IN ({_ph})
+                ORDER BY decided_at ASC""",
+            EXCLUDED_SOURCES
         )
         rows += [dict(r) for r in cur.fetchall()]
     finally:
