@@ -672,6 +672,26 @@ def _run_one_scan(force: bool = False) -> dict:
                     shadow_candidates.append({"ticker": ticker, "name": name, "market": market,
                                               "price": current_price, "ind": _ind_sh})
 
+                # ── ML 학습샘플: 스캔한 종목 전부 기록 (v3.142.0) ──────────────────
+                # [왜] 지금 학습셋은 'pattern'(스크리너가 고득점 준 눌림목) 248건뿐이라,
+                # 모델이 스크리너가 떨어뜨린 종목이 어떻게 됐는지를 한 번도 본 적이 없다.
+                # 대조군 없는 restricted range라 '좋은 것과 나쁜 것을 구분하는' 학습이
+                # 구조적으로 안 된다 — 실전 AUC가 0.524에서 안 오르는 유력한 원인.
+                # 여기는 매수/보류/매도와 무관하게 스캔한 모든 종목을 지나는 지점이라,
+                # 같은 유니버스 안에서 '안 산 케이스'까지 표본에 들어온다.
+                # 비용 0(지표는 이미 수집됨, 추적 job이 사후에 수익률을 채움).
+                # ⚠️ 유니버스가 즐겨찾기+보유+거래대금/등락률 상위라 '시장 전체'는 아니다.
+                #    편향이 없는 게 아니라 지금보다 덜한 것 — 해석할 때 감안할 것.
+                # ⚠️ source="scan"은 EXCLUDED_SOURCES에 넣어 학습에서 제외된 상태로 시작한다.
+                #    scenario 전례(예측력 0인 채 학습셋 67% 점유) 반복 방지 — VERIFY.md V8.
+                # 30분 주기로 재스캔해도 UNIQUE(source,ticker,decided_at)로 하루 1건만 남는다.
+                try:
+                    from db import log_ml_sample
+                    log_ml_sample("scan", ticker, name,
+                                  "kr" if market == "국내" else "us", current_price)
+                except Exception as _se:
+                    logger.error(f"[agent] scan ML 샘플 적재 실패 {ticker}: {_se}")
+
                 # 고민 일지(scan log) 기록
                 summary["scanned"] += 1
                 summary["buy" if action == "BUY" else "sell" if action == "SELL" else "hold"] += 1

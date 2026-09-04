@@ -188,6 +188,23 @@ def main():
     print("   통과 기준: 이 소스 단독 AUC 0.55+ → EXCLUDED_SOURCES에서 제거해 학습 편입.")
     print("   ⚠️ scenario 전례(예측력 0인 채 학습셋 67% 점유 → 실전 AUC 0.524) 반복 금지.")
 
+    # ── V8. ML 학습에 스캔 후보 전체 편입 여부 ──────────────────────────────
+    print(_hdr("V8", "ML 학습에 스캔 후보 전체(scan)를 편입할지"))
+    sc = _one(cur, "SELECT COUNT(*), SUM(d7_return IS NOT NULL) FROM ml_training_samples "
+                   "WHERE source = 'scan'")
+    n_sc, lab_sc = (sc + (0, 0))[:2]
+    base = _one(cur, "SELECT SUM(d7_return IS NOT NULL) FROM ml_training_samples "
+                     "WHERE source = 'pattern'")
+    print(f"   적재 {n_sc or 0}건 (결과 라벨 {lab_sc or 0}건)  ↔  현행 학습셋 pattern 라벨 {base[0] or 0}건")
+    if (lab_sc or 0) < 200:
+        print(f"   [WAIT] 라벨 {lab_sc or 0}건 — 200건 이상에서 판정(하루 30~40건이면 약 2~3주).")
+        print("          그때까지 제외 상태 유지. 적재만 계속되고 학습 오염은 없다.")
+    else:
+        print("   [DUE] 표본 충족 — pattern 단독 AUC vs (pattern+scan) 합본 AUC를 비교할 것.")
+    print("   통과 기준: 합본 AUC가 pattern 단독 대비 +0.03 이상 개선 → 편입.")
+    print("   ⚠️ 유니버스가 거래대금·등락률 상위라 '시장 전체'가 아님. 볼륨이 커서 편입 시")
+    print("      pattern이 묻힐 수 있고, 매일 재스캔되는 종목은 자기상관이 있다.")
+
     c.close()
     print(f"\n{'─' * 74}")
     print("자세한 배경과 판정 기준은 VERIFY.md 참조.")

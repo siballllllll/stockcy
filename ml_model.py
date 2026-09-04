@@ -84,7 +84,10 @@ def _model_path(horizon: str) -> str:
 #  · "scenario"    — 예측력 0인 채 학습셋의 67%를 잡아먹어 실전 AUC를 0.524로 끌어내렸다(v3.136.1).
 #  · "stock_analysis" — v3.141.0에 새로 적재 시작. 같은 실수를 반복하지 않으려고 처음부터 제외
 #    상태로 두고, 이 소스만의 예측력을 따로 측정한 뒤 편입 여부를 정한다(VERIFY.md V7).
-EXCLUDED_SOURCES = ("scenario", "stock_analysis")
+#  · "scan"       — v3.142.0에 적재 시작한 스캔 후보 전체(하루 30~40건). 표본 부족과
+#    선택 편향을 동시에 메우려는 것이지만, 볼륨이 커서 편입 시 pattern을 묻어버릴 수
+#    있다. 마찬가지로 제외 상태로 시작해 단독 예측력을 먼저 잰다(VERIFY.md V8).
+EXCLUDED_SOURCES = ("scenario", "stock_analysis", "scan")
 
 
 def build_training_set(horizon: str = "d7"):
