@@ -501,6 +501,30 @@ def _scenario_tracking_loop():
                     print(f"[ml sample] 학습샘플 보강: {ms.get('updated_now', 0)}건 ({today})")
                 except Exception as e:
                     print(f"[ml sample] 오류: {e}")
+                # ── 검증 원장 알림 (v3.148.0) ──────────────────────────────
+                # verify_check.py는 사람이 터미널에서 돌려야만 보인다. 터미널을 닫아두면
+                # 판정 시점이 와도 아무도 모른다 — 그래서 24시간 떠 있는 백엔드가 매일 확인해
+                # **새로 [DUE]가 된 항목만** 텔레그램으로 알린다.
+                # 이미 알린 항목은 다시 안 보낸다(ai_cache에 마지막 통지 집합 보관) — 안 그러면
+                # 항목이 DUE로 남아 있는 동안 매일 같은 알림이 온다.
+                try:
+                    import sys as _sys
+                    _root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+                    if _root not in _sys.path:
+                        _sys.path.insert(0, _root)
+                    from verify_check import due_summary
+                    from db import load_ai_cache, save_ai_cache
+                    _due_ids, _due_txt = due_summary()
+                    _prev = set(load_ai_cache("verify_due_notified") or [])
+                    _new = _due_ids - _prev
+                    if _new and _due_txt:
+                        from telegram_bot import send_message
+                        send_message(_due_txt)
+                        print(f"[verify] 신규 DUE 알림 발송: {sorted(_new)} ({today})")
+                    # DUE에서 벗어난 항목은 집합에서 빠져 다음에 다시 DUE가 되면 재알림된다.
+                    save_ai_cache("verify_due_notified", sorted(_due_ids), 24 * 30)
+                except Exception as e:
+                    print(f"[verify] 원장 확인 오류: {e}")
                 # 자체 ML 자동 재학습 — 샘플 보강 직후 1회 (scikit-learn 로컬·무과금).
                 #   MIN_SAMPLES 미만 horizon은 train_model이 알아서 보류(trained=False).
                 try:

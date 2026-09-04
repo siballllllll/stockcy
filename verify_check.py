@@ -286,10 +286,105 @@ def main():
     print("      미국 표본만 쌓이면 V10은 다른 질문에 답하게 된다(국내 30건이 본 판정).")
     print("   ⚠️ G/H는 진입이 동일하고 청산만 다른 쌍이다 — H를 지우면 청산 효과를 못 잰다.")
 
+    # ── V11. AI 비용 재측정 ─────────────────────────────────────────────────
+    print(_hdr("V11", "AI 비용 재측정 — 정상 운영 한 주 뒤"))
+    # 09-04 측정치는 작업일(벤치마크·테스트)이 섞여 부풀려져 있었다. 09-07(월)부터 다시 센다.
+    # 수동 스크립트 실행분(source=<module>)은 평상시 비용이 아니므로 제외.
+    import collections as _col
+    import json as _json
+    CLEAN_FROM = "2026-09-07"
+    RATE = 1450  # 원/달러 (대략)
+    log = os.path.join(BASE, "data_csv", "ai_usage.jsonl")
+    daily = _col.defaultdict(lambda: _col.defaultdict(float))
+    calls = _col.Counter()
+    try:
+        with open(log, encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    r = _json.loads(line)
+                except Exception:
+                    continue
+                d = str(r.get("ts", ""))[:10]
+                if d < CLEAN_FROM or r.get("source") == "<module>":
+                    continue
+                daily[d][r.get("provider", "?")] += float(r.get("cost_usd") or 0)
+                calls[d] += 1
+    except FileNotFoundError:
+        print(f"   로그 없음: {log}")
+        daily = {}
+    active = sorted(d for d in daily if calls[d] >= 50)   # 주말·휴장일 제외
+    print(f"   기준: {CLEAN_FROM} 이후, 호출 50건 이상인 날만 (수동 실행분 제외)")
+    print(f"   집계된 영업일 {len(active)}일")
+    if active:
+        for d in active[-7:]:
+            o = daily[d].get("openai", 0) * RATE
+            g = daily[d].get("gemini", 0) * RATE
+            print(f"     {d}  OpenAI {o:>5,.0f}원  Gemini {g:>5,.0f}원  합계 {o + g:>5,.0f}원  ({calls[d]}회)")
+        ao = sum(daily[d].get("openai", 0) for d in active) / len(active) * RATE
+        ag = sum(daily[d].get("gemini", 0) for d in active) / len(active) * RATE
+        print(f"   일평균  OpenAI {ao:,.0f}원 / Gemini {ag:,.0f}원 / 합계 {ao + ag:,.0f}원")
+        print(f"   월 환산(영업일 22일)  OpenAI {ao * 22:,.0f}원 / Gemini {ag * 22:,.0f}원 "
+              f"/ 합계 {(ao + ag) * 22:,.0f}원")
+    if len(active) < 5:
+        print(f"   [WAIT] 영업일 {len(active)}일 — 5일 이상 쌓이면 판정.")
+        print("          09-04 추정치(신뢰도 낮음): OpenAI 월 3,300원 / Gemini 월 1,400원")
+    else:
+        print("   [DUE] 표본 충족 — 위 월 환산이 실제 비용이다.")
+        print("          월 1만원을 넘으면 줄일 곳은 자율매매 스캔 주기(INTERVAL_SECONDS)나")
+        print("          스캔 종목 수다. 촉매 판정(하루 3원 미만)이 아니다.")
+
     c.close()
     print(f"\n{'─' * 74}")
     print("자세한 배경과 판정 기준은 VERIFY.md 참조.")
     return 0
+
+
+def due_summary() -> tuple:
+    """[DUE] 상태인 항목만 뽑아 (항목ID 집합, 텔레그램용 텍스트) 반환.
+
+    main()의 출력을 그대로 파싱한다 — 판정 로직을 두 벌로 두면 반드시 어긋나므로
+    단일 진실 원천을 유지하기 위해서다. 백엔드 일일 작업이 이 함수를 호출한다.
+    """
+    import contextlib
+    import io as _io
+    import re as _re
+    buf = _io.StringIO()
+    try:
+        with contextlib.redirect_stdout(buf):
+            main()
+    except Exception as e:
+        return set(), f"현황판 실행 실패: {str(e)[:100]}"
+
+    ids, blocks = set(), []
+    cur_id = cur_title = None
+    body = []
+
+    def _flush():
+        if cur_id and any("[DUE]" in b for b in body):
+            ids.add(cur_id)
+            keep = [b.strip() for b in body
+                    if "[DUE]" in b or b.strip().startswith("통과 기준")]
+            blocks.append(f"▸ {cur_id}. {cur_title}\n   " + "\n   ".join(keep[:3]))
+
+    for line in buf.getvalue().split("\n"):
+        m = _re.match(r"^(V\d+)\. (.+?)(?:  \(기한|$)", line)
+        if m:
+            _flush()
+            cur_id, cur_title = m.group(1), m.group(2).strip()
+            body = []
+        elif cur_id:
+            body.append(line)
+    _flush()
+
+    if not blocks:
+        return set(), ""
+    return ids, ("🔔 검증 항목이 판정 시점에 도달했습니다\n\n"
+                 + "\n\n".join(blocks)
+                 + "\n\n자세한 기준은 VERIFY.md, 전체 현황은\n"
+                   "venv/Scripts/python verify_check.py")
 
 
 if __name__ == "__main__":
