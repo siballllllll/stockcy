@@ -1,0 +1,154 @@
+"""verify_check.py — 밀린 검증 항목 현황판.
+
+VERIFY.md에 적어둔 "나중에 확인하기로 한 것들"을 실제 DB/설정에 대고 점검한다.
+사람이 날짜를 기억할 필요가 없도록, 이 스크립트 하나가 "지금 뭘 볼 때인지"를 알려준다.
+
+    venv/Scripts/python verify_check.py
+
+각 항목은 (상태, 근거 수치, 다음 행동)을 출력한다. 상태 기호:
+    [DUE]     기한이 됐고 판정 가능 — 지금 확인할 것
+    [READY]   기한 전이지만 조건을 이미 충족 — 앞당겨 판정 가능
+    [WAIT]    기한 전이고 표본도 부족 — 그대로 두면 됨
+    [BLOCKED] 기한이 와도 판정 불가 — 선행 수정이 필요
+    [DONE]    해결 확인됨 — VERIFY.md에서 지워도 됨
+"""
+import os
+import sqlite3
+import sys
+from datetime import date, datetime
+
+BASE = os.path.dirname(os.path.abspath(__file__))
+DB = os.environ.get("DB_PATH") or os.path.join(BASE, "db.sqlite3")
+TODAY = date.today()
+
+try:
+    sys.stdout.reconfigure(encoding="utf-8")
+except Exception:
+    pass
+
+
+def _conn():
+    c = sqlite3.connect(DB)
+    c.row_factory = sqlite3.Row
+    return c
+
+
+def _one(cur, sql, params=()):
+    try:
+        r = cur.execute(sql, params).fetchone()
+        return tuple(r) if r else ()
+    except Exception as e:
+        return ("ERR", str(e)[:60])
+
+
+def _days_to(due: str) -> int:
+    return (datetime.strptime(due, "%Y-%m-%d").date() - TODAY).days
+
+
+def _hdr(item_id, title, due=None):
+    when = "" if not due else (
+        f"  (기한 {due}, {'D-' + str(_days_to(due)) if _days_to(due) >= 0 else 'D+' + str(-_days_to(due))})")
+    return f"\n{'─' * 74}\n{item_id}. {title}{when}"
+
+
+def main():
+    if not os.path.exists(DB):
+        print(f"DB를 찾을 수 없습니다: {DB}")
+        return 1
+    c = _conn()
+    cur = c.cursor()
+    out = []
+
+    print(f"검증 현황판 — {TODAY}   (원장: VERIFY.md)")
+
+    # ── V1. AI 종목분석 신뢰도 (v3.138.0/1) ─────────────────────────────────
+    print(_hdr("V1", "AI 종목분석 신뢰도 — 근거 팩·변동폭 앵커 도입 효과", "2026-09-25"))
+    n_hist = _one(cur, "SELECT COUNT(*) FROM analysis_history")
+    n_new = _one(cur, "SELECT COUNT(*) FROM analysis_history WHERE analysis_time >= '2026-09-04'")
+    cols = [r[1] for r in cur.execute("PRAGMA table_info(analysis_history)")]
+    has_outcome = any(k in cols for k in ("d7_return", "actual_return", "outcome_checked_at"))
+    print(f"   analysis_history 총 {n_hist[0]}건 (v3.138 이후 {n_new[0]}건)")
+    print(f"   사후 수익률 컬럼: {'있음' if has_outcome else '없음'}")
+    if not has_outcome:
+        print("   [BLOCKED] 예측만 저장되고 실제 결과를 채우는 컬럼·작업이 없어, 기한이 와도 적중률 산출 불가.")
+        print("             → 선행 수정: analysis_history에 d1/d3/d7_return + outcome_checked_at 추가하고")
+        print("                일일 사후추적에 연결할 것. 안 하면 이 항목은 영원히 판정 불가.")
+    elif n_hist[0] < 20:
+        print(f"   [WAIT] 표본 {n_hist[0]}건 — 판정에는 20건 이상 필요.")
+    else:
+        print("   [DUE] 표본 충족 — 예측 방향 적중률과 예측폭 대비 실제폭을 산출할 것.")
+    print("   통과 기준: 표본 20건+ AND 단기 전망 방향 적중률 55%+ AND 변동폭 절단 발생률 하락")
+
+    # ── V2. 자체 ML 복귀 게이트 ─────────────────────────────────────────────
+    print(_hdr("V2", "자체 ML 판단 반영 복귀 여부 — 실전 AUC 재측정", "2026-09-24"))
+    pairs = _one(cur, "SELECT COUNT(*) FROM ml_training_samples WHERE pred_d7 IS NOT NULL AND label IS NOT NULL")
+    fresh = _one(cur, "SELECT COUNT(*) FROM ml_training_samples "
+                      "WHERE pred_d7 IS NOT NULL AND label IS NOT NULL AND decided_at >= '2026-09-03'")
+    print(f"   예측-실측 쌍 {pairs[0]}건 (09-03 재학습 이후 신규 {fresh[0]}건)")
+    print("   09-03 측정치: 실전 AUC d7 0.524 / d3 0.447 → 복귀 기준 미달로 ML_DECISIONS=0 유지 중")
+    if fresh[0] < 40:
+        print(f"   [WAIT] 재학습 이후 신규 표본 {fresh[0]}건 — AUC 재측정에는 40건 이상 권장.")
+    else:
+        print("   [DUE] 신규 표본 충족 — 재학습 이후 구간만으로 AUC를 다시 계산할 것.")
+    print("   통과 기준: 신규 구간 실전 AUC 0.60+ → 판단 반영 4곳 복귀.")
+    print("   ⚠️ CV(교차검증) 점수로 판정 금지 — 0.705는 학습셋 점수이지 실전 성능이 아님.")
+
+    # ── V3. 섀도우 리그 승자 이식 ───────────────────────────────────────────
+    print(_hdr("V3", "섀도우 리그 — 이기는 매매형태를 메인에 이식할지"))
+    rows = list(cur.execute(
+        """SELECT owner, COUNT(*) n, ROUND(AVG(profit_pct), 2) avg_pct,
+                  ROUND(100.0 * SUM(CASE WHEN profit_pct > 0 THEN 1 ELSE 0 END) / COUNT(*), 1) win
+           FROM trade_history WHERE trade_source = '섀도우'
+           GROUP BY owner ORDER BY avg_pct DESC"""))
+    total = sum(r["n"] for r in rows)
+    print(f"   섀도우 실현 {total}건 (착수 기준선 30건)")
+    for r in rows:
+        print(f"     {r['owner']:<10} {r['n']:>3}건  평균 {r['avg_pct']:+6.2f}%  승률 {r['win']:>5.1f}%")
+    if total >= 30:
+        print("   [READY] 기준선을 크게 넘었다 — 지금 판정 가능. 대조군(E 랜덤) 대비 우위인 전략을 고를 것.")
+    else:
+        print(f"   [WAIT] 실현 {total}건 — 30건까지 대기.")
+    print("   통과 기준: 랜덤 대조군(SHADOW_E) 대비 평균수익·승률 모두 우위 + 표본 30건+")
+
+    # ── V4. 수급 스냅샷 스케줄러 ────────────────────────────────────────────
+    print(_hdr("V4", "수급 스냅샷 캐치업 수정(v3.107.1) 실적재 확인"))
+    snap = _one(cur, "SELECT COUNT(*), MAX(snapshot_date) FROM frgn_inst_snapshots")
+    print(f"   frgn_inst_snapshots {snap[0]}행, 최신 {snap[1]}")
+    if snap[0] and snap[1] and (TODAY - datetime.strptime(snap[1], "%Y-%m-%d").date()).days <= 5:
+        print("   [DONE] 정상 적재 중 — 세력 이상급증 감지(v3.107.0)의 전제 충족. 원장에서 지워도 됨.")
+    else:
+        print("   [DUE] 최신 적재가 5일 이상 밀렸다 — 스케줄러 재확인 필요.")
+
+    # ── V5. 토스 Open API IP 허용목록 ───────────────────────────────────────
+    print(_hdr("V5", "토스 Open API — 공인 IP 허용목록 등록 (사용자 액션)"))
+    try:
+        from dotenv import load_dotenv
+        load_dotenv(os.path.join(BASE, ".env"))
+        import toss_api
+        ok = bool(toss_api.get_token())
+        print(f"   토큰 발급: {'성공' if ok else '실패'}")
+        print("   [DONE] 호가창·최근체결·장운영 표시 정상화됨." if ok else
+              "   [BLOCKED] 403 access_denied(IP not allowed) 지속 — 토스증권 개발자센터에서\n"
+              "             현재 공인 IP를 등록해야 함. 등록 전까지 '오늘 휴장'은 거짓 표시.")
+    except Exception as e:
+        print(f"   [BLOCKED] 확인 실패: {str(e)[:80]}")
+
+    # ── V6. AI 추천 적중률 파이프라인 ───────────────────────────────────────
+    print(_hdr("V6", "AI 추천 적중률 파이프라인 — 수집 자체가 되는지"))
+    rec = _one(cur, "SELECT COUNT(*), SUM(d7_return IS NOT NULL) FROM ai_recommendations")
+    print(f"   ai_recommendations {rec[0]}행 (d7 채워진 것 {rec[1] or 0}건)")
+    if rec[0] == 0:
+        print("   [BLOCKED] 0행 — POST /api/ai-log를 호출하는 곳이 프론트에 없다.")
+        print("             일일 track_ai_recommendation_outcomes(api/main.py)가 매일 빈 테이블을 돌고 있음.")
+        print("             → V1과 같은 뿌리의 문제. 둘을 하나의 이력 테이블로 합치는 게 맞다.")
+    else:
+        print("   [DUE] 데이터가 쌓이는 중 — 적중률 산출 가능.")
+
+    c.close()
+    print(f"\n{'─' * 74}")
+    print("자세한 배경과 판정 기준은 VERIFY.md 참조.")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
