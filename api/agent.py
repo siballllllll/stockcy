@@ -178,6 +178,60 @@ def _get_today_buy_count() -> int:
 
 INTERVAL_SECONDS = 1800  # 30분 주기 (스윙/데이 트레이딩 템포)
 
+# ── [보유기간 분리 v3.146.0 — 기본 OFF] ─────────────────────────────────────
+# 지금 급등추격 하드필터(5일 +10%↑ 차단)와 눌림목 게이트는 **7일 보유 전제**의 규칙이다.
+# 근거였던 "5일 +10%↑ 승률 22%"도 d7 기준이고, 눌림목 엣지도 "7일 정점·20일 소멸"이다.
+# 그런데 사용자 실거래(리딩방 25건) 실측은 정반대 지평이었다:
+#   진입 상태 — MA20 이격 중앙값 +10.1%, 5일 모멘텀 +11.6%, 볼린저 %b 75.9 (돌파·모멘텀)
+#   기계적 보유 — d1 -0.08%(52%) → d3 +7.59%(64%) → d7 +1.60%(60%)
+#   즉 같은 진입이 d3에서는 이기고 d7까지 끌면 반감된다.
+# 그래서 필터를 "틀렸다"고 없애는 게 아니라 **적용 지평을 나눈다**. 7일 보유 후보에는 그대로
+# 적용하고, 1~3일 단타 후보(촉매 강도 '강' + 모멘텀 대역)에는 면제하되 청산을 3거래일로 죈다.
+#
+# ⚠️ 기본값 0(꺼짐). 켜기 전에 반드시 VERIFY.md V10(섀도우 G·H)이 통과해야 한다.
+#    G/H 실현 30건에서 랜덤 대조군 대비 승률이 유의(p<0.05)하지 않으면, 이 분리는 사후
+#    분석에만 근거한 것이 되고 그건 오염 가능성이 남아 있는 근거다.
+#    켜려면: .env 에 AGENT_HORIZON_SPLIT=1
+DAYTRADE_MOM_LO = 3.0      # 단타 후보 5일 모멘텀 하한 (리딩방 실측 p25 +0.2 ~ p75 +43)
+DAYTRADE_MOM_HI = 60.0     # 상한 — 이미 너무 간 것은 배제
+DAYTRADE_EXIT_DAYS = 4     # 단타 시간손절 (달력일 ≈ 3거래일) — 섀도우 G와 동일 기준
+DAYTRADE_DAILY_LOOKUPS = 8  # 하루 촉매 검색 상한 (비용 가드)
+
+_DAYTRADE_LOOKUP_STATE = {"date": "", "used": 0}
+
+
+def _horizon_split_on() -> bool:
+    return os.getenv("AGENT_HORIZON_SPLIT", "0") == "1"
+
+
+def _is_daytrade_candidate(ticker: str, name: str, market: str, snap: dict) -> tuple:
+    """단타(1~3일) 후보인지 판정 → (여부, 근거 한 줄).
+
+    값싼 모멘텀 대역 판정을 먼저 통과한 종목만 유료 촉매 검색을 부른다.
+    catalyst_strength는 (종목,날짜) 캐시라 섀도우 리그가 오늘 이미 조회한 종목이면 공짜다.
+    """
+    if not _horizon_split_on():
+        return False, ""
+    m5 = (snap or {}).get("mom_5")
+    if m5 is None or not (DAYTRADE_MOM_LO <= m5 <= DAYTRADE_MOM_HI):
+        return False, ""
+    today = datetime.now().strftime("%Y-%m-%d")
+    if _DAYTRADE_LOOKUP_STATE["date"] != today:
+        _DAYTRADE_LOOKUP_STATE.update({"date": today, "used": 0})
+    if _DAYTRADE_LOOKUP_STATE["used"] >= DAYTRADE_DAILY_LOOKUPS:
+        return False, "촉매 조회 한도 소진"
+    try:
+        from ai_engine import catalyst_strength
+        cs = catalyst_strength(ticker, name, market) or {}
+    except Exception as e:
+        logger.error(f"[agent] 단타 촉매 판정 실패 {ticker}: {e}")
+        return False, ""
+    _DAYTRADE_LOOKUP_STATE["used"] += 1
+    if not (cs.get("found") and str(cs.get("strength", "")) == "강"):
+        return False, f"촉매 약함({cs.get('strength', '없음')})"
+    return True, (f"촉매 '강'({cs.get('catalyst_type', '?')}·{str(cs.get('theme', ''))[:16]}) "
+                  f"+ 5일 {m5:+.1f}%")
+
 
 def _position_size(cash_krw: float, price: float, market: str,
                    bb_pctb=None, mom_5=None, usdkrw: float = 1350.0) -> tuple:
@@ -524,7 +578,11 @@ def _run_one_scan(force: bool = False) -> dict:
                 if position == "HOLDING" and avg_price and avg_price > 0:
                     _fee_rt = 0.21 if market == "국내" else 0.15   # 왕복 수수료+거래세 %
                     _net = (current_price - avg_price) / avg_price * 100.0 - _fee_rt
-                    _is_swing = "[스윙]" in str(holding.get("rating") or "")
+                    _rating_s = str(holding.get("rating") or "")
+                    _is_dt_pos = "[단타]" in _rating_s
+                    # 단타는 스윙의 손절·익절 가드를 그대로 물려받되(안전장치는 유지),
+                    # 시간손절만 14일 → 4일(≈3거래일)로 죈다. 모멘텀은 빨리 식기 때문이다.
+                    _is_swing = ("[스윙]" in _rating_s) or _is_dt_pos
                     _peak, _partial = _pos_state(ticker, current_price)   # 고점 갱신 + 부분익절 여부
                     if _is_swing and _net <= -5.0:
                         # [스마트 손절 v3.125.0] -5%~-8% 구간은 '지금 이 순간'의 회복 지표를 보고 유예.
@@ -613,12 +671,20 @@ def _run_one_scan(force: bool = False) -> dict:
                                 _hold_days = (datetime.now() - datetime.strptime(str(_bd)[:10], "%Y-%m-%d")).days
                             except Exception:
                                 _hold_days = None
-                        if _hold_days is not None and _hold_days >= 14:
+                        _limit_days = DAYTRADE_EXIT_DAYS if _is_dt_pos else 14
+                        if _hold_days is not None and _hold_days >= _limit_days:
                             forced_exit = True
-                            decision = {"action": "SELL", "confidence": 90,
-                                        "reason": (f"[시간 손절·스윙] 보유 {_hold_days}일 경과 — 눌림목 엣지는 7일에 정점(승률 55%)을 찍고 "
-                                                   f"20일이면 소멸(31%·-5.8%). 목표 구간 미도달 상태로 기간이 지나 실질 {_net:+.2f}%에 정리."),
-                                        "learning_point": f"스윙 시간 손절 {_hold_days}일 경과, {_net:+.2f}% — 일주일 내 안 되는 눌림목은 끌지 않는다"}
+                            if _is_dt_pos:
+                                decision = {"action": "SELL", "confidence": 90,
+                                            "reason": (f"[시간 손절·단타] 보유 {_hold_days}일 경과(한도 {_limit_days}일) — "
+                                                       f"모멘텀 엣지는 d3에 정점(+7.6%·승률 64%)이고 d7이면 반감(+1.6%)한다. "
+                                                       f"실질 {_net:+.2f}%에 정리."),
+                                            "learning_point": f"단타 시간 손절 {_hold_days}일, {_net:+.2f}% — 모멘텀은 3거래일 안에 결판난다"}
+                            else:
+                                decision = {"action": "SELL", "confidence": 90,
+                                            "reason": (f"[시간 손절·스윙] 보유 {_hold_days}일 경과 — 눌림목 엣지는 7일에 정점(승률 55%)을 찍고 "
+                                                       f"20일이면 소멸(31%·-5.8%). 목표 구간 미도달 상태로 기간이 지나 실질 {_net:+.2f}%에 정리."),
+                                            "learning_point": f"스윙 시간 손절 {_hold_days}일 경과, {_net:+.2f}% — 일주일 내 안 되는 눌림목은 끌지 않는다"}
 
                 # AI에게 매수/매도/홀딩 판단 요청 (강제 청산이면 Gemini 호출 생략 — 비용 0)
                 if decision is None:
@@ -705,7 +771,12 @@ def _run_one_scan(force: bool = False) -> dict:
                     # 실측 561건: 5일 +10%↑ 승률 22%, (+5%↑ AND RSI70↑/거래량4배↑) 승률 13~20%.
                     _snap = decision.get("_indicators") or {}
                     _m5 = _snap.get("mom_5"); _rsi_s = _snap.get("rsi") or 0; _vr_s = _snap.get("vol_ratio") or 0
-                    if _m5 is not None and (_m5 >= 10 or (_m5 >= 5 and (_rsi_s >= 70 or _vr_s >= 4))):
+
+                    # 단타 지평 판정 — 여기서 한 번만 부르고 아래 두 게이트가 공유한다.
+                    # (AGENT_HORIZON_SPLIT=0 이면 항상 False라 기존 동작과 완전히 동일)
+                    _is_dt, _dt_note = _is_daytrade_candidate(ticker, name, market, _snap)
+
+                    if (not _is_dt) and _m5 is not None and (_m5 >= 10 or (_m5 >= 5 and (_rsi_s >= 70 or _vr_s >= 4))):
                         logger.info(f"AI Agent: {name} 매수 차단 - 급등 추격 구간 (5일 모멘텀 {_m5:+.1f}%, 실측 저승률 하드필터)")
                         try:
                             log_agent_scan(ticker, name, current_price, position, "HOLD", confidence,
@@ -754,7 +825,11 @@ def _run_one_scan(force: bool = False) -> dict:
                             except Exception as _ize:
                                 logger.error(f"[agent] issue_zone 판정 실패 {ticker}: {_ize}")
 
-                        if not _pullback_ok and not _issue_ok:
+                        # 단타는 정의상 눌림목이 아니다(돌파·모멘텀 진입). 7일 엣지 전제의
+                        # 눌림목 게이트를 여기에 적용하면 사용자 실제 승리 패턴을 그대로 막는다.
+                        if _is_dt:
+                            logger.info(f"AI Agent: {name} 단타 지평으로 눌림목 게이트 면제 — {_dt_note}")
+                        if not _pullback_ok and not _issue_ok and not _is_dt:
                             logger.info(f"AI Agent: {name} 매수 차단 - 눌림목·이슈구간 게이트 모두 미통과 "
                                         f"(bb%b {_bb_g}, 5일 {_m5}%, 거래량 {_vr_g}배, RSI {_rsi_g})")
                             try:
@@ -852,7 +927,10 @@ def _run_one_scan(force: bool = False) -> dict:
                     # 줘도 무시하고 스윙으로 고정 — 중장기 태그는 강제 익절·손절이 모두 면제라, 눌림목 진입에
                     # 붙으면 엣지가 사라진 뒤에도 계속 들고 있게 된다(실현거래 21일+ 23건 승률 30.4%·-11.01%).
                     # 게이트를 끄면(AGENT_PULLBACK_GATE=0) 기존처럼 LLM의 horizon 판단을 존중한다.
-                    if os.getenv("AGENT_PULLBACK_GATE", "1") != "0":
+                    if _is_dt:
+                        # 단타(1~3일) — 청산 가드가 4일 시간손절로 죄어진다(아래 강제 청산 가드 참조).
+                        _hz_tag = "[단타]"
+                    elif os.getenv("AGENT_PULLBACK_GATE", "1") != "0":
                         _hz_tag = "[스윙]"
                     else:
                         _hz_tag = "[중장기]" if str(decision.get("horizon") or "").lower() == "long" else "[스윙]"
