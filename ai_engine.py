@@ -2369,6 +2369,61 @@ def _cap_horizon(longer: dict, shorter: dict, ratio: float) -> bool:
     return hit
 
 
+def _scenario_link_count(ticker: str) -> int:
+    """이 종목이 등장한 시나리오(재료) 개수. 조회 실패 시 0.
+
+    섀도우 C의 `linked` 판정과 동일한 소스를 쓴다. shadow_league는 사이클당 전체 맵을
+    한 번 로드하지만, 여기서는 단건 조회라 티커로 직접 센다(집계 정의는 동일).
+    """
+    tk = str(ticker or "").strip()
+    if not tk:
+        return 0
+    try:
+        from db import get_db_conn
+        conn = get_db_conn()
+        try:
+            row = conn.cursor().execute(
+                "SELECT COUNT(DISTINCT scenario_keyword) FROM scenario_stocks WHERE ticker = ?",
+                (tk,)).fetchone()
+            return int(row[0]) if row else 0
+        finally:
+            conn.close()
+    except Exception:
+        return 0
+
+
+def issue_zone_signal(ticker: str, pct_b, disp20, mom5, is_kr: bool) -> dict:
+    """섀도우 C "이슈×지지구간" 조건 판정 → {ok, linked, zone, not_hot, detail}.
+
+    [근거] 2026-09-04 실측, 섀도우 리그 2개월(실현 172건). 전략 6개 중 랜덤 대조군(E)
+    대비 승률이 통계적으로 유의한 것은 C 하나뿐이었다.
+      · 전체   승률 61.0% (n=41)  vs 대조군 32.5%  → z=+2.57, p=0.010
+      · 국내   승률 70.8% (n=24)  vs 대조군 28.6%  → z=+3.04, p=0.0024
+      · 미국   승률 47.1% (n=17)  vs 대조군 41.7%  → p=0.774 (신호 없음)
+    같은 규칙인데 시장이 갈렸다. 그래서 **국내에서만** 신호로 쓴다.
+    (참고: A 눌림목은 p=0.070으로 유의 기준 미달, F 모멘텀추격은 랜덤과 구분 불가 p=0.867.)
+
+    조건은 shadow_league._wants_buy의 SHADOW_C와 동일하게 유지할 것 — 어긋나면 실측
+    근거와 실제 동작이 따로 놀아 위 수치를 인용할 수 없게 된다.
+    """
+    if not is_kr:
+        return {"ok": False, "reason": "국내 전용(미국은 실측 우위 없음)"}
+    linked_n = _scenario_link_count(ticker)
+    linked = linked_n > 0
+    # shadow_league는 bb를 0~1로 다루고 여기 pct_b는 0~100 — 스케일만 맞춘다.
+    bb = (pct_b / 100.0) if pct_b is not None else None
+    zone = ((bb is not None and bb <= 0.35)
+            or (disp20 is not None and -3.0 <= disp20 <= 1.0))
+    not_hot = mom5 is None or mom5 < 5.0
+    return {
+        "ok": bool(linked and zone and not_hot),
+        "linked": linked, "linked_n": linked_n, "zone": zone, "not_hot": not_hot,
+        "detail": (f"재료 {linked_n}건" if linked else "재료 없음")
+                  + f" · 지지구간 {'O' if zone else 'X'}(%b {pct_b}·MA20 {disp20}%)"
+                  + f" · 과열아님 {'O' if not_hot else 'X'}(5일 {mom5}%)",
+    }
+
+
 def _build_evidence_pack(ticker: str, market: str = "KR") -> tuple:
     """종목분석 프롬프트용 정량 근거 팩 + 변동성 앵커. (프롬프트 블록 str, anchor dict) 반환.
 
@@ -2424,6 +2479,9 @@ def _build_evidence_pack(ticker: str, market: str = "KR") -> tuple:
         v20 = sum(vols[-20:]) / 20
         vol_ratio = vols[-1] / v20 if v20 > 0 else 1.0
 
+        # 5일 모멘텀 — 급등 추격 배제 판정(섀도우 C의 not_hot)에 쓰인다
+        mom5 = (cur / closes[-6] - 1) * 100 if len(closes) >= 6 and closes[-6] else None
+
         # 볼린저(20,2) %b — 눌림목 판단의 핵심 좌표
         sd20 = math.sqrt(sum((c - ma20) ** 2 for c in closes[-20:]) / 20)
         bb_up, bb_lo = ma20 + 2 * sd20, ma20 - 2 * sd20
@@ -2447,6 +2505,10 @@ def _build_evidence_pack(ticker: str, market: str = "KR") -> tuple:
         mu = sum(rets_d) / len(rets_d)
         sigma_d = math.sqrt(sum((r - mu) ** 2 for r in rets_d) / max(1, len(rets_d) - 1))
 
+        # 섀도우 C "이슈×지지구간" 신호 — 리그 실측에서 유일하게 유의했던 진입 형태
+        izs = issue_zone_signal(sym, round(pct_b, 1), round(disp20, 1),
+                                round(mom5, 1) if mom5 is not None else None, is_kr)
+
         # ── 구간별 실측 수익률 분포 (가드레일의 근거) ──
         h4w, h3m, h1y = _horizon_stats(closes, 20), _horizon_stats(closes, 63), _horizon_stats(closes, 252)
         # 장기 구간은 표본이 사실상 '최근 단일 추세 국면' 하나라, 대세상승/급락을 한 번 겪은
@@ -2457,11 +2519,18 @@ def _build_evidence_pack(ticker: str, market: str = "KR") -> tuple:
         print(f"[evidence pack] {ticker} 계산 실패: {e}")
         return "", {}
 
+    # mom5가 None이면 아래 f-string 포맷이 터진다 — 표시용 기본값을 미리 채운다.
+    mom5 = mom5 if mom5 is not None else 0.0
     unit = "원" if is_kr else "달러"
     _p = (lambda v: f"{int(round(v)):,}{unit}") if is_kr else (lambda v: f"${v:,.2f}")
 
     _cap_note = ("\n※ 장기 구간 통계는 최근 단일 추세 국면이 표본을 지배해, 단기 밴드 기준으로 상한 보정됨."
                  if _capped else "")
+
+    # 이슈×지지구간 신호는 국내에서만 실측 우위가 확인됐다 — 충족했을 때만, 국내에서만 노출.
+    _izs_line = ("\n· ⭐ 이슈×지지구간 조건 충족 — " + izs["detail"]
+                 + "\n  (섀도우 리그 실측: 이 조건의 국내 승률 70.8%, n=24, 랜덤 대조군 28.6% 대비 p=0.0024."
+                   " 진입 근거로 명시적으로 언급하세요.)") if izs.get("ok") else ""
 
     def _band_line(label, st):
         if not st:
@@ -2479,6 +2548,7 @@ def _build_evidence_pack(ticker: str, market: str = "KR") -> tuple:
 · 52주 위치: {pos52:.1f}% (최저 {_p(lo52)} ~ 최고 {_p(hi52)})
 · 최근 20거래일 박스: 지지 {_p(sup)} (현재가 대비 {(sup - cur) / cur * 100:+.1f}%) / 저항 {_p(res_)} ({(res_ - cur) / cur * 100:+.1f}%)
 · 일간 변동성: ATR(14) {atr_pct:.2f}% · 60일 표준편차 {sigma_d:.2f}%/일
+· 5일 모멘텀: {mom5:+.1f}%{_izs_line}
 
 [📏 실측 변동폭 — 최근 {len(closes)}거래일 동안 이 종목이 '실제로' 움직인 범위]
 {_band_line('4주 보유 시(단기)', h4w)}
@@ -2508,6 +2578,8 @@ def _build_evidence_pack(ticker: str, market: str = "KR") -> tuple:
         "resistance": round(res_, 2),
         "bars": len(closes),
         "long_horizon_capped": bool(_capped),
+        "mom_5_pct": round(mom5, 1),
+        "issue_zone": izs,
     }
     return block, anchor
 

@@ -111,14 +111,27 @@ def main():
            FROM trade_history WHERE trade_source = '섀도우'
            GROUP BY owner ORDER BY avg_pct DESC"""))
     total = sum(r["n"] for r in rows)
-    print(f"   섀도우 실현 {total}건 (착수 기준선 30건)")
+    print(f"   섀도우 실현 {total}건")
     for r in rows:
         print(f"     {r['owner']:<10} {r['n']:>3}건  평균 {r['avg_pct']:+6.2f}%  승률 {r['win']:>5.1f}%")
-    if total >= 30:
-        print("   [READY] 기준선을 크게 넘었다 — 지금 판정 가능. 대조군(E 랜덤) 대비 우위인 전략을 고를 것.")
+    # 1차 판정(09-04)에서 C만 유의 → v3.141.0에 국내 OR 경로로 이식. 이제 국내 C 표본만 본다.
+    kr_c = _one(cur, """SELECT COUNT(*), ROUND(100.0 * SUM(CASE WHEN profit_pct > 0 THEN 1 ELSE 0 END)
+                               / COUNT(*), 1)
+                        FROM trade_history
+                        WHERE trade_source = '섀도우' AND owner = 'SHADOW_C'
+                          AND ticker GLOB '[0-9]*'""")
+    n_c, w_c = (kr_c + (0, 0))[:2]
+    print(f"   → 이식된 C(국내): {n_c}건 승률 {w_c}%  [1차 판정 시 24건 70.8%, 대조군 28.6%, p=0.0024]")
+    if (n_c or 0) < 50:
+        print(f"   [WAIT] 재판정 기준선 n=50까지 {50 - (n_c or 0)}건 남음. 그대로 두면 됨.")
+    elif (w_c or 0) >= 60:
+        print("   [DUE] n=50 도달, 승률 60%+ 유지 — 하드 게이트 승격 검토.")
+    elif (w_c or 0) < 45:
+        print("   [DUE] n=50 도달, 승률 45% 미만 — OR 경로(AGENT_ISSUE_ZONE_GATE=0) 회수 검토.")
     else:
-        print(f"   [WAIT] 실현 {total}건 — 30건까지 대기.")
-    print("   통과 기준: 랜덤 대조군(SHADOW_E) 대비 평균수익·승률 모두 우위 + 표본 30건+")
+        print("   [DUE] n=50 도달, 승률 45~60% — 현행 유지하며 계속 관찰.")
+    print("   이식 위치: ai_engine.issue_zone_signal() / api/agent.py 매수 게이트 OR 경로")
+    print("   ⚠️ 조건식은 shadow_league._wants_buy의 SHADOW_C와 동일하게 유지할 것.")
 
     # ── V4. 수급 스냅샷 스케줄러 ────────────────────────────────────────────
     print(_hdr("V4", "수급 스냅샷 캐치업 수정(v3.107.1) 실적재 확인"))
@@ -155,6 +168,25 @@ def main():
         print("   [DUE] 데이터가 쌓이는 중 — 적중률 산출 가능.")
     print("   ⚠️ 남은 간극: 구형 log_ai_recommendation은 ML 학습샘플도 함께 적재했다.")
     print("      analysis_history 경로에는 그게 없어, 종목분석은 ML 학습에 기여하지 않는다(V2와 별개 사안).")
+
+    # ── V7. ML 학습에 종목분석 소스 편입 여부 ───────────────────────────────
+    print(_hdr("V7", "ML 학습에 종목분석 소스(stock_analysis)를 편입할지"))
+    sa = _one(cur, "SELECT COUNT(*), SUM(d7_return IS NOT NULL) FROM ml_training_samples "
+                   "WHERE source = 'stock_analysis'")
+    n_sa, lab = (sa + (0, 0))[:2]
+    print(f"   적재 {n_sa or 0}건 (결과 라벨 채워진 것 {lab or 0}건)")
+    try:
+        from ml_model import EXCLUDED_SOURCES
+        print(f"   학습 제외 목록: {EXCLUDED_SOURCES}")
+    except Exception:
+        pass
+    if (lab or 0) < 40:
+        print(f"   [WAIT] 라벨 {lab or 0}건 — 40건 이상 쌓이면 이 소스 단독 AUC를 측정할 것.")
+        print("          그때까지는 제외 상태 유지(학습 오염 없음). 적재는 계속된다.")
+    else:
+        print("   [DUE] 표본 충족 — stock_analysis만으로 d7 AUC를 계산할 것.")
+    print("   통과 기준: 이 소스 단독 AUC 0.55+ → EXCLUDED_SOURCES에서 제거해 학습 편입.")
+    print("   ⚠️ scenario 전례(예측력 0인 채 학습셋 67% 점유 → 실전 AUC 0.524) 반복 금지.")
 
     c.close()
     print(f"\n{'─' * 74}")

@@ -80,7 +80,11 @@ def _model_path(horizon: str) -> str:
 # 이 소스가 학습셋의 67%(748건 중 500건)를 차지해, 모델이 노이즈에서 패턴을 찾다 과적합했다
 # (학습 CV AUC 0.658 → 실전 0.524). 신호 없는 라벨은 표본이 많을수록 해롭다.
 # v3.135.0 이후 생성분은 선정 기준이 달라졌으므로, 충분히 쌓이면 재편입을 재검토할 것.
-EXCLUDED_SOURCES = ("scenario",)
+# 학습에서 제외할 샘플 소스.
+#  · "scenario"    — 예측력 0인 채 학습셋의 67%를 잡아먹어 실전 AUC를 0.524로 끌어내렸다(v3.136.1).
+#  · "stock_analysis" — v3.141.0에 새로 적재 시작. 같은 실수를 반복하지 않으려고 처음부터 제외
+#    상태로 두고, 이 소스만의 예측력을 따로 측정한 뒤 편입 여부를 정한다(VERIFY.md V7).
+EXCLUDED_SOURCES = ("scenario", "stock_analysis")
 
 
 def build_training_set(horizon: str = "d7"):

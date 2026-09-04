@@ -709,14 +709,41 @@ def _run_one_scan(force: bool = False) -> dict:
                                         and _m5 is not None and _m5 <= -3
                                         and (_vr_g is None or _vr_g < 2.0)
                                         and (_rsi_g is None or _rsi_g < 55))
-                        if not _pullback_ok:
-                            logger.info(f"AI Agent: {name} 매수 차단 - 눌림목 게이트 미통과 "
+                        # ── [이슈×지지구간 대안 경로 v3.141.0] ────────────────────────
+                        # 섀도우 리그 2개월 실측(2026-09-04)에서 랜덤 대조군 대비 승률이 통계적으로
+                        # 유의한 전략은 C(이슈×지지구간) 하나뿐이었다:
+                        #   C 국내 70.8%(n=24) vs 대조군 28.6% → z=+3.04, p=0.0024
+                        #   A 눌림목 54.2%(n=24) → p=0.061 (유의 기준 미달)
+                        #   C 미국 47.1%(n=17) → p=0.774 (신호 없음) ⇒ 국내에서만 연다
+                        # 위 A 게이트(bb<0.25 AND 5일≤-3)는 C보다 좁아서, 승률이 더 높은 C 형태를
+                        # 통째로 막고 있었다. 그래서 조이는 게 아니라 OR 경로로 '연다'.
+                        # 조건은 shadow_league._wants_buy의 SHADOW_C와 동일하게 유지할 것.
+                        _issue_ok = False
+                        if (not _pullback_ok and market == "국내"
+                                and os.getenv("AGENT_ISSUE_ZONE_GATE", "1") != "0"):
+                            try:
+                                from ai_engine import issue_zone_signal
+                                _izs = issue_zone_signal(
+                                    ticker,
+                                    (_bb_g * 100.0) if _bb_g is not None else None,   # 0~1 → 0~100
+                                    _snap.get("ma20_dist"), _m5, True)
+                                _issue_ok = bool(_izs.get("ok"))
+                                if _issue_ok:
+                                    logger.info(f"AI Agent: {name} 눌림목 게이트는 미통과지만 "
+                                                f"이슈×지지구간 조건 충족으로 매수 허용 — {_izs.get('detail')}")
+                            except Exception as _ize:
+                                logger.error(f"[agent] issue_zone 판정 실패 {ticker}: {_ize}")
+
+                        if not _pullback_ok and not _issue_ok:
+                            logger.info(f"AI Agent: {name} 매수 차단 - 눌림목·이슈구간 게이트 모두 미통과 "
                                         f"(bb%b {_bb_g}, 5일 {_m5}%, 거래량 {_vr_g}배, RSI {_rsi_g})")
                             try:
                                 log_agent_scan(ticker, name, current_price, position, "HOLD", confidence,
-                                    f"[{source_korean}] AI는 BUY 결정을 내렸으나 눌림목 진입 게이트 미통과로 보류 "
-                                    f"(볼린저%b {_bb_g}<0.25 / 5일모멘텀 {_m5}%≤-3 / 거래량 {_vr_g}배<2.0 / RSI {_rsi_g}<55 조건). "
-                                    f"실측상 이 조건을 만족한 매수(섀도우 A)가 승률 77.8%·평균 +10.6%로 최상위.")
+                                    f"[{source_korean}] AI는 BUY 결정을 내렸으나 검증된 진입 형태 두 가지에 모두 해당하지 않아 보류. "
+                                    f"① 눌림목(볼린저%b {_bb_g}<0.25 / 5일 {_m5}%≤-3 / 거래량 {_vr_g}배<2.0 / RSI {_rsi_g}<55) "
+                                    f"② 이슈×지지구간(재료 보유 + %b≤0.35 또는 MA20 -3~+1% + 5일<5%, 국내 전용). "
+                                    f"섀도우 리그 2개월 실측: ②가 국내 승률 70.8%(n=24)로 랜덤 대조군 28.6% 대비 p=0.0024, "
+                                    f"①은 54.2%로 p=0.061(유의 미달).")
                             except Exception:
                                 pass
                             continue

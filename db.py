@@ -2896,7 +2896,21 @@ def save_stock_analysis_history(market: str, ticker: str, name: str, current_pri
         )
         conn.commit()
         conn.close()
-        
+
+        # 자체 ML 학습 샘플로도 기록 (비추천 등급 제외 — 매수 관점만).
+        # [v3.141.0] 구형 log_ai_recommendation이 하던 일을 이쪽으로 옮긴 것.
+        # ⚠️ source="stock_analysis"는 ml_model.EXCLUDED_SOURCES에 넣어 **학습에서 제외**된
+        # 상태로 시작한다. scenario 소스가 예측력 0인 채 학습셋의 67%를 잡아먹었던 전례가
+        # 있어서, 이 소스만의 예측력을 따로 측정한 뒤에 편입할지 정한다(VERIFY.md V7).
+        # 종목분석 표본은 사용자가 검색한 임의 종목이라 스크리너 픽과 선택 편향이 다르다 —
+        # 일반화에 도움이 될 수도, 채점용 모델엔 노이즈일 수도 있어 반드시 재보고 넣을 것.
+        if "비추천" not in str(rat or ""):
+            try:
+                _mkt = "us" if str(market or "").strip().upper() == "US" else "kr"
+                log_ml_sample("stock_analysis", ticker, name, _mkt, None)
+            except Exception as _me:
+                print(f"[analysis history] ML 샘플 적재 실패 {ticker}: {_me}")
+
         # 구글 시트에 비동기 백업
         run_background_backup(
             _gsheet_backup_analysis_history,
