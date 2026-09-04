@@ -25,12 +25,23 @@
   모든 전략의 성적이 '운인지 실력인지'를 가리는 눈금자. 날짜+티커 시드로 결정론화.
 - SHADOW_F "모멘텀 추격" (v3.120.0): 5일 +10%↑ 강세주 추격 — 실측 22% 구간의
   실시간 확인사살용 악마의 변호인. 다른 전략이 금지하는 바로 그 구간만 산다.
+- SHADOW_G/H "촉매 모멘텀" (v3.145.0): 오르고 있으면서(5일 +3~60%) **검색으로 확인된
+  강한 촉매**가 있는 종목만 매수. 사용자 리딩방 실거래 25건을 사후 복원해 나온 가설의
+  전향 검증이다 — 같은 날·비슷한 모멘텀인데 안 산 종목 16개(대조군)와 비교했을 때
+  강한 촉매 보유가 58% vs 25%로 갈렸다(z=+2.08, p=0.038). 모멘텀은 양쪽 다 있었으므로
+  갈린 축은 촉매의 강도였다. G와 H는 **진입 조건이 완전히 동일**하고 청산만 다르다.
 청산(공통, 결정론) — v3.124.0 개정: **7거래일(≈10일) 순수 타임스탑 + 재난용 -20%만.**
+  단 하나의 예외: SHADOW_G는 4일(≈3거래일) 타임스탑이다. 리딩방 실거래를 기계적으로
+  보유했을 때 d3 +7.59%/승률 64% → d7 +1.60%/승률 60%로 edge가 반감되는 것이 실측돼,
+  "모멘텀은 빨리 식는다"는 가설 자체를 재려면 청산 기간이 변수여야 하기 때문이다.
+  H가 동일 진입·기존 청산으로 함께 돌아가므로 **G vs H = 청산 효과, H vs 나머지 = 진입 효과**로
+  분해된다. 이 쌍을 깨지 말 것 — H를 지우면 G의 성적이 진입 덕인지 청산 덕인지 알 수 없게 된다.
 이전(-5%/+8% 중간청산)은 측정 기준과 모순이었음: 근거 데이터(눌림목 62~71%)는
 '7거래일 무손절 보유' 결과인데 섀도우에 -5% 손절을 달아 급락일 노이즈에 잘려나감
 (2026-07-07 첫날 전원 당일 손절 사태, 사용자 지적). 매수 근거는 기간 만료까지
 지켜보는 게 이 리그의 측정 원칙 — 가상 자금이라 손실 방어보다 측정이 목적.
-⚠️ 청산 규칙을 통일해야 리그가 '진입 방식'만의 우열을 측정한다 — 전략별 청산 변경 금지.
+⚠️ 청산 규칙 통일 원칙은 유지한다 — G/H 쌍처럼 청산 효과 자체를 측정하려는 의도적
+설계가 아니면 전략별 청산을 바꾸지 말 것.
 """
 import logging
 from datetime import datetime
@@ -42,8 +53,20 @@ SHADOW_DAILY_BUY_CAP = 5      # 메인(3회)보다 완화 — 가상이므로 �
 SHADOW_BUDGET_FRAC = 0.12     # 포지션당 현금 12% (메인과 동일 기준)
 EXIT_DISASTER = -20.0         # 재난용 손절 % (상폐급 폭락만 차단 — 측정 왜곡 최소화)
 EXIT_DAYS = 10                # 타임스탑 (달력일 ≈ 7거래일, d7 호라이즌 정합) — 주 청산 수단
+EXIT_DAYS_FAST = 4            # SHADOW_G 전용 (달력일 ≈ 3거래일) — 아래 주석 참조
+CATALYST_MOM_LO = 3.0         # G/H 진입 모멘텀 하한 (리딩방 실측 p25 +0.2 ~ p75 +43)
+CATALYST_MOM_HI = 60.0        # 상한 — 이미 너무 간 것은 배제
+CATALYST_DAILY_LOOKUPS = 12   # 하루 검색 판정 상한 (비용 가드)
 
-SHADOWS = ("SHADOW_A", "SHADOW_B", "SHADOW_C", "SHADOW_D", "SHADOW_E", "SHADOW_F")
+SHADOWS = ("SHADOW_A", "SHADOW_B", "SHADOW_C", "SHADOW_D", "SHADOW_E", "SHADOW_F",
+           "SHADOW_G", "SHADOW_H")
+
+# 전략별 타임스탑 (미지정은 EXIT_DAYS). G만 예외인 이유는 모듈 docstring 참조.
+_EXIT_DAYS_BY_OWNER = {"SHADOW_G": EXIT_DAYS_FAST}
+
+
+def _exit_days(owner: str) -> int:
+    return _EXIT_DAYS_BY_OWNER.get(owner, EXIT_DAYS)
 
 
 def _conn():
@@ -171,6 +194,30 @@ def _wants_buy(owner: str, ind: dict, tk: str = "", ctx: dict = None) -> tuple:
         # 모멘텀 추격 — 5일 +10%↑ 강세주만 (다른 전략이 금지하는 구간의 확인사살)
         ok = m5 is not None and m5 >= 10.0
         return ok, 1.0, f"모멘텀 추격(5일 {m5}%)"
+    if owner in ("SHADOW_G", "SHADOW_H"):
+        # 촉매 모멘텀 — 오르고 있으면서 '강한 촉매'가 검색으로 확인된 종목만.
+        # 두 전략의 진입은 완전히 동일하다(청산만 G=3거래일 / H=기존 10일).
+        # 순서가 중요하다: 값싼 모멘텀 필터를 먼저 통과시킨 뒤에만 유료 검색을 부른다.
+        if m5 is None or not (CATALYST_MOM_LO <= m5 <= CATALYST_MOM_HI):
+            return False, 1.0, ""
+        cs = (ctx or {}).get("catalyst_cache", {}).get(tk)
+        if cs is None:
+            budget = (ctx or {}).get("catalyst_budget")
+            if budget is not None and budget[0] <= 0:
+                return False, 1.0, "촉매 조회 한도 소진"
+            try:
+                from ai_engine import catalyst_strength
+                cs = catalyst_strength(tk, (ctx or {}).get("name_map", {}).get(tk, ""),
+                                       "국내" if tk.isdigit() else "미국") or {}
+            except Exception as e:
+                logger.error(f"[shadow] 촉매 판정 실패 {tk}: {e}")
+                cs = {}
+            (ctx or {}).setdefault("catalyst_cache", {})[tk] = cs
+            if budget is not None:
+                budget[0] -= 1
+        ok = bool(cs.get("found")) and str(cs.get("strength", "")) == "강"
+        return ok, 1.0, (f"촉매모멘텀(5일 {m5}%·{cs.get('catalyst_type','?')}"
+                         f"·{str(cs.get('theme',''))[:20]}) {str(cs.get('catalyst',''))[:60]}")
     return False, 1.0, ""
 
 
@@ -182,7 +229,12 @@ def run_shadow_cycle(candidates: list, kr_open: bool, us_open: bool, force: bool
     out = {}
     conn = _conn(); cur = conn.cursor()
     # 사이클 공용 컨텍스트 — C(이슈 연관 맵)·D(수급 상위 집합) 판정용, 사이클당 1회 로드
-    ctx = {"scenario_map": {}, "supply_set": set()}
+    ctx = {"scenario_map": {}, "supply_set": set(),
+           # G/H 전용 — 촉매 검색은 유료라 사이클 내 캐시 + 하루 상한으로 통제한다.
+           # (ai_engine.catalyst_strength 자체도 (종목,날짜) 캐시를 갖지만, 그건 DB 왕복이라
+           #  같은 사이클에서 G와 H가 같은 종목을 볼 때의 중복까지는 못 막는다.)
+           "catalyst_cache": {}, "catalyst_budget": [CATALYST_DAILY_LOOKUPS],
+           "name_map": {str(c.get("ticker") or ""): (c.get("name") or "") for c in (candidates or [])}}
     try:
         from db import load_scenario_stocks_set
         ctx["scenario_map"] = load_scenario_stocks_set() or {}
@@ -217,8 +269,9 @@ def run_shadow_cycle(candidates: list, kr_open: bool, us_open: bool, force: bool
                 reason = None
                 if net <= EXIT_DISASTER:
                     reason = f"재난 손절 {net:+.2f}% (상폐급 폭락 차단)"
-                elif held_days >= EXIT_DAYS:
-                    reason = f"기간만료 청산 {held_days}일 ({net:+.2f}%) — 근거를 끝까지 지켜본 결과"
+                elif held_days >= _exit_days(owner):
+                    reason = (f"기간만료 청산 {held_days}일/{_exit_days(owner)}일 ({net:+.2f}%) "
+                              f"— 근거를 끝까지 지켜본 결과")
                 if reason:
                     _sell(cur, owner, h, market, px, reason, usdkrw)
                     summary["sell"] += 1

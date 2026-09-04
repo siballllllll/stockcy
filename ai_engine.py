@@ -2394,6 +2394,77 @@ def _scenario_link_count(ticker: str) -> int:
         return 0
 
 
+def catalyst_strength(ticker: str, name: str = "", market: str = "국내") -> dict:
+    """이 종목에 '지금' 주가를 움직일 강한 촉매가 있는지 검색으로 판정.
+
+    {strength: 강/중/약/없음, catalyst, catalyst_type, theme, found} 반환. 실패 시 {}.
+
+    [근거] 2026-09-04 리딩방 실거래 25건 사후 복원 + 대조군 검정:
+      같은 날짜·비슷한 모멘텀(5일 +3~60%)인데 사지 않은 종목 16개를 대조군으로 세웠을 때,
+        산 것   : 강한 촉매 보유 58% (14/24)
+        안 산 것 : 강한 촉매 보유 25% (4/16)     → z=+2.08, p=0.038 (유의)
+      성과는 리딩방 +6.02%/승률 96% vs 대조군 -1.38%/승률 38%(d3).
+      모멘텀은 양쪽 다 있었으므로 갈린 축은 모멘텀이 아니라 **촉매의 강도**였다.
+      대조군 내부에서도 '이슈 있음'은 도움이 안 됐다(-4.12%) — '강'만이 갈랐다.
+
+    ⚠️ 위 실측은 사후 검색이라 강도 판정에 결과가 섞였을 수 있다(오른 종목은 기사도 많다).
+       그 오염을 없애는 유일한 방법이 **매수 전에 같은 질문을 던지는 것**이고, 이 함수가 그것이다.
+       그래서 이 값으로 판정한 섀도우 G/H의 성적이 진짜 검증이다.
+
+    비용: 종목당 하루 1회(날짜 캐시). 검색 켠 호출이라 회당 수 원.
+    """
+    tk = str(ticker or "").strip()
+    if not tk:
+        return {}
+    from datetime import datetime as _dt
+    # 접두사 주의: ai_cache에 이미 `catalyst_alerted_<날짜>` 네임스페이스가 있다(다른 기능).
+    # 헷갈리지 않도록 이쪽은 cat_str_(catalyst strength) 로 분리한다.
+    key = f"cat_str_{tk}_{_dt.now():%Y%m%d}"
+    try:
+        from db import load_ai_cache, save_ai_cache
+        cached = load_ai_cache(key)
+        if cached:
+            return cached
+    except Exception:
+        save_ai_cache = None
+
+    where = "한국 상장사" if market == "국내" else "미국 상장사"
+    prompt = f"""구글 검색으로 사실을 확인해 답하라. 추측 금지.
+
+대상: {where} {name or tk}({tk})
+시점: 오늘과 직전 1주일
+
+이 종목의 주가를 지금 움직이고 있는 뉴스·공시·테마·수급 이슈가 있는지 조사하라.
+검색으로 확인되지 않으면 반드시 found=false로 하고 지어내지 마라.
+
+strength 기준 — 엄격하게 매겨라:
+  "강" = 이 종목에 직접적인 신규 재료가 확인됨 (수주·실적 서프라이즈·신제품·정책 수혜·M&A 등)
+  "중" = 섹터·테마 전반의 순풍은 있으나 이 종목 고유의 신규 재료는 아님
+  "약" = 오래된 이야기이거나 영향이 불분명
+  "없음" = 확인되는 재료 없음
+대부분의 종목은 "중" 이하다. 애매하면 낮춰 매겨라.
+
+JSON으로만 응답 (백틱·주석 금지):
+{{"found": true/false, "strength": "강/중/약/없음", "catalyst": "핵심 촉매 한 줄",
+  "catalyst_type": "수주/실적/신제품·기술/정책·규제/테마확산/지수편입/증자·M&A/업황회복/기타",
+  "theme": "테마·섹터", "evidence": "확인 근거 1~2문장"}}"""
+    try:
+        resp = _call_llm(prompt, use_search=True, temperature=0.2,
+                         max_output_tokens=900, thinking=False)
+        res = _parse_json_response(resp)
+        if not isinstance(res, dict):
+            return {}
+    except Exception as e:
+        print(f"[catalyst] {tk} 판정 실패: {e}")
+        return {}
+    try:
+        from db import save_ai_cache as _sc
+        _sc(key, res, 12)          # 같은 날 재스캔 시 재호출 방지
+    except Exception:
+        pass
+    return res
+
+
 def issue_zone_signal(ticker: str, pct_b, disp20, mom5, is_kr: bool) -> dict:
     """섀도우 C "이슈×지지구간" 조건 판정 → {ok, linked, zone, not_hot, detail}.
 

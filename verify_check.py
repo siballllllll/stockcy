@@ -235,6 +235,34 @@ def main():
             print("         (thinking_budget, temperature, gemini-2.5-flash 모델 드리프트).")
     print("   통과 기준: 5의 배수 비율 30% 이하 (무작위 기대치는 20% 근처).")
 
+    # ── V10. 촉매 모멘텀(섀도우 G·H) ────────────────────────────────────────
+    print(_hdr("V10", "촉매 모멘텀(섀도우 G·H) — 사용자 실제 패턴의 전향 검증"))
+    gh = list(cur.execute(
+        """SELECT owner, COUNT(*) n, ROUND(AVG(profit_pct), 2) avg_pct,
+                  ROUND(100.0 * SUM(CASE WHEN profit_pct > 0 THEN 1 ELSE 0 END) / COUNT(*), 1) win
+           FROM trade_history WHERE owner IN ('SHADOW_G','SHADOW_H')
+           GROUP BY owner"""))
+    e = _one(cur, """SELECT COUNT(*), ROUND(100.0 * SUM(CASE WHEN profit_pct > 0 THEN 1 ELSE 0 END)
+                            / COUNT(*), 1)
+                     FROM trade_history WHERE owner = 'SHADOW_E'""")
+    if not gh:
+        print("   아직 실현 0건 — 진입 조건이 엄격하다(촉매 강도 '강'만 통과).")
+        print("   [WAIT] 표본이 쌓이기를 기다리는 중.")
+        print("          며칠째 매수가 0이면 조건이 과한지 점검할 것(모멘텀 대역 또는 강도 기준).")
+    else:
+        for r in gh:
+            print(f"     {r['owner']:<10} {r['n']:>3}건  평균 {r['avg_pct']:+6.2f}%  승률 {r['win']:>5.1f}%"
+                  f"  (청산 {'3거래일' if r['owner'] == 'SHADOW_G' else '7거래일'})")
+        print(f"     대조군 E   {e[0]:>3}건  승률 {e[1]}%")
+        tot = sum(r["n"] for r in gh)
+        if tot < 30:
+            print(f"   [WAIT] 합계 {tot}건 — 30건에서 판정.")
+        else:
+            print("   [DUE] 표본 충족 — G vs E(전략 유효성), G vs H(청산 속도), H vs A·C(진입 우열)")
+            print("         세 갈래로 분해해 판정할 것.")
+    print("   통과 기준: 실현 30건+ 에서 랜덤 대조군(E) 대비 승률 유의(p<0.05).")
+    print("   ⚠️ G/H는 진입이 동일하고 청산만 다른 쌍이다 — H를 지우면 청산 효과를 못 잰다.")
+
     c.close()
     print(f"\n{'─' * 74}")
     print("자세한 배경과 판정 기준은 VERIFY.md 참조.")
