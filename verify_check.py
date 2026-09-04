@@ -245,10 +245,22 @@ def main():
     e = _one(cur, """SELECT COUNT(*), ROUND(100.0 * SUM(CASE WHEN profit_pct > 0 THEN 1 ELSE 0 END)
                             / COUNT(*), 1)
                      FROM trade_history WHERE owner = 'SHADOW_E'""")
+    # 보유(미실현)도 같이 보여준다 — 실현 0건이어도 진입이 나오고 있는지가 먼저 관측 대상이다.
+    openpos = list(cur.execute(
+        """SELECT owner,
+                  SUM(CASE WHEN ticker GLOB '[0-9]*' THEN 1 ELSE 0 END) kr,
+                  SUM(CASE WHEN ticker GLOB '[0-9]*' THEN 0 ELSE 1 END) us
+           FROM portfolio WHERE owner IN ('SHADOW_G','SHADOW_H') GROUP BY owner"""))
+    for r in openpos:
+        print(f"     {r['owner']} 보유 중: 국내 {r['kr']}종목 / 미국 {r['us']}종목")
     if not gh:
-        print("   아직 실현 0건 — 진입 조건이 엄격하다(촉매 강도 '강'만 통과).")
-        print("   [WAIT] 표본이 쌓이기를 기다리는 중.")
-        print("          며칠째 매수가 0이면 조건이 과한지 점검할 것(모멘텀 대역 또는 강도 기준).")
+        if openpos:
+            print("   진입은 나오고 있다(위 보유). 실현은 청산일이 지나야 잡힌다"
+                  " — G는 4일, H는 10일.")
+            print("   [WAIT] 실현 0건 — 표본이 쌓이는 중.")
+        else:
+            print("   아직 매수도 실현도 0건 — 진입 조건이 엄격하다(촉매 강도 '강'만 통과).")
+            print("   [WAIT] 며칠째 매수가 0이면 조건이 과한지 점검할 것(모멘텀 대역 또는 강도 기준).")
     else:
         for r in gh:
             print(f"     {r['owner']:<10} {r['n']:>3}건  평균 {r['avg_pct']:+6.2f}%  승률 {r['win']:>5.1f}%"
@@ -260,7 +272,18 @@ def main():
         else:
             print("   [DUE] 표본 충족 — G vs E(전략 유효성), G vs H(청산 속도), H vs A·C(진입 우열)")
             print("         세 갈래로 분해해 판정할 것.")
+    # 시장별 분해 — 이 가설의 출처가 국내 데이터라 합쳐서 판정하면 안 된다.
+    mk = list(cur.execute(
+        """SELECT CASE WHEN ticker GLOB '[0-9]*' THEN '국내' ELSE '미국' END m,
+                  COUNT(*) n,
+                  ROUND(100.0 * SUM(CASE WHEN profit_pct > 0 THEN 1 ELSE 0 END) / COUNT(*), 1) w
+           FROM trade_history WHERE owner IN ('SHADOW_G','SHADOW_H') GROUP BY m"""))
+    if mk:
+        print("   시장별: " + " / ".join(f"{r['m']} {r['n']}건 승률 {r['w']}%" for r in mk))
     print("   통과 기준: 실현 30건+ 에서 랜덤 대조군(E) 대비 승률 유의(p<0.05).")
+    print("   ⚠️ 시장을 갈라서 판정할 것. 이 가설의 출처는 국내 데이터다 —")
+    print("      섀도우 C도 국내 70.8%(p=0.0024) / 미국 47.1%(p=0.774)로 갈렸고, 리딩방 25건은 전부 국내.")
+    print("      미국 표본만 쌓이면 V10은 다른 질문에 답하게 된다(국내 30건이 본 판정).")
     print("   ⚠️ G/H는 진입이 동일하고 청산만 다른 쌍이다 — H를 지우면 청산 효과를 못 잰다.")
 
     c.close()
