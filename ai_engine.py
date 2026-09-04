@@ -2306,6 +2306,271 @@ def _ml_win_context(ticker: str) -> tuple:
         return "", {}
 
 
+# ── 정량 근거 팩 & 실측 변동성 앵커 (v3.138.0) ─────────────────────────────
+# [배경] 종목 리포트가 "근거 부족 + 마이너스 과대"로 신뢰를 잃던 원인은 두 가지였다.
+#   (1) AI에게 주는 데이터가 오늘 OHLC·PER/PBR 정도뿐이라(입력 2.6k 토큰) 판단 재료가 없었다.
+#   (2) 프롬프트가 "부정 요인을 50% 이상 강도로 차감", "관성적 -10% 금지, 과감하게"라고
+#       지시해 기준점 없이 극단값을 유도했다.
+# 여기서는 (1)을 차트 1회 조회로 채우고, (2)의 기준점이 될 '이 종목이 실제로 움직인 폭'을
+# 과거 실측 분포에서 뽑아 프롬프트와 사후 클램프 양쪽에 쓴다. 추가 과금 없음(시세 조회뿐).
+
+
+
+def _pctile(sorted_vals: list, q: float) -> float:
+    """정렬된 리스트의 q 백분위(선형보간). 빈 리스트면 0."""
+    if not sorted_vals:
+        return 0.0
+    if len(sorted_vals) == 1:
+        return float(sorted_vals[0])
+    pos = (len(sorted_vals) - 1) * (q / 100.0)
+    lo = int(pos)
+    hi = min(lo + 1, len(sorted_vals) - 1)
+    frac = pos - lo
+    return float(sorted_vals[lo]) * (1 - frac) + float(sorted_vals[hi]) * frac
+
+
+def _horizon_stats(closes: list, h: int) -> dict:
+    """h거래일 보유 시 실제로 관측된 수익률 분포. 표본 부족이면 {}.
+
+    √t 스케일링(일간 σ × √h)은 주가가 랜덤워크라고 가정해 몇 주 이상 구간에서 폭을
+    크게 과대평가한다(삼성전자 4주 ±73% 같은 값이 나와 가드레일 역할을 못 함).
+    그래서 겹치는 창(overlapping window)으로 실제 h일 수익률을 직접 뽑아 쓴다.
+    창이 겹쳐 표본끼리 상관이 있지만, 백분위 가드레일 용도로는 충분하고
+    '이 종목이 실제로 움직인 폭'이라는 해석이 명확하다.
+    """
+    if len(closes) < h + 15:
+        return {}
+    rets = [(closes[i + h] / closes[i] - 1) * 100 for i in range(len(closes) - h)
+            if closes[i] > 0]
+    if len(rets) < 15:
+        return {}
+    abs_sorted = sorted(abs(r) for r in rets)
+    return {
+        "typical": round(_pctile(abs_sorted, 50), 1),   # 통상 변동폭
+        "p90": round(_pctile(abs_sorted, 90), 1),       # 큰 움직임
+        "p95": round(_pctile(abs_sorted, 95), 1),       # 가드레일 기준
+        "max_up": round(max(rets), 1),
+        "max_dn": round(min(rets), 1),
+        "n": len(rets),
+    }
+
+
+def _cap_horizon(longer: dict, shorter: dict, ratio: float) -> bool:
+    """긴 구간 통계를 짧은 구간 × √ratio로 상한 제한. 실제 보정이 일어났으면 True."""
+    import math
+    if not longer or not shorter:
+        return False
+    hit = False
+    for k in ("typical", "p90", "p95"):
+        cap = round(shorter.get(k, 0) * math.sqrt(ratio), 1)
+        if cap > 0 and longer.get(k, 0) > cap:
+            longer[k] = cap
+            hit = True
+    return hit
+
+
+def _build_evidence_pack(ticker: str, market: str = "KR") -> tuple:
+    """종목분석 프롬프트용 정량 근거 팩 + 변동성 앵커. (프롬프트 블록 str, anchor dict) 반환.
+
+    한 번의 시세 조회로 기술적 지표·지지/저항·실측 변동성 분포를 모두 계산한다.
+    실패 시 ("", {}) — 호출부는 조용히 생략하고 기존 동작을 유지한다.
+    """
+    import math
+    sym = str(ticker).strip()
+    is_kr = (market or "KR").upper() == "KR" or sym.isdigit()
+    try:
+        if is_kr:
+            import FinanceDataReader as fdr
+            from datetime import datetime as _dt, timedelta as _td
+            _start = (_dt.now() - _td(days=800)).strftime("%Y-%m-%d")
+            hist = fdr.DataReader(sym.zfill(6), _start)
+        else:
+            import yfinance as yf
+            hist = yf.Ticker(sym.upper()).history(period="2y", interval="1d")
+        if hist is None or hist.empty:
+            return "", {}
+        # yfinance는 당일 장 시작 전 행을 NaN으로 끼워 넣는다 — 이 한 줄이 없으면
+        # MA·표준편차가 전부 nan으로 오염된다(실측 확인).
+        hist = hist.dropna(subset=["Close", "High", "Low"])
+        hist = hist[hist["Close"] > 0]
+        if len(hist) < 40:
+            return "", {}
+        closes = [float(x) for x in hist["Close"].values]
+        highs = [float(x) for x in hist["High"].values]
+        lows = [float(x) for x in hist["Low"].values]
+        vols = [float(x) for x in hist["Volume"].values]
+    except Exception as e:
+        print(f"[evidence pack] {ticker} 시세 조회 실패: {e}")
+        return "", {}
+
+    try:
+        cur = closes[-1]
+
+        # RSI(14)
+        deltas = [closes[i] - closes[i - 1] for i in range(1, len(closes))]
+        avg_g = sum(d for d in deltas[-14:] if d > 0) / 14
+        avg_l = sum(-d for d in deltas[-14:] if d < 0) / 14
+        rsi = 100 - (100 / (1 + avg_g / avg_l)) if avg_l > 0 else 100.0
+
+        # 이동평균 & 정배열 / 이격도
+        ma5 = sum(closes[-5:]) / 5
+        ma20 = sum(closes[-20:]) / 20
+        ma60 = sum(closes[-60:]) / 60 if len(closes) >= 60 else ma20
+        aligned = cur > ma5 > ma20 > ma60
+        disp20 = (cur - ma20) / ma20 * 100 if ma20 else 0.0
+        disp60 = (cur - ma60) / ma60 * 100 if ma60 else 0.0
+
+        # 거래량 비율(오늘 / 20일 평균)
+        v20 = sum(vols[-20:]) / 20
+        vol_ratio = vols[-1] / v20 if v20 > 0 else 1.0
+
+        # 볼린저(20,2) %b — 눌림목 판단의 핵심 좌표
+        sd20 = math.sqrt(sum((c - ma20) ** 2 for c in closes[-20:]) / 20)
+        bb_up, bb_lo = ma20 + 2 * sd20, ma20 - 2 * sd20
+        pct_b = (cur - bb_lo) / (bb_up - bb_lo) * 100 if bb_up > bb_lo else 50.0
+
+        # 52주 위치
+        n52 = min(len(closes), 252)
+        hi52, lo52 = max(highs[-n52:]), min(lows[-n52:])
+        pos52 = (cur - lo52) / (hi52 - lo52) * 100 if hi52 > lo52 else 50.0
+
+        # 최근 20거래일 지지/저항 (박스권 분석과 동일 정의로 일관성 유지)
+        sup, res_ = min(lows[-20:]), max(highs[-20:])
+
+        # ATR(14) %
+        trs = [max(highs[i] - lows[i], abs(highs[i] - closes[i - 1]), abs(lows[i] - closes[i - 1]))
+               for i in range(len(closes) - 14, len(closes))]
+        atr_pct = (sum(trs) / 14) / cur * 100 if cur else 0.0
+
+        # 일간 변동성(참고용)
+        rets_d = [(closes[i] / closes[i - 1] - 1) * 100 for i in range(max(1, len(closes) - 60), len(closes))]
+        mu = sum(rets_d) / len(rets_d)
+        sigma_d = math.sqrt(sum((r - mu) ** 2 for r in rets_d) / max(1, len(rets_d) - 1))
+
+        # ── 구간별 실측 수익률 분포 (가드레일의 근거) ──
+        h4w, h3m, h1y = _horizon_stats(closes, 20), _horizon_stats(closes, 63), _horizon_stats(closes, 252)
+        # 장기 구간은 표본이 사실상 '최근 단일 추세 국면' 하나라, 대세상승/급락을 한 번 겪은
+        # 종목이면 1년 밴드가 ±500%처럼 터져 가드레일 구실을 못 한다(삼성전자 실측 확인).
+        # 짧은 구간 밴드를 √t로 늘린 값을 상한으로 씌워 그 왜곡만 눌러준다.
+        _capped = _cap_horizon(h3m, h4w, 63 / 20) | _cap_horizon(h1y, h3m, 252 / 63)
+    except Exception as e:
+        print(f"[evidence pack] {ticker} 계산 실패: {e}")
+        return "", {}
+
+    unit = "원" if is_kr else "달러"
+    _p = (lambda v: f"{int(round(v)):,}{unit}") if is_kr else (lambda v: f"${v:,.2f}")
+
+    _cap_note = ("\n※ 장기 구간 통계는 최근 단일 추세 국면이 표본을 지배해, 단기 밴드 기준으로 상한 보정됨."
+                 if _capped else "")
+
+    def _band_line(label, st):
+        if not st:
+            return f"· {label}: 표본 부족 — 밴드 미적용"
+        return (f"· {label}: 통상 ±{st['typical']}% / 큰 움직임 ±{st['p90']}% / "
+                f"관측 최대 {st['max_up']:+.1f}% ~ {st['max_dn']:+.1f}%  (표본 {st['n']}구간)")
+
+    block = f"""
+[📐 정량 근거 팩 — 실제 시세로 계산한 값. 아래 수치만 사실로 인용하고, 없는 수치는 지어내지 마세요]
+· 추세: MA5 {_p(ma5)} / MA20 {_p(ma20)} / MA60 {_p(ma60)} → {'정배열(상승 추세)' if aligned else '정배열 아님'}
+· 이격도: MA20 대비 {disp20:+.1f}% / MA60 대비 {disp60:+.1f}%
+· RSI(14): {rsi:.1f}  ({'과매수권' if rsi >= 70 else '과매도권' if rsi <= 30 else '중립권'})
+· 볼린저(20,2) %b: {pct_b:.1f}%  (0=하단밴드, 100=상단밴드 / 상단 {_p(bb_up)} · 하단 {_p(bb_lo)})
+· 거래량: 20일 평균 대비 {vol_ratio:.2f}배
+· 52주 위치: {pos52:.1f}% (최저 {_p(lo52)} ~ 최고 {_p(hi52)})
+· 최근 20거래일 박스: 지지 {_p(sup)} (현재가 대비 {(sup - cur) / cur * 100:+.1f}%) / 저항 {_p(res_)} ({(res_ - cur) / cur * 100:+.1f}%)
+· 일간 변동성: ATR(14) {atr_pct:.2f}% · 60일 표준편차 {sigma_d:.2f}%/일
+
+[📏 실측 변동폭 — 최근 {len(closes)}거래일 동안 이 종목이 '실제로' 움직인 범위]
+{_band_line('4주 보유 시(단기)', h4w)}
+{_band_line('3개월 보유 시(중기)', h3m)}
+{_band_line('1년 보유 시(장기)', h1y)}
+※ 전망 수치는 이 관측 범위를 기준으로 산정하세요. '통상' 범위가 기본값이고,
+   확인된 촉매·악재가 있을 때만 '큰 움직임'까지 갑니다. 이 범위를 크게 벗어나는 수치는
+   시스템이 자동으로 잘라내므로, 그런 값을 쓰려면 근거를 반드시 본문에 적으세요.{_cap_note}
+"""
+
+    def _limit(st):
+        # 가드레일 = 관측 p95에 15% 여유. 표본 없으면 None(클램프 미적용).
+        return round(max(3.0, st["p95"] * 1.15), 1) if st else None
+
+    anchor = {
+        "sigma_daily_pct": round(sigma_d, 2),
+        "atr_pct": round(atr_pct, 2),
+        "band_4w": _limit(h4w),
+        "band_3m": _limit(h3m),
+        "band_1y": _limit(h1y),
+        "obs_4w": h4w, "obs_3m": h3m, "obs_1y": h1y,
+        "rsi": round(rsi, 1),
+        "pct_b": round(pct_b, 1),
+        "vol_ratio": round(vol_ratio, 2),
+        "ma_aligned": bool(aligned),
+        "support": round(sup, 2),
+        "resistance": round(res_, 2),
+        "bars": len(closes),
+        "long_horizon_capped": bool(_capped),
+    }
+    return block, anchor
+
+
+def _clamp_pct_text(text, limit: float):
+    """문자열 안의 모든 퍼센트 수치를 ±limit으로 잘라 되돌린다.
+
+    "+5~+8" 같은 구간 표기도 형식을 보존한 채 각 숫자만 교정한다.
+    (잘림 발생 여부, 교정된 문자열)을 반환.
+    """
+    s = str(text)
+    hit = {"v": False}
+
+    def _fix(m):
+        try:
+            v = float(m.group(0))
+        except Exception:
+            return m.group(0)
+        c = max(-limit, min(limit, v))
+        if abs(c - v) > 0.05:
+            hit["v"] = True
+            return f"{c:+.1f}" if m.group(0).lstrip().startswith(("+", "-")) else f"{c:.1f}"
+        return m.group(0)
+
+    out = re.sub(r'[-+]?\d+(?:\.\d+)?', _fix, s)
+    return hit["v"], out
+
+
+# 전망 필드 → 적용할 변동성 밴드 키
+_ANCHOR_FIELD_BANDS = (
+    ("short_term_view_pct",   "band_4w"),
+    ("upside_scenario_pct",   "band_4w"),
+    ("downside_scenario_pct", "band_4w"),
+    ("mid_term_view_pct",     "band_3m"),
+    ("long_term_target_pct",  "band_1y"),
+)
+
+
+def _apply_volatility_anchor(res: dict, anchor: dict) -> dict:
+    """AI가 낸 전망 수치를 실측 관측 범위(구간별 |수익률| p95 × 1.15) 안으로 강제 교정한다.
+
+    프롬프트로 "밴드 기준으로 쓰라"고 지시해도 모델은 종종 -25% 같은 근거 없는 극단값을
+    낸다. 지시가 아니라 코드로 잘라야 실제로 막힌다. 잘린 필드는 volatility_anchor.clamped에
+    남겨 UI가 "AI 원값이 조정됐다"고 밝힐 수 있게 한다.
+    """
+    if not isinstance(res, dict) or not anchor:
+        return res
+    clamped = []
+    for field, band_key in _ANCHOR_FIELD_BANDS:
+        limit = anchor.get(band_key)
+        if not limit or field not in res:
+            continue
+        hit, fixed = _clamp_pct_text(res.get(field), float(limit))
+        if hit:
+            clamped.append({"field": field, "before": str(res.get(field)), "after": fixed, "limit_pct": limit})
+            res[field] = fixed
+    res["volatility_anchor"] = {**anchor, "clamped": clamped}
+    if clamped:
+        print(f"[anchor] 변동성 밴드 초과 {len(clamped)}건 교정: "
+              + ", ".join(f"{c['field']} {c['before']}→{c['after']}" for c in clamped))
+    return res
+
+
 def analyze_sell_timing(ticker: str, name: str, avg_price: float, current_price: float, market: str = "KR", buy_reason: str = "", owner: str = "") -> dict:
     """평단가 기준 AI 매도 타이밍 분석. 최초 매수 사유가 있으면 논리 유효성 + 그 사유 유형의 내 과거 승률도 반영."""
     pnl_pct = (current_price - avg_price) / avg_price * 100 if avg_price > 0 else 0
@@ -2452,20 +2717,25 @@ def generate_stock_report(ticker, current_price, change_pct):
     ml_line, ml_probas = _ml_win_context(ticker)
     ml_section = ("\n" + ml_line + "\n") if ml_line else ""
 
+    # 정량 근거 팩 + 실측 변동폭 (v3.138.0). US는 use_search=False라 뉴스 5건 외에
+    # 판단 재료가 사실상 없었다 — 실측 지표를 채워 '근거 없는 전망'을 구조적으로 막는다.
+    evidence_block, anchor = _build_evidence_pack(ticker, "US")
+
     prompt = f"""
 당신은 월스트리트 전문 애널리스트입니다.\n반드시 모든 출력을 한국어(한글)로 작성하세요. 영어 문장으로 답변하면 안 됩니다 — 영문은 종목 티커·기업 고유명사에만 허용합니다. 한자(漢字)는 절대 금지.
 현재 {ticker}의 주가는 ${current_price} ({change_pct}%)입니다.
 
 [실시간 최신 영문 뉴스 팩트시트 (RAG)]
 {news_txt}
+{evidence_block}
 {factsheet_section}{ml_section}
 [재무 팩트시트 활용 지침] 위 팩트시트가 있으면 재무 수치(FCF·영업이익 추이·EV/EBITDA)를 지어내지 말고 그 값을 근거로 쓰고, '재무 국면' 분류를 long_term_analysis와 key_issues에 반드시 반영하세요(순환 바닥 vs 구조적 쇠퇴 구분).
 
-[분석 원칙 — 냉철한 리스크 차감 및 낙관 편향(Optimism Bias) 절대 금지]
-1. 상승·하락 어느 쪽으로도 편향하지 마십시오. 장밋빛 낙관론은 금융 분석가로서 최악의 과오입니다.
-2. 실적, 수급, 밸류에이션(PER/PBR 역사적 상단 도달 여부), 매크로 긴축 환경, 최근 분기 성장 둔화 우려 등의 부정적인 요인(Risk Factors)을 반드시 50% 이상의 강도로 엄격히 차감 반영(Risk Discount)하십시오.
-3. 데이터가 상승을 지지하면 상승을 제시하되 반드시 상단 저항 매물대의 현실적 한계를 기재하고, 지표나 실적이 하락을 지지하면 하락 전망을 과감하고 냉정하게 제시하십시오.
-4. 근거 없는 낙관이나 희망 사항은 완전 배제하며, 오직 밸류에이션 멀티플과 역사적 프랙탈 데이터 등 수치적 사실에만 기반하여 보수적으로 깎아서 산정하십시오.
+[분석 원칙 — 양방향 균형과 근거 명시]
+1. 결론을 먼저 정하지 마십시오. 상승 근거와 하락 근거를 각각 최소 2개씩 찾아 나열한 뒤, 어느 쪽이 더 무거운지 판정하고 그 이유를 밝히십시오.
+2. 낙관 편향과 비관 편향은 둘 다 오류입니다. 근거 없는 장밋빛 전망도, 근거 없이 수치를 깎아내리는 것도 금지합니다. 하락을 제시하려면 그 하락을 지지하는 관측된 데이터를 반드시 함께 제시하십시오.
+3. 위 [뉴스 팩트시트]·[정량 근거 팩]·[재무 팩트시트]에 실제로 주어진 수치만 사실로 인용하십시오. 주어지지 않은 수치(구체적 실적치·컨센서스·목표주가 등)를 지어내지 말고, 모르면 "확인 불가"라고 적으십시오.
+4. 데이터가 판단에 불충분하면 rating을 '중간추천'으로 두고 무엇이 부족한지 밝히십시오. 재료가 없는 상태에서 억지로 방향을 정하지 마십시오.
 
 ⚠️ [최우선 검증 단계] 분석 전 반드시 구글 검색으로 티커 '{ticker}'가 실제 NYSE/NASDAQ/AMEX 상장 회사인지 확인하세요.
 - 검색어: "{ticker} stock company name NYSE NASDAQ"
@@ -2484,15 +2754,17 @@ def generate_stock_report(ticker, current_price, change_pct):
   "expectation_cycle": "기대감(심리) 사이클 단계 — 뉴스·검색 기반. '초기 기대 / 확산 / 과열 / 소멸 / 무관심' 중 하나 + 한 줄 근거(어떤 내러티브·촉매가 기대를 만드는지)",
   "hold_verdict": "보유 관점 종합 판단 — 위 '재무 국면'(펀더)과 '기대감 사이클'을 교차해 1~2문장. 예: '확산 단계 + 순환 바닥 회복 → 중기 보유 매력' / '과열 + 구조적 쇠퇴 → 보유 부적합(단타 영역)'. ⚠️ 기대감 과열·소멸이면 보유보다 차익·회피로 냉정히 판단(높은 기대감≠매수).",
 
-  "short_term_view_pct": "근 시일(1~4주) 예상 주가 변동률 — 데이터 근거로 객관 판단 (예: +5~+8% 또는 -6~-10%)",
+  "evidence": "이 리포트가 실제로 근거로 삼은 데이터를 불릿 3~6개로 나열. 각 줄은 '- 항목명 값 → 해석' 형식. 예: '- RSI 73.3 → 과매수권, 추격 진입 불리' / '- 볼린저 %b 102.7% → 상단밴드 이탈' / '- 뉴스: 4분기 가이던스 하향'. ⚠️ 위에 주어진 데이터에 없는 항목은 절대 적지 마세요. 근거가 3개도 안 되면 부족하다는 사실 자체를 적으세요.",
+
+  "short_term_view_pct": "근 시일(1~4주) 예상 주가 변동률 — [실측 변동폭]의 4주 '통상' 범위가 기본, 확인된 촉매가 있을 때만 '큰 움직임'까지 (예: +5~+8% 또는 -6~-10%)",
   "short_term_view_price": "단기 예상 도달 가격대 (달러 단위)",
-  "short_term_view_reason": "이 전망의 구체적 근거 — 실적, 수급 흐름, 기술적 지지·저항 등 수치 포함 (2~3문장)",
+  "short_term_view_reason": "이 전망의 구체적 근거 — [정량 근거 팩]의 항목명과 수치를 반드시 1개 이상 그대로 인용하고, 뉴스·실적을 덧붙여 2~3문장",
 
   "buy_target": "매수 적정 구간 가이드라인 (rating이 추천/매우 강력 추천이면 시스템이 현재가 ±1%로 자동 교정, 그 외 등급이면 '관망'으로 대체됨)",
   "sell_target": "단기 목표가 가이드라인 (추천/매우 강력 추천이면 시스템이 +6%로 자동 교정)",
   "stop_loss": "손절가 가이드라인 (추천/매우 강력 추천이면 시스템이 -2%로 자동 교정)",
 
-  "mid_term_view_pct": "중기(1~3개월) 예상 변동률 — % 기호 없이 순수 숫자만. 관성적 15% 기재 절대 금지. 종목 고유 변동성에 맞춰 과감하게 책정 (예: 우량주는 6.5, 변동성 종목은 25.0 등)",
+  "mid_term_view_pct": "중기(1~3개월) 예상 변동률 — % 기호 없이 순수 숫자만. [실측 변동폭]의 3개월 '통상' 범위가 기본값이며, 벗어나려면 mid_term_view_condition에 그 이유를 적을 것",
   "mid_term_view_price": "중기 예상 가격대 (달러 단위, 시스템이 mid_term_view_pct로 자동 계산)",
   "mid_term_view_condition": "이 중기 전망의 핵심 변수 또는 catalyst (상승·하락 모두 가능, 구체적인 이벤트·조건)",
 
@@ -2502,17 +2774,20 @@ def generate_stock_report(ticker, current_price, change_pct):
   "long_term_rating": "중장기 등급 (적극 매수 / 분할 매수 / 관망 / 비중 축소 / 전량 매도)",
   "long_term_period": "권장 투자 기간",
   "long_term_target": "중장기 목표가 가이드라인 (달러 단위, 시스템이 long_term_target_pct로 자동 계산)",
-  "long_term_target_pct": "중장기 예상 수익/손실률 — % 기호 없이 순수 숫자만. 관성적 30% 기재 절대 금지. 종목 고유 성장성/펀더멘털에 맞춰 책정 (예: 우량주는 12.0, 급등 성장주는 80.0 등)",
+  "long_term_target_pct": "중장기 예상 수익/손실률 — % 기호 없이 순수 숫자만. [실측 변동폭]의 1년 '통상' 범위가 기본값. 펀더멘털 근거 없이 그 범위를 넘기지 말 것",
   "long_term_analysis": "매크로 사이클·펀더멘털 중장기 분석 (마크다운 상세)",
-  "upside_scenario_pct": "긍정적 모멘텀 작동 시 예상 단기 최대 상승률. 관성적 15% 절대 금지. 호재 강도에 연동 (% 기호 없이 실수/정수 숫자만, 예: 8.5 또는 45.0)",
-  "upside_scenario_reason": "긍정 시나리오 현실화 시 진입 방법 및 돌파 타점 대응 전략 (1~2문장)",
-  "downside_scenario_pct": "부정적 모멘텀 또는 시장 조정 시 예상 단기 최대 하락률. 관성적 -10% 절대 금지 (음수 % 기호 없이 순수 실수/정수 숫자만, 예: -4.5 또는 -25.0)",
-  "downside_scenario_reason": "부정 시나리오 발생 시 저점 눌림목 대기 전략 및 지지선 대응법 (1~2문장)"
+  "upside_scenario_pct": "긍정 시나리오 작동 시 단기 최대 상승률 — [실측 변동폭] 4주 '큰 움직임' 수준이 상한선 (% 기호 없이 숫자만, 예: 8.5)",
+  "upside_scenario_reason": "이 상승폭을 정당화하는 촉매를 먼저 명시하고, 그 다음 돌파 타점 대응 전략 (1~2문장)",
+  "downside_scenario_pct": "부정 시나리오 작동 시 단기 최대 하락률 — [실측 변동폭] 4주 '큰 움직임' 수준이 하한선. 관측된 악재 없이 큰 음수를 쓰지 말 것 (음수 숫자만, 예: -4.5)",
+  "downside_scenario_reason": "이 하락폭을 정당화하는 관측된 악재·지표를 먼저 명시하고(특정 악재가 없으면 '악재 없음, 변동성 기준'이라고 적을 것), 그 다음 지지선 대응법 (1~2문장)"
 }}
 
 !! [수치 산정 주의] 타점(buy/sell/stop) 및 중장기 목표가는 시스템이 실시간 현재가 기반으로 강제 덮어쓰기(Override) 하므로, AI는 논리적 근거 확보에 집중하세요.
 
-!! [평균 편향 금지 지침] AI는 관성적으로 중기 +15% 내외, 장기 +30% 내외를 뱉는 치명적인 버그(Average Bias)가 있습니다. 종목 고유의 변동성(안정 대형주는 +5~12%, 성장주는 +25~60%, 강세 테마주는 +80% 이상)에 맞춰 매우 탄력적이고 개성 있는 수치를 뿜어내십시오.
+!! [수치 산정 기준 — 실측 변동폭 앵커] 위 [실측 변동폭]이 이 종목이 과거에 실제로 움직인 범위입니다. 모든 전망 수치는 그 범위를 기준으로 잡으십시오.
+ - 기본값은 '통상' 범위입니다. 확인된 촉매·악재가 있을 때만 '큰 움직임'까지 갑니다.
+ - 관성적으로 +15%/+30%를 쓰는 것도, 근거 없이 극단값을 쓰는 것도 똑같이 오답입니다.
+ - 범위를 크게 벗어난 수치는 시스템이 자동으로 잘라냅니다. 잘리지 않으려면 근거를 본문에 명시하십시오.
 
 !! [딥링크] 종목 언급 시 반드시 '종목명(티커)' 형식: Apple(AAPL), NVIDIA(NVDA) 등
 """
@@ -2529,7 +2804,10 @@ def generate_stock_report(ticker, current_price, change_pct):
                 "analysis": "AI 응답 형식 오류입니다 (예상과 다른 형식). 잠시 후 다시 시도해주세요.",
             }
         if ml_probas:
-            res["ml_win_proba"] = ml_probas   # 자체 ML 상승확률 — UI 배지용
+            res["ml_win_proba"] = ml_probas
+
+        # 실측 변동폭을 넘는 전망 수치를 잘라낸다 (타점 계산이 이 값을 쓰므로 Override보다 먼저).
+        res = _apply_volatility_anchor(res, anchor)   # 자체 ML 상승확률 — UI 배지용
 
         # [Python Override - Conditional & No-Fallback - 동적 하이브리드 타점 적용]
         try:
@@ -3076,14 +3354,33 @@ KOSDAQ: {kosdaq.get('index',0):,.2f}  ({kosdaq.get('change_pct',0):+.2f}%)
 
 def generate_kr_stock_report(stock_code: str, name: str, price_data: dict, investor_data: list, pattern_context: str | None = None):
     """국내 주식 AI 수급 분석 및 단타 타점 리포트"""
-    investor_summary = ""
+    # 호출부(프론트)가 investor_data를 비워 보내와도 여기서 직접 채운다.
+    # 이게 없으면 프롬프트의 '세력분석' 필드를 수급 데이터 0인 채로 쓰게 되어 창작이 된다.
+    if not investor_data:
+        try:
+            from data_kr import get_kr_investor_trend
+            investor_data = get_kr_investor_trend(str(stock_code).strip().zfill(6)) or []
+        except Exception as e:
+            print(f"[kr report] {stock_code} 수급 조회 실패: {e}")
+            investor_data = []
+
     if investor_data:
-        latest = investor_data[0]
-        investor_summary = f"""
-최근 수급 동향 ({latest['날짜']}):
-- 외국인 순매수: {latest['외국인']:+,}주
-- 기관 순매수: {latest['기관']:+,}주
-- 개인 순매수: {latest['개인']:+,}주"""
+        rows = investor_data[:5]                      # 최신 5영업일
+        est = any(r.get("_estimated") for r in rows)   # 네이버 폴백(추정치) 여부
+        lines = [f"  {r.get('날짜', '?')}  종가 {int(r.get('종가') or 0):,}원({float(r.get('등락률') or 0):+.2f}%)"
+                 f"  외국인 {int(r.get('외국인') or 0):+,}주 / 기관 {int(r.get('기관') or 0):+,}주"
+                 f" / 개인 {int(r.get('개인') or 0):+,}주" for r in rows]
+        cum_f = sum(int(r.get("외국인") or 0) for r in rows)
+        cum_i = sum(int(r.get("기관") or 0) for r in rows)
+        investor_summary = ("\n[💰 수급 — 최근 " + str(len(rows)) + "영업일 투자자별 순매수]\n"
+                            + "\n".join(lines)
+                            + f"\n  → {len(rows)}일 누적: 외국인 {cum_f:+,}주 / 기관 {cum_i:+,}주"
+                            + f" (합산 {cum_f + cum_i:+,}주)"
+                            + ("\n  ⚠️ 기관·개인 수치는 조회 불가로 0이고 외국인은 보유율 변화 기반 추정치입니다. "
+                               "이 경우 수급을 단정하지 말고 '수급 데이터 제한적'이라고 명시하세요." if est else ""))
+    else:
+        investor_summary = ("\n[💰 수급] 조회 실패 — 수급 데이터가 없습니다. 세력분석에서 외국인·기관 "
+                            "흐름을 추측해 서술하지 말고 '수급 데이터 확인 불가'라고 적으세요.")
 
     cp = price_data.get('price', 0)
     if not cp:
@@ -3140,14 +3437,17 @@ def generate_kr_stock_report(stock_code: str, name: str, price_data: dict, inves
     ml_line, ml_probas = _ml_win_context(stock_code)
     ml_section = ("\n" + ml_line + "\n") if ml_line else ""
 
+    # 정량 근거 팩 + 실측 변동폭 (v3.138.0) — 추측 대신 계산된 수치를 판단 재료로 준다
+    evidence_block, anchor = _build_evidence_pack(stock_code, "KR")
+
     prompt = f"""
 당신은 한국 주식시장 전문 애널리스트입니다.\n반드시 모든 출력을 한국어(한글)로 작성하세요. 영어 문장으로 답변하면 안 됩니다 — 영문은 종목 티커·기업 고유명사에만 허용합니다. 한자(漢字)는 절대 금지.
 {pattern_section}{ml_section}
-[분석 원칙 — 냉철한 리스크 차감 및 낙관 편향(Optimism Bias) 절대 금지]
-1. 상승·하락 어느 쪽으로도 편향하지 마십시오. 장밋빛 낙관론은 금융 분석가로서 최악의 과오입니다.
-2. 실적, 수급, 밸류에이션(PER/PBR 역사적 고점 여부), 고금리 매크로 부담, 개별 오버행(잠재적 매도 물량) 우려 및 섹터 둔화 등 부정적인 요인(Risk Factors)을 반드시 50% 이상의 강도로 엄격히 차감 반영(Risk Discount)하십시오.
-3. 데이터가 상승을 지지하면 상승을 제시하되 반드시 저항 매물대의 한계를 명시하고, 수급 이탈이나 실적 둔화가 관찰되면 하락 전망을 과감하고 냉정하게 제시하십시오.
-4. 근거 없는 낙관이나 희망 사항은 완전 배제하며, 오직 객관적 밸류에이션 수치와 수급 데이터에만 기반하여 보수적으로 깎아서 산정하십시오.
+[분석 원칙 — 양방향 균형과 근거 명시]
+1. 결론을 먼저 정하지 마십시오. 상승 근거와 하락 근거를 각각 최소 2개씩 찾아 나열한 뒤, 어느 쪽이 더 무거운지 판정하고 그 이유를 밝히십시오.
+2. 낙관 편향과 비관 편향은 둘 다 오류입니다. 근거 없는 장밋빛 전망도, 근거 없이 수치를 깎아내리는 것도 금지합니다. 하락을 제시하려면 그 하락을 지지하는 관측된 데이터를 반드시 함께 제시하십시오.
+3. 아래 [수급]·[정량 근거 팩]·[재무 팩트시트]에 실제로 주어진 수치만 사실로 인용하십시오. 주어지지 않은 수치(구체적 실적치·컨센서스·목표주가 등)는 구글 검색으로 확인한 것만 쓰고, 확인하지 못하면 "확인 불가"라고 적으십시오. 추정을 사실처럼 서술하면 안 됩니다.
+4. 데이터가 판단에 불충분하면 rating을 '중간추천'으로 두고 무엇이 부족한지 밝히십시오. 재료가 없는 상태에서 억지로 방향을 정하지 마십시오.
 
 [종목 정보]
 종목명: {name} ({stock_code})
@@ -3158,6 +3458,7 @@ def generate_kr_stock_report(stock_code: str, name: str, price_data: dict, inves
 52주 최고: {price_data.get('w52_high', 0):,}원 | 52주 최저: {price_data.get('w52_low', 0):,}원
 PER: {price_data.get('per', '-')} | PBR: {price_data.get('pbr', '-')}
 {investor_summary}
+{evidence_block}
 {factsheet_section}
 [재무 팩트시트 활용 지침] 위 팩트시트가 있으면 재무 수치(FCF·부채·ROE·영업이익 추이)를 지어내지 말고 그 값을 근거로 쓰고, '재무 국면' 분류를 long_term_analysis와 key_issues에 반드시 반영하세요(순환 바닥 vs 구조적 쇠퇴 구분).
 
@@ -3179,15 +3480,17 @@ PER: {price_data.get('per', '-')} | PBR: {price_data.get('pbr', '-')}
   "expectation_cycle": "기대감(심리) 사이클 단계 — 뉴스·텔레그램·검색 기반. '초기 기대 / 확산 / 과열 / 소멸 / 무관심' 중 하나 + 한 줄 근거(어떤 내러티브·촉매가 기대를 만드는지)",
   "hold_verdict": "보유 관점 종합 판단 — 위 '재무 국면'(펀더)과 '기대감 사이클'을 교차해 1~2문장. 예: '확산 단계 + 순환 바닥 회복 → 중기 보유 매력' / '과열 + 구조적 쇠퇴 → 보유 부적합(단타 영역)'. ⚠️ 기대감 과열·소멸이면 보유보다 차익·회피로 냉정히 판단(높은 기대감≠매수).",
 
-  "short_term_view_pct": "근 시일(1~4주) 예상 주가 변동률 — 데이터 근거로 객관 판단 (예: +5~+8% 또는 -6~-10%)",
+  "evidence": "이 리포트가 실제로 근거로 삼은 데이터를 불릿 3~6개로 나열. 각 줄은 '- 항목명 값 → 해석' 형식. 예: '- RSI 42.2 → 중립권, 과매도 반등 논리 성립 안 함' / '- 외국인 5일 누적 -12만주 → 수급 이탈 진행' / '- 구글검색: 3분기 영업익 컨센 하향'. ⚠️ 위에 주어진 데이터에 없고 검색으로도 확인 못 한 항목은 절대 적지 마세요. 근거가 3개도 안 되면 부족하다는 사실 자체를 적으세요.",
+
+  "short_term_view_pct": "근 시일(1~4주) 예상 주가 변동률 — [실측 변동폭]의 4주 '통상' 범위가 기본, 확인된 촉매가 있을 때만 '큰 움직임'까지 (예: +5~+8% 또는 -6~-10%)",
   "short_term_view_price": "단기 예상 도달 가격대 (원 단위)",
-  "short_term_view_reason": "이 전망의 구체적 근거 — 이슈, 수급 흐름, 기술적 지지·저항, 실적 등 수치 포함 (2~3문장)",
+  "short_term_view_reason": "이 전망의 구체적 근거 — [정량 근거 팩]의 항목명과 수치를 반드시 1개 이상 그대로 인용하고, 수급·이슈를 덧붙여 2~3문장",
 
   "buy_target": "매수 적정 구간 가이드라인 (rating이 추천/매우 강력 추천이면 시스템이 현재가 ±1%로 자동 교정, 그 외 등급이면 '관망'으로 대체됨)",
   "sell_target": "단기 목표가 가이드라인 (추천/매우 강력 추천이면 시스템이 +6%로 자동 교정)",
   "stop_loss": "손절가 가이드라인 (추천/매우 강력 추천이면 시스템이 -2%로 자동 교정)",
 
-  "mid_term_view_pct": "중기(1~3개월) 예상 변동률 — % 기호 없이 순수 숫자만. 관성적 15% 기재 절대 금지. 종목 고유 변동성에 맞춰 과감하게 책정 (예: 우량주는 6.5, 변동성 종목은 25.0 등)",
+  "mid_term_view_pct": "중기(1~3개월) 예상 변동률 — % 기호 없이 순수 숫자만. [실측 변동폭]의 3개월 '통상' 범위가 기본값이며, 벗어나려면 mid_term_view_condition에 그 이유를 적을 것",
   "mid_term_view_price": "중기 예상 가격대 (원 단위, 시스템이 mid_term_view_pct로 자동 계산)",
   "mid_term_view_condition": "이 중기 전망의 핵심 변수 또는 catalyst (상승·하락 모두 가능, 구체적인 이벤트·조건)",
 
@@ -3198,17 +3501,20 @@ PER: {price_data.get('per', '-')} | PBR: {price_data.get('pbr', '-')}
   "long_term_rating": "중장기 등급 (적극 매수 / 분할 매수 / 관망 / 비중 축소 / 전량 매도)",
   "long_term_period": "권장 투자 기간",
   "long_term_target": "중장기 목표가 가이드라인 (원 단위, 시스템이 long_term_target_pct로 자동 계산)",
-  "long_term_target_pct": "중장기 예상 수익/손실률 — % 기호 없이 순수 숫자만. 관성적 30% 기재 절대 금지. 종목 고유 성장성/펀더멘털에 맞춰 책정 (예: 우량주는 12.0, 급등 성장주는 80.0 등)",
+  "long_term_target_pct": "중장기 예상 수익/손실률 — % 기호 없이 순수 숫자만. [실측 변동폭]의 1년 '통상' 범위가 기본값. 펀더멘털 근거 없이 그 범위를 넘기지 말 것",
   "long_term_analysis": "거시경제 사이클·펀더멘털 기반 중장기 분석 (마크다운 상세)",
-  "upside_scenario_pct": "긍정적 모멘텀 작동 시 예상 단기 최대 상승률. 관성적 15% 절대 금지. 호재 강도에 연동 (% 기호 없이 실수/정수 숫자만, 예: 8.5 또는 45.0)",
-  "upside_scenario_reason": "긍정 시나리오 현실화 시 진입 방법 및 돌파 타점 대응 전략 (1~2문장)",
-  "downside_scenario_pct": "부정적 모멘텀 또는 시장 조정 시 예상 단기 최대 하락률. 관성적 -10% 절대 금지 (음수 % 기호 없이 순수 실수/정수 숫자만, 예: -4.5 또는 -25.0)",
-  "downside_scenario_reason": "부정 시나리오 발생 시 저점 눌림목 대기 전략 및 지지선 대응법 (1~2문장)"
+  "upside_scenario_pct": "긍정 시나리오 작동 시 단기 최대 상승률 — [실측 변동폭] 4주 '큰 움직임' 수준이 상한선 (% 기호 없이 숫자만, 예: 8.5)",
+  "upside_scenario_reason": "이 상승폭을 정당화하는 촉매를 먼저 명시하고, 그 다음 돌파 타점 대응 전략 (1~2문장)",
+  "downside_scenario_pct": "부정 시나리오 작동 시 단기 최대 하락률 — [실측 변동폭] 4주 '큰 움직임' 수준이 하한선. 관측된 악재 없이 큰 음수를 쓰지 말 것 (음수 숫자만, 예: -4.5)",
+  "downside_scenario_reason": "이 하락폭을 정당화하는 관측된 악재·지표를 먼저 명시하고(특정 악재가 없으면 '악재 없음, 변동성 기준'이라고 적을 것), 그 다음 지지선 대응법 (1~2문장)"
 }}
 
 !! [수치 산정 주의] 모든 가격 타점은 시스템이 실시간 현재가 기반으로 강제 덮어쓰기 하므로, AI는 수치 계산보다 분석 논리에 집중하세요.
 
-!! [평균 편향 금지 지침] AI는 관성적으로 중기 +15% 내외, 장기 +30% 내외를 뱉는 치명적인 버그(Average Bias)가 있습니다. 종목 고유의 변동성(안정 대형주는 +5~12%, 성장주는 +25~60%, 강세 테마주는 +80% 이상)에 맞춰 매우 탄력적이고 개성 있는 수치를 뿜어내십시오.
+!! [수치 산정 기준 — 실측 변동폭 앵커] 위 [실측 변동폭]이 이 종목이 과거에 실제로 움직인 범위입니다. 모든 전망 수치는 그 범위를 기준으로 잡으십시오.
+ - 기본값은 '통상' 범위입니다. 확인된 촉매·악재가 있을 때만 '큰 움직임'까지 갑니다.
+ - 관성적으로 +15%/+30%를 쓰는 것도, 근거 없이 극단값을 쓰는 것도 똑같이 오답입니다.
+ - 범위를 크게 벗어난 수치는 시스템이 자동으로 잘라냅니다. 잘리지 않으려면 근거를 본문에 명시하십시오.
 
 !! [딥링크] 종목 언급 시 반드시 '종목명(6자리코드)' 형식: 삼성전자(005930), SK하이닉스(000660) 등
 """
@@ -3225,6 +3531,10 @@ PER: {price_data.get('per', '-')} | PBR: {price_data.get('pbr', '-')}
             }
         if ml_probas:
             res["ml_win_proba"] = ml_probas   # 자체 ML 상승확률 — UI 배지용
+
+        # 실측 변동폭을 넘는 전망 수치는 여기서 잘라낸다. 아래 타점 계산이 이 값을
+        # 그대로 쓰므로 반드시 Override보다 먼저 적용해야 한다.
+        res = _apply_volatility_anchor(res, anchor)
 
         # [Python Override - Conditional & No-Fallback - 동적 하이브리드 타점 적용]
         try:

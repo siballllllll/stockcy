@@ -1720,6 +1720,31 @@ function SearchPageInner() {
                     ))}
                   </div>
 
+                  {/* 판단 근거 — AI가 실제로 인용한 데이터 (v3.138.0).
+                      "근거가 부족해 보인다"는 문제의 정면 대응: 무엇을 보고 이 결론을 냈는지
+                      항목·수치 단위로 드러내, 근거 없는 문장을 눈으로 걸러낼 수 있게 한다. */}
+                  {aiResult.evidence && (
+                    <div style={{ background: "rgba(59,130,246,0.06)", border: "1px solid rgba(59,130,246,0.25)", borderRadius: "8px", padding: "12px 14px" }}>
+                      <div style={{ fontSize: "0.78rem", fontWeight: 800, color: "#60a5fa", marginBottom: "6px" }}>🔎 판단 근거</div>
+                      <MarkdownLite text={String(aiResult.evidence)} style={{ fontSize: "0.82rem", lineHeight: 1.65 }} />
+                    </div>
+                  )}
+
+                  {/* 실측 변동폭 앵커 — 전망 수치가 이 종목이 실제로 움직인 범위 안인지 (v3.138.0) */}
+                  {aiResult.volatility_anchor?.obs_4w && (
+                    <div style={{ fontSize: "0.74rem", color: "var(--color-muted)", display: "flex", flexWrap: "wrap", gap: "4px 12px", alignItems: "center", padding: "8px 12px", background: "rgba(255,255,255,0.03)", border: "1px solid var(--color-border)", borderRadius: "6px" }}>
+                      <span title="과거 실제 주가 데이터로 계산한, 이 종목이 통상 움직이는 폭">📏 실측 변동폭</span>
+                      <span>4주 <b style={{ color: "var(--color-text)" }}>±{aiResult.volatility_anchor.obs_4w.typical}%</b></span>
+                      {aiResult.volatility_anchor.obs_3m && <span>3개월 <b style={{ color: "var(--color-text)" }}>±{aiResult.volatility_anchor.obs_3m.typical}%</b></span>}
+                      {aiResult.volatility_anchor.obs_1y && <span>1년 <b style={{ color: "var(--color-text)" }}>±{aiResult.volatility_anchor.obs_1y.typical}%</b></span>}
+                      {aiResult.volatility_anchor.clamped?.length > 0 && (
+                        <span style={{ color: "var(--color-warning)", fontWeight: 700 }}>
+                          ⚠️ AI 원값 {aiResult.volatility_anchor.clamped.length}건이 관측 범위를 벗어나 조정됨 ({aiResult.volatility_anchor.clamped.map((c: any) => `${c.before}→${c.after}`).join(", ")})
+                        </span>
+                      )}
+                    </div>
+                  )}
+
                   <div style={{ display: "flex", gap: "6px", borderBottom: "1px solid var(--color-border)", paddingBottom: "4px" }}>
                     {([
                       { id: "short", label: "📊 단기 전망" },

@@ -412,7 +412,7 @@ async def us_stock_report(req: StockReportRequest, _credit: dict = Depends(consu
     from ai_engine import generate_stock_report
     from db import load_ai_cache, save_ai_cache
 
-    CACHE_KEY = f"sr_us_{req.ticker.upper()}"
+    CACHE_KEY = f"sr_us_v2_{req.ticker.upper()}"   # v2: 근거 팩·변동폭 앵커 도입(v3.138.0)
 
     async def _gen():
         # 1차 캐시 로드
@@ -462,7 +462,7 @@ async def kr_stock_report(req: KrStockReportRequest, _credit: dict = Depends(con
     from ai_engine import generate_kr_stock_report
     from db import load_ai_cache, save_ai_cache
 
-    CACHE_KEY = f"sr_kr_{req.code}"
+    CACHE_KEY = f"sr_kr_v2_{req.code}"   # v2: 근거 팩·변동폭 앵커 도입(v3.138.0)
 
     async def _gen():
         # 1차 캐시 로드
