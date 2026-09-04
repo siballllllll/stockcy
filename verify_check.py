@@ -66,18 +66,28 @@ def main():
     n_hist = _one(cur, "SELECT COUNT(*) FROM analysis_history")
     n_new = _one(cur, "SELECT COUNT(*) FROM analysis_history WHERE analysis_time >= '2026-09-04'")
     cols = [r[1] for r in cur.execute("PRAGMA table_info(analysis_history)")]
-    has_outcome = any(k in cols for k in ("d7_return", "actual_return", "outcome_checked_at"))
+    has_outcome = "d7_return" in cols
     print(f"   analysis_history 총 {n_hist[0]}건 (v3.138 이후 {n_new[0]}건)")
-    print(f"   사후 수익률 컬럼: {'있음' if has_outcome else '없음'}")
     if not has_outcome:
-        print("   [BLOCKED] 예측만 저장되고 실제 결과를 채우는 컬럼·작업이 없어, 기한이 와도 적중률 산출 불가.")
-        print("             → 선행 수정: analysis_history에 d1/d3/d7_return + outcome_checked_at 추가하고")
-        print("                일일 사후추적에 연결할 것. 안 하면 이 항목은 영원히 판정 불가.")
-    elif n_hist[0] < 20:
-        print(f"   [WAIT] 표본 {n_hist[0]}건 — 판정에는 20건 이상 필요.")
+        print("   [BLOCKED] 사후 수익률 컬럼이 없다 — db.init_local_db()가 안 돌았을 수 있음.")
     else:
-        print("   [DUE] 표본 충족 — 예측 방향 적중률과 예측폭 대비 실제폭을 산출할 것.")
-    print("   통과 기준: 표본 20건+ AND 단기 전망 방향 적중률 55%+ AND 변동폭 절단 발생률 하락")
+        try:
+            from ai_engine import analysis_hit_rate
+            hr = analysis_hit_rate()
+        except Exception as e:
+            hr = {"n": 0, "error": str(e)[:60]}
+        print(f"   결과 측정 완료 {hr.get('n', 0)}건 / 방향 판정 가능 {hr.get('judged', 0)}건")
+        if hr.get("judged"):
+            print(f"   방향 적중률 {hr['hit_rate_pct']}%  (적중 {hr['hit']} / 빗나감 {hr['miss']})")
+            print(f"   예측폭 평균오차 {hr['mean_abs_error_pct']}%p · 변동폭 절단 발생 {hr['clamped_rate_pct']}%")
+        if (hr.get("judged") or 0) < 20:
+            print(f"   [WAIT] 방향 판정 표본 {hr.get('judged', 0)}건 — 20건 이상 쌓이면 판정.")
+            print("          표본은 종목분석을 실행할수록 늘어난다(분석 1회 = 이력 1건).")
+        elif (hr.get("hit_rate_pct") or 0) >= 55:
+            print("   [DUE] 표본 충족, 기준 통과 — 개선이 실제로 먹혔다고 판단할 근거가 됨.")
+        else:
+            print("   [DUE] 표본 충족, 기준 미달 — 프롬프트/주입 데이터를 다시 손볼 것.")
+    print("   통과 기준: 방향 판정 20건+ AND 단기 전망 방향 적중률 55%+")
 
     # ── V2. 자체 ML 복귀 게이트 ─────────────────────────────────────────────
     print(_hdr("V2", "자체 ML 판단 반영 복귀 여부 — 실전 AUC 재측정", "2026-09-24"))
@@ -138,11 +148,13 @@ def main():
     rec = _one(cur, "SELECT COUNT(*), SUM(d7_return IS NOT NULL) FROM ai_recommendations")
     print(f"   ai_recommendations {rec[0]}행 (d7 채워진 것 {rec[1] or 0}건)")
     if rec[0] == 0:
-        print("   [BLOCKED] 0행 — POST /api/ai-log를 호출하는 곳이 프론트에 없다.")
-        print("             일일 track_ai_recommendation_outcomes(api/main.py)가 매일 빈 테이블을 돌고 있음.")
-        print("             → V1과 같은 뿌리의 문제. 둘을 하나의 이력 테이블로 합치는 게 맞다.")
+        print("   [DONE] 0행이지만 문제 없음 — v3.140.0에서 적중률 추적을 analysis_history로 옮겼다.")
+        print("          (데이터가 실제로 들어오는 쪽이 그쪽이다. V1이 그 결과를 판정한다.)")
+        print("          이 테이블과 track_ai_recommendation_outcomes는 유휴 상태로 남겨둔 것뿐.")
     else:
         print("   [DUE] 데이터가 쌓이는 중 — 적중률 산출 가능.")
+    print("   ⚠️ 남은 간극: 구형 log_ai_recommendation은 ML 학습샘플도 함께 적재했다.")
+    print("      analysis_history 경로에는 그게 없어, 종목분석은 ML 학습에 기여하지 않는다(V2와 별개 사안).")
 
     c.close()
     print(f"\n{'─' * 74}")

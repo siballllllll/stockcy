@@ -6963,6 +6963,189 @@ def _track_ai_recommendation_outcomes_impl() -> dict:
     return {"updated_now": updated, "scanned": len(rows)}
 
 
+_ANALYSIS_TRACK_LOCK = threading.Lock()
+
+
+def track_analysis_history_outcomes() -> dict:
+    """종목분석 이력(analysis_history)의 사후 성과(d1/d3/d7 수익률)를 자동 측정.
+
+    분석일 종가를 기준가로 잡아 1/3/7거래일 후 수익률을 계산한다. AI 호출 없이 가격만 사용.
+    [v3.140.0] 기존 ai_recommendations 추적은 그 테이블에 데이터가 들어오는 경로가 없어
+    매일 빈 테이블을 돌고 있었다. 실제로 데이터가 쌓이는 쪽이 analysis_history이므로
+    적중률 검증은 이쪽에서 한다.
+    """
+    if not _ANALYSIS_TRACK_LOCK.acquire(blocking=False):
+        return {"updated_now": 0, "skipped": "already_running"}
+    try:
+        return _track_analysis_history_outcomes_impl()
+    finally:
+        _ANALYSIS_TRACK_LOCK.release()
+
+
+def _track_analysis_history_outcomes_impl() -> dict:
+    from db import get_db_conn
+    from datetime import datetime, timedelta
+    import FinanceDataReader as fdr
+    import pandas as pd
+    import yfinance as yf
+
+    conn = get_db_conn()
+    cursor = conn.cursor()
+    # 최근 40일 내 분석 중 아직 d7이 안 채워진 것만. 7거래일 + 주말/휴일 여유를 감안한 창이며,
+    # 한 번 채워진 행은 영구 스킵된다.
+    cutoff = (datetime.now() - timedelta(days=40)).strftime("%Y-%m-%d")
+    cursor.execute(
+        """SELECT id, ticker, name, market, analysis_time
+           FROM analysis_history
+           WHERE analysis_time >= ? AND d7_return IS NULL
+           ORDER BY analysis_time ASC""",
+        (cutoff,),
+    )
+    rows = [dict(r) for r in cursor.fetchall()]
+    today = datetime.now().date()
+    pending = []
+
+    for row in rows:
+        try:
+            analyzed = datetime.fromisoformat(str(row["analysis_time"])[:19]).date()
+        except Exception:
+            try:
+                analyzed = datetime.strptime(str(row["analysis_time"])[:10], "%Y-%m-%d").date()
+            except Exception:
+                continue
+        if (today - analyzed).days < 1:
+            continue   # 하루도 안 지나면 측정 불가
+
+        raw = str(row["ticker"]).strip()
+        # market 컬럼을 우선 신뢰하고, 없을 때만 티커 모양으로 추정한다.
+        mk = str(row.get("market") or "").strip().upper()
+        is_us = (mk == "US") if mk in ("US", "KR") else any(c.isalpha() for c in raw)
+        ticker = raw.upper() if is_us else raw.zfill(6)
+        fetch_start = (analyzed - timedelta(days=10)).strftime("%Y-%m-%d")
+        end_date = (analyzed + timedelta(days=20)).strftime("%Y-%m-%d")
+
+        try:
+            if is_us:
+                df = yf.download(ticker, start=fetch_start, end=end_date, progress=False, timeout=10)
+            else:
+                df = fdr.DataReader(ticker, fetch_start, end_date)
+            if df is None or df.empty:
+                continue
+            # yf.download는 단일 티커에도 MultiIndex 컬럼(('Close','AAPL'))을 준다.
+            # df["Close"]는 그래도 통하지만 dropna(subset=["Close"])는 KeyError로 터지므로
+            # 여기서 한 겹 벗겨 평평하게 만든다.
+            if isinstance(df.columns, pd.MultiIndex):
+                df = df.droplevel(1, axis=1)
+            # yfinance는 당일 장 시작 전 행을 NaN으로 끼워 넣는다 — 기준가가 nan이 되는 걸 막는다.
+            df = df.dropna(subset=["Close"])
+            if df.empty:
+                continue
+
+            # 기준가 = 분석일(analyzed) 이하 마지막 거래일 종가
+            base_i = None
+            for j, dt in enumerate(df.index):
+                d = dt.date() if hasattr(dt, "date") else dt
+                if d <= analyzed:
+                    base_i = j
+                else:
+                    break
+            if base_i is None:
+                base_i = 0
+            entry = float(df["Close"].iloc[base_i])
+            if entry <= 0:
+                continue
+
+            def _p(offset):
+                k = base_i + offset
+                return float(df["Close"].iloc[k]) if len(df) > k else None
+
+            def _r(p):
+                return round((p - entry) / entry * 100, 2) if p else None
+
+            now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            pending.append((entry, _r(_p(1)), _r(_p(3)), _r(_p(7)), now, row["id"]))
+        except Exception as e:
+            print(f"[analysis track] {ticker} 실패: {e}")
+            continue
+
+    updated = 0
+    if pending:
+        try:
+            cursor.executemany(
+                """UPDATE analysis_history
+                   SET base_price = ?, d1_return = ?, d3_return = ?, d7_return = ?, outcome_checked_at = ?
+                   WHERE id = ?""",
+                pending,
+            )
+            conn.commit()
+            updated = len(pending)
+        except Exception as e:
+            print(f"[analysis track] 일괄 저장 실패: {e}")
+    conn.close()
+    return {"updated_now": updated, "scanned": len(rows)}
+
+
+def analysis_hit_rate(min_days: int = 0) -> dict:
+    """종목분석 적중률 실측. AI가 낸 단기 전망의 '방향'이 실제와 맞았는지를 센다.
+
+    short_term_view_pct는 "+5~+8%" 같은 구간 문자열이라 숫자를 모두 뽑아 평균 부호를 방향으로 본다.
+    d7_return이 채워진 행만 대상. 표본이 없으면 n=0으로 반환하며, 판정은 호출부(VERIFY.md 기준)에서.
+    """
+    from db import get_db_conn
+    conn = get_db_conn()
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            """SELECT market, short_term_view_pct, d7_return, analysis_json
+               FROM analysis_history
+               WHERE d7_return IS NOT NULL AND short_term_view_pct IS NOT NULL"""
+        )
+        rows = [dict(r) for r in cur.fetchall()]
+    except Exception as e:
+        conn.close()
+        return {"n": 0, "error": str(e)[:80]}
+    conn.close()
+
+    hit = miss = flat = 0
+    clamped_rows = 0
+    err_sum = 0.0
+    err_n = 0
+    for r in rows:
+        nums = [float(x) for x in re.findall(r'[-+]?\d+(?:\.\d+)?', str(r["short_term_view_pct"] or ""))]
+        if not nums:
+            continue
+        pred = sum(nums) / len(nums)
+        actual = float(r["d7_return"])
+        if abs(pred) < 0.5:
+            flat += 1
+        elif (pred > 0) == (actual > 0):
+            hit += 1
+        else:
+            miss += 1
+        err_sum += abs(pred - actual)
+        err_n += 1
+        # 변동폭 앵커가 AI 원값을 잘라낸 비율 — 프롬프트 개선 효과의 대리 지표
+        try:
+            j = json.loads(r["analysis_json"] or "{}")
+            if (j.get("volatility_anchor") or {}).get("clamped"):
+                clamped_rows += 1
+        except Exception:
+            pass
+
+    judged = hit + miss
+    return {
+        "n": len(rows),
+        "judged": judged,
+        "hit": hit,
+        "miss": miss,
+        "flat": flat,
+        "hit_rate_pct": round(hit / judged * 100, 1) if judged else None,
+        "mean_abs_error_pct": round(err_sum / err_n, 2) if err_n else None,
+        "clamped_rows": clamped_rows,
+        "clamped_rate_pct": round(clamped_rows / len(rows) * 100, 1) if rows else None,
+    }
+
+
 def track_scenario_stocks_performance() -> dict:
     """시나리오에 등장한 종목들의 등장 시점 가격 + 1/3/7일 후 가격 자동 추적."""
     # 중복 실행 방지: 이미 추적이 돌고 있으면 즉시 반환.

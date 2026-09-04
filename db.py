@@ -502,6 +502,16 @@ def init_local_db():
         "ALTER TABLE ai_recommendations ADD COLUMN d3_return REAL",
         "ALTER TABLE ai_recommendations ADD COLUMN d7_return REAL",
         "ALTER TABLE ai_recommendations ADD COLUMN outcome_checked_at TEXT",
+        # [v3.140.0] 종목분석 이력의 사후 성과 추적.
+        # 이력 테이블이 둘로 갈라져 정확히 엇갈려 있었다 — ai_recommendations에는 추적 기계가
+        # 있는데 0행(POST /api/ai-log를 부르는 프론트 코드가 없음), analysis_history에는
+        # 데이터가 들어오는데 결과 컬럼이 없어 적중률을 영원히 낼 수 없는 상태였다.
+        # 데이터가 실제로 쌓이는 analysis_history 쪽에 추적을 붙인다.
+        "ALTER TABLE analysis_history ADD COLUMN base_price REAL",   # 분석일 종가(기준가)
+        "ALTER TABLE analysis_history ADD COLUMN d1_return REAL",
+        "ALTER TABLE analysis_history ADD COLUMN d3_return REAL",
+        "ALTER TABLE analysis_history ADD COLUMN d7_return REAL",
+        "ALTER TABLE analysis_history ADD COLUMN outcome_checked_at TEXT",
         "ALTER TABLE portfolio ADD COLUMN trade_source TEXT DEFAULT '개인'",
         "ALTER TABLE portfolio ADD COLUMN trade_type TEXT DEFAULT '실매매'",
         "ALTER TABLE trade_history ADD COLUMN trade_source TEXT DEFAULT '개인'",
