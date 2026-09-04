@@ -5428,24 +5428,49 @@ def analyze_leading_room_patterns() -> dict:
 
 # ── 패턴 프로파일 빌드 & 저장 ────────────────────────────────────────────────
 
+# 패턴 학습에 포함할 섀도우 전략 (v3.144.0).
+# [배경] 'personal' 필터가 `trade_source NOT LIKE '%리딩방%'`인데, 이건 trade_source에
+# 개인/리딩방밖에 없던 v2.4.0 시절 조건이다. 섀도우 리그(v3.118.0)가 같은 trade_history를
+# 재사용하면서 봇 172건이 통째로 "내 매매 패턴"에 섞였다 — 학습 풀의 76%.
+# 그 안에는 **일부러 지도록 만든 대조군**까지 들어 있었다:
+#   SHADOW_E(랜덤) 40건 -2.82% 승률 32.5% / SHADOW_F(모멘텀 추격) 32건 -6.57% 승률 34.4%
+# "내 것보다 나은 패턴이 있으면 그것도 배운다"는 의도는 맞지만, 눈금자까지 배우면 안 된다.
+#
+# 포함 기준은 **사전에 정의된 전략 중 랜덤 대조군 대비 우위가 실측된 것**으로 한정한다
+# (2026-09-04 측정, 실현 172건):
+#   SHADOW_C 이슈×지지구간 승률 61.0%(n=41) z=+2.57 p=0.010 — 국내 70.8% p=0.0024
+#   SHADOW_A 눌림목        승률 52.5%(n=40) z=+1.81 p=0.070 — 기준 미달이나 대조군 대비 우위 방향
+# ⚠️ "이번 달에 잘한 애를 넣는다"로 확장하지 말 것 — 그 순간부터 생존 편향이다.
+#    새 전략을 넣으려면 대조군 대비 유의성을 먼저 재고 이 주석에 근거를 남길 것.
+_PROFILE_SHADOW_WHITELIST = ("SHADOW_A", "SHADOW_C")
+
+
+def _shadow_filter_sql() -> str:
+    """섀도우 거래 중 검증된 전략만 통과시키는 SQL 조건."""
+    ok = ",".join(f"'{s}'" for s in _PROFILE_SHADOW_WHITELIST)
+    return f"(COALESCE(trade_source,'') <> '섀도우' OR UPPER(COALESCE(owner,'')) IN ({ok}))"
+
+
 def build_pattern_profile(source: str = 'all') -> dict:
     """패턴 프로파일 빌드 및 DB 저장. (멀티유저: 전 유저 거래 통합 학습)
     source:
-      'all'      — 전 유저(+AI_AGENT) 전체 거래 (v1 + v2 저장)
-      'personal' — 리딩방 제외 개인 거래만 (전 유저, v2 저장)
+      'all'      — 개인 + 리딩방 + 검증된 섀도우(A·C) (v1 + v2 저장)
+      'personal' — 리딩방 제외 + 검증된 섀도우(A·C)만 (전 유저, v2 저장)
       'leading'  — 리딩방 거래만 (전 유저, v2 저장)
+    어느 경우든 미검증 섀도우(B·D·E·F)는 제외된다 — _PROFILE_SHADOW_WHITELIST 주석 참조.
     가중치: 기본 1배, 최근 30일 2배, 리딩방+screener_matched 추가 2배
     """
     from db import get_db_conn, save_pattern_profile, save_pattern_profile_v2
     from datetime import datetime, timedelta
 
     # owner 제한 없음 — 모든 사용자의 거래를 학습 풀에 통합 (Phase 6)
+    _shadow = _shadow_filter_sql()
     if source == 'personal':
-        where = "WHERE LOWER(COALESCE(trade_source,'')) NOT LIKE '%리딩방%'"
+        where = f"WHERE LOWER(COALESCE(trade_source,'')) NOT LIKE '%리딩방%' AND {_shadow}"
     elif source == 'leading':
         where = "WHERE LOWER(COALESCE(trade_source,'')) LIKE '%리딩방%'"
     else:
-        where = "WHERE 1=1"
+        where = f"WHERE {_shadow}"
 
     conn = get_db_conn()
     cursor = conn.cursor()
