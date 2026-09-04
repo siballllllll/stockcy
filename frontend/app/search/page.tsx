@@ -1767,6 +1767,44 @@ function SearchPageInner() {
                       <div>
                         <div style={{ color: "var(--color-muted)", marginBottom: "0.5rem", fontSize: "0.8rem" }}>단기 예상 변동: <strong style={{ color: "var(--color-text)" }}>{aiResult.short_term_view_pct}</strong> → <strong style={{ color: "var(--color-text)" }}>{aiResult.short_term_view_price}</strong></div>
                         <ReactMarkdown>{aiResult.short_term_view_reason || aiResult.key_issues || ""}</ReactMarkdown>
+
+                        {/* 양방향 시나리오 (v3.143.0) — 생성만 되고 화면에 없던 것을 노출.
+                            basis는 '이 수치가 이 종목의 평소 변동폭(기저)인지, 확인된 재료 때문에
+                            거기서 벗어난 것(촉매반영)인지'를 구분한다. 변동폭 앵커를 넣은 뒤 AI가
+                            밴드 값을 그대로 되돌려주는 일이 잦아, 둘이 화면에서 똑같이 보였다. */}
+                        {(aiResult.upside_scenario_pct || aiResult.downside_scenario_pct) && (
+                          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px", marginTop: "10px" }}>
+                            {([
+                              { key: "upside", label: "상승 시나리오", color: "var(--color-danger)" },
+                              { key: "downside", label: "하락 시나리오", color: "var(--color-primary)" },
+                            ] as const).map(({ key, label, color }) => {
+                              const pct = aiResult[`${key}_scenario_pct`];
+                              const price = aiResult[`${key}_scenario_price`];
+                              const basis = String(aiResult[`${key}_scenario_basis`] || "");
+                              const isBase = basis.startsWith("기저");
+                              if (pct == null) return null;
+                              return (
+                                <div key={key} style={{ background: "rgba(255,255,255,0.03)", border: "1px solid var(--color-border)", borderRadius: "6px", padding: "10px" }}>
+                                  <div style={{ fontSize: "0.72rem", color: "var(--color-muted)", marginBottom: "3px" }}>{label}</div>
+                                  <div style={{ fontWeight: 800, fontSize: "0.9rem", color }}>{String(pct).replace(/%$/, "")}%{price ? ` · ${price}` : ""}</div>
+                                  {basis && (
+                                    <div style={{ marginTop: "5px", fontSize: "0.68rem", lineHeight: 1.4, padding: "3px 6px", borderRadius: "4px",
+                                                  background: isBase ? "rgba(148,163,184,0.12)" : "rgba(245,158,11,0.14)",
+                                                  color: isBase ? "var(--color-muted)" : "#fbbf24", fontWeight: 700 }}
+                                         title={isBase ? "특정 촉매 없이 이 종목의 통상 변동폭을 그대로 쓴 값 — AI의 개별 판단이 아니라 기저율입니다." : "확인된 재료·악재를 반영해 통상 변동폭에서 벗어난 값"}>
+                                      {isBase ? "📊 기저(통상 변동폭)" : `⚡ ${basis}`}
+                                    </div>
+                                  )}
+                                  {aiResult[`${key}_scenario_reason`] && (
+                                    <div style={{ marginTop: "5px", fontSize: "0.72rem", color: "var(--color-muted)", lineHeight: 1.5 }}>
+                                      {aiResult[`${key}_scenario_reason`]}
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
                       </div>
                     )}
                     {aiAnalysisTab === "entry" && <ReactMarkdown>{aiResult.analysis || aiResult.세력분석 || ""}</ReactMarkdown>}

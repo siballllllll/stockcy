@@ -210,6 +210,31 @@ def main():
     print("   ⚠️ 유니버스가 거래대금·등락률 상위라 '시장 전체'가 아님. 볼륨이 커서 편입 시")
     print("      pattern이 묻힐 수 있고, 매일 재스캔되는 종목은 자기상관이 있다.")
 
+    # ── V9. 시나리오 확률 라운딩 ────────────────────────────────────────────
+    print(_hdr("V9", "시나리오 확률 라운딩 — 프롬프트 수정(v3.143.0) 효과"))
+    import re as _re
+    fixed_from = "2026-09-05"   # 프롬프트 수정 다음날부터 집계
+    vals = []
+    try:
+        for _d, js in cur.execute("SELECT scenario_date, scenario_json FROM agent_scenarios "
+                                  "WHERE scenario_date >= ?", (fixed_from,)):
+            vals += [int(x) for x in _re.findall(r'"probability_pct"\s*:\s*(\d+)', js or "")]
+    except Exception as e:
+        print(f"   조회 실패: {str(e)[:60]}")
+    if len(vals) < 20:
+        print(f"   수정 이후 표본 {len(vals)}개 — 20개 이상에서 판정.")
+        print("   [WAIT] 시나리오가 더 생성되기를 기다리는 중.")
+    else:
+        m5 = sum(1 for v in vals if v % 5 == 0)
+        rate = 100.0 * m5 / len(vals)
+        print(f"   수정 이후 {len(vals)}개 중 5의 배수 {m5}개 ({rate:.1f}%)  [수정 전 09-04: 100%]")
+        if rate <= 30:
+            print("   [DONE] 무작위 기대치 수준으로 회복 — 프롬프트가 원인이었던 것으로 판단.")
+        else:
+            print("   [DUE] 여전히 높다 — 프롬프트 문제가 아니다. 모델·파라미터 쪽을 의심할 것")
+            print("         (thinking_budget, temperature, gemini-2.5-flash 모델 드리프트).")
+    print("   통과 기준: 5의 배수 비율 30% 이하 (무작위 기대치는 20% 근처).")
+
     c.close()
     print(f"\n{'─' * 74}")
     print("자세한 배경과 판정 기준은 VERIFY.md 참조.")
