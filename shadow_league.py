@@ -69,9 +69,30 @@ def _exit_days(owner: str) -> int:
     return _EXIT_DAYS_BY_OWNER.get(owner, EXIT_DAYS)
 
 
+# 매수 시 텔레그램으로 알릴 전략. G/H는 사용자 실제 패턴의 전향 검증(VERIFY.md V10)이라
+# "매수가 나오는지"부터가 관측 대상이다. 나머지 섀도우는 하루 수십 건이라 알리지 않는다.
+NOTIFY_OWNERS = ("SHADOW_G", "SHADOW_H")
+
+
 def _conn():
     from db import get_db_conn
     return get_db_conn()
+
+
+def _notify_buy(owner: str, ticker: str, name: str, market: str, price: float, note: str):
+    """검증 대상 섀도우가 매수하면 텔레그램으로 알린다. 실패해도 매매에는 영향 없음."""
+    try:
+        from telegram_bot import send_message
+        tag = "3거래일 청산" if owner == "SHADOW_G" else "7거래일 청산"
+        unit = "원" if market == "국내" else "달러"
+        send_message(
+            f"🧪 섀도우 {owner[-1]} 매수 ({tag})\n"
+            f"{name}({ticker}) {price:,.0f}{unit}\n"
+            f"근거: {str(note)[:160]}\n\n"
+            f"※ 가상매매입니다. 촉매 모멘텀 전략 검증용 — /performance 섀도우 리그에서 확인."
+        )
+    except Exception as e:
+        logger.error(f"[shadow] 매수 알림 실패 {owner}/{ticker}: {e}")
 
 
 def _fee(market: str) -> float:
@@ -319,6 +340,8 @@ def run_shadow_cycle(candidates: list, kr_open: bool, us_open: bool, force: bool
                     held.add(tk)
                     buys_left -= 1
                     summary["buy"] += 1
+                    if owner in NOTIFY_OWNERS:
+                        _notify_buy(owner, tk, c.get("name") or tk, market, price, note)
             conn.commit()
             out[owner] = summary
     except Exception as e:
@@ -582,7 +605,9 @@ def shadow_league_status() -> dict:
     label = {"AI_AGENT": "메인 (Gemini 하이브리드)", "SHADOW_A": "섀도우 A (순수 눌림목)",
              "SHADOW_B": "섀도우 B (ML 순종)", "SHADOW_C": "섀도우 C (이슈×구간)",
              "SHADOW_D": "섀도우 D (수급 추종)", "SHADOW_E": "섀도우 E (랜덤 대조군)",
-             "SHADOW_F": "섀도우 F (모멘텀 추격)"}
+             "SHADOW_F": "섀도우 F (모멘텀 추격)",
+             "SHADOW_G": "섀도우 G (촉매 모멘텀 · 3거래일 청산) ⭐검증중",
+             "SHADOW_H": "섀도우 H (촉매 모멘텀 · 7거래일 청산) ⭐검증중"}
     try:
         for owner in ("AI_AGENT",) + SHADOWS:
             cur.execute(
