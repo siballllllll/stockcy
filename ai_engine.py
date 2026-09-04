@@ -2863,6 +2863,35 @@ def generate_stock_report(ticker, current_price, change_pct):
     """
     선택한 주식의 세력 수급 등급 및 타점을 분석하여 JSON 객체로 반환합니다.
     """
+    # [v3.148.1] 현재가 방어 — 프론트가 시세 로딩 전에 호출하면 current_price가 0/빈값으로
+    # 들어오고, 아래 Override가 그대로 곱해 타점이 전부 "$0.00"으로 나온다(실측: IONQ·DD).
+    # KR 경로에는 이 가드가 있었는데 US에만 없었다. 먼저 서버에서 직접 조회해 복구하고,
+    # 그래도 못 구하면 KR과 동일하게 분석을 중단한다 — $0 타점을 사용자에게 보여주는 것보다
+    # "가격을 못 가져왔다"고 말하는 편이 정직하다.
+    try:
+        current_price = float(current_price or 0)
+    except (TypeError, ValueError):
+        current_price = 0.0
+    if current_price <= 0:
+        for _src in ("toss", "yf"):
+            try:
+                if _src == "toss":
+                    import toss_api
+                    current_price = float(toss_api.get_price(str(ticker).upper()) or 0)
+                else:
+                    from data import get_us_stock_detail
+                    current_price = float((get_us_stock_detail(str(ticker).upper()) or {}).get("price") or 0)
+            except Exception:
+                current_price = 0.0
+            if current_price > 0:
+                print(f"[us report] {ticker} 현재가 미전달 → {_src}에서 복구: ${current_price}")
+                break
+    if current_price <= 0:
+        return {
+            "rating": "분석 오류",
+            "buy_target": "-", "sell_target": "-", "stop_loss": "-",
+            "analysis": "현재가를 가져오지 못했습니다. 시세가 표시된 뒤 다시 시도해주세요.",
+        }
     # [RAG 영문 실시간 뉴스 피드 강제 주입]
     news_txt = _fetch_target_news_us(f"{ticker} stock", limit=5)
     if not news_txt or "No recent target" in news_txt:

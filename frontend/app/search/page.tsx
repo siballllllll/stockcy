@@ -841,6 +841,13 @@ function SearchPageInner() {
 
   // AI 분석 (KR 전용)
   const runAiAnalysis = async () => {
+    // US와 동일한 방어 — 백엔드에 가드가 있어 "분석 오류"로 끝나지만, 유료 호출을
+    // 낭비하지 않도록 여기서 먼저 막는다.
+    if (!price || price <= 0) {
+      setAiStatus("error");
+      setAiMsg("❌ 시세를 아직 불러오지 못했습니다. 가격이 표시된 뒤 다시 눌러주세요.");
+      return;
+    }
     setAiStatus("loading");
     setAiResult(null);
     setAiMeta(null);
@@ -893,6 +900,13 @@ function SearchPageInner() {
 
   // AI 분석 (US)
   const runUsAiAnalysis = async () => {
+    // [v3.148.1] 시세 로딩 전에 실행하면 current_price=0이 넘어가 타점이 전부 "$0.00"으로
+    // 나왔다(실측: IONQ·DD). 백엔드에도 복구 가드를 넣었지만, 여기서 막는 게 먼저다.
+    if (!price || price <= 0) {
+      setAiStatus("error");
+      setAiMsg("❌ 시세를 아직 불러오지 못했습니다. 가격이 표시된 뒤 다시 눌러주세요.");
+      return;
+    }
     setAiStatus("loading");
     setAiResult(null);
     setAiMeta(null);
