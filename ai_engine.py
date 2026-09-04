@@ -2792,8 +2792,12 @@ def generate_stock_report(ticker, current_price, change_pct):
 !! [딥링크] 종목 언급 시 반드시 '종목명(티커)' 형식: Apple(AAPL), NVIDIA(NVDA) 등
 """
     try:
-        # RAG 뉴스 정보가 이미 완벽하게 주입되었으므로 딜레이 최소화를 위해 use_search=False로 설정
-        response = _call_llm(prompt, use_search=False, temperature=0.7, max_output_tokens=6000, thinking=True)
+        # use_search=True (v3.138.1) — 사전 주입 뉴스 5건만으로는 근거가 얇았다.
+        # hybrid 라우팅에서 이 플래그가 엔진을 가르므로, False였을 때 US 리포트만 검색 없는
+        # gpt-4o-mini로 새고 있었다(실측: 출력 813토큰, 팩트시트 오독, MA20 -0.8%에서
+        # -6~-10% 하락을 도출하는 비약). True로 두면 Gemini + 구글 검색 그라운딩으로 간다.
+        # 대가는 지연시간 약 9초 → 24초. 비용은 실측상 거의 동일(OpenAI web_search 도구 요금 때문).
+        response = _call_llm(prompt, use_search=True, temperature=0.7, max_output_tokens=6000, thinking=True)
         res = _parse_json_response(response)
 
         # AI가 객체가 아닌 배열/문자열 등 비정상 형식으로 응답한 경우 오류 dict 반환 (이후 .get 크래시 방지)
