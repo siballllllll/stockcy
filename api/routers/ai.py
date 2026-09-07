@@ -1605,6 +1605,17 @@ async def refresh_agent_daily_issues(_credit: dict = Depends(consume_ai_credit))
     return await asyncio.to_thread(analyze_agent_daily_issues)
 
 
+@router.get("/peer-compare")
+async def get_peer_compare(ticker: str, market: str = "국내"):
+    """[동종 비교 v3.151.0] 같은 섹터 동종 + 교차 시장 카운터파트를 지표와 함께 반환.
+
+    LLM 호출 0 — 가격·지표는 기존 함수를 재사용하고, 각 종목에 섀도우 리그에서
+    실측된 구간 라벨(이슈×지지 61% / 눌림목 52.5% / 모멘텀추격 33.3%)을 붙인다.
+    """
+    from peer_compare import compare_peers
+    return await asyncio.to_thread(compare_peers, ticker, market)
+
+
 @router.get("/agent-learning")
 async def get_agent_learning():
     """AI 에이전트 자기학습 요약 — 조건별 승률 규칙 (다른 AI 기능 공용)."""
