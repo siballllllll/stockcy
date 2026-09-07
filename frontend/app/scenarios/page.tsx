@@ -64,11 +64,22 @@ interface Scenario {
   long_strategy: string;
 }
 
+// v3.150.0 연관 구조 — 종목↔종목 전달 경로 (이슈→종목 관계는 각 종목의 reason에 있음)
+interface Linkage {
+  from: string;
+  to: string;
+  relation?: string;    // 밸류체인 상류→하류 / 대체재 / 경쟁 / 전방수요 / 수급전이
+  mechanism?: string;   // 무엇을 통해 전달되는지
+  direction?: string;   // 동행 | 역행
+  lag?: string;         // 동시 / 1~2일 / 주 단위 / 분기 단위 / 불명
+}
+
 // v3.114.0 딥다이브 — 이슈 전용 심층 블록 (관전 레벨·향후 일정)
 interface IssueDeepAnalysis {
   background?: string;
   key_levels?: Array<{ name: string; level: string; meaning: string }>;
   watch_calendar?: Array<{ date: string; event: string; why: string }>;
+  linkages?: Linkage[];
 }
 
 interface Issue {
@@ -79,6 +90,7 @@ interface Issue {
   category?: string;
   scenarios: Scenario[];
   deep_analysis?: IssueDeepAnalysis;
+  linkages?: Linkage[];          // 커스텀 이슈는 최상위에 온다 (딥다이브는 deep_analysis 안)
   scout_status?: string;         // "신규" | "새국면" (딥다이브 생성분)
   carried?: boolean;             // 지속 이슈 이월 (재생성 없음)
   carried_days?: number;         // D+n
@@ -943,6 +955,49 @@ function IssuePanel({ issue }: { issue: Issue }) {
           )}
         </div>
       )}
+
+      {/* 연관 구조 (v3.150.0) — 종목끼리 어떻게 이어지는지.
+          딥다이브는 deep_analysis 안에, 커스텀 이슈는 최상위에 온다. */}
+      {(() => {
+        const links = issue.deep_analysis?.linkages ?? issue.linkages ?? [];
+        if (links.length === 0) return null;
+        return (
+          <div style={{ background: "rgba(0,0,0,0.25)", border: "1px solid var(--color-border)", borderRadius: "6px", padding: "10px 14px" }}>
+            <div style={{ fontSize: "0.72rem", fontWeight: 800, color: "var(--color-muted)", marginBottom: "8px" }}>
+              🔗 연관 구조 <span style={{ fontWeight: 500 }}>— 무엇이 먼저 움직이면 무엇이 따라오는가</span>
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: "9px" }}>
+              {links.map((lk, i) => {
+                const inverse = String(lk.direction || "").includes("역행");
+                return (
+                  <div key={i} style={{ fontSize: "0.83rem", lineHeight: 1.55 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap" }}>
+                      <strong style={{ color: "var(--color-text)" }}>{lk.from}</strong>
+                      <span style={{ color: inverse ? "var(--color-danger)" : "var(--color-success)", fontWeight: 800 }}>
+                        {inverse ? "⇥" : "→"}
+                      </span>
+                      <strong style={{ color: "var(--color-text)" }}>{lk.to}</strong>
+                      {lk.relation && (
+                        <span style={{ fontSize: "0.68rem", fontWeight: 700, color: "var(--color-muted)", border: "1px solid var(--color-border)", borderRadius: "4px", padding: "1px 5px" }}>
+                          {lk.relation}
+                        </span>
+                      )}
+                      {lk.lag && (
+                        <span style={{ fontSize: "0.68rem", fontWeight: 700, color: "var(--color-warning)" }}>
+                          시차 {lk.lag}
+                        </span>
+                      )}
+                    </div>
+                    {lk.mechanism && (
+                      <div style={{ color: "var(--color-muted)", marginTop: "2px", paddingLeft: "2px" }}>{lk.mechanism}</div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })()}
 
       {/* 시나리오 탭 */}
       {scenarios.length > 0 && (

@@ -24,6 +24,8 @@ PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                     "data_csv", "gemini_usage.jsonl")
 
 # gemini-2.5-flash 단가 (USD per 1M tokens). 출력 단가는 thinking 토큰에도 적용.
+# (ai_engine._calc_estimated_cost의 단가와 일치시킬 것 — 어긋나면 JSONL의 cost_usd와
+#  이 리포트의 집계가 서로 다른 값을 말하게 된다.)
 IN_RATE = 0.30
 OUT_RATE = 2.50
 USD_KRW = 1380  # 표시용 대략 환율
@@ -51,9 +53,17 @@ def main():
             lines += 1
             a = agg[r.get("source", "unknown")]
             a["calls"] += 1
-            a["in"] += int(r.get("in", 0))
-            a["out"] += int(r.get("out", 0))
-            a["think"] += int(r.get("think", 0))
+            _in = int(r.get("in", 0))
+            _out = int(r.get("out", 0))
+            # think 필드가 없는 줄(래퍼 리팩터로 유실됐던 구간)은 total에서 역산한다.
+            # 역산값은 검색 그라운딩의 도구 토큰까지 포함해 thinking을 과대계상하므로
+            # (실측 3,360 vs 역산 6,457) 어디까지나 그 구간의 근사치다 — 필드가 있으면 그것이 우선.
+            _think = r.get("think")
+            if _think is None:
+                _think = max(0, int(r.get("total", 0)) - _in - _out)
+            a["in"] += _in
+            a["out"] += _out
+            a["think"] += int(_think)
             if r.get("search"): a["search"] += 1
 
     if lines == 0:

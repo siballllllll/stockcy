@@ -475,7 +475,13 @@ class LLMResponse:
 
 
 def _calc_estimated_cost(provider: str, model: str, in_tokens: int, out_tokens: int) -> float:
-    """토큰 수 기반 추정 비용 (USD) 계산."""
+    """토큰 수 기반 추정 비용 (USD) 계산.
+
+    ⚠️ out_tokens에는 반드시 thinking 토큰이 포함된 값을 넘길 것 (호출부에서 total-in으로 계산).
+    gemini-2.5 계열은 thinking을 출력 단가로 과금하는데, usage_metadata의
+    candidates_token_count에는 thinking이 빠져 있어 그대로 쓰면 실측이 절반 아래로 나온다.
+    [v3.150.0] 단가도 2.5-flash 실단가($0.30 / $2.50)로 정정 — 종전 값(0.075/0.30)은
+    단종된 1.5/2.0-flash 기준이라 출력 비용을 8.3배 낮게 잡고 있었다."""
     p = provider.lower()
     m = model.lower()
     # 구체적인 모델명부터 매칭 (gpt-4.1-mini가 gpt-4.1에 잘못 매칭되지 않도록 순서 유의)
@@ -484,7 +490,7 @@ def _calc_estimated_cost(provider: str, model: str, in_tokens: int, out_tokens: 
             in_rate, out_rate = _OPENAI_COST_TABLE[key]
             return (in_tokens * in_rate + out_tokens * out_rate) / 1_000_000
     if "gemini-2.5" in m or "gemini-2.0" in m or "gemini" in p:
-        return (in_tokens * 0.075 + out_tokens * 0.30) / 1_000_000
+        return (in_tokens * 0.30 + out_tokens * 2.50) / 1_000_000
     return 0.0
 
 
@@ -518,7 +524,17 @@ def _log_llm_usage(response, source: str, use_search: bool = False, provider: st
             prov = provider
             lat = round(latency_sec, 3)
 
-        cost = _calc_estimated_cost(prov, mdl, in_t, out_t)
+        # [v3.150.0] thinking 토큰을 다시 기록한다.
+        # candidates_token_count(out_t)에는 thinking이 빠져 있는데 과금은 출력 단가로 되므로,
+        # out_t만 쓰면 비용이 절반 아래로 나온다(실측: 딥다이브 1회 15원 → 실제 31원).
+        # 예전에는 이 필드가 있었는데 LLMResponse 래퍼로 리팩터하면서 유실됐다 — 집계 쪽은
+        # 계속 think를 읽고 있어서(없으면 0) 그때부터 조용히 누락된 값을 보고하고 있었다.
+        # ⚠️ total - in - out 으로 역산하지 말 것. total_token_count에는 검색 그라운딩의
+        #    도구 토큰까지 섞여 있어 thinking을 과대계상한다(실측 3,360 vs 역산 6,457).
+        _um_src = getattr(response, "raw_response", None) if isinstance(response, LLMResponse) else response
+        _um2 = getattr(_um_src, "usage_metadata", None) if _um_src is not None else None
+        think_t = int(getattr(_um2, "thoughts_token_count", 0) or 0) if _um2 is not None else 0
+        cost = _calc_estimated_cost(prov, mdl, in_t, out_t + think_t)
         rec = {
             "ts": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             "source": source or "unknown",
@@ -526,6 +542,7 @@ def _log_llm_usage(response, source: str, use_search: bool = False, provider: st
             "model": mdl,
             "in": in_t,
             "out": out_t,
+            "think": think_t,
             "total": tot_t,
             "latency_sec": lat,
             "cost_usd": round(cost, 6),
@@ -1473,6 +1490,18 @@ def _deep_dive_issue(stub: dict) -> dict:
         "【theme_stocks 규칙】 rising/falling에 없는 '추가 수혜주' 2~4개(확실한 것만, 부족하면 적게), 국내만, 대형주(시총 10조↑) 금지.\n"
         "- 단타·스윙(1~2개, horizon='단타'): 시총 1조 미만 코스닥 우선, 과거 동일 이슈 때 동반 급등 이력 근거.\n"
         "- 중장기(2~3개, horizon='중장기'): 구조적 수혜 성장주·가치주, 실적 관점.\n"
+        "【연관 구조(linkages) 규칙 — v3.150.0 신규】\n"
+        "- 이 이슈에 등장한 종목들이 왜 한 묶음인지를 종목↔종목 관계로 쓰세요. 이슈→종목 관계는 \n"
+        "  이미 reason에 있으니 반복하지 말고, 종목 사이의 전달 경로만 쓰세요.\n"
+        "- 3~5개. 억지로 채우지 말 것 — 전달 경로를 한 문장으로 못 쓰면 빼세요(빈 배열 허용).\n"
+        "- mechanism에는 A가 움직이면 B가 왜 따라오는가를 매출·수주·재고·판가·수급 중 무엇을 통해 \n"
+        "  전달되는지로 쓰세요. '같은 테마라서'는 근거가 아닙니다.\n"
+        "- lag는 실제 관측되는 시차입니다: 동시 / 1~2일 / 주 단위 / 분기 단위. 장비 수주에서 \n"
+        "  기판 발주로 가는 건 분기 단위지 당일이 아닙니다. 모르면 불명이라고 쓰세요.\n"
+        "- 대체재·경쟁 관계처럼 방향이 반대인 것(A가 오르면 B가 눌림)도 그대로 쓰세요.\n"
+        "- from/to에는 위 rising/falling/theme_stocks에 실제로 넣은 종목명을 그대로 쓰세요. \n"
+        "  '후공정 장비 기업'같은 업종 일반명은 그 이슈에 해당 종목을 넣지 않았을 때만 허용합니다 — \n"
+        "  일반명으로 쓰면 어느 종목을 봐야 하는지 알 수 없어 쓸모가 없습니다.\n"
         "【확률 규칙】 A+B=100. 근거가 한쪽에 기울면 과감하게 벌리고(예: 78/22, 27/73), 팽팽하면 50/50이라고 "
         "정직하게 쓰세요. 억지로 벌린 숫자는 실제 적중률과 대조해 검증되므로 무의미합니다.\n"
         "- 이슈마다 확률 분포가 달라야 합니다. 모든 이슈가 60/40·65/35처럼 똑같이 나오면 잘못된 것입니다.\n- 확률은 실제 확신도만큼만 세밀하게 쓰세요. 70%면 70, 73%라고 볼 근거가 있으면 73입니다. 5의 배수로 반올림하지 마세요 — 근거가 그만큼 정밀하지 않다면 그건 확신도가 낮다는 뜻이지 숫자를 둥글게 만들 이유가 아닙니다.\n\n"
@@ -1485,7 +1514,8 @@ def _deep_dive_issue(stub: dict) -> dict:
         '  "deep_analysis": {\n'
         '    "background": "이 이슈의 구조적 배경과 이해관계 (2~3문장 — 왜 지금 중요한가)",\n'
         '    "key_levels": [{"name": "관전 지표/가격 (예: 코스피, 환율, BTC, 미10년물)", "level": "구체적 수치·레벨", "meaning": "돌파/이탈 시 의미 한 줄"}],\n'
-        '    "watch_calendar": [{"date": "MM-DD", "event": "향후 1~2주 내 관련 일정·발표", "why": "왜 중요한지 한 줄"}]\n'
+        '    "watch_calendar": [{"date": "MM-DD", "event": "향후 1~2주 내 관련 일정·발표", "why": "왜 중요한지 한 줄"}],\n'
+        '    "linkages": [{"from": "먼저 움직이는 종목/섹터", "to": "따라 움직이는 종목", "relation": "밸류체인 상류→하류/대체재/경쟁/전방수요/수급전이", "mechanism": "무엇을 통해 전달되는지 1문장 (매출·수주·재고·판가·수급)", "direction": "동행 또는 역행", "lag": "동시/1~2일/주 단위/분기 단위/불명"}]\n'
         "  },\n"
         '  "scenarios": [\n'
         "    {\n"
@@ -1515,7 +1545,7 @@ def _deep_dive_issue(stub: dict) -> dict:
             prompt + "\n\n⚠️ 직전 응답이 JSON이 아니어서 폐기됐습니다. 설명·마크다운 없이 '{'로 시작하는 JSON 객체만 출력하세요.")
         try:
             response = _call_llm(p, use_search=True, temperature=0.6 if attempt == 0 else 0.4,
-                                    timeout_sec=140, max_output_tokens=7000, thinking=True)
+                                    timeout_sec=180, max_output_tokens=10000, thinking=True)
             parsed = _parse_json_response(response)
             if isinstance(parsed, dict) and parsed.get("scenarios"):
                 issue = parsed
@@ -1651,6 +1681,11 @@ def analyze_custom_issue(keyword: str) -> dict:
         "  경로를 못 쓰면 그 종목은 빼세요. 서로 다른 이슈에 같은 대형주 묶음을 반복 배치하지 마세요.\n"
         "theme_stocks는 단타·스윙에 유리한 국내 중소형주(시총 1조 미만 코스닥 우선) 2~3개(확실한 것만).\n"
         "rising_stocks·falling_stocks에 이미 있는 종목, 시총 10조↑ 대형주는 제외.\n\n"
+        "【연관 구조(linkages)】 위 종목들이 왜 한 묶음인지를 종목↔종목 관계로 3~5개 쓰세요. \n"
+        "이슈→종목 관계는 reason에 이미 있으니 반복하지 말고, A가 움직이면 B가 왜 따라오는지의 \n"
+        "전달 경로(매출·수주·재고·판가·수급)와 시차만 쓰세요. '같은 테마라서'는 근거가 아닙니다. \n"
+        "대체재·경쟁처럼 역행하는 관계도 그대로 쓰고, 경로를 한 문장으로 못 쓰면 빼세요(빈 배열 허용). \n"
+        "from/to에는 위에 실제로 넣은 종목명을 그대로 쓰세요 — 업종 일반명은 그 종목을 넣지 않았을 때만.\n\n"
         "【확률(probability_pct) 산정 규칙】 A/B 확률 합=100. 근거 우열이 분명하면 과감하게 벌리고(예: 78/22, 27/73), "
         "근거가 팽팽하면 50/50·55/45라고 정직하게 쓰세요. 억지로 벌린 숫자는 무의미합니다 — "
         "이 수치는 나중에 실제 적중률과 대조해 검증됩니다.\n"
@@ -1659,6 +1694,7 @@ def analyze_custom_issue(keyword: str) -> dict:
         "{\n"
         '  "title": "이슈 제목",\n'
         '  "summary": "현황 요약 (1~2문장)",\n'
+        '  "linkages": [{"from": "먼저 움직이는 종목/섹터", "to": "따라 움직이는 종목", "relation": "밸류체인 상류→하류/대체재/경쟁/전방수요/수급전이", "mechanism": "무엇을 통해 전달되는지 1문장", "direction": "동행 또는 역행", "lag": "동시/1~2일/주 단위/분기 단위/불명"}],\n'
         '  "scenarios": [\n'
         "    {\n"
         '      "label": "A",\n'
