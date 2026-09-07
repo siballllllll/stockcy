@@ -242,8 +242,11 @@ def _wants_buy(owner: str, ind: dict, tk: str = "", ctx: dict = None) -> tuple:
         # G와 H가 같은 종목을 볼 때는 (날짜,종목) UNIQUE로 첫 판정만 남는다.
         try:
             from db import log_catalyst_verdict
+            # 사이클 커서를 넘겨 같은 커넥션에 쓴다 — 별도 커넥션이면 사이클이 열어둔
+            # 쓰기 트랜잭션과 부딪혀 'database is locked'로 유실된다(v3.152.0).
             log_catalyst_verdict(tk, (ctx or {}).get("name_map", {}).get(tk, ""),
-                                 "국내" if tk.isdigit() else "미국", m5, cs, "shadow_gh")
+                                 "국내" if tk.isdigit() else "미국", m5, cs, "shadow_gh",
+                                 cur=(ctx or {}).get("cur"))
         except Exception as e:
             logger.error(f"[shadow] 촉매 판정 기록 실패 {tk}: {e}")
         ok = bool(cs.get("found")) and str(cs.get("strength", "")) == "강"
@@ -265,6 +268,7 @@ def run_shadow_cycle(candidates: list, kr_open: bool, us_open: bool, force: bool
            # (ai_engine.catalyst_strength 자체도 (종목,날짜) 캐시를 갖지만, 그건 DB 왕복이라
            #  같은 사이클에서 G와 H가 같은 종목을 볼 때의 중복까지는 못 막는다.)
            "catalyst_cache": {}, "catalyst_budget": [CATALYST_DAILY_LOOKUPS],
+           "cur": cur,          # 촉매 판정 기록을 같은 커넥션에 쓰기 위함 (락 회피)
            "name_map": {str(c.get("ticker") or ""): (c.get("name") or "") for c in (candidates or [])}}
     try:
         from db import load_scenario_stocks_set
@@ -354,7 +358,7 @@ def run_shadow_cycle(candidates: list, kr_open: bool, us_open: bool, force: bool
                         # 판정 이력에 '매수까지 갔음'을 표시 — 표시 안 된 행이 대조군이 된다.
                         try:
                             from db import mark_catalyst_bought
-                            mark_catalyst_bought(tk, owner)
+                            mark_catalyst_bought(tk, owner, cur=cur)
                         except Exception as e:
                             logger.error(f"[shadow] 촉매 매수표시 실패 {tk}: {e}")
                     if owner in NOTIFY_OWNERS:

@@ -3885,20 +3885,33 @@ def scenario_probability_calibration(days: int = 365) -> dict:
 
 
 def log_catalyst_verdict(ticker: str, name: str, market: str, mom5,
-                         verdict: dict, source: str = "shadow_gh") -> bool:
+                         verdict: dict, source: str = "shadow_gh", cur=None) -> bool:
     """[V10 분모 보존 v3.149.0] 촉매 강도 판정을 영구 기록한다.
 
     ai_cache의 cat_str_* 키는 TTL 12시간이고 load_ai_cache가 만료분을 읽는 즉시 지우므로
     판정 이력이 남지 않는다. 여기 남겨야 "판정했지만 사지 않은 종목"(대조군)을 셀 수 있다.
     같은 날 같은 종목은 판정이 캐시로 고정되므로 INSERT OR IGNORE로 첫 기록만 남긴다
-    (뒤이어 붙는 bought_by를 덮어쓰지 않기 위함)."""
+    (뒤이어 붙는 bought_by를 덮어쓰지 않기 위함).
+
+    [v3.152.0] cur을 주면 그 커서로 쓴다(커밋은 호출자 몫). 섀도우 사이클은 자기 커넥션에
+    쓰기 트랜잭션을 길게 열어두므로, 별도 커넥션으로 쓰면 WAL에서도 단일 writer 제약에
+    걸려 'database is locked'로 통째 유실된다(실측: 9/7 KR 판정 9건 전부 빈 값으로 기록됨).
+
+    ⚠️ 판정 자체가 실패한 결과({})는 기록하지 않는다. 기록해버리면 INSERT OR IGNORE 때문에
+       그날의 실패가 고정되고, 나중 사이클의 성공 판정이 영원히 무시된다."""
     tk = str(ticker or "").strip()
-    if not tk or not isinstance(verdict, dict):
+    if not tk or not isinstance(verdict, dict) or not verdict:
         return False
+    if not verdict.get("found") and not str(verdict.get("strength") or "").strip():
+        return False          # 검색 실패·파싱 실패 — 판정 결과가 아니라 오류다
     try:
         now = datetime.now()
-        conn = get_db_conn()
-        cursor = conn.cursor()
+        conn = None
+        if cur is not None:
+            cursor = cur
+        else:
+            conn = get_db_conn()
+            cursor = conn.cursor()
         cursor.execute(
             """INSERT OR IGNORE INTO catalyst_verdicts
                (verdict_date, ticker, name, market, mom_5, found, strength,
@@ -3913,22 +3926,29 @@ def log_catalyst_verdict(ticker: str, name: str, market: str, mom5,
              str(verdict.get("theme") or ""),
              str(source or ""), now.strftime("%Y-%m-%d %H:%M:%S"))
         )
-        conn.commit()
-        conn.close()
+        if conn is not None:
+            conn.commit()
+            conn.close()
         return True
     except Exception as e:
         print(f"log_catalyst_verdict error {tk}: {e}")
         return False
 
 
-def mark_catalyst_bought(ticker: str, owner: str) -> bool:
-    """오늘 판정 기록에 '실제 매수까지 갔다'를 표시. bought_by가 빈 행이 대조군이 된다."""
+def mark_catalyst_bought(ticker: str, owner: str, cur=None) -> bool:
+    """오늘 판정 기록에 '실제 매수까지 갔다'를 표시. bought_by가 빈 행이 대조군이 된다.
+
+    [v3.152.0] cur을 주면 그 커서로 쓴다 — log_catalyst_verdict와 같은 이유(락 회피)."""
     tk = str(ticker or "").strip()
     if not tk or not owner:
         return False
     try:
-        conn = get_db_conn()
-        cursor = conn.cursor()
+        conn = None
+        if cur is not None:
+            cursor = cur
+        else:
+            conn = get_db_conn()
+            cursor = conn.cursor()
         cursor.execute(
             """UPDATE catalyst_verdicts
                   SET bought_by = CASE
@@ -3938,8 +3958,9 @@ def mark_catalyst_bought(ticker: str, owner: str) -> bool:
                 WHERE verdict_date = ? AND ticker = ?""",
             (owner, owner, owner, datetime.now().strftime("%Y-%m-%d"), tk)
         )
-        conn.commit()
-        conn.close()
+        if conn is not None:
+            conn.commit()
+            conn.close()
         return True
     except Exception as e:
         print(f"mark_catalyst_bought error {tk}: {e}")
