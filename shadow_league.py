@@ -236,6 +236,16 @@ def _wants_buy(owner: str, ind: dict, tk: str = "", ctx: dict = None) -> tuple:
             (ctx or {}).setdefault("catalyst_cache", {})[tk] = cs
             if budget is not None:
                 budget[0] -= 1
+        # [V10 분모 보존 v3.149.0] 판정 결과를 캐시와 별개로 영구 기록한다.
+        # ai_cache는 TTL 12시간 + 만료 시 읽는 즉시 삭제라 하루 만에 증발하는데,
+        # V10은 "판정했지만 사지 않은 종목"(대조군)과의 비교가 본체라 그 행이 분모다.
+        # G와 H가 같은 종목을 볼 때는 (날짜,종목) UNIQUE로 첫 판정만 남는다.
+        try:
+            from db import log_catalyst_verdict
+            log_catalyst_verdict(tk, (ctx or {}).get("name_map", {}).get(tk, ""),
+                                 "국내" if tk.isdigit() else "미국", m5, cs, "shadow_gh")
+        except Exception as e:
+            logger.error(f"[shadow] 촉매 판정 기록 실패 {tk}: {e}")
         ok = bool(cs.get("found")) and str(cs.get("strength", "")) == "강"
         return ok, 1.0, (f"촉매모멘텀(5일 {m5}%·{cs.get('catalyst_type','?')}"
                          f"·{str(cs.get('theme',''))[:20]}) {str(cs.get('catalyst',''))[:60]}")
@@ -340,6 +350,13 @@ def run_shadow_cycle(candidates: list, kr_open: bool, us_open: bool, force: bool
                     held.add(tk)
                     buys_left -= 1
                     summary["buy"] += 1
+                    if owner in ("SHADOW_G", "SHADOW_H"):
+                        # 판정 이력에 '매수까지 갔음'을 표시 — 표시 안 된 행이 대조군이 된다.
+                        try:
+                            from db import mark_catalyst_bought
+                            mark_catalyst_bought(tk, owner)
+                        except Exception as e:
+                            logger.error(f"[shadow] 촉매 매수표시 실패 {tk}: {e}")
                     if owner in NOTIFY_OWNERS:
                         _notify_buy(owner, tk, c.get("name") or tk, market, price, note)
             conn.commit()

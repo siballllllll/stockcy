@@ -494,6 +494,32 @@ def init_local_db():
         )
     """)
 
+    # 30. catalyst_verdicts — 촉매 강도 판정 이력 (v3.149.0)
+    # [왜] 판정 결과는 ai_cache(cat_str_*)에 TTL 12시간으로만 남는데, load_ai_cache는
+    # 만료된 키를 '읽는 순간 삭제'한다. 그래서 어제 무엇을 판정했고 뭐라 나왔는지가
+    # 하루 만에 증발한다 — 실제로 9/4에 매수한 CEG·NVDA·INTC의 판정 기록이 이미 없다.
+    # V10(섀도우 G/H)은 "같은 모멘텀인데 촉매가 갈랐는가"를 보는 검증이라, 판정했지만
+    # 사지 않은 종목(= 대조군)이 분모다. 그 분모가 사라지면 검증 자체가 불가능해진다.
+    # 캐시와 별개로 영구 기록한다(비용 0 — 이미 부른 판정을 한 줄 더 적을 뿐).
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS catalyst_verdicts (
+            verdict_date TEXT,        -- YYYY-MM-DD (판정일)
+            ticker TEXT,
+            name TEXT,
+            market TEXT,              -- '국내' | '미국'
+            mom_5 REAL,               -- 판정 시점 5일 모멘텀 % (모멘텀 게이트 통과분만 판정됨)
+            found INTEGER,            -- 검색으로 실제 확인됐는지 (0이면 판정 실패·근거 없음)
+            strength TEXT,            -- 강/중/약/없음
+            catalyst TEXT,
+            catalyst_type TEXT,
+            theme TEXT,
+            source TEXT,              -- 'shadow_gh' | 'agent_daytrade'
+            bought_by TEXT,           -- 실제 매수까지 간 주체(콤마 구분). 빈 값 = 대조군
+            created_at TEXT,
+            UNIQUE(verdict_date, ticker)
+        )
+    """)
+
     # 컬럼 마이그레이션 — 이미 존재하면 무시
     for migration in [
         # AI추천 사후 성과 추적(적중률) — logged_time 기준 d1/d3/d7 수익률
@@ -3856,6 +3882,105 @@ def scenario_probability_calibration(days: int = 365) -> dict:
             "avg_return_pct": round(sum(v) / len(v), 2),
         })
     return {"sample": sum(b["n"] for b in out), "buckets": out}
+
+
+def log_catalyst_verdict(ticker: str, name: str, market: str, mom5,
+                         verdict: dict, source: str = "shadow_gh") -> bool:
+    """[V10 분모 보존 v3.149.0] 촉매 강도 판정을 영구 기록한다.
+
+    ai_cache의 cat_str_* 키는 TTL 12시간이고 load_ai_cache가 만료분을 읽는 즉시 지우므로
+    판정 이력이 남지 않는다. 여기 남겨야 "판정했지만 사지 않은 종목"(대조군)을 셀 수 있다.
+    같은 날 같은 종목은 판정이 캐시로 고정되므로 INSERT OR IGNORE로 첫 기록만 남긴다
+    (뒤이어 붙는 bought_by를 덮어쓰지 않기 위함)."""
+    tk = str(ticker or "").strip()
+    if not tk or not isinstance(verdict, dict):
+        return False
+    try:
+        now = datetime.now()
+        conn = get_db_conn()
+        cursor = conn.cursor()
+        cursor.execute(
+            """INSERT OR IGNORE INTO catalyst_verdicts
+               (verdict_date, ticker, name, market, mom_5, found, strength,
+                catalyst, catalyst_type, theme, source, bought_by, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '', ?)""",
+            (now.strftime("%Y-%m-%d"), tk, str(name or tk), str(market or ""),
+             (float(mom5) if mom5 is not None else None),
+             1 if verdict.get("found") else 0,
+             str(verdict.get("strength") or ""),
+             str(verdict.get("catalyst") or "")[:300],
+             str(verdict.get("catalyst_type") or ""),
+             str(verdict.get("theme") or ""),
+             str(source or ""), now.strftime("%Y-%m-%d %H:%M:%S"))
+        )
+        conn.commit()
+        conn.close()
+        return True
+    except Exception as e:
+        print(f"log_catalyst_verdict error {tk}: {e}")
+        return False
+
+
+def mark_catalyst_bought(ticker: str, owner: str) -> bool:
+    """오늘 판정 기록에 '실제 매수까지 갔다'를 표시. bought_by가 빈 행이 대조군이 된다."""
+    tk = str(ticker or "").strip()
+    if not tk or not owner:
+        return False
+    try:
+        conn = get_db_conn()
+        cursor = conn.cursor()
+        cursor.execute(
+            """UPDATE catalyst_verdicts
+                  SET bought_by = CASE
+                      WHEN bought_by IS NULL OR bought_by = '' THEN ?
+                      WHEN ',' || bought_by || ',' LIKE '%,' || ? || ',%' THEN bought_by
+                      ELSE bought_by || ',' || ? END
+                WHERE verdict_date = ? AND ticker = ?""",
+            (owner, owner, owner, datetime.now().strftime("%Y-%m-%d"), tk)
+        )
+        conn.commit()
+        conn.close()
+        return True
+    except Exception as e:
+        print(f"mark_catalyst_bought error {tk}: {e}")
+        return False
+
+
+def load_catalyst_verdicts(days: int = 30) -> dict:
+    """[V10 보조] 촉매 판정 퍼널 요약 — 판정 n건 중 '강' 몇 건, 그중 몇 건이 매수됐나.
+
+    rows에는 매수분과 대조군(bought_by='')이 함께 담긴다. 사후에 수익률을 붙여
+    '강 vs 중이하'를 같은 날짜·같은 모멘텀 대역에서 비교하는 것이 V10의 본체다."""
+    try:
+        conn = get_db_conn()
+        cursor = conn.cursor()
+        cursor.execute(
+            """SELECT * FROM catalyst_verdicts
+               WHERE verdict_date >= date('now', ?) ORDER BY verdict_date DESC, ticker""",
+            (f"-{int(days)} day",)
+        )
+        rows = [dict(r) for r in cursor.fetchall()]
+        conn.close()
+    except Exception as e:
+        print(f"load_catalyst_verdicts error: {e}")
+        return {"total": 0, "error": str(e)}
+
+    strong = [r for r in rows if str(r.get("strength")) == "강"]
+    bought = [r for r in rows if str(r.get("bought_by") or "")]
+    by_market = {}
+    for r in rows:
+        m = str(r.get("market") or "?")
+        b = by_market.setdefault(m, {"판정": 0, "강": 0, "매수": 0})
+        b["판정"] += 1
+        if str(r.get("strength")) == "강":
+            b["강"] += 1
+        if str(r.get("bought_by") or ""):
+            b["매수"] += 1
+    return {
+        "total": len(rows), "strong": len(strong), "bought": len(bought),
+        "strong_rate_pct": round(len(strong) / len(rows) * 100, 1) if rows else None,
+        "by_market": by_market, "rows": rows,
+    }
 
 
 def load_scenario_stocks_by_ticker(ticker: str) -> list:

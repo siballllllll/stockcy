@@ -17,6 +17,20 @@ from telegram_bot import send_message as send_price_alert
 logger = logging.getLogger("ai_agent")
 logger.setLevel(logging.INFO)
 
+# [관측 구멍 메우기 v3.149.0] uvicorn 안에서 돌 때 이 로거의 INFO가 아예 안 찍히던 문제.
+# uvicorn은 자기 로거만 설정하고 root에는 핸들러를 붙이지 않는다. basicConfig도 안 돌기
+# 때문에 logging 모듈의 lastResort 핸들러로 떨어지는데, 그건 WARNING 이상만 통과시키고
+# 포맷도 메시지 본문뿐이다. 그 결과 "시장 스캔 시작"·"1주기 스캔 완료"·"휴장 중 건너뜀"이
+# 통째로 사라지고 ERROR만 접두어 없는 맨몸 문자열로 나왔다 — 루프가 살아있는지 죽었는지를
+# 로그로 판별할 수 없는 상태였다(2026-09-05 스캔 실종을 사후에도 확정하지 못한 원인).
+# 단독 실행(__main__)은 basicConfig가 root를 잡으므로, 중복 출력을 막으려 propagate를 끈다.
+if not logger.handlers:
+    import sys as _sys
+    _h = logging.StreamHandler(_sys.stdout)
+    _h.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] ai_agent: %(message)s"))
+    logger.addHandler(_h)
+    logger.propagate = False
+
 # AI 모의투자용 소유자 이름
 AI_OWNER_NAME = "AI_AGENT"
 
@@ -227,6 +241,12 @@ def _is_daytrade_candidate(ticker: str, name: str, market: str, snap: dict) -> t
         logger.error(f"[agent] 단타 촉매 판정 실패 {ticker}: {e}")
         return False, ""
     _DAYTRADE_LOOKUP_STATE["used"] += 1
+    # 섀도우 G/H와 같은 판정 이력에 남긴다 — 켜졌을 때 메인 진입도 같은 분모로 검증하기 위함.
+    try:
+        from db import log_catalyst_verdict
+        log_catalyst_verdict(ticker, name, market, m5, cs, "agent_daytrade")
+    except Exception as e:
+        logger.error(f"[agent] 촉매 판정 기록 실패 {ticker}: {e}")
     if not (cs.get("found") and str(cs.get("strength", "")) == "강"):
         return False, f"촉매 약함({cs.get('strength', '없음')})"
     return True, (f"촉매 '강'({cs.get('catalyst_type', '?')}·{str(cs.get('theme', ''))[:16]}) "
