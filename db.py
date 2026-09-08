@@ -2666,10 +2666,16 @@ def _write_with_retry(fn, what: str, attempts: int = 3):
 
 
 def log_ml_sample(source: str, ticker: str, name: str = "", market: str = "", entry_price=None,
-                  preds: dict | None = None):
+                  preds: dict | None = None, cur=None):
     """자체 ML 학습 샘플 기록(추천 시점) — 종목·날짜만. 피처/결과는 추적 job이 사후에 채움.
     (source, ticker, 날짜) 중복은 무시. 어느 엔진이든 추천할 때 호출.
-    preds: 추천 시점의 ML 예측확률 {'d3': %, 'd7': %, 'd20': %} — 나중에 실제 결과와 비교(사후검증)."""
+    preds: 추천 시점의 ML 예측확률 {'d3': %, 'd7': %, 'd20': %} — 나중에 실제 결과와 비교(사후검증).
+
+    [v3.156.0] cur을 주면 그 커서로 쓴다(커밋은 호출자 몫).
+    ⚠️ 이미 쓰기 트랜잭션이 열린 함수 안에서 부를 때는 **반드시 cur을 넘길 것.**
+       별도 커넥션을 열면 자기 자신이 쥔 쓰기 락을 자기가 기다리는 데드락이 된다 —
+       SQLite는 writer가 하나뿐이라 절대 풀리지 않고, busy timeout을 다 태운 뒤
+       'database is locked'로 실패한다. 그동안 DB 전체의 쓰기가 함께 막힌다."""
     try:
         tk = str(ticker or "").strip()
         if not tk:
@@ -2680,15 +2686,21 @@ def log_ml_sample(source: str, ticker: str, name: str = "", market: str = "", en
             return float(v) if v is not None else None
         today = datetime.now().strftime("%Y-%m-%d")
 
+        _sql = ("INSERT OR IGNORE INTO ml_training_samples "
+                "(source, ticker, name, market, decided_at, entry_price, pred_d3, pred_d7, pred_d20) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
+        _args = (str(source), tk, str(name or ""), str(market or ""), today,
+                 float(entry_price) if entry_price else None,
+                 _pv("d3"), _pv("d7"), _pv("d20"))
+
+        if cur is not None:
+            cur.execute(_sql, _args)      # 호출자의 트랜잭션에 합류 (커밋도 호출자가)
+            return
+
         def _do():
-            conn = get_db_conn(); cur = conn.cursor()
+            conn = get_db_conn(); c2 = conn.cursor()
             try:
-                cur.execute(
-                    "INSERT OR IGNORE INTO ml_training_samples (source, ticker, name, market, decided_at, entry_price, pred_d3, pred_d7, pred_d20) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                    (str(source), tk, str(name or ""), str(market or ""), today,
-                     float(entry_price) if entry_price else None,
-                     _pv("d3"), _pv("d7"), _pv("d20"))
-                )
+                c2.execute(_sql, _args)
                 conn.commit()
             finally:
                 conn.close()
@@ -3858,9 +3870,13 @@ def save_scenario_stocks(scenario_keyword: str, scenario_title: str, stocks: lis
                  prob_pct, sc_label)
             )
             # 자체 ML 학습 샘플로도 기록 (피해=하락기대는 제외, 상승 기대 종목만)
+            # ⚠️ cursor를 넘겨야 한다 — 여기는 이미 INSERT로 쓰기 트랜잭션이 열린 지점이라
+            #    별도 커넥션을 열면 자기 락을 자기가 기다리는 데드락이 된다(v3.156.0).
+            #    실측: 리서치 워처가 15건 등록할 때 log_ml_sample이 14건 연속 실패했고,
+            #    그 동안 DB 전체 쓰기가 막혀 즐겨찾기 추가까지 실패했다.
             if role != "피해":
                 try:
-                    log_ml_sample("scenario", ticker, name, market, None)
+                    log_ml_sample("scenario", ticker, name, market, None, cur=cursor)
                 except Exception:
                     pass
         conn.commit()
