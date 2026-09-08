@@ -247,6 +247,9 @@ def _wants_buy(owner: str, ind: dict, tk: str = "", ctx: dict = None) -> tuple:
             log_catalyst_verdict(tk, (ctx or {}).get("name_map", {}).get(tk, ""),
                                  "국내" if tk.isdigit() else "미국", m5, cs, "shadow_gh",
                                  cur=(ctx or {}).get("cur"))
+            _c = (ctx or {}).get("cur")
+            if _c is not None:
+                _c.connection.commit()      # 판정 기록도 바로 커밋 (락 보유 최소화)
         except Exception as e:
             logger.error(f"[shadow] 촉매 판정 기록 실패 {tk}: {e}")
         ok = bool(cs.get("found")) and str(cs.get("strength", "")) == "강"
@@ -282,6 +285,13 @@ def run_shadow_cycle(candidates: list, kr_open: bool, us_open: bool, force: bool
             ctx["supply_set"] = {str(s.get("종목코드", "")).strip().zfill(6) for s in _sup if s.get("종목코드")}
         except Exception as e:
             logger.error(f"[shadow] 수급 랭킹 로드 실패: {e}")
+    # [v3.155.0] 쓰기가 생길 때마다 즉시 커밋한다.
+    # 이 루프는 _price_of(네트워크 조회)를 매 보유 종목마다 부르는데, 예전에는 owner 루프가
+    # 끝나야 커밋해서 **쓰기 트랜잭션이 네트워크 대기 구간을 통째로 물고 있었다**.
+    # SQLite는 WAL이라도 writer가 하나뿐이라 그동안 다른 모든 쓰기가 막힌다 — 실측으로
+    # log_ml_sample·agent scan 로깅이 database is locked로 무더기 실패했고, 사용자가
+    # 즐겨찾기를 추가하려다 30초를 넘겨 브라우저가 요청을 끊었다(AbortError).
+    # 각 매수/매도는 서로 독립적이라 건건이 커밋해도 의미가 달라지지 않는다.
     try:
         today = datetime.now()
         for owner in SHADOWS:
@@ -309,6 +319,7 @@ def run_shadow_cycle(candidates: list, kr_open: bool, us_open: bool, force: bool
                               f"— 근거를 끝까지 지켜본 결과")
                 if reason:
                     _sell(cur, owner, h, market, px, reason, usdkrw)
+                    conn.commit()      # 즉시 커밋 — 위 주석 참조
                     summary["sell"] += 1
             # 2) 신규 매수 판정 — 메인 스캔이 수집한 후보 재사용 (다운로드 0)
             held = {str(h["ticker"]) for h in _holdings(cur, owner)}
@@ -351,6 +362,7 @@ def run_shadow_cycle(candidates: list, kr_open: bool, us_open: bool, force: bool
                     "supply": 1 if tk in ctx.get("supply_set", set()) else 0,
                 }, ensure_ascii=False)
                 if _buy(cur, owner, tk, c.get("name") or tk, market, price, qty, _ctx_rec, usdkrw):
+                    conn.commit()      # 즉시 커밋 — 위 주석 참조
                     held.add(tk)
                     buys_left -= 1
                     summary["buy"] += 1

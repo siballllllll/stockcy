@@ -80,11 +80,14 @@ def _ensure_restored_once():
 
 def get_db_conn():
     _ensure_restored_once()
-    # [v3.153.0] busy timeout 10s → 30s.
-    # WAL이라도 writer는 하나뿐인데, 백그라운드 잡(KRX 캐시·스냅샷·추적·섀도우 사이클)이
-    # 겹치면 10초로는 부족해 쓰기가 조용히 유실됐다(실측: log_ml_sample이 database is
-    # locked로 대량 실패). 로컬 단독 앱이라 잠깐 더 기다리는 편이 데이터를 잃는 것보다 낫다.
-    conn = sqlite3.connect(DB_PATH, timeout=30.0)
+    # [v3.155.0] busy timeout 15초.
+    # v3.153.0에서 10초 → 30초로 올렸다가 되돌린다. 프론트의 fetch 타임아웃이 30초라
+    # (frontend/lib/api.ts req), DB에서 30초를 기다리면 응답 전에 브라우저가 요청을 끊어
+    # "AbortError: signal is aborted without reason"으로 보인다 — 실제로 즐겨찾기 추가가
+    # 그렇게 실패했다. 락을 오래 쥐던 원인(섀도우 사이클이 네트워크 대기 중에 쓰기
+    # 트랜잭션을 물고 있던 것)은 v3.155.0에서 건건이 커밋하도록 고쳤으므로, 여기서는
+    # 프론트 예산 안쪽(15초)에서 끝내고 실패는 정직하게 오류로 드러내는 편이 낫다.
+    conn = sqlite3.connect(DB_PATH, timeout=15.0)
     conn.row_factory = sqlite3.Row
     # WAL 모드: write가 진행 중에도 read가 블로킹되지 않음
     conn.execute("PRAGMA journal_mode=WAL")
