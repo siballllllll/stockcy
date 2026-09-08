@@ -80,7 +80,11 @@ def _ensure_restored_once():
 
 def get_db_conn():
     _ensure_restored_once()
-    conn = sqlite3.connect(DB_PATH, timeout=10.0)
+    # [v3.153.0] busy timeout 10s → 30s.
+    # WAL이라도 writer는 하나뿐인데, 백그라운드 잡(KRX 캐시·스냅샷·추적·섀도우 사이클)이
+    # 겹치면 10초로는 부족해 쓰기가 조용히 유실됐다(실측: log_ml_sample이 database is
+    # locked로 대량 실패). 로컬 단독 앱이라 잠깐 더 기다리는 편이 데이터를 잃는 것보다 낫다.
+    conn = sqlite3.connect(DB_PATH, timeout=30.0)
     conn.row_factory = sqlite3.Row
     # WAL 모드: write가 진행 중에도 read가 블로킹되지 않음
     conn.execute("PRAGMA journal_mode=WAL")
@@ -2640,6 +2644,24 @@ _BUY_REASON_BUCKETS = [
 ]
 
 
+def _write_with_retry(fn, what: str, attempts: int = 3):
+    """락 충돌에 한해 재시도하는 베스트에포트 쓰기 (v3.153.0).
+
+    단발 INSERT인데도 'database is locked'로 통째 유실되는 경우가 있어(실측: 스캔마다
+    부르는 log_ml_sample) 짧게 물러섰다가 다시 시도한다. 락이 아닌 오류는 바로 포기한다."""
+    import time as _t
+    for i in range(attempts):
+        try:
+            fn()
+            return True
+        except Exception as e:
+            if "database is locked" not in str(e).lower() or i == attempts - 1:
+                print(f"{what} error: {e}")
+                return False
+            _t.sleep(0.4 * (2 ** i))       # 0.4s → 0.8s → 1.6s
+    return False
+
+
 def log_ml_sample(source: str, ticker: str, name: str = "", market: str = "", entry_price=None,
                   preds: dict | None = None):
     """자체 ML 학습 샘플 기록(추천 시점) — 종목·날짜만. 피처/결과는 추적 job이 사후에 채움.
@@ -2654,14 +2676,21 @@ def log_ml_sample(source: str, ticker: str, name: str = "", market: str = "", en
             v = p.get(k)
             return float(v) if v is not None else None
         today = datetime.now().strftime("%Y-%m-%d")
-        conn = get_db_conn(); cur = conn.cursor()
-        cur.execute(
-            "INSERT OR IGNORE INTO ml_training_samples (source, ticker, name, market, decided_at, entry_price, pred_d3, pred_d7, pred_d20) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (str(source), tk, str(name or ""), str(market or ""), today,
-             float(entry_price) if entry_price else None,
-             _pv("d3"), _pv("d7"), _pv("d20"))
-        )
-        conn.commit(); conn.close()
+
+        def _do():
+            conn = get_db_conn(); cur = conn.cursor()
+            try:
+                cur.execute(
+                    "INSERT OR IGNORE INTO ml_training_samples (source, ticker, name, market, decided_at, entry_price, pred_d3, pred_d7, pred_d20) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (str(source), tk, str(name or ""), str(market or ""), today,
+                     float(entry_price) if entry_price else None,
+                     _pv("d3"), _pv("d7"), _pv("d20"))
+                )
+                conn.commit()
+            finally:
+                conn.close()
+
+        _write_with_retry(_do, "log_ml_sample")
     except Exception as e:
         print(f"log_ml_sample error: {e}")
 

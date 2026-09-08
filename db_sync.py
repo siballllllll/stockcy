@@ -36,6 +36,7 @@ _HTTP_TIMEOUT = 60
 
 _backup_thread_started = False
 _thread_lock = threading.Lock()
+_consec_fail = 0                      # 연속 실패 횟수 (조용한 영구 실패 감지용)
 
 
 # ── 연결 정보 ─────────────────────────────────────────────────────────────────
@@ -193,6 +194,15 @@ def backup_from(db_path) -> bool:
         prev_gen = _get_meta("current_gen")
         new_gen = (int(prev_gen) + 1) if prev_gen is not None else 1
 
+        # 0) 같은 세대의 잔해 제거 — 이게 없으면 백업이 영구히 막힌다.
+        #    new_gen은 meta(current_gen)+1로 정하는데 meta는 청크를 다 쓴 뒤에야 갱신된다.
+        #    그래서 청크 적재 중간에 끊기면(네트워크·프로세스 종료) 그 세대의 부분 행이 남고,
+        #    다음 백업은 같은 new_gen으로 INSERT를 시도해 PRIMARY KEY(gen,seq)에 충돌한다.
+        #    한 번 이렇게 되면 스스로 회복하지 못한다 — 실측: gen 50이 15/54 청크만 남아
+        #    이후 7,159회 연속 실패했고 원격 백업이 8.1MB(gen 49)에 멈춰 있었다.
+        #    new_gen은 아직 meta가 가리키지 않는 세대이므로 지워도 안전하다.
+        _pipeline([(f"DELETE FROM {_BACKUP_TABLE} WHERE gen=?", [new_gen])])
+
         # 1) 새 세대 청크 적재
         batch = []
         for i, ch in enumerate(chunks):
@@ -215,10 +225,20 @@ def backup_from(db_path) -> bool:
         # 3) 이전 세대 정리(이제 안전)
         _pipeline([(f"DELETE FROM {_BACKUP_TABLE} WHERE gen<>?", [new_gen])])
 
+        global _consec_fail
+        if _consec_fail:
+            print(f"[turso] 백업 복구됨 (직전까지 {_consec_fail}회 연속 실패)")
+        _consec_fail = 0
         print(f"[turso] 백업 완료: {len(raw):,} bytes (gen {new_gen}, {len(chunks)} chunks)")
         return True
     except Exception as e:
-        print(f"[turso] 백업 실패(무시): {e}")
+        # 연속 실패는 '무시해도 되는 일시 오류'가 아니라 오프사이트 백업이 죽은 상태다.
+        # 실측: 같은 한 줄이 7,159번 찍히는 동안 아무도 눈치채지 못했다.
+        _consec_fail += 1
+        if _consec_fail in (1, 3) or _consec_fail % 30 == 0:
+            print(f"[turso] ⚠️ 백업 실패 {_consec_fail}회 연속 — 오프사이트 백업이 멈춰 있습니다: {e}")
+        else:
+            print(f"[turso] 백업 실패(무시): {e}")
         return False
     finally:
         try:
