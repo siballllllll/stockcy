@@ -10,44 +10,8 @@ import Chart from "@/components/Chart";
 import OrderbookPanel from "@/components/ui/OrderbookPanel";
 import { MarkdownLite } from "@/components/ui/MarkdownLite";
 import { AiCostBadge } from "@/components/ui/AiCostBadge";
+import { PeerCompareModal } from "@/components/ui/PeerCompareModal";
 import ReactMarkdown from "react-markdown";
-
-// ── 동종 비교 (v3.151.0) — 같은 섹터 동종 + 교차 시장 카운터파트 ────────────
-// zone.win_rate는 섀도우 리그 실현 거래의 실측 승률이고, 검증되지 않은 시장에서는
-// null로 내려온다(예: '이슈×지지구간'은 국내에서만 유의). null이면 승률을 숨긴다.
-interface PeerZone {
-  key: string;
-  label: string;
-  win_rate: number | null;
-  n: number | null;
-  note: string;
-}
-interface PeerRow {
-  ticker: string;
-  name: string;
-  market: string;
-  price: number | null;
-  change_pct: number | null;
-  rsi: number | null;
-  mom_5: number | null;
-  bb_pctb: number | null;
-  ma20_dist: number | null;
-  pos_52w: number | null;
-  vol_ratio: number | null;
-  zone: PeerZone | null;
-  error?: string | null;
-}
-interface PeerCompare {
-  base: PeerRow | null;
-  cached?: boolean;
-  sector: string | null;
-  sub_sector: string | null;
-  theme: string | null;
-  same_market: PeerRow[];
-  cross_market: PeerRow[];
-  baseline_win_rate: number;
-  zone_legend: Record<string, { label: string; win_rate: number | null; n: number | null; note: string }>;
-}
 
 // ── 종목 AI 분석 결과 localStorage 캐시 (페이지 이동/재방문 후 복원용, 14일 유효) ──
 // 분석 시점(ts)·당시 주가(price)를 함께 저장해 "언제·당시 얼마에 분석/추천했는지"를 표시 → 교차검증.
@@ -443,35 +407,14 @@ function SearchPageInner() {
     return null;
   }, [sectorMapData, currentCode, isKR]);
 
-  // ── 동종 비교 (v3.151.0) ──────────────────────────────────────────────
-  // 12~13종목의 시세를 받아오느라 첫 호출이 수 초 걸려서, 페이지 진입 시 자동으로
-  // 부르지 않고 사용자가 열 때만 부른다(백엔드에 3분 캐시가 있어 재조회는 즉시).
+  // ── 동종 비교 (v3.154.0) — 모달로 표시 ──────────────────────────────
+  // 인라인으로 펼치면 표 12~13행이 아래 내용을 통째로 밀어내 가시성이 떨어져서
+  // 별도 창(PeerCompareModal)으로 띄운다. 데이터 조회는 모달이 직접 한다.
   const [peerOpen, setPeerOpen] = useState(false);
-  const [peerData, setPeerData] = useState<PeerCompare | null>(null);
-  const [peerLoading, setPeerLoading] = useState(false);
-  const [peerError, setPeerError] = useState<string | null>(null);
 
-  useEffect(() => {   // 종목이 바뀌면 이전 종목의 비교 결과를 버린다
-    setPeerData(null);
+  useEffect(() => {   // 종목이 바뀌면 열려 있던 비교 창을 닫는다
     setPeerOpen(false);
-    setPeerError(null);
   }, [currentCode]);
-
-  const loadPeers = async () => {
-    if (peerLoading) return;
-    if (peerData) { setPeerOpen((v) => !v); return; }
-    setPeerOpen(true);
-    setPeerLoading(true);
-    setPeerError(null);
-    try {
-      const r = await (api.ai as any).peerCompare(currentCode, isKR ? "국내" : "미국");
-      setPeerData(r as PeerCompare);
-    } catch (e: any) {
-      setPeerError(String(e?.message || e) || "불러오지 못했습니다");
-    } finally {
-      setPeerLoading(false);
-    }
-  };
 
   // 투자경고/위험 배지 계산
   const warningBadges = useMemo(() => {
@@ -1068,127 +1011,28 @@ function SearchPageInner() {
                   {sectorInfo.subSector}
                 </span>
                 <button
-                  onClick={loadPeers}
-                  disabled={peerLoading}
-                  title="같은 섹터 동종 종목 + 반대편 시장 카운터파트를 지표로 비교"
+                  onClick={() => setPeerOpen(true)}
+                  title="같은 섹터 동종 종목 + 반대편 시장 카운터파트를 지표로 비교 (별도 창)"
                   style={{
                     fontSize: "0.72rem", fontWeight: 700, padding: "2px 9px",
-                    background: peerOpen ? "rgba(52,211,153,0.15)" : "rgba(255,255,255,0.05)",
-                    border: "1px solid " + (peerOpen ? "rgba(52,211,153,0.45)" : "var(--color-border)"),
-                    borderRadius: "4px", color: peerOpen ? "#6ee7b7" : "var(--color-muted)",
-                    cursor: peerLoading ? "wait" : "pointer",
+                    background: "rgba(52,211,153,0.12)",
+                    border: "1px solid rgba(52,211,153,0.45)",
+                    borderRadius: "4px", color: "#6ee7b7", cursor: "pointer",
                   }}
                 >
-                  {peerLoading ? "불러오는 중…" : peerOpen ? "동종 비교 닫기" : "⚖ 동종 비교"}
+                  ⚖ 동종 비교
                 </button>
               </div>
             )}
 
-            {/* 동종 비교 표 (v3.151.0) — LLM 호출 없음, 지표는 기존 수집 함수 재사용 */}
+            {/* 동종 비교 창 (v3.154.0) — 화면을 밀지 않도록 오버레이로 띄운다 */}
             {peerOpen && (
-              <div style={{ marginTop: "6px", marginBottom: "8px", background: "rgba(0,0,0,0.25)",
-                            border: "1px solid var(--color-border)", borderRadius: "8px", padding: "10px 12px" }}>
-                {peerError ? (
-                  <div style={{ fontSize: "0.8rem", color: "var(--color-danger)" }}>{peerError}</div>
-                ) : peerLoading && !peerData ? (
-                  <div style={{ fontSize: "0.8rem", color: "var(--color-muted)" }}>동종 종목 지표 수집 중… (첫 조회는 몇 초 걸립니다)</div>
-                ) : !peerData ? null : (
-                  <>
-                    <div style={{ fontSize: "0.72rem", color: "var(--color-muted)", marginBottom: "8px", lineHeight: 1.5 }}>
-                      <strong style={{ color: "var(--color-text)" }}>동종 비교</strong>
-                      {peerData.sub_sector ? " · " + peerData.sector + " › " + peerData.sub_sector : ""}
-                      {peerData.theme ? " · 교차 테마 " + peerData.theme : ""}
-                      <div style={{ marginTop: "3px" }}>
-                        구간 라벨은 섀도우 리그 실현 거래의 실측 승률입니다 (랜덤 대조군 {peerData.baseline_win_rate}%).
-                        승률이 없는 라벨은 그 시장에서 검증되지 않은 구간입니다.
-                      </div>
-                    </div>
-                    <div style={{ overflowX: "auto" }}>
-                      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.78rem", minWidth: "660px" }}>
-                        <thead>
-                          <tr style={{ color: "var(--color-muted)", textAlign: "right" }}>
-                            <th style={{ textAlign: "left", padding: "4px 6px", fontWeight: 700 }}>종목</th>
-                            <th style={{ padding: "4px 6px", fontWeight: 700 }}>현재가</th>
-                            <th style={{ padding: "4px 6px", fontWeight: 700 }}>5일</th>
-                            <th style={{ padding: "4px 6px", fontWeight: 700 }}>RSI</th>
-                            <th style={{ padding: "4px 6px", fontWeight: 700 }}>%b</th>
-                            <th style={{ padding: "4px 6px", fontWeight: 700 }}>MA20</th>
-                            <th style={{ padding: "4px 6px", fontWeight: 700 }}>52주</th>
-                            <th style={{ textAlign: "left", padding: "4px 6px", fontWeight: 700 }}>실측 구간</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {([] as Array<{ row: PeerRow; group: string }>)
-                            .concat(peerData.base ? [{ row: peerData.base, group: "기준" }] : [])
-                            .concat(peerData.same_market.map((r) => ({ row: r, group: "동종" })))
-                            .concat(peerData.cross_market.map((r) => ({ row: r, group: "교차" })))
-                            .map(({ row, group }, i) => {
-                              const isBase = group === "기준";
-                              const z = row.zone;
-                              const wr = z && z.win_rate !== null && z.win_rate !== undefined ? z.win_rate : null;
-                              const good = wr !== null && wr >= peerData.baseline_win_rate + 10;
-                              const bad = wr !== null && wr <= peerData.baseline_win_rate + 3;
-                              const num = (v: number | null, suffix = "", digits = 1) =>
-                                v === null || v === undefined ? "–" : v.toFixed(digits) + suffix;
-                              return (
-                                <tr key={row.ticker + "-" + i} style={{
-                                  borderTop: "1px solid var(--color-border)",
-                                  background: isBase ? "rgba(99,102,241,0.10)" : undefined,
-                                  textAlign: "right",
-                                }}>
-                                  <td style={{ textAlign: "left", padding: "5px 6px", whiteSpace: "nowrap" }}>
-                                    <span style={{
-                                      fontSize: "0.64rem", fontWeight: 800, marginRight: "5px",
-                                      color: group === "교차" ? "#fbbf24" : "var(--color-muted)",
-                                    }}>{group}</span>
-                                    <strong style={{ color: "var(--color-text)" }}>{row.name}</strong>
-                                    <span style={{ color: "var(--color-subtle)", marginLeft: "4px", fontSize: "0.7rem" }}>
-                                      {row.market === "국내" ? "KR" : "US"}
-                                    </span>
-                                  </td>
-                                  <td style={{ padding: "5px 6px", whiteSpace: "nowrap" }}>
-                                    {row.price === null ? "–" : row.market === "국내"
-                                      ? row.price.toLocaleString() : "$" + row.price.toFixed(2)}
-                                    {row.change_pct !== null && (
-                                      <span style={{
-                                        marginLeft: "5px", fontWeight: 700,
-                                        color: row.change_pct >= 0 ? "var(--color-danger)" : "var(--color-primary)",
-                                      }}>{row.change_pct >= 0 ? "+" : ""}{row.change_pct.toFixed(2)}%</span>
-                                    )}
-                                  </td>
-                                  <td style={{ padding: "5px 6px", fontWeight: 700,
-                                               color: (row.mom_5 || 0) >= 10 ? "var(--color-warning)" : "var(--color-text)" }}>
-                                    {num(row.mom_5, "%")}
-                                  </td>
-                                  <td style={{ padding: "5px 6px" }}>{num(row.rsi, "", 0)}</td>
-                                  <td style={{ padding: "5px 6px" }}>{num(row.bb_pctb, "", 2)}</td>
-                                  <td style={{ padding: "5px 6px" }}>{num(row.ma20_dist, "%")}</td>
-                                  <td style={{ padding: "5px 6px" }}>{num(row.pos_52w, "%", 0)}</td>
-                                  <td style={{ textAlign: "left", padding: "5px 6px", whiteSpace: "nowrap" }}>
-                                    {row.error ? (
-                                      <span style={{ color: "var(--color-subtle)" }}>조회 실패</span>
-                                    ) : !z ? "–" : (
-                                      <span title={z.note} style={{
-                                        fontSize: "0.7rem", fontWeight: 700, padding: "2px 6px", borderRadius: "4px",
-                                        color: good ? "#6ee7b7" : bad ? "#fca5a5" : "var(--color-muted)",
-                                        background: good ? "rgba(52,211,153,0.12)" : bad ? "rgba(255,75,75,0.10)" : "rgba(255,255,255,0.04)",
-                                        border: "1px solid " + (good ? "rgba(52,211,153,0.35)" : bad ? "rgba(255,75,75,0.30)" : "var(--color-border)"),
-                                      }}>
-                                        {z.label}{wr !== null ? " " + wr + "%" : " · 미검증"}
-                                      </span>
-                                    )}
-                                  </td>
-                                </tr>
-                              );
-                            })}
-                        </tbody>
-                      </table>
-                    </div>
-                  </>
-                )}
-              </div>
+              <PeerCompareModal
+                ticker={currentCode}
+                market={isKR ? "국내" : "미국"}
+                onClose={() => setPeerOpen(false)}
+              />
             )}
-
             {/* US: 프리/애프터마켓 표시 */}
             {!isKR && usStockData && (usStockData.pre_price > 0 || usStockData.post_price > 0) && (
               <div style={{ fontSize: "0.8rem", color: "var(--color-muted)", marginTop: "4px" }}>
