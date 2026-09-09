@@ -1720,6 +1720,29 @@ def _enrich_scenario_list_current(rows: list) -> list:
     except Exception:
         pass
 
+    # [v3.163.0] 캐시가 비었으면 토스 벌크 시세로 직접 채운다.
+    # KRX_PRICE_CACHE는 fdr.StockListing("KRX")로 전종목을 받아오는데, data.krx.co.kr
+    # 경로가 막히면서 404가 지속돼 캐시가 0종목이 됐다(pykrx도 같은 벽에 막힌다).
+    # 그 결과 이 목록의 국내 219건이 전부 현재가 공백으로 내려갔다.
+    # 토스는 심볼 목록을 한 번에 받으므로(실측 100종목 0.46초) 필요한 종목만 조회하면 된다.
+    # 캐시가 살아 있으면 그대로 쓰고, 비었을 때만 부른다 — 정상 복구 시 부하가 늘지 않는다.
+    kr_need = sorted({str(r["ticker"]).strip().zfill(6) for r in rows
+                      if not _is_us(r["ticker"]) and str(r.get("ticker") or "").strip()})
+    kr_need = [t for t in kr_need if t not in kr_cache and t.lstrip("0") not in kr_cache]
+    if kr_need:
+        try:
+            from toss_api import get_prices as _toss_prices
+            _fetched = {}
+            for i in range(0, len(kr_need), 100):      # 100개씩 나눠 호출
+                _fetched.update(_toss_prices(kr_need[i:i + 100]) or {})
+            if _fetched:
+                kr_cache = dict(kr_cache)              # 원본 캐시를 오염시키지 않는다
+                for _t, _p in _fetched.items():
+                    if _p and float(_p) > 0:
+                        kr_cache[str(_t).zfill(6)] = {"price": float(_p)}
+        except Exception as e:
+            print(f"[scenario tracking] 토스 벌크 시세 실패(무시): {e}")
+
     # US 현재가: 1회 배치 다운로드 (서킷 열려있으면 건너뜀)
     us_tickers = sorted({str(r["ticker"]).strip().upper() for r in rows if _is_us(r["ticker"])})
     us_prices: dict = {}
