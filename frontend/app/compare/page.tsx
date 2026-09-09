@@ -1,7 +1,7 @@
 "use client";
 import { useState, useEffect, useMemo, useCallback } from "react";
 import useSWR from "swr";
-import { api } from "@/lib/api";
+import { api, connectSSE } from "@/lib/api";
 import { X, Search, Plus } from "lucide-react";
 
 // ── 종목 비교 (v3.164.0) ─────────────────────────────────────────────────────
@@ -60,6 +60,8 @@ export default function ComparePage() {
   const [chartLoading, setChartLoading] = useState(false);
   const [verdict, setVerdict] = useState<Verdict | null>(null);
   const [verdictLoading, setVerdictLoading] = useState(false);
+  // 종목별 AI 종목분석 — 누른 종목만 실행(과금되므로 자동 실행하지 않는다)
+  const [analysis, setAnalysis] = useState<Record<string, { status: string; msg?: string; result?: any }>>({});
 
   // 종목명 자동완성 — 전체 목록은 {코드: 이름} 맵이라 한 번 받아 클라이언트에서 거른다
   const { data: krAll } = useSWR<Record<string, string>>("kr-all", () => (api.kr as any).allStocks(),
@@ -114,6 +116,54 @@ export default function ComparePage() {
       setVerdict({ error: String(e?.message || e) || "판단을 가져오지 못했습니다" });
     } finally {
       setVerdictLoading(false);
+    }
+  };
+
+  // 종목분석 실행 — 검색 페이지와 같은 SSE 경로를 쓰고, 끝나면 이력에도 남긴다.
+  // 이력(analysis_history)이 5종목뿐인 이유가 "종목검색에서 새로 분석할 때만 쌓여서"였으므로,
+  // 여기서 돌린 것도 같은 방식으로 기록해 재료가 늘어나게 한다. 추가 과금은 분석 1회분뿐.
+  const runAnalysis = async (r: Row) => {
+    const tk = r.ticker;
+    if (analysis[tk]?.status === "loading") return;
+    if (!r.price || r.price <= 0) {
+      setAnalysis((p) => ({ ...p, [tk]: { status: "error", msg: "시세를 불러오지 못했습니다" } }));
+      return;
+    }
+    setAnalysis((p) => ({ ...p, [tk]: { status: "loading", msg: "분석 준비 중…" } }));
+    const kr = r.market === "국내";
+    try {
+      await connectSSE<any>(
+        kr ? "/api/ai/kr-stock-report" : "/api/ai/stock-report",
+        (evt) => {
+          if (evt.status === "running") {
+            setAnalysis((p) => ({ ...p, [tk]: { status: "loading", msg: evt.message || "분석 중…" } }));
+          } else if (evt.status === "done") {
+            setAnalysis((p) => ({ ...p, [tk]: { status: "done", result: evt.result } }));
+            // 이력 적재 — 실패해도 화면에 영향 없도록 완전 무시 (추가 AI 호출 없음)
+            try {
+              fetch("/backend/api/ai/analysis-history", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  market: kr ? "KR" : "US", ticker: tk, name: r.name || tk,
+                  current_price: r.price, analysis: evt.result,
+                }),
+              }).catch(() => {});
+            } catch {}
+          } else if (evt.status === "error") {
+            setAnalysis((p) => ({ ...p, [tk]: { status: "error", msg: evt.message || "분석 실패" } }));
+          }
+        },
+        {
+          method: "POST",
+          body: kr
+            ? { code: tk, name: r.name || tk,
+                price_data: { price: r.price, change_pct: r.change_pct ?? 0 }, investor_data: [] }
+            : { ticker: tk, current_price: r.price, change_pct: r.change_pct ?? 0 },
+        }
+      );
+    } catch (e: any) {
+      setAnalysis((p) => ({ ...p, [tk]: { status: "error", msg: String(e?.message || e) } }));
     }
   };
 
@@ -445,6 +495,7 @@ export default function ComparePage() {
                     <th style={{ padding: "5px 6px", fontWeight: 700 }}>MA20</th>
                     <th style={{ padding: "5px 6px", fontWeight: 700 }}>52주</th>
                     <th style={{ textAlign: "left", padding: "5px 6px", fontWeight: 700 }}>실측 구간</th>
+                    <th style={{ textAlign: "left", padding: "5px 6px", fontWeight: 700 }}>AI 분석</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -495,6 +546,35 @@ export default function ComparePage() {
                             </span>
                           )}
                         </td>
+                        <td style={{ textAlign: "left", padding: "7px 6px", whiteSpace: "nowrap" }}>
+                          {(() => {
+                            const a = analysis[r.ticker];
+                            if (a?.status === "loading")
+                              return <span style={{ fontSize: "0.72rem", color: "var(--color-muted)" }}>{a.msg}</span>;
+                            if (a?.status === "error")
+                              return <span style={{ fontSize: "0.72rem", color: "var(--color-danger)" }} title={a.msg}>실패 · 재시도</span>;
+                            if (a?.status === "done") {
+                              const res = a.result || {};
+                              return (
+                                <span style={{ fontSize: "0.72rem" }}>
+                                  <strong style={{ color: "#6ee7b7" }}>{res.rating || "완료"}</strong>
+                                  {res.short_term_view_pct && (
+                                    <span style={{ color: "var(--color-muted)" }}> · {res.short_term_view_pct}</span>
+                                  )}
+                                </span>
+                              );
+                            }
+                            return (
+                              <button onClick={() => runAnalysis(r)}
+                                title="이 종목만 AI 종목분석을 실행합니다 (분석 1회분 과금 · 결과는 이력에도 쌓입니다)"
+                                style={{ fontSize: "0.7rem", fontWeight: 700, padding: "2px 8px", borderRadius: "4px",
+                                         cursor: "pointer", background: "rgba(168,85,247,0.12)",
+                                         border: "1px solid rgba(168,85,247,0.4)", color: "#c084fc" }}>
+                                🤖 분석
+                              </button>
+                            );
+                          })()}
+                        </td>
                       </tr>
                     );
                   })}
@@ -504,6 +584,9 @@ export default function ComparePage() {
             <div style={{ fontSize: "0.72rem", color: "var(--color-muted)", marginTop: "8px", lineHeight: 1.5 }}>
               실측 구간은 섀도우 리그 실현 거래에서 측정된 승률입니다 (랜덤 대조군 {data?.baseline_win_rate ?? 32.5}%).
               “미검증”은 그 시장에서 통계적 우위가 확인되지 않은 구간입니다.
+              <br />
+              🤖 분석 버튼은 그 종목만 AI 종목분석을 실행합니다 — 누를 때만 과금되고, 결과는 분석 이력에도 쌓여
+              다음 비교의 근거가 됩니다.
             </div>
           </div>
 
