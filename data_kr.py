@@ -615,7 +615,49 @@ def get_kr_stock_price(stock_code: str, with_fundamental: bool = False):
             "vi_ovtm": o.get("ovtm_vi_cls_code", "N"),     # 시간외 VI
         }
 
-    # KIS API 실패 → FinanceDataReader 폴백 (v3.159.0)
+    # KIS API 실패 → 토스 현재가 (v3.161.0)
+    #
+    # [왜 토스가 먼저인가] 일봉 차트(get_kr_daily_chart)는 토스를 1차로 쓰면서 주석에
+    # "현재가와 소스 일치"라고 적어놨는데, 정작 이 현재가 함수에는 토스 폴백이 없었다.
+    # 그 어긋남이 실제 사고로 이어졌다 — 차트는 정확한데 현재가만 하루 밀린 값이 나와
+    # 상한가 종목이 -23%로 계산되고 손절이 발동했다(2026-09-08 더코디·빛과전자).
+    # 토스는 현재가만 주므로 전일 종가는 FDR 일봉에서 보완한다. 둘 다 실패하면 아래 FDR.
+    try:
+        from toss_api import get_price as _toss_price
+        _tp = _toss_price(stock_code)
+        if _tp and float(_tp) > 0:
+            _price = int(round(float(_tp)))
+            _prev = _price
+            try:
+                import FinanceDataReader as _fdr0
+                from datetime import datetime as _dt0, timedelta as _td0
+                _df0 = _fdr0.DataReader(stock_code,
+                                        (_dt0.now() - _td0(days=10)).strftime("%Y-%m-%d"))
+                if _df0 is not None and not _df0.empty:
+                    _cl0 = _df0["Close"].dropna()
+                    # 마지막 봉이 오늘이면 그 전 봉이 전일 종가
+                    _last_day = str(_df0.index[-1])[:10]
+                    _today0 = _dt0.now().strftime("%Y-%m-%d")
+                    _idx = -2 if (_last_day == _today0 and len(_cl0) >= 2) else -1
+                    _prev = int(round(float(_cl0.iloc[_idx])))
+            except Exception:
+                pass
+            _chg = _price - _prev
+            return {
+                "code": stock_code, "name": stock_code,
+                "price": _price, "change": _chg,
+                "change_pct": round((_chg / _prev * 100) if _prev > 0 else 0.0, 2),
+                "sign": "2" if _chg > 0 else "4" if _chg < 0 else "3",
+                "volume": 0, "amount": 0,
+                "open": _price, "high": _price, "low": _price,
+                "w52_high": 0, "w52_low": 0,
+                "per": "-", "pbr": "-", "market_cap": "-",
+                "_source": "toss",
+            }
+    except Exception as _te:
+        print(f"[kr price] 토스 폴백 실패 {stock_code}: {_te}")
+
+    # 토스도 실패 → FinanceDataReader 폴백 (v3.159.0)
     #
     # [왜 FDR이 먼저인가] 종전에는 곧바로 yfinance(.KS/.KQ)로 넘어갔는데, yfinance의
     # 국내 일봉은 장중에 **전일 종가를 최신값으로 돌려주는** 경우가 있다. 그 값이
