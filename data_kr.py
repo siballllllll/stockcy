@@ -615,7 +615,57 @@ def get_kr_stock_price(stock_code: str, with_fundamental: bool = False):
             "vi_ovtm": o.get("ovtm_vi_cls_code", "N"),     # 시간외 VI
         }
 
-    # KIS API 실패 → yfinance 폴백 (.KS 우선, .KQ 차선)
+    # KIS API 실패 → FinanceDataReader 폴백 (v3.159.0)
+    #
+    # [왜 FDR이 먼저인가] 종전에는 곧바로 yfinance(.KS/.KQ)로 넘어갔는데, yfinance의
+    # 국내 일봉은 장중에 **전일 종가를 최신값으로 돌려주는** 경우가 있다. 그 값이
+    # 그대로 현재가로 쓰이면서 실제와 정반대의 손익이 계산됐다.
+    #   실측(2026-09-08): 더코디(224060)는 그날 상한가로 4,510 → 5,860 이었는데
+    #   매도 판정이 4,510(전일 종가)을 현재가로 받아 -23%로 계산 → 재난 손절 발동.
+    #   빛과전자(069540)도 동일(2,800 → 3,640 상한가인데 -23% 손절).
+    #   두 종목·세 전략에서 실현 손실 5건이 만들어졌고 리그 성적이 통째로 왜곡됐다.
+    # FDR은 같은 날짜의 시세를 정확히 돌려준다(위 상한가 확인도 FDR로 했다).
+    try:
+        import FinanceDataReader as _fdr
+        from datetime import datetime as _dt, timedelta as _td
+        _start = (_dt.now() - _td(days=10)).strftime("%Y-%m-%d")
+        _df = _fdr.DataReader(stock_code, _start)
+        if _df is not None and not _df.empty:
+            _cl = _df["Close"].dropna()
+            if not _cl.empty:
+                _price = int(round(float(_cl.iloc[-1])))
+                _prev = int(round(float(_cl.iloc[-2]))) if len(_cl) >= 2 else _price
+                _chg = _price - _prev
+                _last = _df.iloc[-1]
+
+                def _iv(col, default=0):
+                    try:
+                        return int(round(float(_last[col])))
+                    except Exception:
+                        return default
+
+                return {
+                    "code": stock_code,
+                    "name": stock_code,
+                    "price": _price,
+                    "change": _chg,
+                    "change_pct": round((_chg / _prev * 100) if _prev > 0 else 0.0, 2),
+                    "sign": "2" if _chg > 0 else "4" if _chg < 0 else "3",
+                    "volume": _iv("Volume"),
+                    "amount": 0,
+                    "open": _iv("Open", _price),
+                    "high": _iv("High", _price),
+                    "low": _iv("Low", _price),
+                    "w52_high": int(round(float(_df["High"].max()))),
+                    "w52_low": int(round(float(_df["Low"].min()))),
+                    "per": "-", "pbr": "-", "market_cap": "-",
+                    "_source": "fdr",
+                }
+    except Exception as _fe:
+        print(f"[kr price] FDR 폴백 실패 {stock_code}: {_fe}")
+
+    # 최후 폴백 → yfinance (.KS 우선, .KQ 차선)
+    # ⚠️ 국내 종목에서는 값이 하루 밀릴 수 있다(위 주석 참조). FDR까지 실패했을 때만 쓴다.
     import yfinance as yf
     for suffix in [".KS", ".KQ"]:
         try:
