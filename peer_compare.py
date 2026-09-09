@@ -220,7 +220,18 @@ def _issues_of(cur, ticker: str) -> dict:
 
 
 def _ai_analysis_of(cur, ticker: str) -> str:
-    """저장된 AI 종목분석 요약 — 있으면 비교 판단의 재료로 넣는다(없는 경우가 대부분)."""
+    """저장된 AI 판단 요약 — 비교 근거로 넣는다. 두 곳을 모두 본다 (v3.166.0).
+
+    · analysis_history : 사용자가 종목검색에서 직접 돌린 AI 종목분석.
+      목표가·손절가까지 있어 가장 진하지만 **양이 적다** — 5종목뿐이다.
+      결과가 브라우저에 14일 캐시되어 같은 종목을 다시 열어도 재분석이 일어나지 않고,
+      기록은 새 분석이 끝난 순간에만 하기 때문이다(중복 적재 방지).
+    · agent_decisions : AI 에이전트가 스캔하며 남긴 판단. 65종목·135건으로 훨씬 넓고
+      매일 자동으로 쌓이며 추가 비용이 0이다. 목표가는 없지만 액션·신뢰도·판단 근거가 있다.
+
+    임의의 두 종목을 1:1로 비교할 때 종목분석이 있는 경우가 드물어, 넓은 쪽을 함께 쓴다.
+    """
+    out = []
     try:
         cur.execute(
             """SELECT analysis_time, rating, long_term_rating, short_term_view_pct,
@@ -228,14 +239,30 @@ def _ai_analysis_of(cur, ticker: str) -> str:
                FROM analysis_history WHERE ticker = ?
                ORDER BY analysis_time DESC LIMIT 1""", (ticker,))
         r = cur.fetchone()
+        if r:
+            d = dict(r)
+            out.append(
+                f"[종목분석 {str(d.get('analysis_time') or '')[:10]}] 단기 {d.get('rating')}, "
+                f"장기 {d.get('long_term_rating')}, 단기전망 {d.get('short_term_view_pct')}, "
+                f"매수타점 {d.get('buy_target')}, 목표 {d.get('sell_target')}")
     except Exception:
-        return ""
-    if not r:
-        return ""
-    d = dict(r)
-    return (f"{str(d.get('analysis_time') or '')[:10]} 분석 — 단기 {d.get('rating')}, "
-            f"장기 {d.get('long_term_rating')}, 단기전망 {d.get('short_term_view_pct')}, "
-            f"매수타점 {d.get('buy_target')}, 목표 {d.get('sell_target')}")
+        pass
+
+    try:
+        cur.execute(
+            """SELECT decided_at, action, confidence, entry_price, reason
+               FROM agent_decisions WHERE ticker = ?
+               ORDER BY decided_at DESC LIMIT 2""", (ticker,))
+        for r in cur.fetchall():
+            d = dict(r)
+            out.append(
+                f"[에이전트 판단 {str(d.get('decided_at') or '')[:10]}] "
+                f"{d.get('action')} (신뢰도 {d.get('confidence')}, 당시가 {d.get('entry_price')}) — "
+                f"{str(d.get('reason') or '')[:180]}")
+    except Exception:
+        pass
+
+    return " / ".join(out)
 
 
 def compare_tickers(tickers: list, with_valuation: bool = False) -> dict:

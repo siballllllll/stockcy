@@ -2505,7 +2505,8 @@ def compare_verdict(rows: list) -> dict:
     """[종목 비교 추천 v3.165.0] 담아둔 종목들 중 무엇이 이슈를 더 타고 있고,
     지금 매수 관점에서 나은지를 하나 골라 준다.
 
-    [설계] 저장된 AI 분석(analysis_history)은 6행뿐이라 그것만으로는 비교가 안 된다.
+    [설계] 저장된 AI 판단만으로는 비교가 안 된다 — 종목분석(analysis_history)은 5종목뿐이고,
+    에이전트 판단(agent_decisions)을 합쳐도 65종목이라 임의의 두 종목을 고르면 없는 쪽이 많다.
     그래서 이미 모아둔 실측값을 전부 넣고 판단하게 한다 —
       · 지표(5일 모멘텀·RSI·볼린저%b·MA20 이격·52주 위치)
       · 수급(외국인·기관 순매수 5일 합, 국내)
@@ -2542,7 +2543,9 @@ def compare_verdict(rows: list) -> dict:
             lines.append(f"- 섀도우 리그 실측 구간: {z.get('label')}"
                          + (f" (실측 승률 {wr}%)" if wr is not None else " (이 시장에서는 미검증)"))
         if r.get("ai_analysis"):
-            lines.append(f"- 저장된 AI 분석: {str(r['ai_analysis'])[:400]}")
+            lines.append(f"- 저장된 AI 판단: {str(r['ai_analysis'])[:600]}")
+        else:
+            lines.append("- 저장된 AI 판단: 없음 (이 종목은 분석 이력이 없다 — 지표·수급·이슈로만 판단할 것)")
         return "\n".join(lines)
 
     blocks = "\n\n".join(_fmt(r) for r in rows)
