@@ -93,8 +93,20 @@ def run_research_watch(push: bool = True, limit_per: int = 6) -> dict:
             "다음은 증권사 리서치/이슈 텔레그램 채널의 최신 글들입니다. 투자 관점에서 핵심만 추려주세요.\n"
             "절대로 한자(漢字)를 사용하지 마세요. 한글/영문만.\n"
             "의미있는 이슈만(중복·잡담·광고 제외). 각 이슈: 한 줄 요약, 관련 섹터, 관련 종목(종목명+티커), 단기 방향(긍정/부정/중립).\n"
-            "종목은 반드시 회사명과 티커를 함께. 국내=6자리 숫자코드, 미국=영문심볼.\n"
-            'JSON 배열로만 출력: [{"issue":"...","sector":"...","stocks":[{"name":"삼성전자","ticker":"005930"}],"direction":"긍정"}]\n\n'
+            "종목은 반드시 회사명과 티커를 함께. 국내=6자리 숫자코드, 미국=영문심볼.\n\n"
+            "【종목 선정 규칙 — 매우 중요】\n"
+            "- ⛔ **지수·업종 전반 이야기에는 종목을 붙이지 마세요.** '코스피 7,000p 돌파', "
+            "'반도체 업종 저평가', 'AI 관련주 강세' 같은 글은 특정 회사의 이슈가 아닙니다. "
+            "이런 이슈는 stocks를 **빈 배열 []** 로 두세요.\n"
+            "- ✅ 종목을 넣어도 되는 경우는 **그 회사에 직접 닿는 사실**이 글에 있을 때뿐입니다 — "
+            "수주·계약·실적·신제품·공시·증설·규제·소송처럼 회사 이름과 함께 언급된 구체적 사건.\n"
+            "- ⛔ 대형주(삼성전자·SK하이닉스·현대차·POSCO홀딩스 등)를 습관적으로 넣지 마세요. "
+            "그 회사 이름이 글에 직접 등장하고 그 회사의 사건일 때만 넣습니다.\n"
+            "- 한 이슈당 종목은 **최대 3개**. 확실한 것만 남기고 애매하면 빼세요. "
+            "빈 배열이 틀린 종목을 넣는 것보다 낫습니다.\n\n"
+            'JSON 배열로만 출력: [{"issue":"이슈 한 줄", "sector":"섹터", '
+            '"stocks":[{"name":"회사명", "ticker":"티커"}], "direction":"긍정"}]\n'
+            "(stocks 예시는 형식일 뿐입니다. 실제 글에 근거가 없으면 빈 배열로 두세요.)\n\n"
             + joined
         )
         # [절충] provider="gemini" 고정 — 이 프롬프트는 최상위 JSON '배열'을 요구하는데,
@@ -130,15 +142,43 @@ def run_research_watch(push: bool = True, limit_per: int = 6) -> dict:
         return t if (t.isalpha() and 1 <= len(t) <= 5) else None
 
     # 이슈→시나리오 자동 등록 (티커 있는 이슈만) → 교차검증·적중률 추적에 반영
+    #
+    # [v3.168.0] 지수·시장 전반 이슈는 등록하지 않는다.
+    # 이 등록분은 scenario_stocks로 들어가 SHADOW_C의 '이슈 연관' 판정 재료가 되는데,
+    # 시장 코멘터리에까지 대형주를 붙이면서 국내 1,073종목이 '재료 있음'으로 잡혀
+    # 그 조건이 변별력을 잃고 있었다(실측: 14일간 삼성전자가 154개 시나리오에 등장).
+    # 프롬프트로 1차 차단하고, 여기서 한 번 더 거른다.
+    # 지수·시장 전반을 가리키는 표현 — 이런 글은 특정 회사의 이슈가 아니다
+    _INDEX_WORDS = ("코스피", "코스닥", "나스닥", "s&p", "다우", "지수", "증시",
+                    "시장 전반", "업종 전반", "섹터 전반", "업종이", "업종은", "업종 전체",
+                    "관련주 강세", "관련주 약세", "테마 강세", "테마 약세")
+    # 실측에서 과다 태깅된 대형주 — 글에 회사 이름이 직접 나올 때만 등록한다.
+    # (14일간 삼성전자 154개·현대차 125개 시나리오에 등장했고, 대부분 지수·업종 코멘터리였다)
+    _MEGA = {"005930": "삼성전자", "000660": "SK하이닉스", "005380": "현대차",
+             "005490": "POSCO홀딩스", "000270": "기아", "373220": "LG에너지솔루션",
+             "207940": "삼성바이오로직스", "005935": "삼성전자우", "006400": "삼성SDI",
+             "010130": "고려아연", "004020": "현대제철", "096770": "SK이노베이션"}
     registered = 0
+    skipped_index = 0
+    skipped_mega = 0
     try:
         from db import save_scenario_stocks
         for it in issues:
+            issue_txt_raw = str(it.get("issue", ""))
+            low = issue_txt_raw.lower()
+            # 지수·업종 전반 이야기인데 종목이 붙어 있으면 등록하지 않는다
+            if any(w in low for w in _INDEX_WORDS):
+                skipped_index += 1
+                continue
             valid = []
             role = "피해" if "부정" in str(it.get("direction", "")) else "수혜"
-            for s in _stocks_of(it):
+            for s in _stocks_of(it)[:3]:          # 한 이슈당 최대 3종목
                 tk = _norm_ticker(s["ticker"])
                 if not tk:
+                    continue
+                # 대형주는 글에 이름이 직접 등장할 때만 — 습관적 태깅 차단
+                if tk in _MEGA and _MEGA[tk] not in issue_txt_raw and (s.get("name") or "") not in issue_txt_raw:
+                    skipped_mega += 1
                     continue
                 valid.append({"ticker": tk, "name": s["name"] or tk, "role": role, "horizon": ""})
             if valid:
@@ -176,4 +216,6 @@ def run_research_watch(push: bool = True, limit_per: int = 6) -> dict:
     new_ids = list(seen) + [p["id"] for p in new_posts]
     save_ai_cache("research_seen", {"ids": new_ids[-500:]}, ttl_hours=72)
 
-    return {"new": len(new_posts), "posts": len(posts), "issues": len(issues), "registered": registered}
+    return {"new": len(new_posts), "posts": len(posts), "issues": len(issues),
+            "registered": registered, "skipped_index": skipped_index,
+            "skipped_mega": skipped_mega}
