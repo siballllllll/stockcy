@@ -3983,10 +3983,17 @@ def log_catalyst_verdict(ticker: str, name: str, market: str, mom5,
         return False
 
 
-def mark_catalyst_bought(ticker: str, owner: str, cur=None) -> bool:
+def mark_catalyst_bought(ticker: str, owner: str, cur=None, verdict: dict | None = None) -> bool:
     """오늘 판정 기록에 '실제 매수까지 갔다'를 표시. bought_by가 빈 행이 대조군이 된다.
 
-    [v3.152.0] cur을 주면 그 커서로 쓴다 — log_catalyst_verdict와 같은 이유(락 회피)."""
+    [v3.152.0] cur을 주면 그 커서로 쓴다 — log_catalyst_verdict와 같은 이유(락 회피).
+
+    [v3.158.0] verdict를 주면 판정 내용(강도·촉매)도 함께 확정한다.
+    같은 날 같은 종목이 두 번 판정될 수 있는데(캐시 유실 등) 기록은 INSERT OR IGNORE라
+    **첫 판정만 남는다.** 실측: 더코디·빛과전자가 '중'으로 기록됐는데 실제로는 '강'
+    판정을 받고 매수됐다 — G/H는 '강'일 때만 사기 때문이다. 그대로 두면 V10이
+    "'강' 종목의 성과"를 재려 할 때 실제 매수분이 '중'으로 잡혀 분석이 틀어진다.
+    매수를 실제로 부른 판정이 그 행의 진실이므로, 표시할 때 함께 덮어쓴다."""
     tk = str(ticker or "").strip()
     if not tk or not owner:
         return False
@@ -3997,6 +4004,18 @@ def mark_catalyst_bought(ticker: str, owner: str, cur=None) -> bool:
         else:
             conn = get_db_conn()
             cursor = conn.cursor()
+        if isinstance(verdict, dict) and verdict:
+            cursor.execute(
+                """UPDATE catalyst_verdicts
+                      SET found = ?, strength = ?, catalyst = ?, catalyst_type = ?, theme = ?
+                    WHERE verdict_date = ? AND ticker = ?""",
+                (1 if verdict.get("found") else 0,
+                 str(verdict.get("strength") or ""),
+                 str(verdict.get("catalyst") or "")[:300],
+                 str(verdict.get("catalyst_type") or ""),
+                 str(verdict.get("theme") or ""),
+                 datetime.now().strftime("%Y-%m-%d"), tk)
+            )
         cursor.execute(
             """UPDATE catalyst_verdicts
                   SET bought_by = CASE

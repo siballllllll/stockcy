@@ -127,6 +127,44 @@ def _today_buys(cur, owner: str) -> int:
     return int(row["n"] if row else 0)
 
 
+def _blocked_reentry(cur, owner: str) -> set:
+    """재진입 금지 종목 (v3.158.0).
+
+    [왜] 2026-09-08 실측: SHADOW_H가 빛과전자(069540)를 14:06에 -23.24%로 재난 손절하고
+    **1분 뒤 14:07에 같은 값에 다시 사서** 또 -23.24%를 맞았다. 같은 종목에서 손실을
+    두 번 낸 것이다. held 집합은 사이클 시작 시점의 보유분만 담아서, 매도된 종목은
+    다음 사이클에 아무 제약 없이 다시 후보가 된다.
+
+    규칙 두 가지:
+      · 같은 날 청산한 종목은 그날 재진입 금지 — 청산 규칙(타임스탑·손절)의 의미를 지킨다.
+      · 재난 손절(-20% 이하)한 종목은 EXIT_DAYS 동안 금지 — 그 종목은 진입 근거가
+        무너진 상태이고, 급락 중에 다시 들어가면 손실만 반복된다.
+    """
+    from datetime import datetime as _dt
+    try:
+        cur.execute(
+            """SELECT ticker, sell_date, profit_pct FROM trade_history
+               WHERE UPPER(owner)=? AND sell_date >= date('now', ?)""",
+            (owner.upper(), f"-{EXIT_DAYS} day"))
+        rows = cur.fetchall()
+    except Exception as e:
+        logger.error(f"[shadow] 재진입 금지 조회 실패 {owner}: {e}")
+        return set()
+
+    today = _dt.now().strftime("%Y-%m-%d")
+    blocked = set()
+    for r in rows:
+        tk = str(r["ticker"])
+        sold_on = str(r["sell_date"] or "")[:10]
+        try:
+            pct = float(r["profit_pct"] or 0)
+        except (TypeError, ValueError):
+            pct = 0.0
+        if sold_on == today or pct <= EXIT_DISASTER:
+            blocked.add(tk)
+    return blocked
+
+
 def _buy(cur, owner: str, tk: str, name: str, market: str, price: float, qty: int, note: str, usdkrw: float):
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     cost = price * qty * (1 + (0.00015 if market == "국내" else 0.0007))
@@ -323,12 +361,13 @@ def run_shadow_cycle(candidates: list, kr_open: bool, us_open: bool, force: bool
                     summary["sell"] += 1
             # 2) 신규 매수 판정 — 메인 스캔이 수집한 후보 재사용 (다운로드 0)
             held = {str(h["ticker"]) for h in _holdings(cur, owner)}
+            blocked = _blocked_reentry(cur, owner)   # 손절·당일청산 종목 재진입 차단
             buys_left = SHADOW_DAILY_BUY_CAP - _today_buys(cur, owner)
             for c in candidates:
                 if buys_left <= 0:
                     break
                 tk = str(c.get("ticker") or "")
-                if not tk or tk in held:
+                if not tk or tk in held or tk in blocked:
                     continue
                 _mkt = c.get("market") or ("국내" if tk.isdigit() else "미국")
                 # 개장 게이트 — 후보는 메인 루프에서 이미 걸러지지만 방어적으로 재확인
@@ -370,7 +409,10 @@ def run_shadow_cycle(candidates: list, kr_open: bool, us_open: bool, force: bool
                         # 판정 이력에 '매수까지 갔음'을 표시 — 표시 안 된 행이 대조군이 된다.
                         try:
                             from db import mark_catalyst_bought
-                            mark_catalyst_bought(tk, owner, cur=cur)
+                            # 매수를 실제로 부른 판정을 함께 넘겨 기록을 확정한다 —
+                            # 같은 날 재판정으로 첫 판정만 남는 문제 방지(v3.158.0).
+                            mark_catalyst_bought(tk, owner, cur=cur,
+                                                 verdict=ctx.get("catalyst_cache", {}).get(tk))
                         except Exception as e:
                             logger.error(f"[shadow] 촉매 매수표시 실패 {tk}: {e}")
                     if owner in NOTIFY_OWNERS:
