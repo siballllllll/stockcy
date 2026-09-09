@@ -127,8 +127,31 @@ def _today_buys(cur, owner: str) -> int:
     return int(row["n"] if row else 0)
 
 
-def _blocked_reentry(cur, owner: str) -> set:
-    """재진입 금지 종목 (v3.158.0).
+def _is_new_catalyst(prev_reason: str, cs: dict) -> bool:
+    """차단 당시의 매수 근거(prev_reason)와 지금 촉매(cs)가 다른 재료인지 (v3.160.0).
+
+    같은 재료면 False(계속 차단), 새 재료면 True(재진입 허용).
+    휴리스틱이다 — 촉매 문장의 앞부분이 그대로 들어 있거나, 유형과 테마가 모두 같으면
+    같은 재료로 본다. 애매하면 **차단 유지(False) 쪽으로 기운다**: 잘못 풀어주면 같은
+    손실을 반복하지만, 잘못 막으면 기회 하나를 놓칠 뿐이라 손실 비대칭이 크다.
+    """
+    prev = str(prev_reason or "")
+    cat = str(cs.get("catalyst") or "").strip()
+    if not cat:
+        return False                      # 촉매를 못 읽으면 새 재료라고 볼 수 없다
+    if not prev:
+        return True                       # 비교 대상이 없으면 새 재료로 본다
+    if cat[:20] and cat[:20] in prev:
+        return False                      # 같은 문장 → 같은 재료
+    ctype = str(cs.get("catalyst_type") or "").strip()
+    theme = str(cs.get("theme") or "").strip()
+    if ctype and theme and ctype in prev and theme[:10] in prev:
+        return False                      # 유형·테마가 모두 같으면 같은 재료로 본다
+    return True
+
+
+def _blocked_reentry(cur, owner: str) -> dict:
+    """재진입 금지 종목 → {티커: 그때의 매수 근거} (v3.160.0).
 
     [왜] 2026-09-08 실측: SHADOW_H가 빛과전자(069540)를 14:06에 -23.24%로 재난 손절하고
     **1분 뒤 14:07에 같은 값에 다시 사서** 또 -23.24%를 맞았다. 같은 종목에서 손실을
@@ -139,11 +162,16 @@ def _blocked_reentry(cur, owner: str) -> set:
       · 같은 날 청산한 종목은 그날 재진입 금지 — 청산 규칙(타임스탑·손절)의 의미를 지킨다.
       · 재난 손절(-20% 이하)한 종목은 EXIT_DAYS 동안 금지 — 그 종목은 진입 근거가
         무너진 상태이고, 급락 중에 다시 들어가면 손실만 반복된다.
+
+    [v3.160.0 예외] G/H는 **그때와 다른 새 촉매**가 확인되면 재진입을 허용한다.
+    "손절 직후 극호재가 나올 수 있지 않나"는 지적이 타당하기 때문이다. 다만 같은
+    재료로 다시 들어가는 것(실측: 빛과전자를 같은 촉매로 1분 뒤 재매수)은 계속 막는다.
+    판단은 _is_new_catalyst가 하고, 그 근거로 여기서 buy_reason을 함께 돌려준다.
     """
     from datetime import datetime as _dt
     try:
         cur.execute(
-            """SELECT ticker, sell_date, profit_pct FROM trade_history
+            """SELECT ticker, sell_date, profit_pct, buy_reason FROM trade_history
                WHERE UPPER(owner)=? AND sell_date >= date('now', ?)""",
             (owner.upper(), f"-{EXIT_DAYS} day"))
         rows = cur.fetchall()
@@ -152,7 +180,7 @@ def _blocked_reentry(cur, owner: str) -> set:
         return set()
 
     today = _dt.now().strftime("%Y-%m-%d")
-    blocked = set()
+    blocked = {}
     for r in rows:
         tk = str(r["ticker"])
         sold_on = str(r["sell_date"] or "")[:10]
@@ -161,7 +189,9 @@ def _blocked_reentry(cur, owner: str) -> set:
         except (TypeError, ValueError):
             pct = 0.0
         if sold_on == today or pct <= EXIT_DISASTER:
-            blocked.add(tk)
+            # 차단 사유와 함께, 그때 어떤 근거로 들어갔었는지(buy_reason)를 남긴다.
+            # G/H는 '그때와 다른 새 재료'면 재진입을 허용하므로 비교 대상이 필요하다.
+            blocked[tk] = str(r["buy_reason"] or "")
     return blocked
 
 
@@ -215,8 +245,11 @@ def _price_of(tk: str, market: str):
         return 0.0
 
 
-def _wants_buy(owner: str, ind: dict, tk: str = "", ctx: dict = None) -> tuple:
-    """전략별 매수 판정 → (매수여부, 사이징 배수, 근거 한 줄). ctx: 사이클 공용 컨텍스트."""
+def _wants_buy(owner: str, ind: dict, tk: str = "", ctx: dict = None,
+               blocked_reason: str = None) -> tuple:
+    """전략별 매수 판정 → (매수여부, 사이징 배수, 근거 한 줄). ctx: 사이클 공용 컨텍스트.
+
+    blocked_reason: 재진입 차단 종목이면 그때의 매수 근거. G/H만 '새 촉매'일 때 통과시킨다."""
     bb = ind.get("bb_pctb"); m5 = ind.get("mom_5"); vr = ind.get("vol_ratio")
     rsi = ind.get("rsi"); ml7 = ind.get("ml_d7"); ma20d = ind.get("ma20_dist")
     if owner == "SHADOW_A":
@@ -291,6 +324,9 @@ def _wants_buy(owner: str, ind: dict, tk: str = "", ctx: dict = None) -> tuple:
         except Exception as e:
             logger.error(f"[shadow] 촉매 판정 기록 실패 {tk}: {e}")
         ok = bool(cs.get("found")) and str(cs.get("strength", "")) == "강"
+        # 차단 종목이라면 '그때와 다른 새 재료'일 때만 통과시킨다 (v3.160.0)
+        if ok and blocked_reason is not None and not _is_new_catalyst(blocked_reason, cs):
+            return False, 1.0, "재진입 보류 — 차단 당시와 같은 재료"
         return ok, 1.0, (f"촉매모멘텀(5일 {m5}%·{cs.get('catalyst_type','?')}"
                          f"·{str(cs.get('theme',''))[:20]}) {str(cs.get('catalyst',''))[:60]}")
     return False, 1.0, ""
@@ -367,14 +403,18 @@ def run_shadow_cycle(candidates: list, kr_open: bool, us_open: bool, force: bool
                 if buys_left <= 0:
                     break
                 tk = str(c.get("ticker") or "")
-                if not tk or tk in held or tk in blocked:
+                if not tk or tk in held:
+                    continue
+                # 차단 종목: G/H만 '새 촉매' 판정 기회를 준다(아래 _wants_buy에서 최종 판단).
+                if tk in blocked and owner not in ("SHADOW_G", "SHADOW_H"):
                     continue
                 _mkt = c.get("market") or ("국내" if tk.isdigit() else "미국")
                 # 개장 게이트 — 후보는 메인 루프에서 이미 걸러지지만 방어적으로 재확인
                 if not force and ((_mkt == "국내" and not kr_open) or (_mkt == "미국" and not us_open)):
                     continue
                 ind = c.get("ind") or {}
-                ok, mult, note = _wants_buy(owner, ind, tk=tk, ctx=ctx)
+                ok, mult, note = _wants_buy(owner, ind, tk=tk, ctx=ctx,
+                                            blocked_reason=blocked.get(tk))
                 if not ok:
                     continue
                 price = float(c.get("price") or 0)
