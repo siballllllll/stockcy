@@ -32,6 +32,12 @@ interface Row {
   error?: string | null;
 }
 interface CompareResult { rows: Row[]; baseline_win_rate: number }
+interface Verdict {
+  issue_leader?: string; issue_reason?: string;
+  pick?: string; pick_reason?: string; caution?: string;
+  ranking?: Array<{ name: string; score: number; zone?: string; one_line: string }>;
+  verdict?: string; error?: string;
+}
 
 const isKR = (t: string) => /^\d{6}$/.test(t.trim());
 const fmtPrice = (r: Row) =>
@@ -52,6 +58,14 @@ export default function ComparePage() {
   const [showVal, setShowVal] = useState(false);
   const [charts, setCharts] = useState<Record<string, number[]>>({});
   const [chartLoading, setChartLoading] = useState(false);
+  const [verdict, setVerdict] = useState<Verdict | null>(null);
+  const [verdictLoading, setVerdictLoading] = useState(false);
+
+  // 종목명 자동완성 — 전체 목록은 {코드: 이름} 맵이라 한 번 받아 클라이언트에서 거른다
+  const { data: krAll } = useSWR<Record<string, string>>("kr-all", () => (api.kr as any).allStocks(),
+    { revalidateOnFocus: false, dedupingInterval: 600000 });
+  const { data: usAll } = useSWR<Record<string, string>>("us-all", () => (api.us as any).allStocks(),
+    { revalidateOnFocus: false, dedupingInterval: 600000 });
 
   // 새로고침해도 담아둔 종목이 남도록 (이 화면은 여러 번 왔다 갔다 하며 쓴다)
   useEffect(() => {
@@ -63,6 +77,45 @@ export default function ComparePage() {
   useEffect(() => {
     try { localStorage.setItem("stockcy_compare_tickers", JSON.stringify(tickers)); } catch {}
   }, [tickers]);
+
+  const suggestions = useMemo(() => {
+    const q = input.trim().toLowerCase();
+    if (!q) return [];
+    const out: Array<{ code: string; name: string; market: string }> = [];
+    const scan = (map: Record<string, string> | undefined, market: string) => {
+      if (!map) return;
+      for (const [code, name] of Object.entries(map)) {
+        if (out.length >= 24) break;
+        if (tickers.includes(code)) continue;
+        const n = String(name || "").toLowerCase();
+        if (code.toLowerCase().startsWith(q) || n.includes(q)) out.push({ code, name, market });
+      }
+    };
+    scan(krAll, "KR");
+    scan(usAll, "US");
+    // 이름이 검색어로 시작하는 것을 앞으로 (부분일치보다 정확도 높음)
+    return out.sort((a, b) => {
+      const as = a.name.toLowerCase().startsWith(q) || a.code.toLowerCase().startsWith(q) ? 0 : 1;
+      const bs = b.name.toLowerCase().startsWith(q) || b.code.toLowerCase().startsWith(q) ? 0 : 1;
+      return as - bs;
+    }).slice(0, 12);
+  }, [input, krAll, usAll, tickers]);
+
+  useEffect(() => { setVerdict(null); }, [tickers]);
+
+  const askVerdict = async () => {
+    if (tickers.length < 2 || verdictLoading) return;
+    setVerdictLoading(true);
+    setVerdict(null);
+    try {
+      const r = await (api.ai as any).compareVerdict(tickers);
+      setVerdict(r as Verdict);
+    } catch (e: any) {
+      setVerdict({ error: String(e?.message || e) || "판단을 가져오지 못했습니다" });
+    } finally {
+      setVerdictLoading(false);
+    }
+  };
 
   const key = tickers.length ? `cmp-${tickers.join(",")}-${showVal}` : null;
   const { data, isLoading } = useSWR<CompareResult>(
@@ -139,13 +192,35 @@ export default function ComparePage() {
             <input
               value={input}
               onChange={(e) => setInput(e.target.value)}
-              onKeyDown={(e) => { if (e.key === "Enter") add(); }}
-              placeholder="종목코드 또는 티커 (005930, NVDA)"
+              onKeyDown={(e) => {
+                if (e.key === "Enter") add(suggestions.length ? suggestions[0].code : undefined);
+                if (e.key === "Escape") setInput("");
+              }}
+              placeholder="종목명·코드·티커 (삼성전자, 005930, NVDA)"
               disabled={tickers.length >= MAX}
               style={{ width: "100%", padding: "7px 8px 7px 28px", fontSize: "0.82rem",
                        background: "var(--color-elevated)", border: "1px solid var(--color-border)",
                        borderRadius: "6px", color: "var(--color-text)" }}
             />
+            {suggestions.length > 0 && tickers.length < MAX && (
+              <div style={{ position: "absolute", top: "100%", left: 0, right: 0, zIndex: 40,
+                            marginTop: 4, maxHeight: 280, overflowY: "auto",
+                            background: "var(--color-card)", border: "1px solid var(--color-border)",
+                            borderRadius: 8, boxShadow: "0 12px 32px rgba(0,0,0,0.5)" }}>
+                {suggestions.map((sg) => (
+                  <div key={sg.market + sg.code} onClick={() => add(sg.code)}
+                    style={{ padding: "7px 10px", fontSize: "0.8rem", cursor: "pointer",
+                             display: "flex", justifyContent: "space-between", gap: 8,
+                             borderBottom: "1px solid var(--color-border)" }}
+                    onMouseDown={(e) => e.preventDefault()}>
+                    <span><strong>{sg.name}</strong></span>
+                    <span style={{ color: "var(--color-muted)", fontSize: "0.72rem", whiteSpace: "nowrap" }}>
+                      {sg.code} · {sg.market}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
           <button onClick={() => add()} disabled={!input.trim() || tickers.length >= MAX}
             style={{ display: "flex", alignItems: "center", gap: "4px", padding: "7px 12px",
@@ -191,6 +266,104 @@ export default function ComparePage() {
         </div>
       ) : (
         <>
+          {/* AI 비교 추천 (v3.165.0) — 버튼을 눌렀을 때만 LLM 1회 호출 */}
+          <div style={{ background: "var(--color-card)", border: "1px solid var(--color-border)",
+                        borderRadius: "10px", padding: "12px 14px", marginBottom: "12px" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center",
+                          gap: "8px", flexWrap: "wrap" }}>
+              <div>
+                <div style={{ fontSize: "0.85rem", fontWeight: 800 }}>AI 비교 추천</div>
+                <div style={{ fontSize: "0.72rem", color: "var(--color-muted)", marginTop: "2px" }}>
+                  지표·수급·이슈·실측 구간을 근거로 어느 쪽이 이슈를 타고 있고 매수 관점에서 나은지 판단합니다.
+                </div>
+              </div>
+              <button onClick={askVerdict} disabled={tickers.length < 2 || verdictLoading}
+                style={{ fontSize: "0.8rem", fontWeight: 700, padding: "7px 14px", borderRadius: "6px",
+                         whiteSpace: "nowrap",
+                         cursor: (tickers.length < 2 || verdictLoading) ? "not-allowed" : "pointer",
+                         background: "rgba(168,85,247,0.15)", border: "1px solid rgba(168,85,247,0.5)",
+                         color: "#c084fc", opacity: (tickers.length < 2 || verdictLoading) ? 0.5 : 1 }}>
+                {verdictLoading ? "판단 중…" : tickers.length < 2 ? "종목 2개 이상 필요" : "🤖 비교 추천 받기"}
+              </button>
+            </div>
+
+            {verdict && (
+              <div style={{ marginTop: "12px", paddingTop: "12px", borderTop: "1px solid var(--color-border)" }}>
+                {verdict.error ? (
+                  <div style={{ fontSize: "0.82rem", color: "var(--color-danger)" }}>{verdict.error}</div>
+                ) : (
+                  <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+                    {/* 결론 */}
+                    <div style={{ background: verdict.pick ? "rgba(52,211,153,0.08)" : "rgba(255,255,255,0.04)",
+                                  border: `1px solid ${verdict.pick ? "rgba(52,211,153,0.3)" : "var(--color-border)"}`,
+                                  borderRadius: "8px", padding: "10px 12px" }}>
+                      <div style={{ fontSize: "0.72rem", fontWeight: 800, color: "var(--color-muted)", marginBottom: "4px" }}>
+                        매수 관점 추천
+                      </div>
+                      <div style={{ fontSize: "0.95rem", fontWeight: 800,
+                                    color: verdict.pick ? "#6ee7b7" : "var(--color-muted)" }}>
+                        {verdict.pick || "지금은 둘 다 진입 자리가 아닙니다"}
+                      </div>
+                      {verdict.pick_reason && (
+                        <div style={{ fontSize: "0.83rem", color: "var(--color-text)", marginTop: "6px", lineHeight: 1.6 }}>
+                          {verdict.pick_reason}
+                        </div>
+                      )}
+                      {verdict.caution && (
+                        <div style={{ fontSize: "0.78rem", color: "var(--color-warning)", marginTop: "6px", lineHeight: 1.55 }}>
+                          ⚠️ {verdict.caution}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* 이슈 리더 */}
+                    {verdict.issue_leader && (
+                      <div style={{ fontSize: "0.83rem", lineHeight: 1.6 }}>
+                        <span style={{ fontSize: "0.72rem", fontWeight: 800, color: "var(--color-muted)", marginRight: "6px" }}>
+                          이슈를 타는 쪽
+                        </span>
+                        <strong style={{ color: "#fbbf24" }}>{verdict.issue_leader}</strong>
+                        {verdict.issue_reason && (
+                          <div style={{ color: "var(--color-muted)", marginTop: "2px" }}>{verdict.issue_reason}</div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* 랭킹 */}
+                    {(verdict.ranking?.length ?? 0) > 0 && (
+                      <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
+                        {verdict.ranking!.map((rk, i) => (
+                          <div key={i} style={{ display: "flex", alignItems: "center", gap: "8px",
+                                                fontSize: "0.8rem", padding: "4px 0",
+                                                borderTop: i ? "1px solid var(--color-border)" : "none" }}>
+                            <span style={{ fontWeight: 800, color: "var(--color-muted)", width: 18 }}>{i + 1}</span>
+                            <strong style={{ minWidth: 90 }}>{rk.name}</strong>
+                            <span style={{ fontWeight: 800, color: rk.score >= 70 ? "#6ee7b7" : rk.score >= 50 ? "var(--color-text)" : "#fca5a5" }}>
+                              {rk.score}
+                            </span>
+                            {rk.zone && rk.zone !== "해당 없음" && (
+                              <span style={{ fontSize: "0.68rem", padding: "1px 6px", borderRadius: 4,
+                                             background: "rgba(255,255,255,0.05)", border: "1px solid var(--color-border)",
+                                             color: "var(--color-muted)" }}>{rk.zone}</span>
+                            )}
+                            <span style={{ color: "var(--color-muted)", flex: 1 }}>{rk.one_line}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {verdict.verdict && (
+                      <div style={{ fontSize: "0.8rem", color: "var(--color-muted)", lineHeight: 1.6,
+                                    borderTop: "1px solid var(--color-border)", paddingTop: "8px" }}>
+                        {verdict.verdict}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
           {/* 정규화 차트 */}
           <div style={{ background: "var(--color-card)", border: "1px solid var(--color-border)",
                         borderRadius: "10px", padding: "12px 14px", marginBottom: "12px" }}>

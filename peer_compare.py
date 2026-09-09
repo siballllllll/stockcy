@@ -219,6 +219,25 @@ def _issues_of(cur, ticker: str) -> dict:
     }
 
 
+def _ai_analysis_of(cur, ticker: str) -> str:
+    """저장된 AI 종목분석 요약 — 있으면 비교 판단의 재료로 넣는다(없는 경우가 대부분)."""
+    try:
+        cur.execute(
+            """SELECT analysis_time, rating, long_term_rating, short_term_view_pct,
+                      buy_target, sell_target
+               FROM analysis_history WHERE ticker = ?
+               ORDER BY analysis_time DESC LIMIT 1""", (ticker,))
+        r = cur.fetchone()
+    except Exception:
+        return ""
+    if not r:
+        return ""
+    d = dict(r)
+    return (f"{str(d.get('analysis_time') or '')[:10]} 분석 — 단기 {d.get('rating')}, "
+            f"장기 {d.get('long_term_rating')}, 단기전망 {d.get('short_term_view_pct')}, "
+            f"매수타점 {d.get('buy_target')}, 목표 {d.get('sell_target')}")
+
+
 def compare_tickers(tickers: list, with_valuation: bool = False) -> dict:
     """사용자가 지정한 종목들을 나란히 비교. LLM 호출 없음."""
     seen, targets = set(), []
@@ -266,6 +285,7 @@ def compare_tickers(tickers: list, with_valuation: bool = False) -> dict:
                 tk = r["ticker"]
                 r["supply"] = _supply_of(cur, tk) if r.get("market") == "국내" else {}
                 r["issues"] = _issues_of(cur, tk)
+                r["ai_analysis"] = _ai_analysis_of(cur, tk)
         finally:
             conn.close()
     except Exception as e:

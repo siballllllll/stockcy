@@ -1629,6 +1629,22 @@ async def get_compare(tickers: str, valuation: bool = False):
     return await asyncio.to_thread(compare_tickers, lst, valuation)
 
 
+@router.post("/compare-verdict")
+async def post_compare_verdict(payload: dict = Body(...), _credit: dict = Depends(consume_ai_credit)):
+    """[종목 비교 추천 v3.165.0] 담아둔 종목 중 이슈를 타는 것·매수 관점에서 나은 것을 고른다.
+
+    body: {"tickers": ["005930","NVDA"]}
+    지표·수급·이슈·실측구간·저장된 AI 분석을 근거로 LLM 1회 호출(검색 없음).
+    """
+    from peer_compare import compare_tickers
+    from ai_engine import compare_verdict
+    lst = [str(t).strip() for t in (payload.get("tickers") or []) if str(t).strip()]
+    if len(lst) < 2:
+        return {"error": "비교하려면 종목이 2개 이상 필요합니다."}
+    data = await asyncio.to_thread(compare_tickers, lst, False)
+    return await asyncio.to_thread(compare_verdict, data.get("rows") or [])
+
+
 @router.get("/agent-learning")
 async def get_agent_learning():
     """AI 에이전트 자기학습 요약 — 조건별 승률 규칙 (다른 AI 기능 공용)."""

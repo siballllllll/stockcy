@@ -2501,6 +2501,101 @@ JSON으로만 응답 (백틱·주석 금지):
     return res
 
 
+def compare_verdict(rows: list) -> dict:
+    """[종목 비교 추천 v3.165.0] 담아둔 종목들 중 무엇이 이슈를 더 타고 있고,
+    지금 매수 관점에서 나은지를 하나 골라 준다.
+
+    [설계] 저장된 AI 분석(analysis_history)은 6행뿐이라 그것만으로는 비교가 안 된다.
+    그래서 이미 모아둔 실측값을 전부 넣고 판단하게 한다 —
+      · 지표(5일 모멘텀·RSI·볼린저%b·MA20 이격·52주 위치)
+      · 수급(외국인·기관 순매수 5일 합, 국내)
+      · 이슈(시나리오 등장 횟수 + 최근 이슈 제목·역할)
+      · 섀도우 리그 실측 구간 라벨(있으면)
+      · 해당 종목의 저장된 AI 분석(있는 것만)
+    LLM 1회 호출. 검색은 켜지 않는다 — 판단 근거를 우리 데이터로 한정해,
+    모델이 밖에서 주워온 이야기로 결론을 바꾸지 못하게 한다.
+    """
+    if not rows or len(rows) < 2:
+        return {"error": "비교하려면 종목이 2개 이상 필요합니다."}
+
+    def _fmt(r: dict) -> str:
+        z = r.get("zone") or {}
+        sup = r.get("supply") or {}
+        iss = r.get("issues") or {}
+        mk = "국내" if r.get("market") == "국내" else "미국"
+        px = r.get("price")
+        lines = [f"[{r.get('name') or r.get('ticker')} ({r.get('ticker')}, {mk})]"]
+        lines.append(
+            f"- 현재가 {px} / 당일 {r.get('change_pct')}% / 5일 모멘텀 {r.get('mom_5')}%"
+            f" / RSI {r.get('rsi')} / 볼린저%b {r.get('bb_pctb')}"
+            f" / MA20 이격 {r.get('ma20_dist')}% / 52주 위치 {r.get('pos_52w')}%")
+        if sup.get("combined") is not None:
+            lines.append(f"- 수급: 외국인 {sup.get('frgn')}주, 기관 {sup.get('orgn')}주,"
+                         f" 최근 {sup.get('days')}일 합 {sup.get('sum5')}주 ({sup.get('date')} 기준)")
+        else:
+            lines.append("- 수급: 데이터 없음")
+        lines.append(f"- 이슈 등장: {iss.get('count', 0)}회")
+        for x in (iss.get("recent") or [])[:3]:
+            lines.append(f"    · {x.get('at')} [{x.get('role')}] {x.get('title')}")
+        if z.get("key") and z.get("key") != "neutral":
+            wr = z.get("win_rate")
+            lines.append(f"- 섀도우 리그 실측 구간: {z.get('label')}"
+                         + (f" (실측 승률 {wr}%)" if wr is not None else " (이 시장에서는 미검증)"))
+        if r.get("ai_analysis"):
+            lines.append(f"- 저장된 AI 분석: {str(r['ai_analysis'])[:400]}")
+        return "\n".join(lines)
+
+    blocks = "\n\n".join(_fmt(r) for r in rows)
+    names = ", ".join(str(r.get("name") or r.get("ticker")) for r in rows)
+
+    prompt = (
+        "당신은 국내·미국 주식을 함께 보는 트레이더입니다. 모든 출력을 한국어로 작성하세요.\n"
+        "아래는 사용자가 비교하려고 담아둔 종목들의 실측 데이터입니다.\n"
+        "제공된 데이터 안에서만 판단하세요 — 여기 없는 사실을 지어내지 마세요.\n\n"
+        f"{blocks}\n\n"
+        "【판단 규칙 — 이 시스템의 실측을 따르세요】\n"
+        "이 규칙들은 이 사용자의 실제 매매 결과에서 측정된 값입니다. 일반적인 시장 통념보다 "
+        "우선합니다. 규칙과 어긋나게 판단하려면 그 이유를 명시해야 합니다.\n"
+        "- ⛔ **5일 모멘텀이 높다는 것 자체를 매수 근거로 쓰지 마세요.** 실측에서 모멘텀 추격은 "
+        "승률 33.3%로 랜덤 대조군(32.5%)과 구분되지 않았습니다. +10% 이상은 오히려 **감점 요인**입니다. "
+        "'모멘텀이 강하다', '상승세가 좋다'를 pick_reason의 근거로 삼지 마세요.\n"
+        "- ⛔ **볼린저%b가 높은 것(0.7 이상)도 매수 근거가 아닙니다.** 밴드 상단은 이미 간 자리입니다.\n"
+        "- ✅ 볼린저%b가 낮고(0.35 이하) 재료가 있는 자리 = 실측 승률 **61.0%**. 가장 강한 가점입니다.\n"
+        "- ✅ 볼린저 하단 눌림(%b 0.25 미만, 5일 -3% 이하, 조용한 거래량) = 실측 승률 **52.5%**.\n"
+        "- '이슈를 타고 있다'는 등장 횟수가 아니라 **최근성과 역할**입니다. "
+        "오래된 등장 100회보다 최근 수혜 3회가 강합니다.\n"
+        "- 수급은 5일 합의 방향으로 보세요. 하루치는 노이즈입니다.\n"
+        "- 국내·미국 비교에서 통화와 주가 절대값은 의미 없습니다. 비율로만 보세요.\n"
+        "- 데이터에 '섀도우 리그 실측 구간'이 적힌 종목은 **그 구간의 승률을 최우선 근거로** 쓰세요.\n"
+        "- ⚠️ 두 종목 다 좋은 자리가 아니면 **억지로 고르지 마세요.** pick을 빈 문자열로 두고 "
+        "'지금은 둘 다 진입 자리가 아니다'라고 쓰는 것이 옳은 답입니다. 이 사용자는 "
+        "안 사는 판단도 판단으로 칩니다.\n\n"
+        "아래 JSON 형식으로만 응답 (백틱·주석 금지):\n"
+        "{\n"
+        '  "issue_leader": "지금 이슈를 가장 타고 있는 종목명 — 티커 말고 이름 (없으면 빈 문자열)",\n'
+        '  "issue_reason": "왜 그렇게 봤는지 — 최근성·역할 근거로 2문장",\n'
+        '  "pick": "매수 관점에서 더 나은 종목명 — 티커 말고 이름. 둘 다 자리가 아니면 빈 문자열",\n'
+        '  "pick_reason": "왜 그 종목인지 3~4문장. 자리(볼린저%b·MA20 이격)·수급 5일합·재료의 최근성을 엮어서. pick이 비었으면 왜 둘 다 아닌지",\n'
+        '  "caution": "그 선택에서 조심할 점 1~2문장 (추격 위험·수급 이탈 등)",\n'
+        '  "ranking": [{"name": "종목명(티커 아님)", "score": 0~100, "zone": "그 종목의 실측 구간(없으면 해당 없음)", "one_line": "한 줄 평"}],\n'
+        '  "verdict": "두 줄 요약 — 결론과 조건"\n'
+        "}\n"
+        f"ranking에는 {len(rows)}개 종목을 모두 포함하고 score 내림차순으로 정렬하세요."
+    )
+
+    try:
+        response = _call_llm(prompt, use_search=False, temperature=0.4,
+                             timeout_sec=90, max_output_tokens=2500, thinking=False)
+        res = _parse_json_response(response)
+        if not isinstance(res, dict):
+            return {"error": "AI 응답을 해석하지 못했습니다."}
+        res["compared"] = names
+        return res
+    except Exception as e:
+        print(f"[compare verdict] 실패: {e}")
+        return {"error": f"판단 실패: {e}"}
+
+
 def issue_zone_signal(ticker: str, pct_b, disp20, mom5, is_kr: bool) -> dict:
     """섀도우 C "이슈×지지구간" 조건 판정 → {ok, linked, zone, not_hot, detail}.
 
