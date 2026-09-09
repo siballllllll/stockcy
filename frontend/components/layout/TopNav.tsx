@@ -2,7 +2,7 @@
 import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { BarChart2, TrendingUp, GitBranch, Star, Layers, FlaskConical, Brain, Bell } from "lucide-react";
+import { BarChart2, TrendingUp, GitBranch, Star, Layers, FlaskConical, Brain, Bell, Scale } from "lucide-react";
 import { BriefingModal } from "@/components/ui/BriefingModal";
 import { TelegramSettingsModal } from "@/components/auth/TelegramSettingsModal";
 import { useMarket } from "@/lib/market-context";
@@ -167,6 +167,7 @@ const TABS = [
   // AI 에이전트 탭은 성과·기록 페이지의 섀도우 리그 상세 패널로 편입 (v3.122.0) — /agent 라우트는 유지
   { href: "/scenarios", label: "📈 시나리오",        exact: false, icon: <Layers size={15} />,     readyKey: "scenarios" as const },
   { href: "/performance", label: "📊 성과·기록",     exact: false, icon: <BarChart2 size={15} />,  readyKey: null },
+  { href: "/compare",   label: "⚖ 종목 비교",       exact: false, icon: <Scale size={15} />,      readyKey: null },
 ];
 
 export function TopNav() {

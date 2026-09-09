@@ -166,6 +166,149 @@ def find_peers(ticker: str, market: str) -> dict:
     return out
 
 
+# ── 임의 종목 비교 (v3.164.0) ────────────────────────────────────────────────
+# 동종 비교(compare_peers)는 섹터맵으로 상대를 자동 선정한다. 이쪽은 사용자가 직접 고른
+# 종목만 나란히 놓는다 — 섹터가 달라도, 국내·미국이 섞여도 상관없다.
+# 지표는 _one_row를 그대로 쓰고, 여기에 DB에서 오는 수급·이슈를 덧붙인다
+# (둘 다 조회 비용이 사실상 0이라 기본 포함). PER/PBR은 네이버 스크래핑이라 느려서
+# 별도 요청(with_valuation=True)일 때만 붙인다.
+MAX_COMPARE = 5
+
+
+def _supply_of(cur, ticker: str) -> dict:
+    """최근 수급 스냅샷 — 외국인/기관 순매수 (국내만 적재됨)."""
+    try:
+        cur.execute(
+            """SELECT snapshot_date, frgn_ntby, orgn_ntby, combined
+               FROM frgn_inst_snapshots WHERE ticker = ?
+               ORDER BY snapshot_date DESC LIMIT 5""", (ticker,))
+        rows = [dict(r) for r in cur.fetchall()]
+    except Exception:
+        return {}
+    if not rows:
+        return {}
+    latest = rows[0]
+    return {
+        "date": latest.get("snapshot_date"),
+        "frgn": latest.get("frgn_ntby"),
+        "orgn": latest.get("orgn_ntby"),
+        "combined": latest.get("combined"),
+        # 최근 5일 합 — 하루치만 보면 노이즈라 추세를 같이 준다
+        "sum5": sum(int(r.get("combined") or 0) for r in rows),
+        "days": len(rows),
+    }
+
+
+def _issues_of(cur, ticker: str) -> dict:
+    """이 종목이 등장한 시나리오 — 몇 번, 최근 무엇."""
+    try:
+        cur.execute(
+            """SELECT scenario_title, role, captured_at
+               FROM scenario_stocks WHERE ticker = ?
+               ORDER BY captured_at DESC LIMIT 3""", (ticker,))
+        rows = [dict(r) for r in cur.fetchall()]
+        cur.execute("SELECT COUNT(*) AS n FROM scenario_stocks WHERE ticker = ?", (ticker,))
+        n = int((cur.fetchone() or {"n": 0})["n"])
+    except Exception:
+        return {}
+    return {
+        "count": n,
+        "recent": [{"title": str(r.get("scenario_title") or "")[:60],
+                    "role": r.get("role"),
+                    "at": str(r.get("captured_at") or "")[:10]} for r in rows],
+    }
+
+
+def compare_tickers(tickers: list, with_valuation: bool = False) -> dict:
+    """사용자가 지정한 종목들을 나란히 비교. LLM 호출 없음."""
+    seen, targets = set(), []
+    for t in (tickers or []):
+        raw = str(t or "").strip()
+        if not raw:
+            continue
+        is_kr = raw.isdigit()
+        tk = _kr_code(raw) if is_kr else _norm(raw)
+        if tk in seen:
+            continue
+        seen.add(tk)
+        targets.append({"ticker": tk, "name": tk, "market": "국내" if is_kr else "미국"})
+        if len(targets) >= MAX_COMPARE:
+            break
+    if not targets:
+        return {"rows": [], "baseline_win_rate": ZONE_BASELINE}
+
+    linked_map = {}
+    try:
+        from db import load_scenario_stocks_set
+        linked_map = load_scenario_stocks_set() or {}
+    except Exception as e:
+        logger.error(f"[compare] 시나리오 맵 로드 실패: {e}")
+
+    rows = []
+    try:
+        with _fut.ThreadPoolExecutor(max_workers=min(8, len(targets))) as ex:
+            futs = {ex.submit(_one_row, t, linked_map): t["ticker"] for t in targets}
+            for f in _fut.as_completed(futs, timeout=_FETCH_TIMEOUT):
+                try:
+                    rows.append(f.result())
+                except Exception as e:
+                    logger.error(f"[compare] row 실패: {e}")
+    except Exception as e:
+        logger.error(f"[compare] 병렬 수집 중단: {e}")
+
+    # DB에서 오는 항목(수급·이슈)은 한 커넥션으로 몰아서 — 비용 거의 0
+    try:
+        from db import get_db_conn
+        conn = get_db_conn()
+        cur = conn.cursor()
+        try:
+            for r in rows:
+                tk = r["ticker"]
+                r["supply"] = _supply_of(cur, tk) if r.get("market") == "국내" else {}
+                r["issues"] = _issues_of(cur, tk)
+        finally:
+            conn.close()
+    except Exception as e:
+        logger.error(f"[compare] 수급·이슈 조회 실패: {e}")
+
+    if with_valuation:
+        _attach_valuation(rows)
+
+    order = {t["ticker"]: i for i, t in enumerate(targets)}
+    rows.sort(key=lambda r: order.get(r["ticker"], 99))
+    return {"rows": rows, "baseline_win_rate": ZONE_BASELINE,
+            "zone_legend": {k: {"label": v["label"], "win_rate": v["win_rate"],
+                                "n": v["n"], "note": v["note"]}
+                            for k, v in _ZONE_META.items() if k != "neutral"}}
+
+
+def _attach_valuation(rows: list):
+    """PER/PBR/시총 보강 — 네이버 스크래핑(국내)이라 느려서 요청 시에만 부른다."""
+    def _one(r):
+        tk = r["ticker"]
+        try:
+            if r.get("market") == "국내":
+                from data_kr import get_kr_stock_price
+                d = get_kr_stock_price(tk, with_fundamental=True) or {}
+                r["per"] = d.get("per")
+                r["pbr"] = d.get("pbr")
+                r["market_cap"] = d.get("market_cap")
+            else:
+                from data import get_us_stock_detail
+                d = get_us_stock_detail(tk) or {}
+                r["per"] = d.get("per")
+                r["pbr"] = d.get("pbr")
+                r["market_cap"] = d.get("market_cap")
+        except Exception as e:
+            logger.error(f"[compare] 밸류 조회 실패 {tk}: {e}")
+
+    try:
+        with _fut.ThreadPoolExecutor(max_workers=min(5, max(1, len(rows)))) as ex:
+            list(ex.map(_one, rows))
+    except Exception as e:
+        logger.error(f"[compare] 밸류 병렬 실패: {e}")
+
+
 # ── 지표 수집 ────────────────────────────────────────────────────────────────
 def _one_row(entry: dict, linked_map: dict) -> dict:
     tk = entry["ticker"]

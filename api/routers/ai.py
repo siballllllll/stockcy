@@ -1616,6 +1616,19 @@ async def get_peer_compare(ticker: str, market: str = "국내"):
     return await asyncio.to_thread(compare_peers, ticker, market)
 
 
+@router.get("/compare")
+async def get_compare(tickers: str, valuation: bool = False):
+    """[임의 종목 비교 v3.164.0] 지정한 종목들을 나란히 비교 (최대 5개).
+
+    tickers: 콤마 구분 (예: 005930,NVDA,000660). 국내·미국 혼합 가능.
+    valuation=true면 PER/PBR/시총도 붙인다(네이버 스크래핑이라 느림 — 필요할 때만).
+    LLM 호출 0.
+    """
+    from peer_compare import compare_tickers
+    lst = [t.strip() for t in str(tickers or "").split(",") if t.strip()]
+    return await asyncio.to_thread(compare_tickers, lst, valuation)
+
+
 @router.get("/agent-learning")
 async def get_agent_learning():
     """AI 에이전트 자기학습 요약 — 조건별 승률 규칙 (다른 AI 기능 공용)."""

@@ -135,6 +135,8 @@ export const api = {
         method: "POST",
         body: JSON.stringify({ ticker, name, price_data: priceData, market }),
       }),
+    compare: (tickers: string[], valuation = false) =>
+      req(`/api/ai/compare?tickers=${encodeURIComponent(tickers.join(","))}&valuation=${valuation}`),
     peerCompare: (ticker: string, market: string = "국내") =>
       req(`/api/ai/peer-compare?ticker=${encodeURIComponent(ticker)}&market=${encodeURIComponent(market)}`),
     shadowSector: (ticker: string, name: string, market: string = "KR") =>
