@@ -174,6 +174,29 @@ def find_peers(ticker: str, market: str) -> dict:
 # 별도 요청(with_valuation=True)일 때만 붙인다.
 MAX_COMPARE = 5
 
+_NAME_CACHE: dict = {}
+
+
+def _name_of(ticker: str, is_kr: bool) -> str:
+    """티커 → 회사명. 비교 화면이 티커만 보여주던 문제를 막는다 (v3.169.0).
+
+    전종목 맵({코드: 이름})을 한 번 받아 캐시한다 — 종목검색 자동완성이 쓰는 것과 같은 소스다.
+    실패하면 티커를 그대로 쓴다(이름은 표시용이라 없어도 비교는 된다)."""
+    key = "kr" if is_kr else "us"
+    if key not in _NAME_CACHE:
+        m = {}
+        try:
+            if is_kr:
+                from data_kr import get_kr_code_to_name_map
+                m = get_kr_code_to_name_map() or {}
+            else:
+                from us_kr_names import US_KR_NAME_MAP
+                m = dict(US_KR_NAME_MAP or {})
+        except Exception as e:
+            logger.error(f"[compare] 종목명 맵 로드 실패({key}): {e}")
+        _NAME_CACHE[key] = m
+    return str(_NAME_CACHE[key].get(ticker) or ticker)
+
 
 def _supply_of(cur, ticker: str) -> dict:
     """최근 수급 스냅샷 — 외국인/기관 순매수 (국내만 적재됨)."""
@@ -277,7 +300,7 @@ def compare_tickers(tickers: list, with_valuation: bool = False) -> dict:
         if tk in seen:
             continue
         seen.add(tk)
-        targets.append({"ticker": tk, "name": tk, "market": "국내" if is_kr else "미국"})
+        targets.append({"ticker": tk, "name": _name_of(tk, is_kr), "market": "국내" if is_kr else "미국"})
         if len(targets) >= MAX_COMPARE:
             break
     if not targets:

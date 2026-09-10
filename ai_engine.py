@@ -5399,15 +5399,28 @@ def _get_trade_indicators(ticker: str, buy_date_str: str) -> dict:
 
     # ── 일봉 지표 ──────────────────────────────────────────────────────────
     # 국내(숫자 티커)는 yfinance(.KS)가 'no price data' 401 오류로 불안정 → FinanceDataReader 사용.
+    # [v3.169.0] 미국도 FDR 폴백을 둔다. 종전에는 yfinance 단일 경로라 한 번 실패하면
+    # 그대로 '가격 없음'이 됐고, 그 행이 비교·판단으로 넘어가 "현재 가격정보를 알 수 없어
+    # 판단이 어렵다"는 답이 나왔다(SMR 사례). 지표가 비면 LLM 호출 1회가 통째로 낭비된다.
+    # FDR은 미국 티커도 그대로 받는다(실측: NVDA 255거래일 정상).
     try:
+        import FinanceDataReader as fdr
+        from datetime import timedelta as _td
+        _start = (datetime.now() - _td(days=400)).strftime("%Y-%m-%d")
+        hist = None
         if is_kr:
-            import FinanceDataReader as fdr
-            from datetime import timedelta as _td
-            _start = (datetime.now() - _td(days=400)).strftime("%Y-%m-%d")
             hist = fdr.DataReader(str(ticker).strip().zfill(6), _start)
         else:
-            stock = yf.Ticker(yf_ticker)
-            hist = stock.history(period="1y", interval="1d")
+            try:
+                stock = yf.Ticker(yf_ticker)
+                hist = stock.history(period="1y", interval="1d")
+            except Exception:
+                hist = None
+            if hist is None or getattr(hist, "empty", True) or len(hist) < 20:
+                try:
+                    hist = fdr.DataReader(yf_ticker, _start)      # 미국 폴백
+                except Exception:
+                    pass
         if hist is not None and not hist.empty and len(hist) >= 20:
             closes  = hist["Close"].values
             volumes = hist["Volume"].values
