@@ -27,6 +27,7 @@ interface Pick {
   theme_stage?:  string;
   supply_signal?: string;
   current_price?: number;
+  price_warning?: string;   // 타점이 실제 시세와 어긋날 때 백엔드가 세우는 경고 (v3.171.0)
   change_pct?:   number;
   leader_name?:  string;
   theme_linkage?: string;
@@ -407,6 +408,13 @@ export function PicksBoard() {
                   )}
 
                   <div style={{ fontSize: "0.8rem", color: "var(--color-subtle)", lineHeight: 1.4, background: "rgba(0,0,0,0.2)", padding: "8px", borderRadius: "4px" }}>
+                    {pick.price_warning && (
+                      <div style={{ marginBottom: 6, padding: "5px 8px", borderRadius: 5,
+                                    background: "rgba(255,75,75,0.12)", border: "1px solid rgba(255,75,75,0.4)",
+                                    color: "#fca5a5", fontSize: "0.72rem", fontWeight: 700 }}>
+                        ⚠️ 타점 신뢰 주의 — {pick.price_warning}
+                      </div>
+                    )}
                     <span style={{ color: "var(--color-accent)", fontWeight: 700 }}>[{pick.pattern || pick.theme}]</span>{" "}{pick.reason}
                   </div>
                 </div>

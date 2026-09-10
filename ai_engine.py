@@ -3380,6 +3380,66 @@ def _compute_prebreakout_signals(volume_rank: list, change_rank: list) -> tuple:
     return enriched, already_done
 
 
+def _sanity_check_picks(res: dict, price_map: dict | None = None) -> dict:
+    """[v3.171.0] AI가 낸 타점을 실제 현재가와 대조해 검증·보정한다.
+
+    [왜] 프롬프트가 "구글 검색으로 현재가 확인 후" 타점을 잡으라고 지시하던 탓에,
+    오늘 크게 움직인 종목은 검색에 잡히는 며칠 전 가격으로 타점이 계산됐다.
+    실측(2026-09-10): 흥구석유(024060)가 하루 +20.7% 급등해 14,590원인데,
+    타점·목표가가 현재가와 크게 벌어져 있었다. 목표가가 현재가보다 낮은 경우도 생긴다.
+
+    지시문은 고쳤지만 모델이 어길 수 있으므로 여기서 한 번 더 막는다.
+    - current_price는 실제 시세로 덮어쓴다(우리가 정확한 값을 갖고 있다).
+    - entry가 현재가에서 ±15%를 벗어나면 신뢰할 수 없는 값이므로 flag를 세운다.
+    - target이 현재가 이하면 목표가로서 의미가 없으므로 flag를 세운다.
+    flag가 선 픽은 제거하지 않고 표시만 한다 — 조용히 지우면 왜 사라졌는지 알 수 없다.
+    """
+    picks = res.get("picks") if isinstance(res, dict) else None
+    if not isinstance(picks, list):
+        return res
+
+    if price_map is None:
+        price_map = {}
+        try:
+            from data_kr import get_kr_stock_price
+            for p in picks:
+                code = str(p.get("code") or "").strip()
+                if code and code.isdigit():
+                    d = get_kr_stock_price(code.zfill(6)) or {}
+                    if d.get("price"):
+                        price_map[code.zfill(6)] = float(d["price"])
+        except Exception as e:
+            print(f"[picks sanity] 시세 조회 실패: {e}")
+
+    for p in picks:
+        code = str(p.get("code") or "").strip().zfill(6)
+        real = price_map.get(code)
+        if not real or real <= 0:
+            continue
+        p["current_price"] = real          # 실제 시세로 확정
+        warns = []
+
+        def _f(key):
+            try:
+                v = float(p.get(key) or 0)
+                return v if v > 0 else None
+            except (TypeError, ValueError):
+                return None
+
+        entry, target, stop = _f("entry"), _f("target"), _f("stop")
+        if entry is not None:
+            gap = (entry - real) / real * 100
+            if abs(gap) > 15:
+                warns.append(f"매수타점이 현재가와 {gap:+.1f}% 벌어짐")
+        if target is not None and target <= real:
+            warns.append("목표가가 현재가 이하")
+        if stop is not None and stop >= real:
+            warns.append("손절가가 현재가 이상")
+        if warns:
+            p["price_warning"] = " · ".join(warns)
+    return res
+
+
 def generate_realtime_picks(
     market_data: dict,
     volume_rank: list,
@@ -3425,9 +3485,11 @@ def generate_realtime_picks(
         )
 
     pb_lines  = [_fmt_candidate(s) for s in prebreakout[:8]] or ["- 데이터 없음"]
+    # [v3.171.0] 6개로 자르던 것을 15개로. 급등 종목이 많은 날에는 목록이 잘려
+    # +20% 종목이 '진입 불가'에 안 들어가고 후보처럼 취급되는 일이 생겼다(흥구석유 사례).
     sur_lines = [
         f"- {s.get('종목명','')} ({s.get('종목코드','')}): {_chg(s):+.1f}% (진입 금지)"
-        for s in already_done[:6]
+        for s in already_done[:15]
     ]
 
     # ── 핫 섹터 컨텍스트 구성 ──────────────────────────────────────────────
@@ -3574,7 +3636,9 @@ KOSDAQ: {kosdaq.get('index',0):,.2f}  ({kosdaq.get('change_pct',0):+.2f}%)
    · 세력(외국인·기관)의 현재 유입/이탈 방향 확인
    · 역사적으로 이 패턴에서 이 종목 또는 유사 종목이 어떻게 움직였는지 참조
 
-🎯 타점 산정 (구글 검색으로 현재가 확인 후):
+🎯 타점 산정 (⚠️ 현재가는 **위 후보 목록에 적힌 값**을 그대로 쓰세요. 검색으로 다시 확인하지 마세요 —
+   검색에는 며칠 전 기사 가격이 잡혀 오늘 급등한 종목의 타점이 통째로 어긋납니다.
+   검색은 재료·테마 파악에만 쓰세요):
    · 매수 타점: 패턴별 최적 진입가 (위 패턴 기준 + 테마 연동 고려)
    · 목표가: 매수가 대비 +3%~+8% (테마 확산 중이면 +10%까지 설정 가능)
    · 손절가: 매수가 대비 -2% (칼손절)
@@ -3680,6 +3744,12 @@ KOSDAQ: {kosdaq.get('index',0):,.2f}  ({kosdaq.get('change_pct',0):+.2f}%)
                             pass
         except Exception:
             pass
+
+        # [v3.171.0] 산출된 타점을 실제 시세와 대조해 검증·보정 (흥구석유 사례)
+        try:
+            result = _sanity_check_picks(result)
+        except Exception as _se:
+            print(f'[picks sanity] 검증 실패(무시): {_se}')
 
         return result
     except Exception as e:
