@@ -5398,29 +5398,56 @@ def _get_trade_indicators(ticker: str, buy_date_str: str) -> dict:
                 continue
 
     # ── 일봉 지표 ──────────────────────────────────────────────────────────
-    # 국내(숫자 티커)는 yfinance(.KS)가 'no price data' 401 오류로 불안정 → FinanceDataReader 사용.
-    # [v3.169.0] 미국도 FDR 폴백을 둔다. 종전에는 yfinance 단일 경로라 한 번 실패하면
-    # 그대로 '가격 없음'이 됐고, 그 행이 비교·판단으로 넘어가 "현재 가격정보를 알 수 없어
-    # 판단이 어렵다"는 답이 나왔다(SMR 사례). 지표가 비면 LLM 호출 1회가 통째로 낭비된다.
-    # FDR은 미국 티커도 그대로 받는다(실측: NVDA 255거래일 정상).
+    # [v3.170.0] 일봉 소스 순서: 토스 → (국내)FDR / (미국)yfinance → FDR
+    #
+    # 토스를 1차로 둔 이유는 **차트와 소스를 맞추기 위해서**다. 차트(get_kr_daily_chart /
+    # us_chart)는 이미 토스를 1차로 쓰는데 지표만 다른 소스를 쓰면, 화면의 차트와 판단에
+    # 쓰는 숫자가 어긋난다. 실제로 그 어긋남이 사고를 냈다 — 2026-09-08에 현재가만 하루
+    # 밀린 값이 나와 상한가 종목이 -23%로 계산되고 재난 손절이 발동했다(v3.159.0).
+    # 토스는 국내·미국 모두 일봉 200봉을 준다(실측: 005930 100봉, NVDA·SMR 각 200봉).
+    #
+    # ⚠️ 토스는 IP 화이트리스트 방식이라 VPN을 켜거나 회선이 바뀌면 403으로 통째로 막힌다.
+    #    그래서 폴백을 반드시 남겨둔다. 200봉이라 52주(252거래일) 범위는 FDR보다 짧지만,
+    #    RSI·MA20/60·볼린저는 충분하고 pos_52w는 있는 범위 안에서 계산된다.
     try:
         import FinanceDataReader as fdr
         from datetime import timedelta as _td
         _start = (datetime.now() - _td(days=400)).strftime("%Y-%m-%d")
         hist = None
-        if is_kr:
-            hist = fdr.DataReader(str(ticker).strip().zfill(6), _start)
-        else:
-            try:
-                stock = yf.Ticker(yf_ticker)
-                hist = stock.history(period="1y", interval="1d")
-            except Exception:
-                hist = None
-            if hist is None or getattr(hist, "empty", True) or len(hist) < 20:
+
+        # 1차: 토스 (차트와 동일 소스)
+        try:
+            from data_kr import _toss_daily_df
+            _t = _toss_daily_df(str(ticker).strip().zfill(6) if is_kr else yf_ticker, 400)
+            if _t is not None and not _t.empty and len(_t) >= 20:
+                _t = _t.rename(columns={"open": "Open", "high": "High", "low": "Low",
+                                        "close": "Close", "volume": "Volume"})
+                if {"Open", "High", "Low", "Close", "Volume"} <= set(_t.columns):
+                    hist = _t
+        except Exception:
+            hist = None
+
+        # 2차: 국내=FDR / 미국=yfinance
+        if hist is None or getattr(hist, "empty", True) or len(hist) < 20:
+            if is_kr:
                 try:
-                    hist = fdr.DataReader(yf_ticker, _start)      # 미국 폴백
+                    hist = fdr.DataReader(str(ticker).strip().zfill(6), _start)
                 except Exception:
-                    pass
+                    hist = None
+            else:
+                try:
+                    stock = yf.Ticker(yf_ticker)
+                    hist = stock.history(period="1y", interval="1d")
+                except Exception:
+                    hist = None
+
+        # 3차: FDR (미국 최후 폴백)
+        if (hist is None or getattr(hist, "empty", True) or len(hist) < 20) and not is_kr:
+            try:
+                hist = fdr.DataReader(yf_ticker, _start)
+            except Exception:
+                pass
+
         if hist is not None and not hist.empty and len(hist) >= 20:
             closes  = hist["Close"].values
             volumes = hist["Volume"].values
