@@ -7,11 +7,20 @@ export default function OrderbookPanel({ code, market }: { code: string; market:
   const isKR = market === "KR";
   const sym = code;
 
-  const { data: ob } = useSWR(sym ? `ob-${sym}` : null, () => api.portfolio.orderbook(sym), { refreshInterval: 5000 });
-  const { data: trades } = useSWR(sym ? `tr-${sym}` : null, () => api.portfolio.trades(sym, 20), { refreshInterval: 10000 });
+  const { data: ob, error: obErr } = useSWR(sym ? `ob-${sym}` : null, () => api.portfolio.orderbook(sym), { refreshInterval: 5000 });
+  const { data: trades, error: trErr } = useSWR(sym ? `tr-${sym}` : null, () => api.portfolio.trades(sym, 20), { refreshInterval: 10000 });
   const { data: limits } = useSWR(sym ? `pl-${sym}` : null, () => api.portfolio.priceLimits(sym), { refreshInterval: 60000 });
-  const { data: cal } = useSWR(`cal-${market}`, () => api.portfolio.marketCalendar(market), { refreshInterval: 1800000 });
+  const { data: cal, error: calErr } = useSWR(`cal-${market}`, () => api.portfolio.marketCalendar(market), { refreshInterval: 1800000 });
   const { data: master } = useSWR(sym ? `ms-${sym}` : null, () => api.portfolio.stockMaster([sym]), { refreshInterval: 3600000 });
+
+  // 조회 실패와 '휴장 / 장 시간 아님'은 다른 상태다. 예전에는 둘 다 빈 응답으로 내려와
+  // 화면이 무조건 "오늘 휴장"·"장 시간에 표시됩니다"로 덮었다 — 토스가 IP 차단으로 막혀
+  // 있던 내내 개장일에도 휴장이라고 거짓 표시했다(VERIFY.md V5).
+  // 이제 백엔드가 ok 플래그를 준다. 셋을 갈라 쓴다: 확인 중 / 조회 실패 / 정상.
+  const calLoading = !cal && !calErr;
+  const calFailed = !!calErr || (!!cal && cal.ok === false);
+  const obFailed = !!obErr || (!!ob && ob.ok === false);
+  const trFailed = !!trErr || obFailed;   // 체결은 ok 플래그가 없어 호가창 상태를 따른다
 
   const cur = ob?.currency ?? (isKR ? "KRW" : "USD");
   const fmt = (n: number) => isKR
@@ -35,10 +44,22 @@ export default function OrderbookPanel({ code, market }: { code: string; market:
         {meta?.market && <span style={{ color: "var(--color-muted)" }}>{meta.market}</span>}
         {meta?.list_date && <span style={{ color: "var(--color-muted)" }}>상장 {meta.list_date}</span>}
         {meta?.status && meta.status !== "ACTIVE" && <span style={{ color: "var(--color-danger)", fontWeight: 700 }}>{meta.status}</span>}
-        <span style={{ marginLeft: "auto", color: cal?.is_open ? "var(--color-success)" : "var(--color-muted)", fontWeight: 700 }}>
-          {cal?.is_open ? "● 오늘 개장" : "○ 오늘 휴장"}
+        <span
+          title={calFailed ? "토스 시세 서버에서 장운영 정보를 받지 못했습니다. 휴장이라는 뜻이 아닙니다." : undefined}
+          style={{
+            marginLeft: "auto", fontWeight: 700,
+            color: calLoading ? "var(--color-muted)"
+              : calFailed ? "var(--color-warning)"
+              : cal?.is_open ? "var(--color-success)" : "var(--color-muted)",
+          }}
+        >
+          {calLoading ? "· 장운영 확인 중"
+            : calFailed ? "⚠ 장운영 정보 없음"
+            : cal?.is_open ? "● 오늘 개장" : "○ 오늘 휴장"}
         </span>
-        {cal?.next_business_day && <span style={{ color: "var(--color-muted)" }}>다음 {cal.next_business_day.slice(5)}</span>}
+        {!calFailed && cal?.next_business_day && (
+          <span style={{ color: "var(--color-muted)" }}>다음 {cal.next_business_day.slice(5)}</span>
+        )}
       </div>
 
       {/* 상하한가 (KR) */}
@@ -53,7 +74,9 @@ export default function OrderbookPanel({ code, market }: { code: string; market:
         {/* 호가창 */}
         <div style={box}>
           <div style={label}>호가창</div>
-          {(asks.length === 0 && bids.length === 0) ? (
+          {obFailed ? (
+            <div style={{ fontSize: "0.72rem", color: "var(--color-warning)" }}>조회 실패 — 시세 서버 응답 없음</div>
+          ) : (asks.length === 0 && bids.length === 0) ? (
             <div style={{ fontSize: "0.72rem", color: "var(--color-muted)" }}>장 시간에 표시됩니다</div>
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
@@ -70,7 +93,9 @@ export default function OrderbookPanel({ code, market }: { code: string; market:
         {/* 체결 */}
         <div style={box}>
           <div style={label}>최근 체결</div>
-          {(!trades || trades.length === 0) ? (
+          {trFailed ? (
+            <div style={{ fontSize: "0.72rem", color: "var(--color-warning)" }}>조회 실패 — 시세 서버 응답 없음</div>
+          ) : (!trades || trades.length === 0) ? (
             <div style={{ fontSize: "0.72rem", color: "var(--color-muted)" }}>장 시간에 표시됩니다</div>
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: "2px", maxHeight: "180px", overflowY: "auto" }}>

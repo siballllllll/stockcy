@@ -27,6 +27,9 @@ Thumbs.db
 db.sqlite3
 db.sqlite3-wal
 db.sqlite3-shm
+db.sqlite3.backup.snap
+db.sqlite3.backup*
+*.snap
 *.log
 # scratch는 무시하되, 운영 런처(프록시·터널)는 추적 — 백업/재배포용
 scratch/*

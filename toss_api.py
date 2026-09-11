@@ -203,26 +203,33 @@ def _f(v) -> float:
 
 
 def get_orderbook(symbol: str) -> dict:
-    """호가창. {asks:[{price,volume}], bids:[...], currency}. 실패 시 {}.
+    """호가창. {ok, asks:[{price,volume}], bids:[...], currency}.
 
     asks=매도호가(낮은가→높은가), bids=매수호가(높은가→낮은가) 형태로 정렬.
+
+    ⚠️ ok=False(조회 실패)와 ok=True인데 asks/bids가 빈 것(장 시간이 아님)은 다른 상태다.
+    구분이 안 되면 화면이 실패를 '장 시간에 표시됩니다'로 덮어버린다.
     """
     sym = str(symbol).strip()
+    if not sym:
+        return {"ok": False, "error": "종목코드 없음"}
     headers = _auth_headers()
-    if not sym or not headers:
-        return {}
+    if not headers:
+        return {"ok": False, "error": "토큰 발급 실패"}
     try:
         resp = requests.get(f"{TOSS_BASE}/api/v1/orderbook",
                             params={"symbol": sym}, headers=headers, timeout=10)
         resp.raise_for_status()
         r = resp.json().get("result", {}) or {}
-    except Exception:
-        return {}
+    except Exception as e:
+        logger.warning(f"[toss] 호가창 조회 실패 {sym}: {type(e).__name__}: {str(e)[:120]}")
+        return {"ok": False, "error": f"{type(e).__name__}"}
 
     def _lvls(key):
         return [{"price": _f(x.get("price")), "volume": _f(x.get("volume"))}
                 for x in (r.get(key) or [])]
-    return {"asks": _lvls("asks"), "bids": _lvls("bids"), "currency": r.get("currency")}
+    return {"ok": True, "asks": _lvls("asks"), "bids": _lvls("bids"),
+            "currency": r.get("currency")}
 
 
 def get_trades(symbol: str, count: int = 30) -> list[dict]:
@@ -266,21 +273,26 @@ def get_price_limits(symbol: str) -> dict:
 
 
 def get_market_calendar(market: str = "KR") -> dict:
-    """장 운영 정보. {date, is_open, next_business_day, prev_business_day}. 실패 시 {}.
+    """장 운영 정보. {ok, date, is_open, next_business_day, prev_business_day}.
 
     is_open=오늘 정규장 운영 여부(휴장이면 False).
+
+    ⚠️ ok는 '조회에 성공했는가'이지 '장이 열렸는가'가 아니다. 실패 시 {} 를 주던 것을
+    v3.172.2에서 {"ok": False, "error": ...} 로 바꿨다 — 화면이 조회 실패를 휴장으로
+    잘못 표시하고 있었기 때문이다(VPN으로 토큰이 막힌 내내 개장일에도 '오늘 휴장').
     """
     mk = (market or "KR").upper()
     headers = _auth_headers()
     if not headers:
-        return {}
+        return {"ok": False, "error": "토큰 발급 실패"}
     try:
         resp = requests.get(f"{TOSS_BASE}/api/v1/market-calendar/{mk}",
                             headers=headers, timeout=10)
         resp.raise_for_status()
         r = resp.json().get("result", {}) or {}
-    except Exception:
-        return {}
+    except Exception as e:
+        logger.warning(f"[toss] 장운영 조회 실패 {mk}: {type(e).__name__}: {str(e)[:120]}")
+        return {"ok": False, "error": f"{type(e).__name__}"}
 
     def _date(node):
         return (node or {}).get("date") if isinstance(node, dict) else None
@@ -289,6 +301,7 @@ def get_market_calendar(market: str = "KR") -> dict:
     integrated = today.get("integrated")
     is_open = bool(integrated and integrated.get("regularMarket"))
     return {
+        "ok": True,
         "date": _date(today),
         "is_open": is_open,
         "next_business_day": _date(r.get("nextBusinessDay")),
