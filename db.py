@@ -2022,10 +2022,34 @@ _FDR_IND_MAP: dict = {
 }
 
 _US_FDR_REFRESH_LOCK = threading.Lock()
+_US_FDR_CACHE_MAX_AGE_H = 12   # 이보다 새 캐시면 기동 시 갱신을 건너뛴다
 
-def refresh_us_fdr_sector_cache() -> None:
+def refresh_us_fdr_sector_cache(force: bool = False) -> None:
     """FDR에서 미국 전종목 업종 데이터를 가져와 JSON 캐시 파일에 저장한다.
-    백그라운드 스레드에서 실행 — 완료까지 수분 소요될 수 있음."""
+    백그라운드 스레드에서 실행 — 완료까지 수분 소요될 수 있음.
+
+    force=True면 캐시 나이와 무관하게 다시 긁는다.
+    """
+    # ⚠️ 나이 확인은 락을 잡기 **전에** 한다. 락을 잡은 뒤 return하면 락이 영영 안 풀려
+    #    이후의 갱신이 전부 막힌다.
+    # [v3.172.4] 기동할 때마다 3,979종목을 다시 긁으면 수 분간 CPU를 점유한다.
+    # 하루 한 번 뜨는 평소엔 문제가 아니지만, 장중에 코드를 고쳐 재기동하면 그 비용을
+    # 매번 치른다 — 2026-09-11 실측으로 이 갱신을 도는 자식 프로세스가 CPU 300초 이상을
+    # 쓰는 동안 백엔드가 60초 넘게 응답하지 못했다. 업종 분류는 하루 사이에 바뀌지 않으므로
+    # 캐시가 충분히 새것이면 건너뛴다.
+    try:
+        if not force:
+            import time as _t
+            age_h = (_t.time() - os.path.getmtime(_US_FDR_SECTOR_CACHE_PATH)) / 3600.0
+            if age_h < _US_FDR_CACHE_MAX_AGE_H:
+                print(f"[fdr sector] 캐시가 {age_h:.1f}시간 전 것 — 갱신 건너뜀 "
+                      f"(강제하려면 refresh_us_fdr_sector_cache(force=True))")
+                return
+    except OSError:
+        pass      # 캐시 파일이 없으면 아래로 내려가 새로 만든다
+    except Exception as _e:
+        print(f"[fdr sector] 캐시 나이 확인 실패({_e}) — 그냥 갱신한다")
+
     if not _US_FDR_REFRESH_LOCK.acquire(blocking=False):
         return  # 이미 다른 스레드가 갱신 중
     try:

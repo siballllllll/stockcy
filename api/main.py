@@ -34,6 +34,22 @@ try:
 except Exception:
     pass
 
+# ── 0-b. [V13 진단] 이 모듈을 import한 프로세스의 정체를 남긴다 ──────────────
+# 에이전트 루프가 하루 수십 번 다시 뜨는 원인을 쫓는 중이다. multiprocessing spawn
+# 자식이 api.main을 재import하면서 스케줄러가 한 벌 더 뜬다는 정황이 있다.
+try:
+    import multiprocessing as _mp
+    _proc = _mp.current_process()
+    try:
+        _parent = _mp.parent_process()
+    except Exception:
+        _parent = None
+    print(f"[proc] import api.main — pid={os.getpid()} name={_proc.name!r} "
+          f"parent={'있음' if _parent else '없음'} argv0={sys.argv[0]!r} "
+          f"exe={os.path.basename(sys.executable)}")
+except Exception as _e:
+    print(f"[proc] 진단 실패: {_e}")
+
 # ── 1. .env 로드 (환경변수를 st.secrets 대신 사용) ──────────────────────────
 from dotenv import load_dotenv
 load_dotenv()
