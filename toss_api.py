@@ -11,9 +11,12 @@ A단계: OAuth2 토큰 발급 + 현재가 조회까지만.
     POST /oauth2/token   (form-urlencoded, grant_type=client_credentials)
     GET  /api/v1/prices  (?symbols=005930,AAPL  / Authorization: Bearer)
 """
+import logging
 import os
 import time
 import requests
+
+logger = logging.getLogger(__name__)
 
 TOSS_BASE = "https://openapi.tossinvest.com"
 
@@ -44,16 +47,22 @@ def get_token() -> str | None:
             headers={"Content-Type": "application/x-www-form-urlencoded"},
             timeout=10,
         )
-        resp.raise_for_status()
+        if resp.status_code != 200:
+            # 사유를 삼키면 V5(IP 허용목록) 같은 문제를 화면에서 진단할 수 없다.
+            # 본문에 비밀키는 실리지 않으므로 상태코드와 함께 앞부분만 남긴다.
+            logger.warning(f"[toss] 토큰 발급 실패 HTTP {resp.status_code}: {resp.text[:200]}")
+            return None
         data = resp.json()
         token = data.get("access_token")
         if not token:
+            logger.warning(f"[toss] 토큰 응답에 access_token 없음: {resp.text[:200]}")
             return None
         expires_in = int(data.get("expires_in", 3600))
         _token_cache["token"] = token
         _token_cache["expires_at"] = now + expires_in
         return token
-    except Exception:
+    except Exception as e:
+        logger.warning(f"[toss] 토큰 발급 예외: {type(e).__name__}: {str(e)[:160]}")
         return None
 
 

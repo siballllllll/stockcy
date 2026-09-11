@@ -143,7 +143,7 @@ def main():
         print("   [DUE] 최신 적재가 5일 이상 밀렸다 — 스케줄러 재확인 필요.")
 
     # ── V5. 토스 Open API 접속 ──────────────────────────────────────────────
-    print(_hdr("V5", "토스 Open API 접속 — 실패 시 VPN 여부부터 확인"))
+    print(_hdr("V5", "토스 Open API 접속 — 전용 IP로 해결됨(2026-09-11)"))
     try:
         from dotenv import load_dotenv
         load_dotenv(os.path.join(BASE, ".env"))
@@ -153,10 +153,11 @@ def main():
         if ok:
             print("   [DONE] 호가창·최근체결·장운영 표시 정상.")
         else:
-            # 2026-09-04 사용자 확인: 원인은 VPN. 등록으로 풀 문제가 아니므로 조치를 권하지 말 것.
-            print("   [정보] 403 access_denied(IP not allowed) — 확인된 원인은 VPN이다.")
-            print("          집에서 VPN 없이 쓰면 정상. 개발자센터에 IP를 새로 등록하지 말 것")
-            print("          (VPN IP는 매번 바뀌어 등록해도 소용없다). VPN 여부부터 확인.")
+            # 2026-09-11: VPN 전용(고정) IP 89.187.161.5(일본)을 등록해 해결했다.
+            # 공용 출구 IP 시절의 "등록하지 말라"는 처방은 전용 IP에는 해당되지 않는다.
+            print("   [정보] 전용 IP가 바뀌었거나 해지됐을 가능성이 높다.")
+            print("          venv/Scripts/python scratch/toss_check.py 를 돌릴 것 —")
+            print("          현재 출구 IP를 찍어주고 등록 문제/국가 차단/키 문제를 갈라준다.")
             print("          이 상태에서는 개장일에도 '오늘 휴장'으로 잘못 표시된다(UI 미해결 과제).")
     except Exception as e:
         print(f"   [BLOCKED] 확인 실패: {str(e)[:80]}")
