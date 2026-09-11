@@ -161,19 +161,6 @@ def main():
     except Exception as e:
         print(f"   [BLOCKED] 확인 실패: {str(e)[:80]}")
 
-    # ── V6. AI 추천 적중률 파이프라인 ───────────────────────────────────────
-    print(_hdr("V6", "AI 추천 적중률 파이프라인 — 수집 자체가 되는지"))
-    rec = _one(cur, "SELECT COUNT(*), SUM(d7_return IS NOT NULL) FROM ai_recommendations")
-    print(f"   ai_recommendations {rec[0]}행 (d7 채워진 것 {rec[1] or 0}건)")
-    if rec[0] == 0:
-        print("   [DONE] 0행이지만 문제 없음 — v3.140.0에서 적중률 추적을 analysis_history로 옮겼다.")
-        print("          (데이터가 실제로 들어오는 쪽이 그쪽이다. V1이 그 결과를 판정한다.)")
-        print("          이 테이블과 track_ai_recommendation_outcomes는 유휴 상태로 남겨둔 것뿐.")
-    else:
-        print("   [DUE] 데이터가 쌓이는 중 — 적중률 산출 가능.")
-    print("   ⚠️ 남은 간극: 구형 log_ai_recommendation은 ML 학습샘플도 함께 적재했다.")
-    print("      analysis_history 경로에는 그게 없어, 종목분석은 ML 학습에 기여하지 않는다(V2와 별개 사안).")
-
     # ── V7. ML 학습에 종목분석 소스 편입 여부 ───────────────────────────────
     print(_hdr("V7", "ML 학습에 종목분석 소스(stock_analysis)를 편입할지"))
     sa = _one(cur, "SELECT COUNT(*), SUM(d7_return IS NOT NULL) FROM ml_training_samples "
@@ -209,31 +196,6 @@ def main():
     print("   통과 기준: 합본 AUC가 pattern 단독 대비 +0.03 이상 개선 → 편입.")
     print("   ⚠️ 유니버스가 거래대금·등락률 상위라 '시장 전체'가 아님. 볼륨이 커서 편입 시")
     print("      pattern이 묻힐 수 있고, 매일 재스캔되는 종목은 자기상관이 있다.")
-
-    # ── V9. 시나리오 확률 라운딩 ────────────────────────────────────────────
-    print(_hdr("V9", "시나리오 확률 라운딩 — 프롬프트 수정(v3.143.0) 효과"))
-    import re as _re
-    fixed_from = "2026-09-05"   # 프롬프트 수정 다음날부터 집계
-    vals = []
-    try:
-        for _d, js in cur.execute("SELECT scenario_date, scenario_json FROM agent_scenarios "
-                                  "WHERE scenario_date >= ?", (fixed_from,)):
-            vals += [int(x) for x in _re.findall(r'"probability_pct"\s*:\s*(\d+)', js or "")]
-    except Exception as e:
-        print(f"   조회 실패: {str(e)[:60]}")
-    if len(vals) < 20:
-        print(f"   수정 이후 표본 {len(vals)}개 — 20개 이상에서 판정.")
-        print("   [WAIT] 시나리오가 더 생성되기를 기다리는 중.")
-    else:
-        m5 = sum(1 for v in vals if v % 5 == 0)
-        rate = 100.0 * m5 / len(vals)
-        print(f"   수정 이후 {len(vals)}개 중 5의 배수 {m5}개 ({rate:.1f}%)  [수정 전 09-04: 100%]")
-        if rate <= 30:
-            print("   [DONE] 무작위 기대치 수준으로 회복 — 프롬프트가 원인이었던 것으로 판단.")
-        else:
-            print("   [DUE] 여전히 높다 — 프롬프트 문제가 아니다. 모델·파라미터 쪽을 의심할 것")
-            print("         (thinking_budget, temperature, gemini-2.5-flash 모델 드리프트).")
-    print("   통과 기준: 5의 배수 비율 30% 이하 (무작위 기대치는 20% 근처).")
 
     # ── V10. 촉매 모멘텀(섀도우 G·H) ────────────────────────────────────────
     print(_hdr("V10", "촉매 모멘텀(섀도우 G·H) — 사용자 실제 패턴의 전향 검증"))
@@ -286,8 +248,8 @@ def main():
     print("      미국 표본만 쌓이면 V10은 다른 질문에 답하게 된다(국내 30건이 본 판정).")
     print("   ⚠️ G/H는 진입이 동일하고 청산만 다른 쌍이다 — H를 지우면 청산 효과를 못 잰다.")
 
-    # ── V11. AI 비용 재측정 ─────────────────────────────────────────────────
-    print(_hdr("V11", "AI 비용 재측정 — 정상 운영 한 주 뒤"))
+    # ── V11. AI 비용 감시 (2026-09-11 판정 완료 → 상시 감시기로 전환) ──────
+    print(_hdr("V11", "AI 비용 — 월 1만원 문턱 감시"))
     # 09-04 측정치는 작업일(벤치마크·테스트)이 섞여 부풀려져 있었다. 09-07(월)부터 다시 센다.
     # 수동 스크립트 실행분(source=<module>)은 평상시 비용이 아니므로 제외.
     import collections as _col
@@ -296,6 +258,7 @@ def main():
     RATE = 1450  # 원/달러 (대략)
     log = os.path.join(BASE, "data_csv", "ai_usage.jsonl")
     daily = _col.defaultdict(lambda: _col.defaultdict(float))
+    by_src = _col.Counter()
     calls = _col.Counter()
     try:
         with open(log, encoding="utf-8") as f:
@@ -310,7 +273,9 @@ def main():
                 d = str(r.get("ts", ""))[:10]
                 if d < CLEAN_FROM or r.get("source") == "<module>":
                     continue
-                daily[d][r.get("provider", "?")] += float(r.get("cost_usd") or 0)
+                _c = float(r.get("cost_usd") or 0)
+                daily[d][r.get("provider", "?")] += _c
+                by_src[(r.get("provider", "?"), r.get("source") or "?")] += _c
                 calls[d] += 1
     except FileNotFoundError:
         print(f"   로그 없음: {log}")
@@ -328,13 +293,25 @@ def main():
         print(f"   일평균  OpenAI {ao:,.0f}원 / Gemini {ag:,.0f}원 / 합계 {ao + ag:,.0f}원")
         print(f"   월 환산(영업일 22일)  OpenAI {ao * 22:,.0f}원 / Gemini {ag * 22:,.0f}원 "
               f"/ 합계 {(ao + ag) * 22:,.0f}원")
+    month = ((ao + ag) * 22) if active else 0
+    if active:
+        tot = sum(by_src.values()) or 1e-9
+        top = by_src.most_common(5)
+        print("   비용 상위 출처")
+        for (prov, src), usd in top:
+            print(f"     {prov:<7} {src:<30} {usd * RATE:>6,.0f}원  {usd / tot * 100:>4.1f}%")
     if len(active) < 5:
         print(f"   [WAIT] 영업일 {len(active)}일 — 5일 이상 쌓이면 판정.")
-        print("          09-04 추정치(신뢰도 낮음): OpenAI 월 3,300원 / Gemini 월 1,400원")
+    elif month > 10000:
+        print(f"   [DUE] 월 환산 {month:,.0f}원 — 1만원 문턱을 넘었다. 위 상위 출처부터 줄일 것.")
+        print("         실측상 비용의 9할은 Gemini 시나리오·리서치 계열이다. 자율매매 스캔")
+        print("         (OpenAI, 호출 55%)은 호출만 많고 비용 비중은 1할 미만이라 여기가 아니다.")
     else:
-        print("   [DUE] 표본 충족 — 위 월 환산이 실제 비용이다.")
-        print("          월 1만원을 넘으면 줄일 곳은 자율매매 스캔 주기(INTERVAL_SECONDS)나")
-        print("          스캔 종목 수다. 촉매 판정(하루 3원 미만)이 아니다.")
+        print(f"   [DONE] 월 환산 {month:,.0f}원 — 1만원 문턱 아래. 넘으면 다시 알림이 뜬다.")
+        print("          2026-09-11 판정: 일평균 442원 / 월 9,731원. 비용의 91%가 Gemini이고")
+        print("          그중 시나리오(analyze_custom_issue·_deep_dive_issue) 44% + 리서치")
+        print("          워처 22%가 본체다. 자율매매 스캔은 호출의 55%인데 비용은 9%뿐 —")
+        print("          ⚠️ 원장에 적어뒀던 'INTERVAL_SECONDS를 줄여라'는 틀린 처방이었다.")
 
     c.close()
     print(f"\n{'─' * 74}")
@@ -362,11 +339,15 @@ def due_summary() -> tuple:
     cur_id = cur_title = None
     body = []
 
+    def _is_due(line: str) -> bool:
+        """상태 태그는 줄머리에만 온다 — 설명문에 적힌 '[DUE]' 글자에 속지 않게."""
+        return line.lstrip().startswith("[DUE]")
+
     def _flush():
-        if cur_id and any("[DUE]" in b for b in body):
+        if cur_id and any(_is_due(b) for b in body):
             ids.add(cur_id)
             keep = [b.strip() for b in body
-                    if "[DUE]" in b or b.strip().startswith("통과 기준")]
+                    if _is_due(b) or b.strip().startswith("통과 기준")]
             blocks.append(f"▸ {cur_id}. {cur_title}\n   " + "\n   ".join(keep[:3]))
 
     for line in buf.getvalue().split("\n"):

@@ -56,7 +56,24 @@ EXIT_DAYS = 10                # 타임스탑 (달력일 ≈ 7거래일, d7 호�
 EXIT_DAYS_FAST = 4            # SHADOW_G 전용 (달력일 ≈ 3거래일) — 아래 주석 참조
 CATALYST_MOM_LO = 3.0         # G/H 진입 모멘텀 하한 (리딩방 실측 p25 +0.2 ~ p75 +43)
 CATALYST_MOM_HI = 60.0        # 상한 — 이미 너무 간 것은 배제
-CATALYST_DAILY_LOOKUPS = 12   # 하루 검색 판정 상한 (비용 가드)
+CATALYST_DAILY_LOOKUPS = 40   # 하루 검색 판정 상한 (비용 가드) — 아래 _catalyst_budget_today 참조
+
+# [v3.172.0] 하루 단위 예산. 이전에는 이 리스트를 run_shadow_cycle이 사이클마다 새로
+# 만들어 상한이 사실상 '사이클당 12건'이었다 — 장중 사이클이 10회 넘게 돌므로 가드가
+# 없는 것과 같았다(09-07~09-11 실측 26~36건/일, 의도는 12건/일).
+# 값을 12로 되돌리지 않고 40으로 둔 것은 의도적이다: 실측 비용이 하루 30원(전체의 6.9%)로
+# 작은 반면, V10(촉매 모멘텀)이 실현 9건으로 표본 기근 상태라 조회를 3분의 1로 줄이면
+# 판정이 더 밀린다. V10이 끝나면 12로 내릴 것.
+_CATALYST_BUDGET = {"date": None, "left": [CATALYST_DAILY_LOOKUPS]}
+
+
+def _catalyst_budget_today() -> list:
+    """오늘자 촉매 조회 예산(잔여 1칸 리스트). 날짜가 바뀌면 자동 리셋."""
+    today = datetime.now().strftime("%Y-%m-%d")
+    if _CATALYST_BUDGET["date"] != today:
+        _CATALYST_BUDGET["date"] = today
+        _CATALYST_BUDGET["left"] = [CATALYST_DAILY_LOOKUPS]
+    return _CATALYST_BUDGET["left"]
 
 SHADOWS = ("SHADOW_A", "SHADOW_B", "SHADOW_C", "SHADOW_D", "SHADOW_E", "SHADOW_F",
            "SHADOW_G", "SHADOW_H")
@@ -341,10 +358,11 @@ def run_shadow_cycle(candidates: list, kr_open: bool, us_open: bool, force: bool
     conn = _conn(); cur = conn.cursor()
     # 사이클 공용 컨텍스트 — C(이슈 연관 맵)·D(수급 상위 집합) 판정용, 사이클당 1회 로드
     ctx = {"scenario_map": {}, "supply_set": set(),
-           # G/H 전용 — 촉매 검색은 유료라 사이클 내 캐시 + 하루 상한으로 통제한다.
+           # G/H 전용 — 촉매 검색은 유료라 사이클 내 캐시 + 하루 예산으로 통제한다.
+           # 예산은 모듈 전역(_catalyst_budget_today)이라 사이클을 넘겨 이어진다.
            # (ai_engine.catalyst_strength 자체도 (종목,날짜) 캐시를 갖지만, 그건 DB 왕복이라
            #  같은 사이클에서 G와 H가 같은 종목을 볼 때의 중복까지는 못 막는다.)
-           "catalyst_cache": {}, "catalyst_budget": [CATALYST_DAILY_LOOKUPS],
+           "catalyst_cache": {}, "catalyst_budget": _catalyst_budget_today(),
            "cur": cur,          # 촉매 판정 기록을 같은 커넥션에 쓰기 위함 (락 회피)
            "name_map": {str(c.get("ticker") or ""): (c.get("name") or "") for c in (candidates or [])}}
     try:
