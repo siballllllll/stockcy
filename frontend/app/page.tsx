@@ -597,7 +597,8 @@ function ConfluenceTab({ onSelect }: { onSelect: (s: StockInfo) => void }) {
     [allPicks, mkFilter]
   );
   const ENGINE_COLOR: Record<string, string> = {
-    "시나리오": "#a78bfa", "패턴스크리너": "#34d399", "에이전트": "#60a5fa", "AI추천": "#fbbf24",
+    "시나리오": "#a78bfa", "패턴스크리너": "#34d399", "에이전트": "#60a5fa",
+    "AI추천": "#fbbf24", "AI타점포착": "#f472b6",
   };
 
   // 현재가는 토스 일괄 조회 1회로 받는다(예전엔 국내 종목마다 1요청씩 보냈다).
@@ -641,7 +642,7 @@ function ConfluenceTab({ onSelect }: { onSelect: (s: StockInfo) => void }) {
       <RegimeBanner />
       <ExitGuidance />
       <div style={{ fontSize: "0.8rem", color: "var(--color-muted)", lineHeight: 1.6 }}>
-        🎯 여러 AI 엔진(시나리오·패턴스크리너·에이전트·AI추천)이 <b style={{ color: "var(--color-text)" }}>최근 {days}일 내 동시에</b> 잡은 종목입니다.
+        🎯 여러 AI 엔진(시나리오·패턴스크리너·AI타점포착·에이전트·AI추천)이 <b style={{ color: "var(--color-text)" }}>최근 {days}일 내 동시에</b> 잡은 종목입니다.
         독립 신호가 겹치면 승률이 높아진다는 <b style={{ color: "var(--color-text)" }}>가설</b>이며, 아래 실측 표가 그 가설을 검증합니다.
         점수(×N)는 겹친 엔진 수, 그 안의 순서는 신호 강도입니다.
       </div>
@@ -653,7 +654,7 @@ function ConfluenceTab({ onSelect }: { onSelect: (s: StockInfo) => void }) {
           {[3, 5, 7, 14].map(d => <button key={d} style={btn(days === d)} onClick={() => setDays(d)}>{d}일</button>)}
         </Group>
         <Group label="겹침">
-          {[2, 3].map(m => <button key={m} style={btn(minEngines === m)} onClick={() => setMinEngines(m)}>×{m}+</button>)}
+          {[2, 3, 4].map(m => <button key={m} style={btn(minEngines === m)} onClick={() => setMinEngines(m)}>×{m}+</button>)}
         </Group>
         <Group label="시장">
           {([["all", "전체"], ["kr", "국내"], ["us", "미국"]] as const).map(([v, l]) =>

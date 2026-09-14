@@ -633,6 +633,14 @@ async def realtime_picks_kr(req: RealtimePicksRequest, _credit: dict = Depends(c
                 return
             elapsed = time.monotonic() - t0_picks
             print(f"[KR-picks] generate_realtime_picks: {elapsed:.1f}s")
+            # [v3.174.0] 픽을 남긴다 — 예전에는 화면으로 흘려보내기만 해서 새로고침 한 번에
+            # 사라졌고 교차검증 엔진으로도 못 썼다. 적재 실패가 응답을 막지는 않게 감싼다.
+            try:
+                from db import save_realtime_picks
+                _n = await asyncio.to_thread(save_realtime_picks, result.get("picks") or [], "KR")
+                print(f"[KR-picks] 적재 {_n}건")
+            except Exception as _e:
+                print(f"[KR-picks] 적재 실패: {_e}")
             yield _sse({"status": "done", "result": result})
         except Exception as e:
             yield _sse({"status": "error", "message": str(e)})
@@ -731,6 +739,12 @@ async def realtime_picks_us(req: RealtimePicksRequest, _credit: dict = Depends(c
                 vol_rank,
                 chg_rank,
             )
+            try:
+                from db import save_realtime_picks
+                _n = await asyncio.to_thread(save_realtime_picks, result.get("picks") or [], "US")
+                print(f"[US-picks] 적재 {_n}건")
+            except Exception as _e:
+                print(f"[US-picks] 적재 실패: {_e}")
             yield _sse({"status": "done", "result": result})
         except Exception as e:
             yield _sse({"status": "error", "message": str(e)})

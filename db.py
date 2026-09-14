@@ -293,6 +293,31 @@ def init_local_db():
         )
     """)
 
+    # [v3.174.0] AI 타점 포착 결과 적재. 예전에는 SSE로 화면에 흘려보내기만 하고 저장하지
+    # 않아, 돈을 들여 만든 픽이 새로고침 한 번에 사라졌고 교차검증 엔진으로도 쓸 수 없었다.
+    # 같은 날 같은 종목을 다시 잡으면 무시한다(UNIQUE) — 하루에 여러 번 돌려도 1회로 센다.
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS realtime_picks (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            picked_date TEXT,
+            picked_at TEXT,
+            ticker TEXT,
+            name TEXT,
+            market TEXT,
+            rank INTEGER,
+            pattern TEXT,
+            theme TEXT,
+            urgency TEXT,
+            horizon TEXT,
+            price REAL,
+            entry REAL,
+            target REAL,
+            stop REAL,
+            from_search INTEGER DEFAULT 0,
+            UNIQUE(picked_date, ticker)
+        )
+    """)
+
     # [v3.173.0] 교차검증 픽의 사후 성과 원장. 화면은 "겹칠수록 승률이 높다"고 단언해 왔지만
     # 그 주장은 한 번도 측정된 적이 없었다. 여기에 픽과 **대조군**(패턴스크리너 단독)을 같이
     # 쌓아 d1/d3/d7을 비교한다. 겹친 쪽이 더 낫지 않으면 이 탭의 전제가 틀린 것이다.
@@ -4582,6 +4607,11 @@ def evaluate_feature_reliability(rsi=None, ma_aligned=None, vol_ratio=None, pos_
 #    confluence_log에 사후 수익률이 쌓이면 그 실측으로 다시 정할 것 — VERIFY.md V14.
 _W_SCENARIO = 0.30                                   # 통과 폭이 넓어 낮게
 _RATING_W = {"추천": 1.0, "중간추천": 0.6}            # analysis_history의 실제 등급값
+# AI 타점 포착은 한 번에 3종목만 고르는 좁은 엔진이라 높게 본다. 순위가 곧 확신도다.
+_PICK_RANK_W = {1: 1.0, 2: 0.85, 3: 0.7}
+# 다만 구글 검색으로 후보군 밖에서 끌어온 픽(from_search)은 사전 시그널 검증을 거치지
+# 않았으므로 한 단계 깎는다 — 프롬프트가 그 경우를 따로 표시하게 돼 있다.
+_PICK_SEARCH_PENALTY = 0.15
 
 def load_confluence_picks(days: int = 5, min_engines: int = 2) -> list:
     """교차검증(컨플루언스) 픽 — 여러 AI 엔진이 최근 동시에 잡은 종목을 점수화.
@@ -4686,6 +4716,28 @@ def load_confluence_picks(days: int = 5, min_engines: int = 2) -> list:
             _add_priced(a, r.get("analysis_time"), r.get("current_price"))
             _strength(a, "AI추천", _RATING_W.get(rating.strip(), 0.6))
 
+        # 5. AI 타점 포착 (v3.174.0) — 당시가: price(포착 시 현재가)
+        # 하루 3종목만 고르는 가장 좁은 엔진이라, 겹치면 신호가 세다고 본다.
+        try:
+            cur.execute("SELECT ticker, name, market, rank, pattern, urgency, price, from_search, "
+                        "picked_date FROM realtime_picks WHERE picked_date >= ?", (cutoff,))
+            for r in cur.fetchall():
+                r = dict(r); k = _norm(r["ticker"]); a = agg[k]
+                a["name"] = a["name"] or r["name"]; a["market"] = a["market"] or _mkt(k, r.get("market"))
+                _rk = r.get("rank") or 0
+                _det = " ".join(x for x in (r.get("pattern") or "", r.get("urgency") or "") if x).strip()
+                a["engines"].add("AI타점포착")
+                a["detail"].setdefault("AI타점포착", (f"{_rk}순위 " if _rk else "") + _det)
+                _add_date(a, "AI타점포착", r.get("picked_date"))
+                _add_priced(a, r.get("picked_date"), r.get("price"))
+                _w = _PICK_RANK_W.get(_rk, 0.7)
+                if r.get("from_search"):
+                    _w -= _PICK_SEARCH_PENALTY
+                _strength(a, "AI타점포착", _w)
+        except Exception as e:
+            # 테이블이 아직 없을 수 있다(구버전 DB) — 이 엔진만 빠지고 나머지는 살린다.
+            print(f"[confluence] AI타점포착 조회 건너뜀: {e}")
+
         conn.close()
     except Exception as e:
         print(f"load_confluence_picks error: {e}")
@@ -4733,12 +4785,93 @@ def load_confluence_picks(days: int = 5, min_engines: int = 2) -> list:
 
 
 
+
+def save_realtime_picks(picks: list, market: str = "KR") -> int:
+    """AI 타점 포착 결과를 적재한다. 반환값 = 실제로 새로 들어간 행 수.
+
+    KR은 종목코드가 `code`, US는 `ticker` 키로 온다 — 둘 다 받는다.
+    숫자 필드는 AI가 문자열로 줄 때가 있어 전부 _f()로 통과시킨다.
+    """
+    if not picks:
+        return 0
+    from datetime import datetime as _dt
+    now = _dt.now()
+    today = now.strftime("%Y-%m-%d")
+    stamp = now.strftime("%Y-%m-%d %H:%M:%S")
+    mk = "kr" if str(market).upper() in ("KR", "국내") else "us"
+
+    def _f(v):
+        try:
+            f = float(str(v).replace(",", "").strip())
+            return f if f > 0 else None
+        except (TypeError, ValueError):
+            return None
+
+    payload = []
+    for p in picks:
+        if not isinstance(p, dict):
+            continue
+        raw = str(p.get("code") or p.get("ticker") or "").strip()
+        if not raw:
+            continue
+        ticker = raw.zfill(6) if (mk == "kr" and raw.isdigit()) else raw.upper()
+        try:
+            rank = int(p.get("rank") or 0)
+        except (TypeError, ValueError):
+            rank = 0
+        payload.append((today, stamp, ticker, p.get("name") or ticker, mk, rank,
+                        p.get("pattern") or "", p.get("theme") or "",
+                        p.get("urgency") or "", p.get("horizon") or "",
+                        _f(p.get("current_price")), _f(p.get("entry")),
+                        _f(p.get("target")), _f(p.get("stop")),
+                        1 if p.get("from_search") else 0))
+    if not payload:
+        return 0
+
+    conn = get_db_conn(); cur = conn.cursor()
+    try:
+        before = cur.execute("SELECT COUNT(*) FROM realtime_picks").fetchone()[0]
+        cur.executemany(
+            """INSERT OR IGNORE INTO realtime_picks
+               (picked_date, picked_at, ticker, name, market, rank, pattern, theme,
+                urgency, horizon, price, entry, target, stop, from_search)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""", payload)
+        conn.commit()
+        after = cur.execute("SELECT COUNT(*) FROM realtime_picks").fetchone()[0]
+        return after - before
+    except Exception as e:
+        print(f"[realtime picks] 적재 실패: {e}")
+        return 0
+    finally:
+        conn.close()
+
+
+def load_realtime_picks(days: int = 7, market: str = None) -> list:
+    """최근 적재된 AI 타점 포착 픽."""
+    from datetime import datetime as _dt, timedelta as _td
+    cutoff = (_dt.now() - _td(days=days)).strftime("%Y-%m-%d")
+    conn = get_db_conn(); cur = conn.cursor()
+    try:
+        if market:
+            cur.execute("SELECT * FROM realtime_picks WHERE picked_date >= ? AND market = ? "
+                        "ORDER BY picked_date DESC, rank ASC", (cutoff, str(market).lower()))
+        else:
+            cur.execute("SELECT * FROM realtime_picks WHERE picked_date >= ? "
+                        "ORDER BY picked_date DESC, rank ASC", (cutoff,))
+        return [dict(r) for r in cur.fetchall()]
+    except Exception as e:
+        print(f"[realtime picks] 조회 실패: {e}")
+        return []
+    finally:
+        conn.close()
+
+
 def snapshot_confluence_picks(days: int = 7) -> dict:
     """교차검증 픽과 대조군을 confluence_log에 1회씩 적재(일일 작업에서 호출).
 
     무엇을 대조군으로 두나. '겹친 것이 정말 더 나은가'를 재려면 **겹치지 않은 같은 종류의 픽**이
-    필요하다. 여기서는 **패턴스크리너 단독**(score=1)을 대조군으로 쓴다 — 최근 7일 기준
-    17종목 남짓으로 규모가 비슷하고, 겹침 여부만 다르기 때문이다.
+    필요하다. 여기서는 **좁은 엔진의 단독 픽**(패턴스크리너 / AI타점포착, score=1)을 대조군으로
+    쓴다 — 규모가 비슷하고(주당 수십 종목 이하) 겹침 여부만 다르기 때문이다.
     시나리오 단독은 대조군으로 쓰지 않는다(400종목이라 '픽'이라고 부를 수 없다).
 
     종목당 1회만 남긴다(UNIQUE(ticker, event_date)). 같은 종목이 7일 내내 목록에 떠도
@@ -4746,7 +4879,11 @@ def snapshot_confluence_picks(days: int = 7) -> dict:
     """
     from datetime import datetime as _dt
     rows = load_confluence_picks(days=days, min_engines=1)
-    keep = [r for r in rows if r["score"] >= 2 or "패턴스크리너" in r["engines"]]
+    # 대조군에 AI타점포착 단독도 넣는다 — 하루 3종목짜리 좁은 엔진이라 '픽'이라 부를 수 있고,
+    # 겹치지 않은 픽이 겹친 픽보다 나쁜지를 재는 데 딱 맞는 표본이다.
+    _NARROW = ("패턴스크리너", "AI타점포착")
+    keep = [r for r in rows
+            if r["score"] >= 2 or any(e in r["engines"] for e in _NARROW)]
     now = _dt.now().strftime("%Y-%m-%d %H:%M:%S")
     payload = []
     for r in keep:
@@ -4813,7 +4950,7 @@ def confluence_hit_rate() -> dict:
     groups = [
         _grp([r for r in rows if (r["score"] or 0) >= 3], "교차검증 ×3+"),
         _grp([r for r in rows if (r["score"] or 0) == 2], "교차검증 ×2"),
-        _grp([r for r in rows if (r["score"] or 0) <= 1], "대조군(패턴스크리너 단독)"),
+        _grp([r for r in rows if (r["score"] or 0) <= 1], "대조군(단일 엔진 픽)"),
     ]
     return {"total": len(rows), "groups": groups}
 
