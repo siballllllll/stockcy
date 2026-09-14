@@ -707,19 +707,21 @@ function SearchPageInner() {
     }
   };
 
-  // ── 타점 보드 판정 (v3.176.0 전면 개편) ──────────────────────────────────
-  // [왜 고쳤나] 예전 네 보드는 입력이 숫자 한두 개뿐이었다 — 극단타·단기가 **둘 다 당일
-  // 등락률 하나**를 보고(같은 숫자를 두 번 말함), 장기는 **PER 하나**만 봤다. 그래서 AI
-  // 종목분석(수급·지표·뉴스 종합)과 계속 어긋났다. 사용자 신고: "중장기는 적정/추천인데
-  // AI 분석에 들어가면 진입불가라고 나온다."
+  // ── 타점 보드 판정 (v3.177.0 — 판정에서 상태 서술로) ──────────────────────
+  // [왜 또 고쳤나] v3.176.0에서 입력은 제대로 갈랐지만 보드가 여전히 "관심·자제·권장"
+  // 처럼 **행동을 지시**했다. 그래서 AI가 "진입 타점 없음"이라고 하면 같은 기간에 대해
+  // 정면으로 부딪쳤다 — 사용자 지적: "여전히 다르다는 건 일관성이 없다는 거 아닌가?"
+  // 맞는 지적이다. 기간이 다른 충돌(장기 저평가 + 단기 진입 불가)은 정보지만,
+  // **같은 기간에서 반대면 둘 중 하나가 틀린 것**이지 정보가 아니다.
   //
-  // [원칙] 보드는 AI를 흉내 내지 않는다. 지표 기반의 **빠른 참고**로 남기되,
-  //  ① 기간마다 다른 입력을 쓰고 ② 무엇을 보고 판정했는지 화면에 적고
-  //  ③ AI 등급이 있으면 나란히 띄워 어느 쪽이 종합 판단인지 알 수 있게 한다.
+  // [해법] 겨루기를 붙이지 않았다. 보드가 보는 것(RSI·MA·52주)은 AI도 전부 보므로
+  // 둘은 대등한 경쟁자가 아니라 부분집합 대 전체집합이고, 짝지은 표본을 쌓으려면
+  // AI 분석(과금·수동)을 계속 돌려야 해서 현실적으로도 잘 안 쌓인다.
+  // 대신 **판정 주체를 하나로 줄였다**: 보드는 '지금 차트가 어떤 상태인가'만 말하고,
+  // 사라/마라는 AI만 말한다. 그러면 모순이 생길 자리가 없어진다.
   //
-  // ⚠️ "당일 +5% = 강력 추천" 규칙은 삭제했다. 이 저장소 자체 실측이 반박한다 —
-  //    섀도우 리그에서 모멘텀 추격(F)은 승률 29.7%로 랜덤(32.0%)보다 나을 게 없었다.
-  //    급등은 '추천'이 아니라 '추격 주의'로 표시한다.
+  // ⚠️ 이건 "AI가 더 정확하다"는 주장이 아니다(그건 아직 측정된 적 없다). 역할 분담이다.
+  //    라벨에 행동 지시어(관심/자제/추천/권장/대응/분할)를 다시 넣지 말 것.
   const ind: any = indicators && indicators.ok ? indicators : null;
   const mlx: any = ind?.ml_extra || {};
   const num = (v: any): number | null => (typeof v === "number" && !isNaN(v) ? v : null);
@@ -729,11 +731,10 @@ function SearchPageInner() {
   const ma60v = num(ind?.ma60);
   const mom5 = num(mlx.mom_5);
   const atrPct = num(mlx.atr_pct);
-  const bbPctB = num(mlx.bb_pctb);
 
   const bandPos = (() => {
     const p52 = num(ind?.pos_52w_pct);
-    if (p52 != null) return Math.round(p52);   // 지표 쪽이 있으면 그 값을 쓴다(차트와 동일 소스)
+    if (p52 != null) return Math.round(p52);   // 지표 쪽이 있으면 그 값(차트와 동일 소스)
     const hi = w52High || price || 1;
     const lo = w52Low || 1;
     if (hi <= lo) return 50;
@@ -748,72 +749,61 @@ function SearchPageInner() {
     return Math.round(((price - lo) / (hi - lo)) * 100);
   })();
 
-  const NEED = "지표 조회 실패 — 판정 보류";
+  const NEED = "지표를 못 받았습니다";
 
-  // 극단타(당일): 등락률이 아니라 **당일 캔들 위치·거래량·변동폭**을 본다.
+  // 극단타(당일): 당일 캔들 위치 · 거래량비 · 일중 변동폭
   const etBoard = (() => {
-    const basis = "당일 캔들 위치 · 거래량비 · 일중 변동폭(ATR)";
+    const basis = "당일 캔들 위치 · 거래량비 · 일중 변동폭";
     if (dayPos == null || volRatio == null)
-      return { label: "⚪ 판정 보류", color: "#888", desc: NEED, basis };
+      return { label: "⚪ 상태 불명", color: "#888", desc: NEED, basis };
+    const vol = `거래량 ${volRatio.toFixed(1)}배`;
+    const atr = atrPct != null ? ` · 변동폭 ${atrPct.toFixed(1)}%` : "";
     if (atrPct != null && atrPct < 1.5 && volRatio < 1.2)
-      return { label: "⚪ 극단타 부적합", color: "#888",
-               desc: `변동폭 ${atrPct.toFixed(1)}% · 거래량 평소의 ${volRatio.toFixed(1)}배 — 수수료 빼면 남는 게 없다`, basis };
+      return { label: "⚪ 거래 한산", color: "#888", desc: `당일 ${dayPos}% · ${vol}${atr}`, basis };
     if (dayPos >= 80 && volRatio >= 2)
-      return { label: "🟠 고점권 · 추격 주의", color: "#fb923c",
-               desc: `당일 고가권(${dayPos}%)에 거래량 ${volRatio.toFixed(1)}배 — 돌파일 수도, 막차일 수도. 추격 진입은 손절선 먼저`, basis };
+      return { label: "🟠 당일 고가권", color: "#fb923c", desc: `당일 ${dayPos}% · ${vol}${atr}`, basis };
     if (dayPos <= 30 && volRatio >= 1.5)
-      return { label: "🔵 저가권 반등 관찰", color: "#2b7cff",
-               desc: `당일 저가권(${dayPos}%)에 거래량 ${volRatio.toFixed(1)}배 — 반등 캔들 확인 후 대응`, basis };
+      return { label: "🔵 당일 저가권", color: "#2b7cff", desc: `당일 ${dayPos}% · ${vol}${atr}`, basis };
     if (volRatio < 1)
-      return { label: "🟡 극단타 관망", color: "#ffd600",
-               desc: `거래량이 평소의 ${volRatio.toFixed(1)}배 — 에너지 부족, 신호 대기`, basis };
-    return { label: "🟡 극단타 관망", color: "#ffd600",
-             desc: `당일 위치 ${dayPos}% · 거래량 ${volRatio.toFixed(1)}배 — 방향 미확정`, basis };
+      return { label: "🟡 거래량 평소 이하", color: "#ffd600", desc: `당일 ${dayPos}% · ${vol}${atr}`, basis };
+    return { label: "🟡 당일 중간권", color: "#ffd600", desc: `당일 ${dayPos}% · ${vol}${atr}`, basis };
   })();
 
-  // 단기(1~5일): 5일 모멘텀 · MA20 이격 · RSI. 눌림목과 과열을 가른다.
+  // 단기(1~5일): 5일 모멘텀 · MA20 이격 · RSI
   const stBoard = (() => {
     const basis = "5일 모멘텀 · MA20 이격 · RSI";
     if (mom5 == null || gapMa20 == null || rsi == null)
-      return { label: "⚪ 판정 보류", color: "#888", desc: NEED, basis };
+      return { label: "⚪ 상태 불명", color: "#888", desc: NEED, basis };
+    const f = `MA20 ${gapMa20 >= 0 ? "+" : ""}${gapMa20.toFixed(1)}% · RSI ${rsi.toFixed(0)} · 5일 ${mom5 >= 0 ? "+" : ""}${mom5.toFixed(1)}%`;
     if (rsi >= 75 || gapMa20 >= 12)
-      return { label: "🔴 과열 · 진입 자제", color: "#ff4b4b",
-               desc: `RSI ${rsi.toFixed(0)} · MA20 +${gapMa20.toFixed(1)}% — 되돌림 위험 구간`, basis };
+      return { label: "🔴 과열 구간", color: "#ff4b4b", desc: f, basis };
     if (mom5 >= 15)
-      return { label: "🟠 급등 · 추격 주의", color: "#fb923c",
-               desc: `5일 +${mom5.toFixed(1)}% — 실측상 급등 추격은 랜덤보다 낫지 않았다(승률 29.7% vs 32.0%)`, basis };
+      return { label: "🟠 급등 구간", color: "#fb923c", desc: f, basis };
     if (gapMa20 <= -3 && rsi >= 30 && rsi <= 55 && mom5 > -12)
-      return { label: "🟢 눌림목 관심", color: "#00c853",
-               desc: `MA20 ${gapMa20.toFixed(1)}% · RSI ${rsi.toFixed(0)} — 과매도 아닌 눌림, 지지 확인 후 분할`, basis };
+      return { label: "🟢 눌림 구간", color: "#00c853", desc: `${f} · 20일선 아래 · 과매도 아님`, basis };
     if (mom5 <= -12 || (ind?.ma_aligned === false && rsi < 35))
-      return { label: "🔴 하락 추세", color: "#ff4b4b",
-               desc: `5일 ${mom5.toFixed(1)}% · RSI ${rsi.toFixed(0)} — 반등 근거 생기기 전 진입 비권장`, basis };
-    return { label: "🟡 단기 관망", color: "#ffd600",
-             desc: `5일 ${mom5 >= 0 ? "+" : ""}${mom5.toFixed(1)}% · MA20 ${gapMa20 >= 0 ? "+" : ""}${gapMa20.toFixed(1)}% · RSI ${rsi.toFixed(0)}`, basis };
+      return { label: "🔴 하락 추세", color: "#ff4b4b", desc: f, basis };
+    return { label: "🟡 중립 구간", color: "#ffd600", desc: f, basis };
   })();
 
-  // 중기(수주~수개월): 52주 위치 · MA60 위치 · PBR.
+  // 중기(수주~수개월): 52주 위치 · MA60 이격 · PBR
   const mtBoard = (() => {
     const gap60 = ma60v && price ? (price / ma60v - 1) * 100 : null;
     const basis = "52주 위치 · MA60 이격" + (pbr > 0 ? " · PBR" : "");
     const g = gap60 != null ? ` · MA60 ${gap60 >= 0 ? "+" : ""}${gap60.toFixed(1)}%` : "";
+    const f = `52주 ${bandPos}%${g}` + (pbr > 0 ? ` · PBR ${pbr.toFixed(2)}` : "");
     if (bandPos >= 85 && (gap60 == null || gap60 > 0))
-      return { label: "🔴 중기 고평가권", color: "#ff4b4b",
-               desc: `52주 ${bandPos}% 고점권${g} — 신규 진입 부담`, basis };
+      return { label: "🔴 52주 고점권", color: "#ff4b4b", desc: f, basis };
     if (bandPos <= 25 && gap60 != null && gap60 < -10)
-      return { label: "🟠 중기 저점권 · 추세 약함", color: "#fb923c",
-               desc: `52주 ${bandPos}%${g} — 싸 보이지만 60일선 아래, 바닥 확인 필요`, basis };
+      return { label: "🟠 저점권 · 60일선 아래", color: "#fb923c", desc: f, basis };
     if (bandPos <= 35 && (gap60 == null || gap60 >= -5))
-      return { label: "🟢 중기 매수 관심", color: "#00c853",
-               desc: `52주 ${bandPos}% 저점권인데 60일선 회복권${g} — 분할 매수 고려`, basis };
+      return { label: "🟢 저점권 · 60일선 회복권", color: "#00c853", desc: f, basis };
     if (pbr > 0 && pbr < 1 && bandPos < 60)
-      return { label: "🟢 중기 저평가", color: "#00c853",
-               desc: `PBR ${pbr.toFixed(2)} (자산가치 이하) · 52주 ${bandPos}%${g}`, basis };
-    return { label: "🟡 중기 중립", color: "#ffd600",
-             desc: `52주 ${bandPos}%${g} — 방향성 확인 후 대응`, basis };
+      return { label: "🟢 자산가치 이하", color: "#00c853", desc: f, basis };
+    return { label: "🟡 중간권", color: "#ffd600", desc: f, basis };
   })();
 
-  // 장기: PER 단독에서 벗어난다. 적자 여부를 가장 먼저 본다.
+  // 장기: 적자 여부 · PER · PBR · 배당
   const ltBoard = (() => {
     const eps = parseFloat(String(stockData?.eps ?? "0").replace(/[^0-9.-]/g, "")) || 0;
     const dy = parseFloat(String(stockData?.dividend_yield ?? "0").replace(/[^0-9.-]/g, "")) || 0;
@@ -824,26 +814,23 @@ function SearchPageInner() {
     const tail = parts.join(" · ");
     const basis = "적자 여부 · PER · PBR · 배당수익률";
     // ⚠️ '데이터 없음'과 '적자'는 다르다. PER·EPS가 0으로 들어오는 건 대개 미제공이며
-    //    (지주사·신규상장·해외종목에서 흔하다), 이걸 적자로 단정하면 멀쩡한 종목에
-    //    빨간 경고가 붙는다. 음수일 때만 적자로 본다.
+    //    (지주사·신규상장·해외종목에서 흔하다), 적자로 단정하면 멀쩡한 종목에 빨간 딱지가 붙는다.
     const hasEps = Number.isFinite(eps) && eps !== 0;
     const hasPer = per > 0;
     if (hasEps && eps < 0)
-      return { label: "🔴 장기 적자", color: "#ff4b4b",
-               desc: `EPS ${eps} — 이익이 없어 밸류 판단 불가, 흑자 전환 확인 필요`, basis };
+      return { label: "🔴 적자", color: "#ff4b4b", desc: `EPS ${eps} — 이익이 없어 밸류 산출 불가`, basis };
     if (!hasPer)
-      return { label: "⚪ 장기 판정 보류", color: "#888",
-               desc: hasEps ? `PER 미제공 (EPS ${eps}) — 밸류 판정 불가` : "PER·EPS 데이터 미제공 — 밸류 판정 불가", basis };
+      return { label: "⚪ 밸류 데이터 없음", color: "#888",
+               desc: hasEps ? `PER 미제공 (EPS ${eps})` : "PER·EPS 미제공", basis };
     if (per < 10 && pbr > 0 && pbr < 1.5)
-      return { label: "🟢 장기 저평가", color: "#00c853", desc: `${tail} — 이익·자산 모두 싼 편`, basis };
+      return { label: "🟢 저PER · 저PBR 구간", color: "#00c853", desc: tail, basis };
     if (per < 10)
-      return { label: "🟡 장기 저PER · 확인 필요", color: "#ffd600",
-               desc: `${tail} — PER은 낮지만 PBR이 높다. 일회성 이익인지 확인`, basis };
+      return { label: "🟡 저PER · 고PBR 구간", color: "#ffd600", desc: `${tail} — 일회성 이익 여부 확인 필요`, basis };
     if (per < 25)
-      return { label: "🟢 장기 적정", color: "#00c853", desc: `${tail} — 무난한 밸류에이션`, basis };
+      return { label: "🟢 적정 밸류 구간", color: "#00c853", desc: tail, basis };
     if (per < 50)
-      return { label: "🟡 장기 성장 프리미엄", color: "#ffd600", desc: `${tail} — 성장 기대가 반영된 가격`, basis };
-    return { label: "🔴 장기 고평가", color: "#ff4b4b", desc: `${tail} — 실적이 따라와야 정당화되는 구간`, basis };
+      return { label: "🟡 성장 프리미엄 구간", color: "#ffd600", desc: tail, basis };
+    return { label: "🔴 고평가 구간", color: "#ff4b4b", desc: tail, basis };
   })();
 
   // 1. AI 실시간 쉐도우 섹터 & 팩트 진단 연동
@@ -1480,17 +1467,19 @@ function SearchPageInner() {
                 <Bell size={14} /> 실시간 가격 알림 설정
               </button>
 
-              {/* 타점 보드 */}
+              {/* 타점 보드 — 기간별 '차트 상태' 표시. 사라/마라는 아래 AI 한 곳에서만. */}
               <div style={{ marginTop: "auto" }}>
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: "6px" }}>
                   {[
-                    { title: "극단타", board: etBoard },
-                    { title: "단기",   board: stBoard },
-                    { title: "중기",   board: mtBoard },
-                    { title: "장기",   board: ltBoard },
-                  ].map(({ title, board }) => (
+                    { title: "극단타", sub: "당일",        board: etBoard },
+                    { title: "단기",   sub: "1~5일",       board: stBoard },
+                    { title: "중기",   sub: "수주~수개월",  board: mtBoard },
+                    { title: "장기",   sub: "밸류",        board: ltBoard },
+                  ].map(({ title, sub, board }) => (
                     <div key={title} style={{ background: "rgba(255,255,255,0.03)", border: `1px solid ${board.color}`, borderRadius: "6px", padding: "8px" }}>
-                      <div style={{ fontSize: "0.75rem", color: "var(--color-muted)", marginBottom: "2px" }}>{title}</div>
+                      <div style={{ fontSize: "0.75rem", color: "var(--color-muted)", marginBottom: "2px" }}>
+                        {title} <span style={{ fontSize: "0.62rem", opacity: 0.65 }}>{sub}</span>
+                      </div>
                       <div style={{ fontWeight: 700, fontSize: "0.78rem", color: board.color, marginBottom: "4px" }}>{board.label}</div>
                       <div style={{ fontSize: "0.68rem", color: "var(--color-subtle)", lineHeight: 1.3 }}>{board.desc}</div>
                       {board.basis && (
@@ -1502,24 +1491,39 @@ function SearchPageInner() {
                   ))}
                 </div>
 
-                {/* 보드는 지표 몇 개만 본다 — AI 종합 판단과 어긋날 수 있음을 화면에 밝힌다 */}
-                <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", alignItems: "center", marginTop: "6px", fontSize: "0.64rem", color: "var(--color-subtle)" }}>
-                  <span>ℹ️ 위 4칸은 <b style={{ color: "var(--color-muted)" }}>지표 몇 개로 낸 빠른 참고</b>입니다. 뉴스·수급·공시는 보지 않습니다.</span>
-                  {aiVerdict && (
-                    <span style={{ display: "inline-flex", alignItems: "center", gap: "5px", padding: "2px 8px", borderRadius: "99px", background: "rgba(99,102,241,0.12)", border: "1px solid rgba(99,102,241,0.35)" }}>
-                      <b style={{ color: "#a5b4fc" }}>AI 종합</b>
-                      <span style={{ color: "var(--color-text)", fontWeight: 700 }}>{aiVerdict["등급"]}</span>
-                      {aiVerdict["중장기등급"] && <span style={{ color: "var(--color-muted)" }}>· 중장기 {aiVerdict["중장기등급"]}</span>}
-                      {aiVerdict["매수구간"] && <span style={{ color: "var(--color-muted)" }}>· {aiVerdict["매수구간"]}</span>}
-                      <span style={{ opacity: 0.7 }}>({String(aiVerdict["분석시간"]).slice(5, 10)})</span>
-                    </span>
+                <div style={{ fontSize: "0.62rem", color: "var(--color-subtle)", marginTop: "5px" }}>
+                  위 4칸은 <b style={{ color: "var(--color-muted)" }}>지금 차트가 어떤 상태인지</b>만 말합니다 (뉴스·수급·공시는 보지 않음).
+                  색은 상태의 성격입니다 — 🟢 지지·저평가권 / 🟡 중립 / 🟠 주의 구간 / 🔴 과열·하락·고평가 / ⚪ 판정 불가.
+                </div>
+
+                {/* 사라/마라를 말하는 유일한 곳 */}
+                <div style={{ marginTop: "8px", padding: "10px 12px", borderRadius: "8px",
+                              background: "rgba(99,102,241,0.09)", border: "1px solid rgba(99,102,241,0.32)" }}>
+                  <div style={{ fontSize: "0.72rem", fontWeight: 800, color: "#a5b4fc", marginBottom: "3px" }}>
+                    🤖 AI 종합 판단 <span style={{ fontWeight: 500, color: "var(--color-muted)" }}>— 사라/마라는 여기 하나만 봅니다</span>
+                  </div>
+                  {aiVerdict ? (
+                    <>
+                      <div style={{ fontSize: "0.8rem", fontWeight: 700, color: "var(--color-text)" }}>
+                        {aiVerdict["등급"]}
+                        {aiVerdict["중장기등급"] && <span style={{ fontWeight: 500, color: "var(--color-muted)" }}> · 중장기 {aiVerdict["중장기등급"]}</span>}
+                      </div>
+                      {aiVerdict["매수구간"] && (
+                        <div style={{ fontSize: "0.7rem", color: "var(--color-muted)", marginTop: "2px" }}>
+                          매수구간 {aiVerdict["매수구간"]}
+                          {aiVerdict["목표가"] && <> · 목표 {aiVerdict["목표가"]}</>}
+                        </div>
+                      )}
+                      <div style={{ fontSize: "0.62rem", color: "var(--color-subtle)", marginTop: "4px" }}>
+                        {String(aiVerdict["분석시간"]).slice(0, 16)} 분석 · 뉴스·수급·공시까지 본 결과입니다.
+                        위 4칸과 달라도 모순이 아닙니다 — 4칸은 차트 상태만, 여기는 판단입니다.
+                      </div>
+                    </>
+                  ) : (
+                    <div style={{ fontSize: "0.7rem", color: "var(--color-muted)" }}>
+                      아직 이 종목의 AI 분석 이력이 없습니다. 아래 <b style={{ color: "var(--color-text)" }}>AI RAG 실시간 분석</b>을 돌리면 여기에 표시됩니다.
+                    </div>
                   )}
-                  {aiVerdict && (
-                    <span style={{ color: "var(--color-muted)" }}>
-                      — 어긋나면 <b style={{ color: "var(--color-text)" }}>AI 쪽이 종합 판단</b>입니다(보드는 지표만 봅니다).
-                    </span>
-                  )}
-                  {!aiVerdict && <span>AI 종목분석을 돌리면 여기에 종합 등급이 함께 표시됩니다.</span>}
                 </div>
               </div>
 
