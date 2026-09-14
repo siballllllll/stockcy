@@ -314,6 +314,43 @@ def main():
         print("          워처 22%가 본체다. 자율매매 스캔은 호출의 55%인데 비용은 9%뿐 —")
         print("          ⚠️ 원장에 적어뒀던 'INTERVAL_SECONDS를 줄여라'는 틀린 처방이었다.")
 
+    # ── V14. 교차검증이 정말 승률을 올리는가 ────────────────────────────────
+    print(_hdr("V14", "교차검증(컨플루언스) — 겹친 픽이 대조군보다 나은가"))
+    try:
+        from db import confluence_hit_rate
+        perf = confluence_hit_rate()
+        rows = [g for g in perf.get("groups", []) if g.get("n")]
+        if not rows:
+            print("   [WAIT] 원장이 비어 있다 — 일일 작업이 한 번 돌면 쌓인다.")
+        else:
+            for g in rows:
+                d7 = g.get("d7") or {}
+                d3 = g.get("d3") or {}
+                base = d7 if d7.get("n") else d3
+                tag = "d7" if d7.get("n") else "d3"
+                if base.get("n"):
+                    print(f"   {g['label']:<22} {tag} n={base['n']:<3} 승률 {base['win_pct']:>5.1f}%  "
+                          f"중앙 {base['median_pct']:+.2f}%   ({g.get('period') or ''})")
+                else:
+                    print(f"   {g['label']:<22} 적재 {g['n']}건 — 아직 사후 수익률 없음")
+            n7 = max((g.get("d7") or {}).get("n", 0) for g in rows)
+            if n7 < 20:
+                print(f"   [WAIT] d7 표본 {n7}건 — 20건 이상에서 판정. 그전 숫자는 우연과 구분되지 않는다.")
+            else:
+                cf = next((g for g in rows if g["label"].startswith("교차검증 ×2")), None)
+                ctl = next((g for g in rows if g["label"].startswith("대조군")), None)
+                if cf and ctl and (cf.get("d7") or {}).get("n") and (ctl.get("d7") or {}).get("n"):
+                    better = cf["d7"]["win_pct"] > ctl["d7"]["win_pct"]
+                    verdict = "가설 지지" if better else "가설 반증 — 화면 문구·가중치를 손볼 것"
+                    print(f"   [DUE] 표본 충족 — 교차검증 {cf['d7']['win_pct']}% vs "
+                          f"대조군 {ctl['d7']['win_pct']}% → {verdict}")
+                else:
+                    print("   [WAIT] 한쪽 그룹의 d7 표본이 비어 비교 불가.")
+        print("   통과 기준: d7 20건+ 에서 교차검증(×2+) 승률이 대조군(패턴스크리너 단독)보다 높을 것.")
+        print("   ⚠️ 시나리오는 7일 400종목이 통과해 신호가 약하다 — 가중치 0.30은 잠정치.")
+    except Exception as e:
+        print(f"   [BLOCKED] 확인 실패: {str(e)[:80]}")
+
     c.close()
     print(f"\n{'─' * 74}")
     print("자세한 배경과 판정 기준은 VERIFY.md 참조.")

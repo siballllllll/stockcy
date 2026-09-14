@@ -529,64 +529,154 @@ function SavedPicksPanel() {
 }
 
 // ── 교차검증(컨플루언스) 탭 ────────────────────────────────────────────────────
+type CfSort = "strength" | "date" | "change";
+
+function ConfluencePerformance() {
+  const { data } = useSWR<any>("cf-perf", () => api.ai.confluencePerformance(), { refreshInterval: 600000 });
+  if (!data || !data.groups) return null;
+  const groups = data.groups.filter((g: any) => g.n > 0);
+  if (groups.length === 0) return null;
+  // 표본이 적으면 숫자를 보여주되 결론으로 읽히지 않게 못을 박는다.
+  const maxN = Math.max(...groups.map((g: any) => g.d7?.n || 0));
+  const thin = maxN < 20;
+  return (
+    <div className="stockcy-card" style={{ padding: "12px 14px", display: "flex", flexDirection: "column", gap: "8px" }}>
+      <div style={{ fontSize: "0.78rem", fontWeight: 800 }}>
+        📊 실측 성과 <span style={{ fontWeight: 500, color: "var(--color-muted)" }}>— 겹친 픽이 정말 더 나은가</span>
+      </div>
+      <div style={{ overflowX: "auto" }}>
+        <table style={{ borderCollapse: "collapse", fontSize: "0.68rem", minWidth: "440px", width: "100%" }}>
+          <thead>
+            <tr style={{ color: "var(--color-muted)", textAlign: "right" }}>
+              <th style={{ textAlign: "left", padding: "4px 8px 4px 0" }}>구분</th>
+              {["d1", "d3", "d7"].map(h => <th key={h} style={{ padding: "4px 8px" }}>{h} 승률 (n)</th>)}
+              <th style={{ padding: "4px 0 4px 8px" }}>d7 중앙값</th>
+            </tr>
+          </thead>
+          <tbody>
+            {groups.map((g: any) => (
+              <tr key={g.label} style={{ borderTop: "1px solid var(--color-border)" }}>
+                <td style={{ padding: "5px 8px 5px 0", fontWeight: 700, whiteSpace: "nowrap" }}>{g.label}</td>
+                {["d1", "d3", "d7"].map(h => (
+                  <td key={h} style={{ padding: "5px 8px", textAlign: "right" }}>
+                    {g[h]?.n ? <>{g[h].win_pct}% <span style={{ color: "var(--color-subtle)" }}>({g[h].n})</span></> : <span style={{ color: "var(--color-subtle)" }}>—</span>}
+                  </td>
+                ))}
+                <td style={{ padding: "5px 0 5px 8px", textAlign: "right", fontWeight: 700,
+                             color: g.d7?.n ? (g.d7.median_pct >= 0 ? "#ff4b4b" : "#3b82f6") : "var(--color-subtle)" }}>
+                  {g.d7?.n ? `${g.d7.median_pct >= 0 ? "+" : ""}${g.d7.median_pct}%` : "—"}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div style={{ fontSize: "0.64rem", color: thin ? "var(--color-warning)" : "var(--color-muted)", lineHeight: 1.5 }}>
+        {thin
+          ? "⚠️ 표본이 적어 아직 결론을 낼 수 없습니다. 한쪽이 좋아 보여도 우연일 수 있습니다 (d7 20건 이상에서 판단)."
+          : "대조군은 '패턴스크리너가 잡았지만 다른 엔진과 겹치지 않은' 종목입니다. 겹친 쪽이 더 낫지 않다면 교차검증의 전제가 틀린 것입니다."}
+      </div>
+    </div>
+  );
+}
+
 function ConfluenceTab({ onSelect }: { onSelect: (s: StockInfo) => void }) {
+  const [days, setDays] = useState(7);
+  const [minEngines, setMinEngines] = useState(2);
+  const [mkFilter, setMkFilter] = useState<"all" | "kr" | "us">("all");
+  const [sort, setSort] = useState<CfSort>("strength");
+
   const { data } = useSWR<{ picks: any[] }>(
-    "confluence",
-    async () => {
-      const res = await fetch("/backend/api/ai/confluence?days=7&min_engines=2");
-      return res.json();
-    },
+    `confluence-${days}-${minEngines}`,
+    () => api.ai.confluence(days, minEngines),
     { refreshInterval: 120000 }
   );
-  const picks = data?.picks ?? [];
+  const allPicks = data?.picks ?? [];
+  const picks = useMemo(
+    () => allPicks.filter((p: any) => mkFilter === "all" || (mkFilter === "kr" ? p.market === "kr" : p.market !== "kr")),
+    [allPicks, mkFilter]
+  );
   const ENGINE_COLOR: Record<string, string> = {
     "시나리오": "#a78bfa", "패턴스크리너": "#34d399", "에이전트": "#60a5fa", "AI추천": "#fbbf24",
   };
 
-  // ── 실시간 현재가 조회 (교차검증: 추천 당시가 대비 현재가) ──────────────────────
-  const krTickers = useMemo(() => [...new Set(picks.filter((p: any) => p.market === "kr").map((p: any) => p.ticker))] as string[], [picks]);
-  const usTickers = useMemo(() => [...new Set(picks.filter((p: any) => p.market !== "kr").map((p: any) => p.ticker))] as string[], [picks]);
-
-  const { data: krPrices } = useSWR(
-    krTickers.length > 0 ? `cf-kr-prices-${krTickers.join(",")}` : null,
+  // 현재가는 토스 일괄 조회 1회로 받는다(예전엔 국내 종목마다 1요청씩 보냈다).
+  const tickers = useMemo(() => [...new Set(picks.map((p: any) => p.ticker))] as string[], [picks]);
+  const { data: prices } = useSWR(
+    tickers.length > 0 ? `cf-prices-${tickers.join(",")}` : null,
     async () => {
-      const map: Record<string, number> = {};
-      await Promise.all(krTickers.map(async (code) => {
-        try { const d = await api.kr.stockPrice(code) as any; if (d?.price) map[code] = d.price; } catch {}
-      }));
-      return map;
+      try { return (await api.portfolio.tossPricesBulk(tickers)) ?? {}; } catch { return {}; }
     },
-    { revalidateOnFocus: false }
+    { revalidateOnFocus: false, refreshInterval: 60000 }
   );
-  const { data: usPrices } = useSWR(
-    usTickers.length > 0 ? `cf-us-prices-${usTickers.join(",")}` : null,
-    async () => {
-      const arr = await api.us.stocks(usTickers) as any[];
-      const map: Record<string, number> = {};
-      for (const s of (arr ?? [])) { const t = s["심볼"] ?? s.ticker ?? ""; if (t) map[t] = s["현재가($)"] ?? 0; }
-      return map;
-    },
-    { revalidateOnFocus: false }
-  );
-  const priceOf = (p: any): number => (p.market === "kr" ? krPrices?.[p.ticker] : usPrices?.[p.ticker]) ?? 0;
+  const priceOf = (p: any): number => Number(prices?.[p.ticker]) || 0;
+  const chgOf = (p: any): number | null => {
+    const rec = Number(p.rec_price) || 0, cur = priceOf(p);
+    return rec > 0 && cur > 0 ? (cur - rec) / rec * 100 : null;
+  };
   const fmtPrice = (isKr: boolean, v: number) => isKr ? `₩${Math.round(v).toLocaleString()}` : `$${v.toFixed(2)}`;
+
+  const sorted = useMemo(() => {
+    const arr = [...picks];
+    if (sort === "date") arr.sort((a, b) => String(b.confluence_date || "").localeCompare(String(a.confluence_date || "")));
+    else if (sort === "change") arr.sort((a, b) => (chgOf(b) ?? -999) - (chgOf(a) ?? -999));
+    else arr.sort((a, b) => (b.score - a.score) || ((b.strength ?? 0) - (a.strength ?? 0)));
+    return arr;
+  }, [picks, sort, prices]);
+
+  const btn = (on: boolean): React.CSSProperties => ({
+    fontSize: "0.68rem", fontWeight: 700, padding: "3px 9px", borderRadius: "99px", cursor: "pointer",
+    border: `1px solid ${on ? "var(--color-accent)" : "var(--color-border)"}`,
+    background: on ? "rgba(99,102,241,0.15)" : "transparent",
+    color: on ? "var(--color-text)" : "var(--color-muted)",
+  });
+  const Group = ({ label, children }: { label: string; children: React.ReactNode }) => (
+    <div style={{ display: "flex", alignItems: "center", gap: "5px" }}>
+      <span style={{ fontSize: "0.66rem", color: "var(--color-subtle)" }}>{label}</span>{children}
+    </div>
+  );
 
   return (
     <div className="flex flex-col gap-4">
       <RegimeBanner />
       <ExitGuidance />
       <div style={{ fontSize: "0.8rem", color: "var(--color-muted)", lineHeight: 1.6 }}>
-        🎯 여러 AI 엔진(시나리오·패턴스크리너·에이전트·AI추천)이 <b style={{ color: "var(--color-text)" }}>최근 7일 내 동시에</b> 잡은 종목입니다.
-        독립 신호가 겹칠수록 승률이 높은 경향이 있어, 겹친 엔진 수(점수)가 높을수록 상단에 노출됩니다.
+        🎯 여러 AI 엔진(시나리오·패턴스크리너·에이전트·AI추천)이 <b style={{ color: "var(--color-text)" }}>최근 {days}일 내 동시에</b> 잡은 종목입니다.
+        독립 신호가 겹치면 승률이 높아진다는 <b style={{ color: "var(--color-text)" }}>가설</b>이며, 아래 실측 표가 그 가설을 검증합니다.
+        점수(×N)는 겹친 엔진 수, 그 안의 순서는 신호 강도입니다.
       </div>
-      {picks.length === 0 ? (
+
+      <ConfluencePerformance />
+
+      <div style={{ display: "flex", flexWrap: "wrap", gap: "12px", alignItems: "center" }}>
+        <Group label="기간">
+          {[3, 5, 7, 14].map(d => <button key={d} style={btn(days === d)} onClick={() => setDays(d)}>{d}일</button>)}
+        </Group>
+        <Group label="겹침">
+          {[2, 3].map(m => <button key={m} style={btn(minEngines === m)} onClick={() => setMinEngines(m)}>×{m}+</button>)}
+        </Group>
+        <Group label="시장">
+          {([["all", "전체"], ["kr", "국내"], ["us", "미국"]] as const).map(([v, l]) =>
+            <button key={v} style={btn(mkFilter === v)} onClick={() => setMkFilter(v)}>{l}</button>)}
+        </Group>
+        <Group label="정렬">
+          {([["strength", "신호 강도"], ["date", "성립일"], ["change", "변동률"]] as const).map(([v, l]) =>
+            <button key={v} style={btn(sort === v)} onClick={() => setSort(v)}>{l}</button>)}
+        </Group>
+        <span style={{ marginLeft: "auto", fontSize: "0.68rem", color: "var(--color-muted)" }}>{sorted.length}종목</span>
+      </div>
+
+      {sorted.length === 0 ? (
         <div className="stockcy-card p-8 text-center text-zinc-500 text-sm">
-          아직 2개 이상 엔진이 동시에 잡은 종목이 없습니다. 각 엔진을 실행해 픽이 쌓이면 표시됩니다.
+          조건에 맞는 종목이 없습니다. 기간을 늘리거나 겹침 기준을 ×2로 낮춰 보세요.
         </div>
       ) : (
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: "12px" }}>
-          {picks.map((p: any) => {
+          {sorted.map((p: any) => {
             const isKr = p.market === "kr";
+            const cur = priceOf(p);
+            const rec = Number(p.rec_price) || 0;
+            const chg = chgOf(p);
             return (
               <div key={p.ticker}
                 onClick={() => onSelect({ code: p.ticker, name: p.name, market: isKr ? "국내" : "미국" })}
@@ -594,7 +684,15 @@ function ConfluenceTab({ onSelect }: { onSelect: (s: StockInfo) => void }) {
                 style={{ padding: "12px 14px", display: "flex", flexDirection: "column", gap: "8px", border: "1px solid var(--color-border)" }}
               >
                 <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                  <span style={{ fontSize: "1.1rem", fontWeight: 900, color: "var(--color-accent)", minWidth: "26px" }}>×{p.score}</span>
+                  <div style={{ minWidth: "34px", textAlign: "center" }}>
+                    <div style={{ fontSize: "1.1rem", fontWeight: 900, color: "var(--color-accent)", lineHeight: 1 }}>×{p.score}</div>
+                    {p.strength != null && (
+                      <div title="신호 강도 — 엔진별 확신도의 합(잠정 가중치)"
+                           style={{ fontSize: "0.58rem", color: "var(--color-subtle)", marginTop: "2px" }}>
+                        {Number(p.strength).toFixed(2)}
+                      </div>
+                    )}
+                  </div>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div title={p.name} style={{ fontWeight: 800, fontSize: "0.92rem", display: "-webkit-box", WebkitBoxOrient: "vertical", WebkitLineClamp: 2, overflow: "hidden", wordBreak: "keep-all", lineHeight: 1.25, cursor: "default" }}>{p.name}</div>
                     <div style={{ fontSize: "0.68rem", color: "var(--color-muted)" }}>{p.ticker} · {isKr ? "🇰🇷 국내" : "🇺🇸 미국"}</div>
@@ -602,7 +700,7 @@ function ConfluenceTab({ onSelect }: { onSelect: (s: StockInfo) => void }) {
                 </div>
                 <div style={{ display: "flex", flexWrap: "wrap", gap: "4px" }}>
                   {p.engines.map((e: string) => (
-                    <span key={e} style={{
+                    <span key={e} title={p.str_detail?.[e] != null ? `신호 강도 ${p.str_detail[e]}` : undefined} style={{
                       fontSize: "0.62rem", fontWeight: 700, padding: "2px 7px", borderRadius: "99px",
                       color: ENGINE_COLOR[e] || "#9ca3af",
                       background: `${ENGINE_COLOR[e] || "#9ca3af"}22`,
@@ -610,22 +708,16 @@ function ConfluenceTab({ onSelect }: { onSelect: (s: StockInfo) => void }) {
                     }}>{e}</span>
                   ))}
                 </div>
-                {/* 교차검증: 추천 당시가 → 현재가 변동률 (재진입 판단용) */}
-                {(() => {
-                  const cur = priceOf(p);
-                  const rec = Number(p.rec_price) || 0;
-                  if (!p.first_date && rec <= 0 && cur <= 0) return null;
-                  const chg = rec > 0 && cur > 0 ? (cur - rec) / rec * 100 : null;
-                  return (
-                    <div style={{ display: "flex", flexWrap: "wrap", gap: "3px 10px", alignItems: "center", fontSize: "0.66rem", color: "var(--color-muted)", borderTop: "1px solid var(--color-border)", paddingTop: "6px" }}>
-                      {p.first_date && <span>📅 최초 포착 <b style={{ color: "var(--color-text)" }}>{p.first_date}</b></span>}
-                      {p.confluence_date && <span>🎯 교차검증 성립 <b style={{ color: "#a5b4fc" }}>{p.confluence_date}</b><span style={{ color: "var(--color-subtle)" }}> (2개+ 엔진 겹친 날)</span></span>}
-                      {rec > 0 && <span>당시가<span style={{ color: "var(--color-subtle)" }}>(성립일)</span> <b style={{ color: "var(--color-text)" }}>{fmtPrice(isKr, rec)}</b></span>}
-                      {cur > 0 && <span>현재가 <b style={{ color: "var(--color-text)" }}>{fmtPrice(isKr, cur)}</b></span>}
-                      {chg != null && <span style={{ fontWeight: 700, color: chg >= 0 ? "#ff4b4b" : "#3b82f6" }}>{chg >= 0 ? "▲" : "▼"} {Math.abs(chg).toFixed(2)}%</span>}
-                    </div>
-                  );
-                })()}
+                {(p.first_date || rec > 0 || cur > 0) && (
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: "3px 10px", alignItems: "center", fontSize: "0.66rem", color: "var(--color-muted)", borderTop: "1px solid var(--color-border)", paddingTop: "6px" }}>
+                    {p.first_date && <span>📅 최초 포착 <b style={{ color: "var(--color-text)" }}>{p.first_date}</b></span>}
+                    {p.confluence_date && <span>🎯 교차검증 성립 <b style={{ color: "#a5b4fc" }}>{p.confluence_date}</b></span>}
+                    {rec > 0 && <span>당시가<span style={{ color: "var(--color-subtle)" }}>(성립일)</span> <b style={{ color: "var(--color-text)" }}>{fmtPrice(isKr, rec)}</b></span>}
+                    {cur > 0 && <span>현재가 <b style={{ color: "var(--color-text)" }}>{fmtPrice(isKr, cur)}</b></span>}
+                    {chg != null && <span style={{ fontWeight: 700, color: chg >= 0 ? "#ff4b4b" : "#3b82f6" }}>{chg >= 0 ? "▲" : "▼"} {Math.abs(chg).toFixed(2)}%</span>}
+                    {cur <= 0 && rec > 0 && <span style={{ color: "var(--color-subtle)" }}>현재가 조회 실패</span>}
+                  </div>
+                )}
                 {p.detail && Object.keys(p.detail).length > 0 && (
                   <div style={{ fontSize: "0.64rem", color: "var(--color-muted)", lineHeight: 1.5, borderTop: "1px solid var(--color-border)", paddingTop: "6px" }}>
                     {Object.entries(p.detail).map(([k, v]: [string, any]) => v ? (

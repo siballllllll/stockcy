@@ -105,6 +105,11 @@ export const api = {
       body: JSON.stringify({ code: code, name: name, price_data: priceData, investor_data: investorData }),
     }),
     scenarios: ()                            => req("/api/ai/scenarios"),
+    confluence: (days = 7, minEngines = 2) =>
+      req<{ picks: any[]; days: number; min_engines: number }>(`/api/ai/confluence?days=${days}&min_engines=${minEngines}`),
+    confluencePerformance: () =>
+      req<{ total: number; groups: Array<{ label: string; n: number; period: string | null;
+            d1: any; d3: any; d7: any }> }>("/api/ai/confluence/performance"),
     valuationScore: (ticker: string, market: string) =>
       req(`/api/ai/valuation-score?ticker=${encodeURIComponent(ticker)}&market=${market}`),
     stockIssues: (tickers: string[]) =>

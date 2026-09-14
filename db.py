@@ -293,6 +293,31 @@ def init_local_db():
         )
     """)
 
+    # [v3.173.0] 교차검증 픽의 사후 성과 원장. 화면은 "겹칠수록 승률이 높다"고 단언해 왔지만
+    # 그 주장은 한 번도 측정된 적이 없었다. 여기에 픽과 **대조군**(패턴스크리너 단독)을 같이
+    # 쌓아 d1/d3/d7을 비교한다. 겹친 쪽이 더 낫지 않으면 이 탭의 전제가 틀린 것이다.
+    # event_date = 교차검증 성립일(score>=2) 또는 최초 포착일(대조군). 종목당 1회만 기록한다.
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS confluence_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            event_date TEXT,
+            ticker TEXT,
+            name TEXT,
+            market TEXT,
+            score INTEGER,
+            strength REAL,
+            engines TEXT,
+            rec_price REAL,
+            logged_at TEXT,
+            base_price REAL,
+            d1_return REAL,
+            d3_return REAL,
+            d7_return REAL,
+            outcome_checked_at TEXT,
+            UNIQUE(ticker, event_date)
+        )
+    """)
+
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS pattern_profile_v2 (
             source TEXT PRIMARY KEY,
@@ -4549,6 +4574,15 @@ def evaluate_feature_reliability(rsi=None, ma_aligned=None, vol_ratio=None, pos_
     return {"verdict": verdict, "score": avg, "win_rate": avg, "sample": len(rows), "matched": matched}
 
 
+
+# ── 교차검증 신호 강도 가중치 (v3.173.0, 잠정) ────────────────────────────────
+# ⚠️ 이 값들은 **성과 데이터가 없는 상태의 잠정치**다. 근거는 입력 규모 하나뿐이다 —
+#    최근 7일 실측으로 시나리오는 400종목/1,265행인데 패턴스크리너는 17종목/30행이라,
+#    시나리오 등장은 "겹쳤다"고 부르기엔 변별력이 약하다(국내 상장의 14%가 통과).
+#    confluence_log에 사후 수익률이 쌓이면 그 실측으로 다시 정할 것 — VERIFY.md V14.
+_W_SCENARIO = 0.30                                   # 통과 폭이 넓어 낮게
+_RATING_W = {"추천": 1.0, "중간추천": 0.6}            # analysis_history의 실제 등급값
+
 def load_confluence_picks(days: int = 5, min_engines: int = 2) -> list:
     """교차검증(컨플루언스) 픽 — 여러 AI 엔진이 최근 동시에 잡은 종목을 점수화.
     독립 신호가 겹칠수록(여러 엔진이 동시 추천) 통계적으로 승률이 높다는 가정.
@@ -4568,7 +4602,16 @@ def load_confluence_picks(days: int = 5, min_engines: int = 2) -> list:
 
     # dates: 모든 엔진의 포착 시각(최초 포착일 산출용), edates: 엔진별 날짜(교차검증 성립일 산출용),
     # priced: (날짜, 당시가) — 실제 가격이 있는 엔진만
-    agg = defaultdict(lambda: {"name": None, "market": None, "engines": set(), "detail": {}, "dates": [], "edates": defaultdict(list), "priced": []})
+    agg = defaultdict(lambda: {"name": None, "market": None, "engines": set(), "detail": {},
+                               "dates": [], "edates": defaultdict(list), "priced": [], "str": {}})
+
+    def _strength(a, eng, w):
+        """엔진별 신호 강도(0~1). 같은 엔진이 여러 번 잡으면 가장 센 값을 남긴다."""
+        try:
+            w = float(w)
+        except (TypeError, ValueError):
+            return
+        a["str"][eng] = max(a["str"].get(eng, 0.0), max(0.0, min(1.0, w)))
 
     def _add_date(a, eng, d):
         d = str(d or "").strip()
@@ -4595,6 +4638,7 @@ def load_confluence_picks(days: int = 5, min_engines: int = 2) -> list:
             a["name"] = a["name"] or r["name"]; a["market"] = a["market"] or _mkt(k, r.get("market"))
             a["engines"].add("시나리오"); a["detail"].setdefault("시나리오", r.get("scenario_keyword") or "")
             _add_date(a, "시나리오", r.get("captured_at")); _add_priced(a, r.get("captured_at"), r.get("captured_price"))
+            _strength(a, "시나리오", _W_SCENARIO)
 
         # 2. 패턴 스크리너 (당시가: price, 하승훈式 시그널: hsh_label)
         cur.execute("SELECT ticker, name, match_score, signal, picked_date, price, hsh_label FROM screener_picks WHERE picked_date >= ?", (cutoff,))
@@ -4605,6 +4649,11 @@ def load_confluence_picks(days: int = 5, min_engines: int = 2) -> list:
             _det = f"매칭 {r.get('match_score','')}점 {r.get('signal','') or ''}".strip() + (f" · 🎯{_hsh}" if _hsh else "")
             a["engines"].add("패턴스크리너"); a["detail"].setdefault("패턴스크리너", _det)
             _add_date(a, "패턴스크리너", r.get("picked_date")); _add_priced(a, r.get("picked_date"), r.get("price"))
+            try:
+                _ms = float(r.get("match_score") or 0)
+            except (TypeError, ValueError):
+                _ms = 0.0
+            _strength(a, "패턴스크리너", (_ms / 100.0) if _ms > 0 else 0.5)
 
         # 3. AI 에이전트 (BUY 판단, 당시가: entry_price)
         cur.execute("SELECT ticker, name, market, confidence, decided_at, entry_price FROM agent_decisions WHERE action='BUY' AND decided_at >= ?", (cutoff,))
@@ -4613,17 +4662,29 @@ def load_confluence_picks(days: int = 5, min_engines: int = 2) -> list:
             a["name"] = a["name"] or r["name"]; a["market"] = a["market"] or _mkt(k, r.get("market"))
             a["engines"].add("에이전트"); a["detail"].setdefault("에이전트", f"신뢰도 {r.get('confidence','')}%")
             _add_date(a, "에이전트", r.get("decided_at")); _add_priced(a, r.get("decided_at"), r.get("entry_price"))
+            try:
+                _cf = float(r.get("confidence") or 0)
+            except (TypeError, ValueError):
+                _cf = 0.0
+            _strength(a, "에이전트", (_cf / 100.0) if _cf > 0 else 0.7)
 
-        # 4. AI 추천 (단타발굴/종목분석) — 비추천 등급 제외 (당시가 없음: buy_target은 목표가)
-        cur.execute("SELECT ticker, name, rec_type, rating, logged_time FROM ai_recommendations WHERE logged_time >= ?", (cutoff,))
+        # 4. AI 추천(종목분석) — 비추천 등급 제외. 당시가: current_price.
+        # [v3.173.0] 원래 ai_recommendations를 봤는데 그 테이블은 0행이다 — v3.140.0에서
+        # 종목분석 이력이 analysis_history로 옮겨갔는데 교차검증만 따라가지 않아, 4개 엔진 중
+        # 하나가 **구조적으로 절대 안 뜨는** 상태였다(실측: 모든 픽이 ×2, 조합도 전부 동일).
+        cur.execute("SELECT ticker, name, market, rating, current_price, analysis_time "
+                    "FROM analysis_history WHERE analysis_time >= ?", (cutoff,))
         for r in cur.fetchall():
             r = dict(r); rating = str(r.get("rating") or "")
             if "비추천" in rating:
                 continue
             k = _norm(r["ticker"]); a = agg[k]
-            a["name"] = a["name"] or r["name"]; a["market"] = a["market"] or _mkt(k)
-            a["engines"].add("AI추천"); a["detail"].setdefault("AI추천", f"{r.get('rec_type','') or ''} {rating}".strip())
-            _add_date(a, "AI추천", r.get("logged_time"))
+            a["name"] = a["name"] or r["name"]; a["market"] = a["market"] or _mkt(k, r.get("market"))
+            a["engines"].add("AI추천"); a["detail"].setdefault("AI추천", rating or "분석")
+            _add_date(a, "AI추천", r.get("analysis_time"))
+            # current_price는 TEXT로 저장된다('17680') — _add_priced가 float 변환을 맡는다.
+            _add_priced(a, r.get("analysis_time"), r.get("current_price"))
+            _strength(a, "AI추천", _RATING_W.get(rating.strip(), 0.6))
 
         conn.close()
     except Exception as e:
@@ -4652,19 +4713,109 @@ def load_confluence_picks(days: int = 5, min_engines: int = 2) -> list:
                 le = [(d, p) for d, p in a["priced"] if _dt(d) and cd and _dt(d) <= cd]
                 rec_price = (max(le, key=lambda x: x[0])[1] if le
                              else min(a["priced"], key=lambda x: x[0])[1])
+            strength = round(sum(a["str"].values()), 3)
             out.append({
                 "ticker": k,
                 "name": a["name"] or k,
                 "market": a["market"] or _mkt(k),
                 "score": len(a["engines"]),
+                "strength": strength,               # 엔진 수가 같을 때의 2차 정렬 키
+                "str_detail": {e: round(v, 2) for e, v in sorted(a["str"].items())},
                 "engines": sorted(a["engines"]),
                 "detail": a["detail"],
                 "first_date": first_date,
                 "confluence_date": confluence_date,
                 "rec_price": rec_price,
             })
-    out.sort(key=lambda x: (-x["score"], x["name"] or ""))
+    # 엔진 수가 1차, 신호 강도가 2차. 전부 ×2였을 때 가나다순으로 줄 세우던 것을 대체한다.
+    out.sort(key=lambda x: (-x["score"], -x["strength"], x["name"] or ""))
     return out
+
+
+
+def snapshot_confluence_picks(days: int = 7) -> dict:
+    """교차검증 픽과 대조군을 confluence_log에 1회씩 적재(일일 작업에서 호출).
+
+    무엇을 대조군으로 두나. '겹친 것이 정말 더 나은가'를 재려면 **겹치지 않은 같은 종류의 픽**이
+    필요하다. 여기서는 **패턴스크리너 단독**(score=1)을 대조군으로 쓴다 — 최근 7일 기준
+    17종목 남짓으로 규모가 비슷하고, 겹침 여부만 다르기 때문이다.
+    시나리오 단독은 대조군으로 쓰지 않는다(400종목이라 '픽'이라고 부를 수 없다).
+
+    종목당 1회만 남긴다(UNIQUE(ticker, event_date)). 같은 종목이 7일 내내 목록에 떠도
+    event_date가 같아 INSERT OR IGNORE로 걸러진다.
+    """
+    from datetime import datetime as _dt
+    rows = load_confluence_picks(days=days, min_engines=1)
+    keep = [r for r in rows if r["score"] >= 2 or "패턴스크리너" in r["engines"]]
+    now = _dt.now().strftime("%Y-%m-%d %H:%M:%S")
+    payload = []
+    for r in keep:
+        event_date = (r.get("confluence_date") if r["score"] >= 2 else r.get("first_date")) or r.get("first_date")
+        if not event_date:
+            continue
+        payload.append((event_date, r["ticker"], r.get("name"), r.get("market"),
+                        r["score"], r.get("strength"), ",".join(r.get("engines") or []),
+                        r.get("rec_price"), now))
+    inserted = 0
+    if payload:
+        conn = get_db_conn(); cur = conn.cursor()
+        try:
+            cur.executemany(
+                """INSERT OR IGNORE INTO confluence_log
+                   (event_date, ticker, name, market, score, strength, engines, rec_price, logged_at)
+                   VALUES (?,?,?,?,?,?,?,?,?)""", payload)
+            conn.commit()
+            inserted = cur.rowcount if cur.rowcount and cur.rowcount > 0 else 0
+        except Exception as e:
+            print(f"[confluence log] 적재 실패: {e}")
+        finally:
+            conn.close()
+    return {"candidates": len(keep), "inserted": inserted}
+
+
+def confluence_hit_rate() -> dict:
+    """교차검증 픽 vs 대조군(패턴스크리너 단독)의 사후 성과 비교.
+
+    d7은 7거래일이 지나야 채워지므로 초기에는 비어 있다. 그동안도 판을 볼 수 있게
+    d1/d3/d7을 **각각의 표본 수와 함께** 따로 낸다 — 기간마다 n이 다르니 섞어 보지 말 것.
+
+    ⚠️ 승률만 보지 말 것. 표본이 적을 때 평균은 한 건에 끌려다닌다 — 중앙값을 같이 본다.
+    ⚠️ 이 비교가 성립하려면 대조군과 픽이 **같은 기간**에 쌓여야 한다. 한쪽만 오래된
+       구간이 섞이면 시장 방향이 차이를 만든다.
+    """
+    conn = get_db_conn(); cur = conn.cursor()
+    try:
+        cur.execute("""SELECT score, event_date, d1_return, d3_return, d7_return
+                       FROM confluence_log WHERE d1_return IS NOT NULL OR d3_return IS NOT NULL
+                          OR d7_return IS NOT NULL""")
+        rows = [dict(r) for r in cur.fetchall()]
+    except Exception as e:
+        conn.close()
+        return {"error": str(e)[:80], "groups": []}
+    conn.close()
+
+    def _h(rs, col):
+        vals = sorted(float(r[col]) for r in rs if r[col] is not None)
+        n = len(vals)
+        if not n:
+            return {"n": 0}
+        wins = sum(1 for v in vals if v > 0)
+        mid = vals[n // 2] if n % 2 else (vals[n // 2 - 1] + vals[n // 2]) / 2
+        return {"n": n, "win_pct": round(wins / n * 100, 1),
+                "mean_pct": round(sum(vals) / n, 2), "median_pct": round(mid, 2)}
+
+    def _grp(rs, label):
+        dates = [str(r["event_date"])[:10] for r in rs if r.get("event_date")]
+        return {"label": label, "n": len(rs),
+                "period": (f"{min(dates)}~{max(dates)}" if dates else None),
+                "d1": _h(rs, "d1_return"), "d3": _h(rs, "d3_return"), "d7": _h(rs, "d7_return")}
+
+    groups = [
+        _grp([r for r in rows if (r["score"] or 0) >= 3], "교차검증 ×3+"),
+        _grp([r for r in rows if (r["score"] or 0) == 2], "교차검증 ×2"),
+        _grp([r for r in rows if (r["score"] or 0) <= 1], "대조군(패턴스크리너 단독)"),
+    ]
+    return {"total": len(rows), "groups": groups}
 
 
 def load_exit_guidance() -> dict:

@@ -1568,10 +1568,23 @@ async def get_market_regime_ep():
 
 @router.get("/confluence")
 async def get_confluence_picks(days: int = 5, min_engines: int = 2):
-    """교차검증 픽 — 여러 AI 엔진이 최근 동시에 잡은 종목(고승률 후보)."""
+    """교차검증 픽 — 여러 AI 엔진이 최근 동시에 잡은 종목."""
     from db import load_confluence_picks
+    days = max(1, min(int(days), 30))
+    min_engines = max(1, min(int(min_engines), 4))
     picks = await asyncio.to_thread(load_confluence_picks, days, min_engines)
     return {"picks": picks, "days": days, "min_engines": min_engines}
+
+
+@router.get("/confluence/performance")
+async def get_confluence_performance():
+    """교차검증 픽의 사후 성과 — 대조군(패턴스크리너 단독)과 비교.
+
+    화면의 '겹칠수록 승률이 높다'가 실제로 맞는지 확인하는 용도다. 표본이 적으면
+    프런트가 '근거 부족'으로 표시한다.
+    """
+    from db import confluence_hit_rate
+    return await asyncio.to_thread(confluence_hit_rate)
 
 
 @router.get("/notifications/feed")

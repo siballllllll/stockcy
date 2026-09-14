@@ -7613,6 +7613,104 @@ def analysis_hit_rate(min_days: int = 0) -> dict:
     }
 
 
+
+def track_confluence_outcomes() -> dict:
+    """교차검증 원장(confluence_log)의 사후 성과(d1/d3/d7)를 채운다. AI 호출 없이 가격만 사용.
+
+    기준일은 event_date — 교차검증이 **성립한 날**(대조군은 최초 포착일)이다. 화면에 뜬 날이
+    아니라 신호가 성립한 날을 기준으로 재야 "그때 샀으면" 질문에 답이 된다.
+    가격 조회 방식은 track_analysis_history_outcomes와 동일하게 맞춘다 — 두 원장이 서로 다른
+    기준으로 재면 비교가 무의미해진다.
+    """
+    from db import get_db_conn
+    from datetime import datetime, timedelta
+    import FinanceDataReader as fdr
+    import pandas as pd
+    import yfinance as yf
+
+    conn = get_db_conn()
+    cursor = conn.cursor()
+    cutoff = (datetime.now() - timedelta(days=40)).strftime("%Y-%m-%d")
+    cursor.execute(
+        """SELECT id, ticker, name, market, event_date FROM confluence_log
+           WHERE event_date >= ? AND d7_return IS NULL ORDER BY event_date ASC""",
+        (cutoff,),
+    )
+    rows = [dict(r) for r in cursor.fetchall()]
+    today = datetime.now().date()
+    pending = []
+
+    for row in rows:
+        try:
+            evt = datetime.strptime(str(row["event_date"])[:10], "%Y-%m-%d").date()
+        except Exception:
+            continue
+        if (today - evt).days < 1:
+            continue
+
+        raw = str(row["ticker"]).strip()
+        mk = str(row.get("market") or "").strip().lower()
+        is_us = (mk == "us") if mk in ("us", "kr") else any(c.isalpha() for c in raw)
+        ticker = raw.upper() if is_us else raw.zfill(6)
+        fetch_start = (evt - timedelta(days=10)).strftime("%Y-%m-%d")
+        end_date = (evt + timedelta(days=20)).strftime("%Y-%m-%d")
+
+        try:
+            if is_us:
+                df = yf.download(ticker, start=fetch_start, end=end_date, progress=False, timeout=10)
+            else:
+                df = fdr.DataReader(ticker, fetch_start, end_date)
+            if df is None or df.empty:
+                continue
+            if isinstance(df.columns, pd.MultiIndex):
+                df = df.droplevel(1, axis=1)
+            df = df.dropna(subset=["Close"])
+            if df.empty:
+                continue
+
+            base_i = None
+            for j, dt in enumerate(df.index):
+                d = dt.date() if hasattr(dt, "date") else dt
+                if d <= evt:
+                    base_i = j
+                else:
+                    break
+            if base_i is None:
+                base_i = 0
+            entry = float(df["Close"].iloc[base_i])
+            if entry <= 0:
+                continue
+
+            def _p(offset):
+                k = base_i + offset
+                return float(df["Close"].iloc[k]) if len(df) > k else None
+
+            def _r(p):
+                return round((p - entry) / entry * 100, 2) if p else None
+
+            now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            pending.append((entry, _r(_p(1)), _r(_p(3)), _r(_p(7)), now, row["id"]))
+        except Exception as e:
+            print(f"[confluence track] {ticker} 실패: {e}")
+            continue
+
+    updated = 0
+    if pending:
+        try:
+            cursor.executemany(
+                """UPDATE confluence_log
+                   SET base_price = ?, d1_return = ?, d3_return = ?, d7_return = ?, outcome_checked_at = ?
+                   WHERE id = ?""",
+                pending,
+            )
+            conn.commit()
+            updated = len(pending)
+        except Exception as e:
+            print(f"[confluence track] 일괄 저장 실패: {e}")
+    conn.close()
+    return {"updated_now": updated, "scanned": len(rows)}
+
+
 def track_scenario_stocks_performance() -> dict:
     """시나리오에 등장한 종목들의 등장 시점 가격 + 1/3/7일 후 가격 자동 추적."""
     # 중복 실행 방지: 이미 추적이 돌고 있으면 즉시 반환.

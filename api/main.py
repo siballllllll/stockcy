@@ -510,6 +510,19 @@ def _scenario_tracking_loop():
                     print(f"[analysis track] 종목분석 성과 측정: {an.get('updated_now', 0)}건 갱신 ({today})")
                 except Exception as e:
                     print(f"[analysis track] 오류: {e}")
+                # ── 교차검증 성과 원장 (v3.173.0) ─────────────────────────
+                # 화면은 "겹칠수록 승률이 높다"고 단언해 왔지만 한 번도 측정된 적이 없었다.
+                # 픽과 대조군(패턴스크리너 단독)을 같이 쌓고 사후 수익률을 채운다. 과금 0.
+                # 순서 주의: 적재가 먼저다 — 오늘 성립한 픽을 넣고 나서 채워야 한 주기를 안 버린다.
+                try:
+                    from db import snapshot_confluence_picks
+                    cf = snapshot_confluence_picks()
+                    from ai_engine import track_confluence_outcomes
+                    cft = track_confluence_outcomes()
+                    print(f"[confluence] 픽 적재 {cf.get('inserted', 0)}건 / "
+                          f"성과 갱신 {cft.get('updated_now', 0)}건 ({today})")
+                except Exception as e:
+                    print(f"[confluence] 오류: {e}")
                 # 자체 ML 통합 학습샘플 보강 — 추천 종목의 판단시점 지표+결과를 과거 데이터로 채움
                 try:
                     from ml_model import track_ml_sample_outcomes
