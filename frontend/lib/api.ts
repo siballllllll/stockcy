@@ -105,6 +105,12 @@ export const api = {
       body: JSON.stringify({ code: code, name: name, price_data: priceData, investor_data: investorData }),
     }),
     scenarios: ()                            => req("/api/ai/scenarios"),
+    analysisHistory: (ticker: string, limit = 1) =>
+      // ⚠️ 서버가 한글 키로 돌려준다(분석시간·등급·중장기등급…). 영문으로 바꾸지 말 것 —
+      //    저장·조회가 같은 키를 쓰고 있어 한쪽만 고치면 조용히 빈 값이 된다.
+      req<Array<{ "분석시간": string; "등급": string; "중장기등급"?: string;
+            "매수구간"?: string; "목표가"?: string; "단기전망률"?: string; "현재가"?: string }>>(
+        `/api/ai/analysis-history/${encodeURIComponent(ticker)}?limit=${limit}`),
     confluence: (days = 7, minEngines = 2) =>
       req<{ picks: any[]; days: number; min_engines: number }>(`/api/ai/confluence?days=${days}&min_engines=${minEngines}`),
     confluencePerformance: () =>
@@ -173,6 +179,13 @@ export const api = {
     loadPortfolio: ()                        => req("/api/portfolio"),
     loadTossHoldings: ()                      => req<{ connected: boolean; holdings: Array<{ symbol: string; name: string; quantity: number; avg_price: number; last_price: number; market_value: number; profit_loss: number }> }>("/api/portfolio/toss/holdings"),
     tossPricesBulk: (symbols: string[])       => req<Record<string, number>>(`/api/prices/toss-bulk?symbols=${symbols.join(",")}`),
+    indicators: (ticker: string) =>
+      req<{ ok?: boolean; error?: string; rsi?: number | null; volume_ratio?: number | null;
+            pos_52w_pct?: number | null; ma_aligned?: boolean; gap_pct?: number | null;
+            current_price?: number | null; today_change_pct?: number | null;
+            ma20?: number | null; ma60?: number | null;
+            ml_extra?: { mom_5?: number; mom_20?: number; macd_hist?: number; bb_pctb?: number; atr_pct?: number };
+          }>(`/api/stocks/indicators?ticker=${encodeURIComponent(ticker)}`),
     stockWarnings: (symbols: string[])        => req<Record<string, Array<{ type: string; type_kr: string; severe: boolean; start: string | null; end: string | null }>>>(`/api/stocks/warnings?symbols=${symbols.join(",")}`),
     orderbook: (symbol: string)               => req<{ ok?: boolean; error?: string; asks?: Array<{ price: number; volume: number }>; bids?: Array<{ price: number; volume: number }>; currency?: string | null }>(`/api/stocks/orderbook?symbol=${symbol}`),
     trades: (symbol: string, count = 30)      => req<Array<{ price: number; volume: number; timestamp: string }>>(`/api/stocks/trades?symbol=${symbol}&count=${count}`),

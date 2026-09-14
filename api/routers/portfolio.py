@@ -236,6 +236,26 @@ async def toss_prices_bulk(symbols: str, user: dict = Depends(get_current_user))
     return await asyncio.to_thread(toss_api.get_prices, syms)
 
 
+@router.get("/stocks/indicators")
+async def stock_indicators(ticker: str, user: dict = Depends(get_current_user)):
+    """단일 종목의 기술적 지표 — RSI·MA 이격·52주 위치·거래량비·5일 모멘텀 등.
+
+    [v3.176.0] 종목검색의 타점 보드가 '당일 등락률·PER' 같은 숫자 한두 개로만 판정해
+    AI 종목분석과 계속 어긋나던 것을 고치기 위해 열었다. AI 호출 없이 일봉만 쓰므로 과금 0.
+    소스 순서(토스 → FDR/yfinance)는 차트·지표와 동일하다 — 화면마다 다른 값을 보면
+    같은 종류의 사고가 또 난다(v3.170.0).
+    """
+    from ai_engine import _get_trade_indicators
+    try:
+        r = await asyncio.to_thread(_get_trade_indicators, str(ticker).strip(), "")
+        daily = (r or {}).get("daily") or {}
+        if not daily:
+            return {"ok": False, "error": "지표를 계산할 일봉을 못 받았다"}
+        return {"ok": True, **daily}
+    except Exception as e:
+        return {"ok": False, "error": f"{type(e).__name__}: {str(e)[:120]}"}
+
+
 @router.get("/stocks/orderbook")
 async def stock_orderbook(symbol: str, user: dict = Depends(get_current_user)):
     """토스 호가창. {asks:[{price,volume}], bids:[...], currency}."""
