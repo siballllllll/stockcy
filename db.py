@@ -314,6 +314,7 @@ def init_local_db():
             target REAL,
             stop REAL,
             from_search INTEGER DEFAULT 0,
+            price_warning TEXT,
             UNIQUE(picked_date, ticker)
         )
     """)
@@ -604,6 +605,7 @@ def init_local_db():
         "ALTER TABLE screener_picks ADD COLUMN market TEXT DEFAULT 'kr'",
         "ALTER TABLE screener_picks ADD COLUMN price REAL",  # 추천 당시가(교차검증용)
         "ALTER TABLE screener_picks ADD COLUMN hsh_label TEXT",  # 하승훈式 시그널 라벨(교차검증 표시용)
+        "ALTER TABLE realtime_picks ADD COLUMN price_warning TEXT",  # _sanity_check_picks 경고(타점이 현재가와 어긋남)
         "ALTER TABLE ml_training_samples ADD COLUMN d20_return REAL",  # 중장기(약 1개월) 라벨용
         "ALTER TABLE ml_training_samples ADD COLUMN pred_d3 REAL",   # 추천 시점 ML 예측확률(%) — 사후검증용
         "ALTER TABLE ml_training_samples ADD COLUMN pred_d7 REAL",
@@ -4612,6 +4614,9 @@ _PICK_RANK_W = {1: 1.0, 2: 0.85, 3: 0.7}
 # 다만 구글 검색으로 후보군 밖에서 끌어온 픽(from_search)은 사전 시그널 검증을 거치지
 # 않았으므로 한 단계 깎는다 — 프롬프트가 그 경우를 따로 표시하게 돼 있다.
 _PICK_SEARCH_PENALTY = 0.15
+# 타점이 현재가와 어긋난 픽(_sanity_check_picks 경고)은 절반으로 깎는다. 지우지는 않는다 —
+# 조용히 사라지면 왜 없어졌는지 알 수 없다(v3.171.0에서 정한 원칙).
+_PICK_WARN_PENALTY = 0.5
 
 def load_confluence_picks(days: int = 5, min_engines: int = 2) -> list:
     """교차검증(컨플루언스) 픽 — 여러 AI 엔진이 최근 동시에 잡은 종목을 점수화.
@@ -4720,12 +4725,15 @@ def load_confluence_picks(days: int = 5, min_engines: int = 2) -> list:
         # 하루 3종목만 고르는 가장 좁은 엔진이라, 겹치면 신호가 세다고 본다.
         try:
             cur.execute("SELECT ticker, name, market, rank, pattern, urgency, price, from_search, "
-                        "picked_date FROM realtime_picks WHERE picked_date >= ?", (cutoff,))
+                        "price_warning, picked_date FROM realtime_picks WHERE picked_date >= ?",
+                        (cutoff,))
             for r in cur.fetchall():
                 r = dict(r); k = _norm(r["ticker"]); a = agg[k]
                 a["name"] = a["name"] or r["name"]; a["market"] = a["market"] or _mkt(k, r.get("market"))
                 _rk = r.get("rank") or 0
                 _det = " ".join(x for x in (r.get("pattern") or "", r.get("urgency") or "") if x).strip()
+                if r.get("price_warning"):
+                    _det = (_det + " · ⚠️ 타점 주의").strip()
                 a["engines"].add("AI타점포착")
                 a["detail"].setdefault("AI타점포착", (f"{_rk}순위 " if _rk else "") + _det)
                 _add_date(a, "AI타점포착", r.get("picked_date"))
@@ -4733,6 +4741,8 @@ def load_confluence_picks(days: int = 5, min_engines: int = 2) -> list:
                 _w = _PICK_RANK_W.get(_rk, 0.7)
                 if r.get("from_search"):
                     _w -= _PICK_SEARCH_PENALTY
+                if r.get("price_warning"):
+                    _w *= _PICK_WARN_PENALTY
                 _strength(a, "AI타점포착", _w)
         except Exception as e:
             # 테이블이 아직 없을 수 있다(구버전 DB) — 이 엔진만 빠지고 나머지는 살린다.
@@ -4824,7 +4834,11 @@ def save_realtime_picks(picks: list, market: str = "KR") -> int:
                         p.get("urgency") or "", p.get("horizon") or "",
                         _f(p.get("current_price")), _f(p.get("entry")),
                         _f(p.get("target")), _f(p.get("stop")),
-                        1 if p.get("from_search") else 0))
+                        1 if p.get("from_search") else 0,
+                        # _sanity_check_picks가 세운 경고. 버리면 '타점이 현재가와 27% 벌어진'
+                        # 픽이 멀쩡한 픽과 같은 무게로 교차검증에 올라간다(2026-09-14 실측:
+                        # 3건 중 2건이 경고 대상이었다).
+                        (p.get("price_warning") or None)))
     if not payload:
         return 0
 
@@ -4834,8 +4848,8 @@ def save_realtime_picks(picks: list, market: str = "KR") -> int:
         cur.executemany(
             """INSERT OR IGNORE INTO realtime_picks
                (picked_date, picked_at, ticker, name, market, rank, pattern, theme,
-                urgency, horizon, price, entry, target, stop, from_search)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""", payload)
+                urgency, horizon, price, entry, target, stop, from_search, price_warning)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""", payload)
         conn.commit()
         after = cur.execute("SELECT COUNT(*) FROM realtime_picks").fetchone()[0]
         return after - before
