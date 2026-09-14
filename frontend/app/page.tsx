@@ -425,23 +425,55 @@ function RegimeBanner() {
   const cell = (label: string, r: any) => {
     if (!r) return null;
     const p = POSTURE[r.posture] || POSTURE["중립"];
+    const gap = r.gap_ma60;
     return (
-      <div style={{ flex: 1, minWidth: "180px", background: p.bg, border: `1px solid ${p.c}55`, borderRadius: "8px", padding: "8px 12px" }}>
+      <div style={{ flex: 1, minWidth: "200px", background: p.bg, border: `1px solid ${p.c}55`, borderRadius: "8px", padding: "8px 12px" }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "8px" }}>
           <span style={{ fontSize: "0.8rem", fontWeight: 800 }}>{label}</span>
-          <span style={{ fontSize: "0.72rem", fontWeight: 800, color: p.c }}>{r.posture}</span>
+          <span style={{ display: "flex", alignItems: "baseline", gap: "5px" }}>
+            <span style={{ fontSize: "0.72rem", fontWeight: 800, color: p.c }}>{r.posture}</span>
+            {r.streak_days > 0 && (
+              <span title={`${r.since}부터 같은 자세 (거래일 기준)`}
+                    style={{ fontSize: "0.62rem", color: "var(--color-muted)" }}>
+                {r.streak_days}일째
+              </span>
+            )}
+          </span>
         </div>
         <div style={{ fontSize: "0.66rem", color: "var(--color-muted)", marginTop: "2px" }}>
           {r.trend} · 변동성 {r.vol} · 20일 {r.ret20 >= 0 ? "+" : ""}{r.ret20}%
+          {gap != null && (
+            <> · <span title="현재가가 60일 이동평균에서 떨어진 정도 — 라벨이 안 바뀌어도 이 값은 매일 움직인다">
+              MA60 {gap >= 0 ? "+" : ""}{gap}%
+            </span></>
+          )}
         </div>
-        <div style={{ fontSize: "0.62rem", color: p.c, marginTop: "2px" }}>{p.tip}</div>
+        <div style={{ fontSize: "0.62rem", color: p.c, marginTop: "2px" }}>
+          {p.tip}
+          {r.diverge && (
+            <span title="추세 라벨은 60일선 기준이라, 단기 흐름이 반대로 가도 라벨은 그대로다"
+                  style={{ marginLeft: "6px", color: "#a5b4fc", fontWeight: 700 }}>
+              ↔ {r.diverge}
+            </span>
+          )}
+        </div>
       </div>
     );
   };
   return (
-    <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
-      {cell("🇰🇷 국내 장세", data.kr)}
-      {cell("🇺🇸 미국 장세", data.us)}
+    <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
+      <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+        {cell("🇰🇷 국내 장세", data.kr)}
+        {cell("🇺🇸 미국 장세", data.us)}
+      </div>
+      {data.generated_at && (
+        <div style={{ fontSize: "0.6rem", color: "var(--color-subtle)", textAlign: "right" }}>
+          {data.generated_at} 기준
+          {data.kr?.asof && <> · 국내 종가 {data.kr.asof}</>}
+          {data.us?.asof && <> · 미국 종가 {data.us.asof}</>}
+          {" · 자세는 60일선 기준이라 수개월 단위로 바뀝니다"}
+        </div>
+      )}
     </div>
   );
 }

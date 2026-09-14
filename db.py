@@ -4492,10 +4492,51 @@ def load_ai_performance_summary() -> dict:
     }
 
 
+# ── 시장 레짐 판정 (v3.175.0) ────────────────────────────────────────────────
+# 자세(공격적/중립/방어적)는 MA60 기준이라 거의 안 움직인다 — 2026-09-14 실측으로
+# 최근 40거래일 동안 국내는 1회, 미국은 2회만 바뀌었다. 그래서 화면만 보면 '멈춘 것'처럼
+# 읽힌다. 값을 흔들려고 산식을 민감하게 바꾸면 이 값을 쓰는 픽 선정까지 같이 흔들리므로,
+# **산식은 그대로 두고 읽을 거리를 붙인다**: 며칠째 같은 상태인지, MA60에서 얼마나 떨어져
+# 있는지, 그리고 추세 라벨과 단기 수익률이 어긋날 때의 단서.
+_REGIME_VOL_HIGH = 2.0     # 일간 변동성(%) 이상이면 '고'
+_REGIME_VOL_LOW = 1.0      # 미만이면 '저'
+_REGIME_DIVERGE_PCT = 5.0  # 추세 라벨과 20일 수익률이 이만큼 어긋나면 단서를 붙인다
+
+
+def _regime_point(price, ma20, ma60, ret20, vol20) -> dict:
+    """한 시점의 레짐. 산식은 v3.174 이전과 동일하다 — 바꾸지 말 것.
+
+    이 값은 배너 표시뿐 아니라 섀도우 리그 진입 컨텍스트에도 쓰인다.
+    """
+    if price > ma60 and ma20 > ma60:
+        trend = "강세추세"
+    elif price < ma60 and ma20 < ma60:
+        trend = "약세추세"
+    else:
+        trend = "횡보"
+    volb = "고" if vol20 >= _REGIME_VOL_HIGH else ("저" if vol20 < _REGIME_VOL_LOW else "중")
+    if trend == "강세추세" and volb != "고":
+        posture = "공격적"
+    elif trend == "약세추세" or volb == "고":
+        posture = "방어적"
+    else:
+        posture = "중립"
+    return {"trend": trend, "vol": volb, "posture": posture}
+
+
 @st.cache_data(ttl=1800)
 def get_market_regime() -> dict:
     """현재 시장 레짐 — KOSPI(KS11)·S&P500(US500) 일봉 기반 추세/변동성/리스크 자세. 30분 캐시.
-    승률은 장세에 좌우되므로(추세장 vs 횡보·하락장) 픽 선정/기대치 보정에 활용."""
+    승률은 장세에 좌우되므로(추세장 vs 횡보·하락장) 픽 선정/기대치 보정에 활용.
+
+    v3.175.0에서 덧붙인 것(판정 자체는 불변):
+    - streak_days : 같은 자세가 며칠째인지(거래일 기준). '안 변하는 것'도 정보가 되게.
+    - since       : 그 자세가 시작된 날짜.
+    - gap_ma60    : 현재가가 MA60에서 몇 % 떨어져 있는지. 라벨이 안 바뀌어도 이건 매일 움직인다.
+    - diverge     : 추세 라벨과 20일 수익률이 어긋날 때의 단서(예: 약세추세인데 20일 +22%).
+                    실측으로 국내는 20일 +22%인 날에도 '약세추세·방어적'이었다 — 산식상
+                    맞지만(현재가가 MA60 아래) 화면만 보면 모순으로 읽힌다.
+    """
     import FinanceDataReader as fdr
     out: dict = {}
     start = (datetime.now() - timedelta(days=400)).strftime("%Y-%m-%d")
@@ -4509,32 +4550,54 @@ def get_market_regime() -> dict:
             if len(c) < 60:
                 out[key] = None
                 continue
-            price = float(c.iloc[-1])
-            ma20  = float(c.rolling(20).mean().iloc[-1])
-            ma60  = float(c.rolling(60).mean().iloc[-1])
-            ma120 = float(c.rolling(120).mean().iloc[-1]) if len(c) >= 120 else ma60
-            ret20 = float((c.iloc[-1] / c.iloc[-21] - 1) * 100) if len(c) > 21 else 0.0
-            vol20 = float(c.pct_change().tail(20).std() * 100)  # 일간 변동성(%)
 
-            if price > ma60 and ma20 > ma60:
-                trend = "강세추세"
-            elif price < ma60 and ma20 < ma60:
-                trend = "약세추세"
-            else:
-                trend = "횡보"
-            volb = "고" if vol20 >= 2.0 else ("저" if vol20 < 1.0 else "중")
+            # 롤링은 한 번만 계산하고 인덱싱으로 과거 시점을 되짚는다(연속일수 산출용).
+            ma20s = c.rolling(20).mean()
+            ma60s = c.rolling(60).mean()
+            ma120s = c.rolling(120).mean() if len(c) >= 120 else ma60s
+            ret20s = (c / c.shift(20) - 1) * 100
+            vol20s = c.pct_change().rolling(20).std() * 100
 
-            if trend == "강세추세" and volb != "고":
-                posture = "공격적"
-            elif trend == "약세추세" or volb == "고":
-                posture = "방어적"
-            else:
-                posture = "중립"
+            last = len(c) - 1
+            price = float(c.iloc[last])
+            ma20 = float(ma20s.iloc[last])
+            ma60 = float(ma60s.iloc[last])
+            ma120 = float(ma120s.iloc[last]) if ma120s.iloc[last] == ma120s.iloc[last] else ma60
+            ret20 = float(ret20s.iloc[last]) if ret20s.iloc[last] == ret20s.iloc[last] else 0.0
+            vol20 = float(vol20s.iloc[last])
+
+            cur = _regime_point(price, ma20, ma60, ret20, vol20)
+
+            # 같은 자세가 며칠째인가 — 최대 250거래일까지만 거슬러 본다.
+            streak, since = 1, str(c.index[last].date())
+            for j in range(last - 1, max(last - 250, 58), -1):
+                try:
+                    if any(x != x for x in (ma20s.iloc[j], ma60s.iloc[j], vol20s.iloc[j])):
+                        break   # NaN 구간(시리즈 앞머리)에 닿으면 중단
+                    past = _regime_point(float(c.iloc[j]), float(ma20s.iloc[j]), float(ma60s.iloc[j]),
+                                         float(ret20s.iloc[j]) if ret20s.iloc[j] == ret20s.iloc[j] else 0.0,
+                                         float(vol20s.iloc[j]))
+                except Exception:
+                    break
+                if past["posture"] != cur["posture"]:
+                    break
+                streak += 1
+                since = str(c.index[j].date())
+
+            gap_ma60 = (price / ma60 - 1) * 100 if ma60 else 0.0
+            diverge = None
+            if cur["trend"] == "약세추세" and ret20 >= _REGIME_DIVERGE_PCT:
+                diverge = "단기 반등 중"
+            elif cur["trend"] == "강세추세" and ret20 <= -_REGIME_DIVERGE_PCT:
+                diverge = "단기 조정 중"
 
             out[key] = {
-                "trend": trend, "vol": volb, "vol_pct": round(vol20, 2),
-                "posture": posture, "price": round(price, 2), "ma60": round(ma60, 2),
+                "trend": cur["trend"], "vol": cur["vol"], "vol_pct": round(vol20, 2),
+                "posture": cur["posture"], "price": round(price, 2), "ma60": round(ma60, 2),
                 "ret20": round(ret20, 2), "above_ma120": bool(price > ma120),
+                "streak_days": streak, "since": since,
+                "gap_ma60": round(gap_ma60, 2), "diverge": diverge,
+                "asof": str(c.index[last].date()),
             }
         except Exception as e:
             print(f"get_market_regime({sym}) error: {e}")
