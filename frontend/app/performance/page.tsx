@@ -33,6 +33,10 @@ function MyAnalysisHistory() {
   const router = useRouter();
   const [onlyKR, setOnlyKR] = useState<"all" | "KR" | "US">("all");
   const [ratingF, setRatingF] = useState<"all" | "추천" | "비추천">("all");
+  // [왜] 분석을 많이 할수록 표가 그만큼 길어져 페이지가 다시 늘어난다(탭으로 나눈 의미가 없어진다).
+  // 그래서 ① 기본을 '종목별'로 두어 **줄 수가 종목 수만큼으로 고정**되고
+  //        ② 시간순으로 볼 때는 표 안에서만 스크롤되게 높이를 묶는다.
+  const [mode, setMode] = useState<"stock" | "time">("stock");
   const { data } = useSWR<{ items: AnalysisRow[] }>(
     "my-analyses",
     () => api.ai.recentAnalyses(120, 300),
@@ -57,6 +61,26 @@ function MyAnalysisHistory() {
     return c;
   }, [all]);
 
+  // 종목별 묶음 — 종목당 1행. rows는 이미 최신순이므로 처음 만난 것이 최신 분석이다.
+  // 분석을 몇 번 하든 줄 수가 종목 수를 넘지 않는다.
+  const grouped = useMemo(() => {
+    const seen = new Map<string, { latest: AnalysisRow; n: number; best: number | null; worst: number | null }>();
+    for (const r of rows) {
+      const g = seen.get(r.ticker);
+      const d7 = r.d7;
+      if (!g) {
+        seen.set(r.ticker, { latest: r, n: 1, best: d7, worst: d7 });
+      } else {
+        g.n += 1;
+        if (d7 != null) {
+          g.best = g.best == null ? d7 : Math.max(g.best, d7);
+          g.worst = g.worst == null ? d7 : Math.min(g.worst, d7);
+        }
+      }
+    }
+    return [...seen.values()];
+  }, [rows]);
+
   const pctCell = (v: number | null) =>
     v == null ? <span style={{ color: "var(--color-subtle)" }}>—</span>
       : <span style={{ color: v >= 0 ? "#ff4b4b" : "#3b82f6", fontWeight: 700 }}>
@@ -75,8 +99,16 @@ function MyAnalysisHistory() {
     <div className="stockcy-card" style={{ padding: "0.9rem 1.1rem" }}>
       <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", alignItems: "center", marginBottom: "8px" }}>
         <div style={{ fontWeight: 800, fontSize: "0.95rem" }}>🔎 내가 분석한 종목</div>
-        <span style={{ fontSize: "0.7rem", color: "var(--color-muted)" }}>최근 120일 · {rows.length}건</span>
-        <div style={{ marginLeft: "auto", display: "flex", gap: "5px" }}>
+        <span style={{ fontSize: "0.7rem", color: "var(--color-muted)" }}>
+          최근 120일 · {rows.length}건{mode === "stock" && ` · ${grouped.length}종목`}
+        </span>
+        <div style={{ marginLeft: "auto", display: "flex", gap: "5px", flexWrap: "wrap" }}>
+          {(["stock", "time"] as const).map(v =>
+            <button key={v} style={btn(mode === v)} onClick={() => setMode(v)}
+                    title={v === "stock" ? "종목당 한 줄 — 분석을 몇 번 하든 길이가 안 늘어난다"
+                                         : "분석한 순서대로 — 표 안에서만 스크롤된다"}>
+              {v === "stock" ? "종목별" : "시간순"}
+            </button>)}
           {(["all", "KR", "US"] as const).map(v =>
             <button key={v} style={btn(onlyKR === v)} onClick={() => setOnlyKR(v)}>
               {v === "all" ? "전체" : v === "KR" ? "국내" : "미국"}
@@ -92,10 +124,58 @@ function MyAnalysisHistory() {
         <div style={{ fontSize: "0.78rem", color: "var(--color-muted)", padding: "10px 0" }}>
           분석 이력이 없습니다. 종목검색에서 AI 분석을 돌리면 여기에 쌓입니다.
         </div>
-      ) : (
+      ) : mode === "stock" ? (
+        /* 종목별 — 종목당 1행. 분석을 몇 번 하든 줄 수가 종목 수를 넘지 않는다. */
         <div style={{ overflowX: "auto" }}>
-          <table style={{ borderCollapse: "collapse", width: "100%", minWidth: "640px", fontSize: "0.72rem" }}>
+          <table style={{ borderCollapse: "collapse", width: "100%", minWidth: "620px", fontSize: "0.72rem" }}>
             <thead>
+              <tr style={{ color: "var(--color-muted)", textAlign: "right" }}>
+                <th style={{ textAlign: "left", padding: "5px 8px 5px 0" }}>종목</th>
+                <th style={{ padding: "5px 8px" }}>분석</th>
+                <th style={{ textAlign: "left", padding: "5px 8px" }}>최근 등급</th>
+                <th style={{ textAlign: "left", padding: "5px 8px" }}>최근 분석</th>
+                <th style={{ padding: "5px 8px" }}>최근 d7</th>
+                <th style={{ padding: "5px 0 5px 8px" }}>d7 최고/최저</th>
+              </tr>
+            </thead>
+            <tbody>
+              {grouped.map(g => {
+                const r = g.latest;
+                const isKR = (r.market || "KR") === "KR";
+                return (
+                  <tr key={r.ticker}
+                      onClick={() => router.push(`/search?q=${encodeURIComponent(r.ticker)}&market=${isKR ? "KR" : "US"}`)}
+                      title="클릭하면 종목검색으로 이동"
+                      style={{ borderTop: "1px solid var(--color-border)", cursor: "pointer" }}>
+                    <td style={{ padding: "6px 8px 6px 0", whiteSpace: "nowrap" }}>
+                      <b>{r.name}</b>
+                      <span style={{ color: "var(--color-subtle)" }}> {r.ticker}</span>
+                      <span style={{ color: "var(--color-subtle)" }}> {isKR ? "🇰🇷" : "🇺🇸"}</span>
+                    </td>
+                    <td style={{ padding: "6px 8px", textAlign: "right", fontWeight: 700 }}>{g.n}회</td>
+                    <td style={{ padding: "6px 8px", color: ratingColor(r.rating), fontWeight: 700, whiteSpace: "nowrap" }}>
+                      {r.rating || "—"}
+                    </td>
+                    <td style={{ padding: "6px 8px", color: "var(--color-muted)", whiteSpace: "nowrap" }}>
+                      {r.at.slice(2, 16)}
+                    </td>
+                    <td style={{ padding: "6px 8px", textAlign: "right" }}>{pctCell(r.d7)}</td>
+                    <td style={{ padding: "6px 0 6px 8px", textAlign: "right", whiteSpace: "nowrap" }}>
+                      {g.n > 1 && (g.best != null || g.worst != null)
+                        ? <>{pctCell(g.best)} <span style={{ color: "var(--color-subtle)" }}>/</span> {pctCell(g.worst)}</>
+                        : <span style={{ color: "var(--color-subtle)" }}>—</span>}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        /* 시간순 — 표 안에서만 스크롤한다. 건수가 늘어도 패널 높이는 그대로다. */
+        <div style={{ overflowX: "auto", maxHeight: "360px", overflowY: "auto" }}>
+          <table style={{ borderCollapse: "collapse", width: "100%", minWidth: "640px", fontSize: "0.72rem" }}>
+            <thead style={{ position: "sticky", top: 0, background: "var(--color-surface)", zIndex: 1 }}>
               <tr style={{ color: "var(--color-muted)", textAlign: "right" }}>
                 <th style={{ textAlign: "left", padding: "5px 8px 5px 0" }}>분석일시</th>
                 <th style={{ textAlign: "left", padding: "5px 8px" }}>종목</th>
@@ -149,9 +229,11 @@ function MyAnalysisHistory() {
           </table>
         </div>
       )}
-      <div style={{ fontSize: "0.64rem", color: "var(--color-subtle)", marginTop: "6px" }}>
+      <div style={{ fontSize: "0.64rem", color: "var(--color-subtle)", marginTop: "6px", lineHeight: 1.6 }}>
         d1·d3·d7은 분석일 종가 대비 1·3·7거래일 뒤 수익률입니다. 아직 그날이 안 지났으면 비어 있습니다.
-        같은 종목이 여러 번 보이면 중복이 아니라 그만큼 다시 분석한 것입니다(×N 표시).
+        {mode === "stock"
+          ? " 종목별 보기는 종목당 한 줄이라, 분석을 많이 해도 목록이 길어지지 않습니다. 'd7 최고/최저'는 그 종목을 여러 번 분석했을 때 결과가 얼마나 갈렸는지입니다."
+          : " 시간순 보기는 표 안에서만 스크롤됩니다. 같은 종목이 여러 번 보이면 중복이 아니라 그만큼 다시 분석한 것입니다(×N 표시)."}
       </div>
     </div>
   );
