@@ -35,6 +35,9 @@ db.sqlite3.backup*
 scratch/*
 !scratch/dev_proxy.js
 !scratch/run_tunnel.py
+# VERIFY.md가 절차로 참조하는 진단 스크립트 — 원장만 남고 파일이 없으면 절차가 죽는다
+!scratch/toss_check.py
+!scratch/check_prices.py
 cloudflared.exe
 
 # 런타임 데이터 (세션마다 변해 커밋 노이즈 유발)

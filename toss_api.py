@@ -10,9 +10,27 @@ A단계: OAuth2 토큰 발급 + 현재가 조회까지만.
 엔드포인트(공식 스펙 기준):
     POST /oauth2/token   (form-urlencoded, grant_type=client_credentials)
     GET  /api/v1/prices  (?symbols=005930,AAPL  / Authorization: Bearer)
+
+🚨 토큰은 앱키당 **하나만** 유효하다 (2026-09-15 실측).
+   새 토큰을 발급받으면 **이전 토큰이 즉시 무효화**된다. 서버 응답:
+     code: "token-revoked"
+     "새로 발급된 토큰으로 대체되어 더 이상 유효하지 않은 토큰입니다."
+
+   그래서 **백엔드가 떠 있는 동안 다른 프로세스에서 이 모듈을 호출하면
+   백엔드의 토큰이 죽는다.** 실제로 그렇게 고장 났다 — 진단용 스크립트
+   (scratch/toss_check.py 등)를 돌린 뒤부터 백엔드의 모든 토스 조회가 조용히
+   빈 값을 돌려줬고, 화면에는 '현재가 조회 실패'로만 보였다.
+
+   대응:
+   - _api_get이 401/403을 만나면 토큰을 버리고 1회 재발급해 재시도한다(자동 복구).
+   - 발급은 _token_lock으로 직렬화한다(한 프로세스 안에서 서로 무효화하지 않게).
+   - ⚠️ 그래도 **백엔드가 떠 있을 때 별도 스크립트로 토스를 찌르는 것은 피할 것.**
+     서로 토큰을 뺏느라 양쪽 다 실패할 수 있다. 진단이 필요하면 백엔드의
+     /api/stocks/... 엔드포인트를 호출해 같은 프로세스 안에서 확인한다.
 """
 import logging
 import os
+import threading
 import time
 import requests
 
@@ -23,6 +41,9 @@ TOSS_BASE = "https://openapi.tossinvest.com"
 # 토큰 캐시: (access_token, 만료 epoch초). 만료 60초 전이면 갱신한다.
 _token_cache = {"token": None, "expires_at": 0.0}
 _TOKEN_MARGIN = 60  # 만료 안전 마진(초)
+# 발급 직렬화. 앱키당 토큰이 하나뿐이라, 동시에 두 번 발급하면 먼저 받은 쪽이 무효화된다.
+# 락 안에서 캐시를 다시 확인해(double-check) 뒤늦게 들어온 스레드는 남의 새 토큰을 쓴다.
+_token_lock = threading.Lock()
 
 
 def get_token() -> str | None:
@@ -31,6 +52,17 @@ def get_token() -> str | None:
     if _token_cache["token"] and now < _token_cache["expires_at"] - _TOKEN_MARGIN:
         return _token_cache["token"]
 
+    with _token_lock:
+        # 기다리는 동안 다른 스레드가 이미 받아왔을 수 있다.
+        now = time.time()
+        if _token_cache["token"] and now < _token_cache["expires_at"] - _TOKEN_MARGIN:
+            return _token_cache["token"]
+        return _issue_token()
+
+
+def _issue_token() -> str | None:
+    """실제 발급. 반드시 _token_lock을 잡고 호출할 것."""
+    now = time.time()
     app_key = os.getenv("TOSS_APP_KEY", "")
     app_secret = os.getenv("TOSS_APP_SECRET", "")
     if not app_key or not app_secret:
@@ -73,6 +105,49 @@ def _auth_headers() -> dict | None:
     return {"Authorization": f"Bearer {token}"}
 
 
+class _TossError(Exception):
+    """토스 요청 실패. 각 함수의 기존 except가 받아 빈 값을 돌려준다."""
+
+
+def _api_get(path: str, params: dict | None = None, timeout: int = 10,
+             extra_headers: dict | None = None) -> dict:
+    """토스 GET 공용 경로. 401/403이면 토큰을 버리고 **1회만** 재발급해 재시도한다.
+
+    [왜 재시도가 필요한가] _token_cache는 expires_in을 믿고 토큰을 들고 있는데,
+    서버가 만료 전에 거부할 수 있다(IP 허용목록 변경·회수 등). 그때 죽은 토큰을 계속
+    보내면 모든 조회가 조용히 빈 값이 되고, 프로세스를 재기동하기 전까지 안 풀린다.
+    실측(2026-09-15): 새 프로세스는 15종목 현재가가 다 나오는데 떠 있던 백엔드만 {}.
+
+    ⚠️ 재시도는 1회로 제한한다. 인증이 진짜로 막힌 상태(VPN·IP 미등록)에서 무한정
+       재발급을 시도하면 호출만 두 배로 늘고 복구되지도 않는다.
+    """
+    for attempt in (1, 2):
+        headers = _auth_headers()
+        if not headers:
+            raise _TossError("토큰 발급 실패")
+        if extra_headers:
+            headers = {**headers, **extra_headers}   # 잔고 조회의 계좌 헤더 등
+        try:
+            resp = requests.get(f"{TOSS_BASE}{path}", params=params,
+                                headers=headers, timeout=timeout)
+        except Exception as e:
+            raise _TossError(f"{type(e).__name__}: {str(e)[:120]}")
+
+        if resp.status_code in (401, 403) and attempt == 1:
+            logger.warning(f"[toss] {path} {resp.status_code} — 캐시 토큰을 서버가 거부했다. "
+                           f"재발급 후 1회 재시도한다.")
+            _token_cache["token"] = None
+            _token_cache["expires_at"] = 0.0
+            continue
+        if resp.status_code != 200:
+            raise _TossError(f"HTTP {resp.status_code}: {resp.text[:160]}")
+        try:
+            return resp.json() or {}
+        except Exception:
+            raise _TossError("JSON 파싱 실패")
+    raise _TossError("토큰을 재발급했는데도 거부됐다 (IP 허용목록 확인)")
+
+
 def get_prices(symbols: list[str] | str) -> dict[str, float]:
     """여러 종목 현재가 조회. {symbol: lastPrice(float)} 반환.
 
@@ -86,20 +161,10 @@ def get_prices(symbols: list[str] | str) -> dict[str, float]:
     if not symbols_param:
         return {}
 
-    headers = _auth_headers()
-    if not headers:
-        return {}
-
     try:
-        resp = requests.get(
-            f"{TOSS_BASE}/api/v1/prices",
-            params={"symbols": symbols_param},
-            headers=headers,
-            timeout=10,
-        )
-        resp.raise_for_status()
-        data = resp.json()
-    except Exception:
+        data = _api_get("/api/v1/prices", {"symbols": symbols_param})
+    except Exception as e:
+        logger.warning(f"[toss] 현재가 조회 실패 ({symbols_param[:60]}): {e}")
         return {}
 
     out: dict[str, float] = {}
@@ -144,17 +209,10 @@ def get_warnings(symbol: str) -> list[dict]:
     sym = str(symbol).strip()
     if not sym:
         return []
-    headers = _auth_headers()
-    if not headers:
-        return []
     try:
-        resp = requests.get(
-            f"{TOSS_BASE}/api/v1/stocks/{sym}/warnings",
-            headers=headers, timeout=10,
-        )
-        resp.raise_for_status()
-        data = resp.json()
-    except Exception:
+        data = _api_get(f"/api/v1/stocks/{sym}/warnings")
+    except Exception as e:
+        logger.warning(f"[toss] 투자경고 조회 실패 {sym}: {e}")
         return []
 
     items = data.get("result", data) if isinstance(data, dict) else data
@@ -213,17 +271,11 @@ def get_orderbook(symbol: str) -> dict:
     sym = str(symbol).strip()
     if not sym:
         return {"ok": False, "error": "종목코드 없음"}
-    headers = _auth_headers()
-    if not headers:
-        return {"ok": False, "error": "토큰 발급 실패"}
     try:
-        resp = requests.get(f"{TOSS_BASE}/api/v1/orderbook",
-                            params={"symbol": sym}, headers=headers, timeout=10)
-        resp.raise_for_status()
-        r = resp.json().get("result", {}) or {}
+        r = _api_get("/api/v1/orderbook", {"symbol": sym}).get("result", {}) or {}
     except Exception as e:
-        logger.warning(f"[toss] 호가창 조회 실패 {sym}: {type(e).__name__}: {str(e)[:120]}")
-        return {"ok": False, "error": f"{type(e).__name__}"}
+        logger.warning(f"[toss] 호가창 조회 실패 {sym}: {e}")
+        return {"ok": False, "error": str(e)[:80]}
 
     def _lvls(key):
         return [{"price": _f(x.get("price")), "volume": _f(x.get("volume"))}
@@ -235,16 +287,14 @@ def get_orderbook(symbol: str) -> dict:
 def get_trades(symbol: str, count: int = 30) -> list[dict]:
     """최근 체결 내역. [{price, volume, timestamp}] 최신순. 실패 시 []."""
     sym = str(symbol).strip()
-    headers = _auth_headers()
-    if not sym or not headers:
+    if not sym:
         return []
     try:
-        resp = requests.get(f"{TOSS_BASE}/api/v1/trades",
-                            params={"symbol": sym, "count": max(1, min(int(count), 50))},
-                            headers=headers, timeout=10)
-        resp.raise_for_status()
-        items = resp.json().get("result", []) or []
-    except Exception:
+        items = _api_get("/api/v1/trades",
+                         {"symbol": sym, "count": max(1, min(int(count), 50))}
+                         ).get("result", []) or []
+    except Exception as e:
+        logger.warning(f"[toss] 체결 조회 실패 {sym}: {e}")
         return []
     return [{"price": _f(t.get("price")), "volume": _f(t.get("volume")),
              "timestamp": t.get("timestamp")} for t in items]
@@ -253,15 +303,12 @@ def get_trades(symbol: str, count: int = 30) -> list[dict]:
 def get_price_limits(symbol: str) -> dict:
     """상/하한가. {upper, lower, currency}. 값 없으면 None(미국 등). 실패 시 {}."""
     sym = str(symbol).strip()
-    headers = _auth_headers()
-    if not sym or not headers:
+    if not sym:
         return {}
     try:
-        resp = requests.get(f"{TOSS_BASE}/api/v1/price-limits",
-                            params={"symbol": sym}, headers=headers, timeout=10)
-        resp.raise_for_status()
-        r = resp.json().get("result", {}) or {}
-    except Exception:
+        r = _api_get("/api/v1/price-limits", {"symbol": sym}).get("result", {}) or {}
+    except Exception as e:
+        logger.warning(f"[toss] 상하한가 조회 실패 {sym}: {e}")
         return {}
     up = r.get("upperLimitPrice")
     lo = r.get("lowerLimitPrice")
@@ -282,17 +329,11 @@ def get_market_calendar(market: str = "KR") -> dict:
     잘못 표시하고 있었기 때문이다(VPN으로 토큰이 막힌 내내 개장일에도 '오늘 휴장').
     """
     mk = (market or "KR").upper()
-    headers = _auth_headers()
-    if not headers:
-        return {"ok": False, "error": "토큰 발급 실패"}
     try:
-        resp = requests.get(f"{TOSS_BASE}/api/v1/market-calendar/{mk}",
-                            headers=headers, timeout=10)
-        resp.raise_for_status()
-        r = resp.json().get("result", {}) or {}
+        r = _api_get(f"/api/v1/market-calendar/{mk}").get("result", {}) or {}
     except Exception as e:
-        logger.warning(f"[toss] 장운영 조회 실패 {mk}: {type(e).__name__}: {str(e)[:120]}")
-        return {"ok": False, "error": f"{type(e).__name__}"}
+        logger.warning(f"[toss] 장운영 조회 실패 {mk}: {e}")
+        return {"ok": False, "error": str(e)[:80]}
 
     def _date(node):
         return (node or {}).get("date") if isinstance(node, dict) else None
@@ -317,15 +358,12 @@ def get_stock_master(symbols: list[str] | str) -> dict[str, dict]:
         param = ",".join(str(s).strip() for s in symbols if str(s).strip())
     else:
         param = str(symbols).strip()
-    headers = _auth_headers()
-    if not param or not headers:
+    if not param:
         return {}
     try:
-        resp = requests.get(f"{TOSS_BASE}/api/v1/stocks",
-                            params={"symbols": param}, headers=headers, timeout=10)
-        resp.raise_for_status()
-        items = resp.json().get("result", []) or []
-    except Exception:
+        items = _api_get("/api/v1/stocks", {"symbols": param}).get("result", []) or []
+    except Exception as e:
+        logger.warning(f"[toss] 종목마스터 조회 실패: {e}")
         return {}
     out: dict[str, dict] = {}
     for it in items:
@@ -355,19 +393,11 @@ def get_candles(symbol: str, interval: str = "1d", count: int = 100) -> list[dic
         return []
     count = max(1, min(int(count), 200))
 
-    headers = _auth_headers()
-    if not headers:
-        return []
     try:
-        resp = requests.get(
-            f"{TOSS_BASE}/api/v1/candles",
-            params={"symbol": str(symbol).strip(), "interval": interval, "count": count},
-            headers=headers,
-            timeout=10,
-        )
-        resp.raise_for_status()
-        data = resp.json()
-    except Exception:
+        data = _api_get("/api/v1/candles",
+                        {"symbol": str(symbol).strip(), "interval": interval, "count": count})
+    except Exception as e:
+        logger.warning(f"[toss] 일봉 조회 실패 {symbol}: {e}")
         return []
 
     result = data.get("result") or {}
@@ -394,19 +424,11 @@ def get_exchange_rate(base: str = "USD", quote: str = "KRW") -> float | None:
 
     인증 토큰만 있으면 되는 시세성 데이터(계좌 헤더 불필요).
     """
-    headers = _auth_headers()
-    if not headers:
-        return None
     try:
-        resp = requests.get(
-            f"{TOSS_BASE}/api/v1/exchange-rate",
-            params={"baseCurrency": base.upper(), "quoteCurrency": quote.upper()},
-            headers=headers,
-            timeout=10,
-        )
-        resp.raise_for_status()
-        data = resp.json()
-    except Exception:
+        data = _api_get("/api/v1/exchange-rate",
+                        {"baseCurrency": base.upper(), "quoteCurrency": quote.upper()})
+    except Exception as e:
+        logger.warning(f"[toss] 환율 조회 실패 {base}/{quote}: {e}")
         return None
 
     result = data.get("result", data)
@@ -424,14 +446,10 @@ def get_exchange_rate(base: str = "USD", quote: str = "KRW") -> float | None:
 
 def get_accounts() -> list[dict]:
     """관리자 계좌 목록. 각 원소에 accountNo / accountSeq / accountType."""
-    headers = _auth_headers()
-    if not headers:
-        return []
     try:
-        resp = requests.get(f"{TOSS_BASE}/api/v1/accounts", headers=headers, timeout=10)
-        resp.raise_for_status()
-        return resp.json().get("result", []) or []
-    except Exception:
+        return _api_get("/api/v1/accounts").get("result", []) or []
+    except Exception as e:
+        logger.warning(f"[toss] 계좌 조회 실패: {e}")
         return []
 
 
@@ -473,16 +491,11 @@ def get_holdings(account_seq: int | None = None) -> list[dict]:
     if account_seq is None:
         return []
 
-    headers = _auth_headers()
-    if not headers:
-        return []
-    headers["X-Tossinvest-Account"] = str(account_seq)
-
     try:
-        resp = requests.get(f"{TOSS_BASE}/api/v1/holdings", headers=headers, timeout=10)
-        resp.raise_for_status()
-        data = resp.json()
-    except Exception:
+        data = _api_get("/api/v1/holdings",
+                        extra_headers={"X-Tossinvest-Account": str(account_seq)})
+    except Exception as e:
+        logger.warning(f"[toss] 잔고 조회 실패 (account {account_seq}): {e}")
         return []
 
     result = data.get("result") or {}
