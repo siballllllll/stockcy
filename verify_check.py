@@ -152,7 +152,45 @@ def main():
         print(f"   토큰 발급: {'성공' if ok else '실패'}")
         if ok:
             print("   [DONE] 호가창·최근체결·장운영 표시 정상.")
-        else:
+        # 429(요청 한도 초과) 추이 — v3.180.0의 5분 캐시가 실제로 줄였는지 본다.
+        # 막혀도 폴백이 받아주므로 화면은 멀쩡하다. 그래서 여기서 세지 않으면 아무도 모른다.
+        try:
+            import collections as _c
+            import re as _re
+            _log = os.path.join(BASE, "backend.log")
+            _by_day = _c.Counter()
+            _kind = _c.Counter()
+            _day = ""
+            with open(_log, encoding="utf-8", errors="replace") as _f:
+                for _ln in _f:
+                    _m = _re.match(r"^(\d{4}-\d{2}-\d{2}) ", _ln)
+                    if _m:
+                        _day = _m.group(1)
+                    if "[toss]" in _ln and "HTTP 429" in _ln:
+                        _by_day[_day] += 1
+                        _k = _re.search(r"\[toss\] ([^\s]+(?: 조회)?) 실패", _ln)
+                        if _k:
+                            _kind[_k.group(1)] += 1
+            if _by_day:
+                _recent = sorted(_by_day.items())[-4:]
+                print("   429(요청 한도 초과) 최근: "
+                      + " / ".join(f"{d[5:]} {n}건" for d, n in _recent))
+                if _kind:
+                    print("      주 발생처: "
+                          + ", ".join(f"{k} {v}건" for k, v in _kind.most_common(2)))
+                _latest = _recent[-1][1]
+                if _latest >= 20:
+                    print("      [주의] 하루 20건 이상 — 캐시 TTL이 아니라 호출부 개수를 볼 것.")
+                    print("             폴백으로 화면은 멀쩡하지만 종목마다 소스가 갈린다")
+                    print("             (2026-09-08 손절 5건 사고와 같은 조건).")
+            else:
+                print("   429(요청 한도 초과) 기록 없음 — 정상.")
+        except FileNotFoundError:
+            pass
+        except Exception as _e:
+            print(f"   429 집계 실패: {str(_e)[:60]}")
+
+        if not ok:
             # 2026-09-11: VPN 전용(고정) IP 89.187.161.5(일본)을 등록해 해결했다.
             # 공용 출구 IP 시절의 "등록하지 말라"는 처방은 전용 IP에는 해당되지 않는다.
             print("   [정보] 전용 IP가 바뀌었거나 해지됐을 가능성이 높다.")
