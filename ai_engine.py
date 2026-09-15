@@ -5446,8 +5446,25 @@ def compute_haseunghoon_signals(opens, highs, lows, closes, volumes, is_kr: bool
     return out
 
 
+@st.cache_data(ttl=300)   # 5분 — 아래 [왜] 참조
 def _get_trade_indicators(ticker: str, buy_date_str: str) -> dict:
-    """단일 거래의 기술적 지표를 yfinance로 수집합니다."""
+    """단일 종목의 기술적 지표를 일봉에서 계산한다 (토스 → FDR/yfinance).
+
+    [왜 캐시하나] 이 함수는 호출될 때마다 일봉 400봉을 새로 받는다. 부르는 곳이 많아서
+    (에이전트 스캔·섀도우 리그·종목분석·비교·패턴 스크리너·종목검색 지표 API) 같은 종목을
+    몇 분 사이에 여러 번 다시 받았고, 토스가 429(rate-limit-exceeded)로 막기 시작했다
+    — 2026-09-15 실측 28건, 27건이 일봉 조회였고 스캔 주기와 정확히 겹쳤다.
+
+    막히면 폴백(FDR/yfinance)이 받아주므로 화면은 정상이다. 문제는 **그 종목만 소스가
+    갈린다**는 것이다. v3.170.0에서 "차트와 지표는 같은 소스를 본다"로 통일한 이유가
+    2026-09-08 사고였다(현재가가 하루 밀려 상한가 종목이 -23%로 계산되고 손절 5건 발동).
+    429가 잦아지면 그 조건이 다시 만들어진다.
+
+    ⚠️ TTL 5분 = 현재가가 최대 5분 묵을 수 있다. 확인하고 받아들인 것이다 —
+       이 함수의 current_price는 **표시·점수 계산용**이고(추천 매수구간, 섀도우 후보 지표),
+       실제 체결가는 별도 시세 조회를 쓴다. 에이전트 스캔 주기도 30분이다.
+       매매 체결에 쓰는 가격을 여기서 가져다 쓰지 말 것 — 그 순간 이 TTL이 사고가 된다.
+    """
     import yfinance as yf
     from datetime import datetime
 
