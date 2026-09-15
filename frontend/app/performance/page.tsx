@@ -132,10 +132,12 @@ function MyAnalysisHistory() {
           분석 이력이 없습니다. 종목검색에서 AI 분석을 돌리면 여기에 쌓입니다.
         </div>
       ) : mode === "stock" ? (
-        /* 종목별 — 종목당 1행. 분석을 몇 번 하든 줄 수가 종목 수를 넘지 않는다. */
-        <div style={{ overflowX: "auto" }}>
+        /* 종목별 — 종목당 1행. 다만 서로 다른 종목이 100개면 100줄이 된다:
+           줄 수가 '분석 횟수'와 무관해질 뿐 '종목 수'와는 비례한다.
+           그래서 시간순과 똑같이 높이를 묶는다. 이걸 빠뜨려서 종목별만 계속 길어졌다. */
+        <div style={{ overflowX: "auto", maxHeight: "360px", overflowY: "auto" }}>
           <table style={{ borderCollapse: "collapse", width: "100%", minWidth: "620px", fontSize: "0.72rem" }}>
-            <thead>
+            <thead style={{ position: "sticky", top: 0, background: "var(--color-surface)", zIndex: 1 }}>
               <tr style={{ color: "var(--color-muted)", textAlign: "right" }}>
                 <th style={{ textAlign: "left", padding: "5px 8px 5px 0" }}>종목</th>
                 <th style={{ padding: "5px 8px" }}>분석</th>
@@ -245,7 +247,7 @@ function MyAnalysisHistory() {
       <div style={{ fontSize: "0.64rem", color: "var(--color-subtle)", marginTop: "6px", lineHeight: 1.6 }}>
         d1·d3·d7은 분석일 종가 대비 1·3·7거래일 뒤 수익률입니다. 아직 그날이 안 지났으면 비어 있습니다.
         {mode === "stock"
-          ? " 종목별 보기는 종목당 한 줄이라, 분석을 많이 해도 목록이 길어지지 않습니다. 'd7 최고/최저'는 그 종목을 여러 번 분석했을 때 결과가 얼마나 갈렸는지입니다."
+          ? " 종목별 보기는 종목당 한 줄입니다. 같은 종목을 여러 번 분석해도 줄이 늘지 않고, 종목이 많아지면 표 안에서만 스크롤됩니다. 'd7 최고/최저'는 그 종목을 여러 번 분석했을 때 결과가 얼마나 갈렸는지입니다."
           : " 시간순 보기는 표 안에서만 스크롤됩니다. 같은 종목이 여러 번 보이면 중복이 아니라 그만큼 다시 분석한 것입니다(×N 표시)."}
       </div>
     </div>
