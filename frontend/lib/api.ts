@@ -115,7 +115,8 @@ export const api = {
       // ⚠️ 서버가 한글 키로 돌려준다(분석시간·등급·중장기등급…). 영문으로 바꾸지 말 것 —
       //    저장·조회가 같은 키를 쓰고 있어 한쪽만 고치면 조용히 빈 값이 된다.
       req<Array<{ "분석시간": string; "등급": string; "중장기등급"?: string;
-            "매수구간"?: string; "목표가"?: string; "단기전망률"?: string; "현재가"?: string }>>(
+            "매수구간"?: string; "목표가"?: string; "손절가"?: string;
+            "단기전망률"?: string; "현재가"?: string; "종목명"?: string; "JSON"?: string }>>(
         `/api/ai/analysis-history/${encodeURIComponent(ticker)}?limit=${limit}`),
     confluence: (days = 7, minEngines = 2) =>
       req<{ picks: any[]; days: number; min_engines: number }>(`/api/ai/confluence?days=${days}&min_engines=${minEngines}`),

@@ -29,7 +29,87 @@ type AnalysisRow = {
   buy_target: string; d1: number | null; d3: number | null; d7: number | null; checked: boolean;
 };
 
-function MyAnalysisHistory() {
+// 한 종목의 개별 분석들 — 'N회'를 눌렀을 때 그 아래에 펼쳐진다.
+// [왜] 종목별 보기는 "몇 번 분석했다"까지만 알려줬다. 정작 "그때 뭐라고 했는데?"에
+// 답하려면 종목검색으로 넘어가 최신 1건만 봐야 했다. 여기서 바로 펼친다.
+function TickerAnalyses({ ticker, rows }: { ticker: string; rows: AnalysisRow[] }) {
+  // 처음부터 최신 1건은 펼쳐 둔다 — 열자마자 빈 목록만 보이면 한 번 더 눌러야 한다.
+  const [openAt, setOpenAt] = useState<string | null>(rows[0]?.at ?? null);
+  // 본문(analysis_json)은 목록 API가 주지 않는다(응답이 무거워진다). 펼칠 때만 종목별로 받는다.
+  const { data: detail } = useSWR(
+    openAt ? `analysis-detail-${ticker}` : null,
+    () => api.ai.analysisHistory(ticker, 50),
+    { revalidateOnFocus: false }
+  );
+  const pick = (at: string) =>
+    (detail || []).find(d => String(d["분석시간"]).slice(0, 16) === at.slice(0, 16));
+
+  const num = (v: number | null) =>
+    v == null ? <span style={{ color: "var(--color-subtle)" }}>—</span>
+      : <span style={{ color: v >= 0 ? "#ff4b4b" : "#3b82f6", fontWeight: 700 }}>
+          {v >= 0 ? "+" : ""}{v.toFixed(2)}%
+        </span>;
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
+      {rows.map(r => {
+        const open = openAt === r.at;
+        const d = open ? pick(r.at) : null;
+        let j: any = null;
+        if (d?.["JSON"]) { try { j = JSON.parse(d["JSON"] as string); } catch { j = null; } }
+        return (
+          <div key={r.id} style={{ marginBottom: "4px" }}>
+            <div onClick={() => setOpenAt(open ? null : r.at)}
+                 style={{ display: "flex", flexWrap: "wrap", gap: "10px", alignItems: "center",
+                          fontSize: "0.7rem", cursor: "pointer", padding: "3px 0" }}>
+              <span style={{ color: "var(--color-subtle)" }}>{open ? "▾" : "▸"}</span>
+              <span style={{ color: "var(--color-muted)", minWidth: "96px" }}>{r.at.slice(2, 16)}</span>
+              <span style={{ fontWeight: 700 }}>{r.rating}</span>
+              <span style={{ color: "var(--color-muted)" }}>중장기 {r.long_rating || "—"}</span>
+              <span style={{ color: "var(--color-muted)" }}>d1 {num(r.d1)} · d3 {num(r.d3)} · d7 {num(r.d7)}</span>
+            </div>
+            {open && (
+              <div style={{ fontSize: "0.72rem", lineHeight: 1.7, background: "rgba(255,255,255,0.03)",
+                            borderRadius: "6px", padding: "10px 12px", margin: "2px 0 8px 16px" }}>
+                {!d ? <span style={{ color: "var(--color-muted)" }}>불러오는 중…</span> : (
+                  <>
+                    <div><b style={{ color: "#a5b4fc" }}>매수구간</b> {d["매수구간"] || "—"}
+                      {d["목표가"] && <> · <b style={{ color: "#a5b4fc" }}>목표</b> {d["목표가"]}</>}
+                      {d["손절가"] && <> · <b style={{ color: "#a5b4fc" }}>손절</b> {d["손절가"]}</>}</div>
+                    {d["단기전망률"] && <div><b style={{ color: "#a5b4fc" }}>단기 전망</b> {d["단기전망률"]}
+                      {j?.short_term_view_price && <> ({j.short_term_view_price})</>}</div>}
+                    {j?.key_issues && (
+                      <div style={{ marginTop: "5px" }}>
+                        <b style={{ color: "#a5b4fc" }}>핵심 이슈</b>
+                        <div style={{ color: "var(--color-muted)", whiteSpace: "pre-wrap" }}>{String(j.key_issues).trim()}</div>
+                      </div>
+                    )}
+                    {(j?.hold_verdict || j?.analysis) && (
+                      <div style={{ marginTop: "5px" }}>
+                        <b style={{ color: "#a5b4fc" }}>판단</b>
+                        <div style={{ color: "var(--color-muted)", whiteSpace: "pre-wrap" }}>
+                          {String(j.hold_verdict || j.analysis).trim()}
+                        </div>
+                      </div>
+                    )}
+                    {!j && <div style={{ color: "var(--color-subtle)", marginTop: "4px" }}>
+                      저장된 본문이 없습니다(구버전 기록).
+                    </div>}
+                  </>
+                )}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function MyAnalysisHistory({ selected, onSelect }: {
+  selected: string | null;
+  onSelect: (ticker: string | null, rows: AnalysisRow[], name: string) => void;
+}) {
   const router = useRouter();
   const [onlyKR, setOnlyKR] = useState<"all" | "KR" | "US">("all");
   const [ratingF, setRatingF] = useState<"all" | "추천" | "비추천">("all");
@@ -39,6 +119,7 @@ function MyAnalysisHistory() {
   const [mode, setMode] = useState<"stock" | "time">("stock");
   // 기간 선택. '전체'는 100년으로 보낸다(서버가 36500일로 묶는다).
   const [days, setDays] = useState<number>(90);
+
   const { data } = useSWR<{ items: AnalysisRow[]; total: number; limit: number }>(
     `my-analyses-${days}`,            // ⚠️ 기간을 키에 넣어야 바꿀 때 다시 불러온다
     () => api.ai.recentAnalyses(days, 300),
@@ -68,14 +149,15 @@ function MyAnalysisHistory() {
   // 종목별 묶음 — 종목당 1행. rows는 이미 최신순이므로 처음 만난 것이 최신 분석이다.
   // 분석을 몇 번 하든 줄 수가 종목 수를 넘지 않는다.
   const grouped = useMemo(() => {
-    const seen = new Map<string, { latest: AnalysisRow; n: number; best: number | null; worst: number | null }>();
+    const seen = new Map<string, { latest: AnalysisRow; n: number; best: number | null; worst: number | null; list: AnalysisRow[] }>();
     for (const r of rows) {
       const g = seen.get(r.ticker);
       const d7 = r.d7;
       if (!g) {
-        seen.set(r.ticker, { latest: r, n: 1, best: d7, worst: d7 });
+        seen.set(r.ticker, { latest: r, n: 1, best: d7, worst: d7, list: [r] });
       } else {
         g.n += 1;
+        g.list.push(r);
         if (d7 != null) {
           g.best = g.best == null ? d7 : Math.max(g.best, d7);
           g.worst = g.worst == null ? d7 : Math.min(g.worst, d7);
@@ -153,15 +235,23 @@ function MyAnalysisHistory() {
                 const isKR = (r.market || "KR") === "KR";
                 return (
                   <tr key={r.ticker}
-                      onClick={() => router.push(`/search?q=${encodeURIComponent(r.ticker)}&market=${isKR ? "KR" : "US"}`)}
-                      title="클릭하면 종목검색으로 이동"
-                      style={{ borderTop: "1px solid var(--color-border)", cursor: "pointer" }}>
+                      onClick={() => onSelect(selected === r.ticker ? null : r.ticker, g.list, r.name)}
+                      title="클릭하면 오른쪽에 이 종목의 분석들이 열립니다"
+                      style={{ borderTop: "1px solid var(--color-border)", cursor: "pointer",
+                               background: selected === r.ticker ? "rgba(99,102,241,0.12)" : undefined }}>
                     <td style={{ padding: "6px 8px 6px 0", whiteSpace: "nowrap" }}>
                       <b>{r.name}</b>
                       <span style={{ color: "var(--color-subtle)" }}> {r.ticker}</span>
                       <span style={{ color: "var(--color-subtle)" }}> {isKR ? "🇰🇷" : "🇺🇸"}</span>
+                      <span onClick={(e) => { e.stopPropagation();
+                              router.push(`/search?q=${encodeURIComponent(r.ticker)}&market=${isKR ? "KR" : "US"}`); }}
+                            title="종목검색으로 이동"
+                            style={{ marginLeft: "6px", color: "var(--color-subtle)", cursor: "pointer" }}>🔍</span>
                     </td>
-                    <td style={{ padding: "6px 8px", textAlign: "right", fontWeight: 700 }}>{g.n}회</td>
+                    <td style={{ padding: "6px 8px", textAlign: "right", fontWeight: 700,
+                                 color: selected === r.ticker ? "var(--color-accent)" : "var(--color-text)" }}>
+                      {g.n}회
+                    </td>
                     <td style={{ padding: "6px 8px", color: ratingColor(r.rating), fontWeight: 700, whiteSpace: "nowrap" }}>
                       {r.rating || "—"}
                     </td>
@@ -857,6 +947,10 @@ export default function PerformancePage() {
   const [selOwner, setSelOwner] = useState<string | null>(null);
   const toggleOwner = (o: string) => setSelOwner((cur) => (cur === o ? null : o));
   const [tab, setTab] = useState<PerfTab>("score");
+  // '내 기록' 탭의 우측 상세 — 어떤 종목의 분석들을 띄울지. 리그 상세(selOwner)와 자리를 공유한다.
+  const [sel, setSel] = useState<{ ticker: string; name: string; rows: AnalysisRow[] } | null>(null);
+  const pickTicker = (ticker: string | null, rows: AnalysisRow[], name: string) =>
+    setSel(ticker ? { ticker, name, rows } : null);
 
   // 보던 탭을 기억한다 — 새로고침할 때마다 처음으로 돌아가면 성가시다.
   // (localStorage는 브라우저가 막아둘 수 있어 실패해도 조용히 넘어간다)
@@ -872,8 +966,11 @@ export default function PerformancePage() {
   };
 
   const cur = PERF_TABS.find(t => t.id === tab) ?? PERF_TABS[0];
-  // 상세 패널은 '성적' 탭에서만. 다른 탭으로 옮겼는데 옆에 리그 상세가 남아 있으면 뜬금없다.
-  const showDetail = !!selOwner && tab === "score";
+  // 우측 패널은 탭마다 주인이 다르다 — '성적'은 리그 상세, '내 기록'은 종목 분석 상세.
+  // 다른 탭으로 옮겼는데 옆에 남의 상세가 붙어 있으면 뜬금없다.
+  const showLeague = !!selOwner && tab === "score";
+  const showTicker = !!sel && tab === "record";
+  const showDetail = showLeague || showTicker;
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
@@ -911,7 +1008,7 @@ export default function PerformancePage() {
           )}
           {tab === "record" && (
             <>
-              <MyAnalysisHistory />
+              <MyAnalysisHistory selected={sel?.ticker ?? null} onSelect={pickTicker} />
               <MarketLogArchive />
             </>
           )}
@@ -925,18 +1022,23 @@ export default function PerformancePage() {
           )}
         </div>
 
-        {showDetail && selOwner && (
+        {showDetail && (
           <div style={{ flex: "1.4 1 640px", minWidth: "420px", maxWidth: "1100px", position: "sticky", top: "12px", maxHeight: "calc(100vh - 24px)", overflowY: "auto" }}>
             <div className="stockcy-card" style={{ padding: "0.9rem 1.1rem" }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "8px", marginBottom: "10px" }}>
-                <div style={{ fontWeight: 800, fontSize: "0.95rem" }}>{OWNER_LABEL[selOwner] ?? selOwner}</div>
-                <button onClick={() => setSelOwner(null)}
+                <div style={{ fontWeight: 800, fontSize: "0.95rem" }}>
+                  {showLeague && selOwner ? (OWNER_LABEL[selOwner] ?? selOwner)
+                    : <>{sel!.name} <span style={{ color: "var(--color-subtle)", fontWeight: 500 }}>{sel!.ticker} · 분석 {sel!.rows.length}회</span></>}
+                </div>
+                <button onClick={() => (showLeague ? setSelOwner(null) : setSel(null))}
                   style={{ border: "1px solid var(--color-border)", background: "transparent", color: "var(--color-muted)",
                     borderRadius: "7px", padding: "3px 10px", fontSize: "0.74rem", cursor: "pointer" }}>
                   ✕ 닫기
                 </button>
               </div>
-              {selOwner === "AI_AGENT" ? <AgentDashboard /> : <ShadowDetail owner={selOwner} />}
+              {showLeague && selOwner
+                ? (selOwner === "AI_AGENT" ? <AgentDashboard /> : <ShadowDetail owner={selOwner} />)
+                : <TickerAnalyses ticker={sel!.ticker} rows={sel!.rows} />}
             </div>
           </div>
         )}
