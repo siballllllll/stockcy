@@ -814,6 +814,18 @@ async def save_analysis_history(req: AnalysisHistoryRequest, _user: dict = Depen
     return {"success": ok}
 
 
+@router.get("/analysis-history")
+async def list_analysis_history(days: int = 120, limit: int = 300):
+    """내가 분석했던 종목 목록 (최신순). 종목별 조회와 달리 전체를 훑는다.
+
+    ⚠️ 경로 순서 주의 — 이 라우트가 /analysis-history/{ticker}보다 **위에** 있어야 한다.
+       아래에 두면 FastAPI가 빈 경로를 ticker로 잡지 않아 404가 난다.
+    """
+    from db import load_recent_analyses
+    items = await asyncio.to_thread(load_recent_analyses, days, limit)
+    return {"items": items, "days": days}
+
+
 @router.get("/analysis-history/{ticker}")
 async def load_analysis_history(ticker: str, limit: int = Query(10)):
     """종목 분석 이력 조회."""

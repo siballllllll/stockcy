@@ -1,11 +1,12 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
 import useSWR from "swr";
 import { MarkdownLite } from "@/components/ui/MarkdownLite";
 import { ScenarioTrackingPanel } from "@/app/scenarios/page";
 import { useAuth } from "@/lib/auth-context";
+import { api } from "@/lib/api";
 
 // AI 에이전트 대시보드(구 상단 탭)를 리그 우측 패널로 임베드 — 무거워서 지연 로드
 const AgentDashboard = dynamic(() => import("@/app/agent/page"), { ssr: false });
@@ -17,6 +18,145 @@ const wrColor = (v: number | null | undefined) =>
   v == null ? "var(--color-muted)" : v >= 60 ? "#34d399" : v >= 45 ? "#fbbf24" : "#f87171";
 const pct = (v: number | null | undefined) => (v == null ? "—" : `${v}%`);
 const ret = (v: number | null | undefined) => (v == null ? "—" : `${v >= 0 ? "+" : ""}${v}%`);
+
+// ── 내가 분석한 종목 (v3.182.0) ────────────────────────────────────────────
+// [왜] 이력은 analysis_history에 쌓이는데 종목별 조회밖에 없어서, "내가 뭘 분석했었지"를
+// 보려면 종목을 하나씩 검색해봐야 했다. 사후 수익률(d1/d3/d7)까지 같이 보여주면
+// '그때 이 판단이 맞았나'를 한 줄에서 확인할 수 있다.
+type AnalysisRow = {
+  id: number; at: string; market: string | null; ticker: string; name: string;
+  price_at: number | null; rating: string; long_rating: string; view_pct: string;
+  buy_target: string; d1: number | null; d3: number | null; d7: number | null; checked: boolean;
+};
+
+function MyAnalysisHistory() {
+  const router = useRouter();
+  const [onlyKR, setOnlyKR] = useState<"all" | "KR" | "US">("all");
+  const [ratingF, setRatingF] = useState<"all" | "추천" | "비추천">("all");
+  const { data } = useSWR<{ items: AnalysisRow[] }>(
+    "my-analyses",
+    () => api.ai.recentAnalyses(120, 300),
+    { refreshInterval: 300000 }
+  );
+  const all = data?.items ?? [];
+  // ⚠️ "중간추천"도 문자열에 '추천'을 담고 있다. 추천계열 필터는 비추천만 걷어내는 것이고,
+  //    라벨도 '추천'이 아니라 '추천계열'이라고 적어 오해를 막는다.
+  const rows = useMemo(() => all.filter(r => {
+    if (onlyKR !== "all" && (r.market || "KR") !== onlyKR) return false;
+    const isNeg = r.rating.includes("비추천");
+    if (ratingF === "추천" && isNeg) return false;
+    if (ratingF === "추천" && !r.rating.includes("추천")) return false;
+    if (ratingF === "비추천" && !isNeg) return false;
+    return true;
+  }), [all, onlyKR, ratingF]);
+
+  // 같은 종목을 여러 번 분석했으면 몇 번째인지 보여준다(중복이 아니라 재분석이다).
+  const counts = useMemo(() => {
+    const c: Record<string, number> = {};
+    for (const r of all) c[r.ticker] = (c[r.ticker] || 0) + 1;
+    return c;
+  }, [all]);
+
+  const pctCell = (v: number | null) =>
+    v == null ? <span style={{ color: "var(--color-subtle)" }}>—</span>
+      : <span style={{ color: v >= 0 ? "#ff4b4b" : "#3b82f6", fontWeight: 700 }}>
+          {v >= 0 ? "+" : ""}{v.toFixed(2)}%
+        </span>;
+  const ratingColor = (r: string) =>
+    r.includes("비추천") ? "#ff4b4b" : r.includes("중간") ? "#ffd600" : r.includes("추천") ? "#00c853" : "var(--color-muted)";
+  const btn = (on: boolean): React.CSSProperties => ({
+    fontSize: "0.68rem", fontWeight: 700, padding: "3px 9px", borderRadius: "99px", cursor: "pointer",
+    border: `1px solid ${on ? "var(--color-accent)" : "var(--color-border)"}`,
+    background: on ? "rgba(99,102,241,0.15)" : "transparent",
+    color: on ? "var(--color-text)" : "var(--color-muted)",
+  });
+
+  return (
+    <div className="stockcy-card" style={{ padding: "0.9rem 1.1rem" }}>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", alignItems: "center", marginBottom: "8px" }}>
+        <div style={{ fontWeight: 800, fontSize: "0.95rem" }}>🔎 내가 분석한 종목</div>
+        <span style={{ fontSize: "0.7rem", color: "var(--color-muted)" }}>최근 120일 · {rows.length}건</span>
+        <div style={{ marginLeft: "auto", display: "flex", gap: "5px" }}>
+          {(["all", "KR", "US"] as const).map(v =>
+            <button key={v} style={btn(onlyKR === v)} onClick={() => setOnlyKR(v)}>
+              {v === "all" ? "전체" : v === "KR" ? "국내" : "미국"}
+            </button>)}
+          {(["all", "추천", "비추천"] as const).map(v =>
+            <button key={v} style={btn(ratingF === v)} onClick={() => setRatingF(v)}>
+              {v === "all" ? "등급 전체" : v === "추천" ? "추천계열" : "비추천"}
+            </button>)}
+        </div>
+      </div>
+
+      {rows.length === 0 ? (
+        <div style={{ fontSize: "0.78rem", color: "var(--color-muted)", padding: "10px 0" }}>
+          분석 이력이 없습니다. 종목검색에서 AI 분석을 돌리면 여기에 쌓입니다.
+        </div>
+      ) : (
+        <div style={{ overflowX: "auto" }}>
+          <table style={{ borderCollapse: "collapse", width: "100%", minWidth: "640px", fontSize: "0.72rem" }}>
+            <thead>
+              <tr style={{ color: "var(--color-muted)", textAlign: "right" }}>
+                <th style={{ textAlign: "left", padding: "5px 8px 5px 0" }}>분석일시</th>
+                <th style={{ textAlign: "left", padding: "5px 8px" }}>종목</th>
+                <th style={{ textAlign: "left", padding: "5px 8px" }}>등급</th>
+                <th style={{ textAlign: "left", padding: "5px 8px" }}>중장기</th>
+                <th style={{ padding: "5px 8px" }}>당시가</th>
+                <th style={{ padding: "5px 8px" }}>d1</th>
+                <th style={{ padding: "5px 8px" }}>d3</th>
+                <th style={{ padding: "5px 0 5px 8px" }}>d7</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map(r => {
+                const isKR = (r.market || "KR") === "KR";
+                return (
+                  <tr key={r.id}
+                      onClick={() => router.push(`/search?q=${encodeURIComponent(r.ticker)}&market=${isKR ? "KR" : "US"}`)}
+                      title="클릭하면 종목검색으로 이동"
+                      style={{ borderTop: "1px solid var(--color-border)", cursor: "pointer" }}>
+                    <td style={{ padding: "6px 8px 6px 0", whiteSpace: "nowrap", color: "var(--color-muted)" }}>
+                      {r.at.slice(2, 16)}
+                    </td>
+                    <td style={{ padding: "6px 8px", whiteSpace: "nowrap" }}>
+                      <b>{r.name}</b>
+                      <span style={{ color: "var(--color-subtle)" }}> {r.ticker}</span>
+                      {counts[r.ticker] > 1 && (
+                        <span title="이 종목을 여러 번 분석했습니다"
+                              style={{ marginLeft: "5px", fontSize: "0.6rem", color: "var(--color-subtle)" }}>
+                          ×{counts[r.ticker]}
+                        </span>
+                      )}
+                    </td>
+                    <td style={{ padding: "6px 8px", color: ratingColor(r.rating), fontWeight: 700, whiteSpace: "nowrap" }}>
+                      {r.rating || "—"}
+                    </td>
+                    <td style={{ padding: "6px 8px", color: "var(--color-muted)", whiteSpace: "nowrap" }}>
+                      {r.long_rating || "—"}
+                    </td>
+                    <td style={{ padding: "6px 8px", textAlign: "right", whiteSpace: "nowrap" }}>
+                      {r.price_at != null
+                        ? (isKR ? `₩${Math.round(r.price_at).toLocaleString()}` : `$${r.price_at.toFixed(2)}`)
+                        : "—"}
+                    </td>
+                    <td style={{ padding: "6px 8px", textAlign: "right" }}>{pctCell(r.d1)}</td>
+                    <td style={{ padding: "6px 8px", textAlign: "right" }}>{pctCell(r.d3)}</td>
+                    <td style={{ padding: "6px 0 6px 8px", textAlign: "right" }}>{pctCell(r.d7)}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+      <div style={{ fontSize: "0.64rem", color: "var(--color-subtle)", marginTop: "6px" }}>
+        d1·d3·d7은 분석일 종가 대비 1·3·7거래일 뒤 수익률입니다. 아직 그날이 안 지났으면 비어 있습니다.
+        같은 종목이 여러 번 보이면 중복이 아니라 그만큼 다시 분석한 것입니다(×N 표시).
+      </div>
+    </div>
+  );
+}
+
 
 // ── 엔진별 성과 + AI추천 적중률 ─────────────────────────────────────────────────
 function EngineScoreboard() {
@@ -612,6 +752,7 @@ export default function PerformancePage() {
         <h1 style={{ fontSize: "1.5rem", fontWeight: 800, margin: 0 }}>📊 성과 · 기록</h1>
         <div style={{ fontSize: "0.82rem", color: "var(--color-muted)", marginTop: "-8px" }}>이 시스템이 실제로 맞고 있는지, 그때 시장을 어떻게 봤는지, 내 자산이 어떻게 변했는지를 한 곳에서.</div>
         <EngineScoreboard />
+        <MyAnalysisHistory />
         <MlStatusPanel />
         <ShadowLeaguePanel selected={selOwner} onSelect={toggleOwner} />
         {/* 시나리오 적중률·추적 종목 상세 (시나리오 페이지에서 이동) */}

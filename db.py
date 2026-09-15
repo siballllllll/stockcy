@@ -3220,6 +3220,62 @@ def update_price_alert_status(ticker: str, alert_type: str, new_status: str, own
         return False
 
 
+
+def load_recent_analyses(days: int = 120, limit: int = 300) -> list[dict]:
+    """최근 AI 종목분석 이력 전체를 최신순으로. "내가 뭘 분석했었지"에 답하는 목록.
+
+    ⚠️ 키를 영문으로 둔다. 종목별 조회(load_stock_analysis_history)는 한글 키
+    ("분석시간"·"등급"…)를 쓰는데, 그건 저장·조회가 이미 그 키로 맞물려 있어 못 바꾼다.
+    이 함수는 소비자가 없던 **새 창구**라 영문으로 시작한다 — 둘을 섞어 쓰지 말 것.
+    """
+    from datetime import datetime as _dt, timedelta as _td
+    cutoff = (_dt.now() - _td(days=max(1, days))).strftime("%Y-%m-%d")
+    conn = get_db_conn()
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            """SELECT id, analysis_time, market, ticker, name, current_price,
+                      rating, long_term_rating, short_term_view_pct,
+                      buy_target, base_price, d1_return, d3_return, d7_return,
+                      outcome_checked_at
+               FROM analysis_history
+               WHERE analysis_time >= ?
+               ORDER BY analysis_time DESC
+               LIMIT ?""",
+            (cutoff, max(1, min(int(limit), 1000))),
+        )
+        rows = [dict(r) for r in cur.fetchall()]
+    except Exception as e:
+        print(f"[analysis list] 조회 실패: {e}")
+        rows = []
+    finally:
+        conn.close()
+
+    def _f(v):
+        try:
+            return float(str(v).replace(",", "").strip())
+        except (TypeError, ValueError):
+            return None
+
+    out = []
+    for r in rows:
+        out.append({
+            "id": r["id"],
+            "at": str(r["analysis_time"] or "")[:19],
+            "market": (str(r["market"] or "").upper() or None),
+            "ticker": str(r["ticker"] or ""),
+            "name": str(r["name"] or "") or str(r["ticker"] or ""),
+            "price_at": _f(r["current_price"]),      # 분석 당시가(문자열로 저장돼 있다)
+            "rating": str(r["rating"] or ""),
+            "long_rating": str(r["long_term_rating"] or ""),
+            "view_pct": str(r["short_term_view_pct"] or ""),
+            "buy_target": str(r["buy_target"] or ""),
+            "d1": r["d1_return"], "d3": r["d3_return"], "d7": r["d7_return"],
+            "checked": bool(r["outcome_checked_at"]),
+        })
+    return out
+
+
 def load_stock_analysis_history(ticker: str, limit: int = 10) -> list[dict]:
     """로컬 SQLite 'analysis_history'에서 해당 티커의 최근 분석 기록을 반환합니다 (오래된→최신 순)."""
     try:

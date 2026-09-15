@@ -105,6 +105,12 @@ export const api = {
       body: JSON.stringify({ code: code, name: name, price_data: priceData, investor_data: investorData }),
     }),
     scenarios: ()                            => req("/api/ai/scenarios"),
+    recentAnalyses: (days = 120, limit = 300) =>
+      req<{ items: Array<{ id: number; at: string; market: string | null; ticker: string;
+            name: string; price_at: number | null; rating: string; long_rating: string;
+            view_pct: string; buy_target: string; d1: number | null; d3: number | null;
+            d7: number | null; checked: boolean }>; days: number }>(
+        `/api/ai/analysis-history?days=${days}&limit=${limit}`),
     analysisHistory: (ticker: string, limit = 1) =>
       // ⚠️ 서버가 한글 키로 돌려준다(분석시간·등급·중장기등급…). 영문으로 바꾸지 말 것 —
       //    저장·조회가 같은 키를 쓰고 있어 한쪽만 고치면 조용히 빈 값이 된다.
