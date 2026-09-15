@@ -2117,6 +2117,48 @@ def _toss_daily_df(symbol: str, days: int) -> pd.DataFrame:
         return pd.DataFrame()
 
 
+def _fdr_daily_df(stock_code: str, start: str, unit: str = "D") -> pd.DataFrame:
+    """FDR 일봉을 표준 차트 DataFrame으로 변환. 주/월봉은 여기서 리샘플한다.
+
+    [왜 필요한가] 장기 구간의 2차 소스인 KIS는 **1000봉(약 4년)에서 막힌다**.
+    실측(2026-09-15, 005930): KIS는 5y·10y·MAX 모두 1000봉으로 같은 값을 주는 반면
+    FDR은 3,000봉(2014년~)을 준다. '전체'를 보려면 FDR이어야 한다.
+
+    컬럼은 _toss_daily_df와 동일하게 맞춘다(datetime/open/high/low/close/volume).
+    """
+    try:
+        import FinanceDataReader as _fdr
+        raw = _fdr.DataReader(str(stock_code).zfill(6), start)
+        if raw is None or raw.empty:
+            return pd.DataFrame()
+        df = raw.reset_index()
+        dt_col = next((c for c in df.columns
+                       if str(c).lower() in ("date", "datetime", "index")), df.columns[0])
+        df = df.rename(columns={dt_col: "datetime", "Open": "open", "High": "high",
+                                "Low": "low", "Close": "close", "Volume": "volume"})
+        need = ["datetime", "open", "high", "low", "close", "volume"]
+        for c in need:
+            if c not in df.columns:
+                return pd.DataFrame()
+        df["datetime"] = pd.to_datetime(df["datetime"])
+        if getattr(df["datetime"].dt, "tz", None) is not None:
+            df["datetime"] = df["datetime"].dt.tz_localize(None)
+        df = df[need].dropna(subset=["open", "high", "low", "close"])
+
+        if unit in ("W", "M"):
+            rule = "W" if unit == "W" else "ME"
+            df = (df.set_index("datetime")
+                    .resample(rule)
+                    .agg({"open": "first", "high": "max", "low": "min",
+                          "close": "last", "volume": "sum"})
+                    .dropna(subset=["open", "high", "low", "close"])
+                    .reset_index())
+        return df.reset_index(drop=True)
+    except Exception as e:
+        print(f"[chart] FDR 일봉 실패 {stock_code}: {e}")
+        return pd.DataFrame()
+
+
 def get_kr_daily_chart(stock_code: str, period: str = "3mo", unit: str = "D") -> pd.DataFrame:
     """국내 주식 일/주/월봉 데이터. unit: D, W, M"""
     from datetime import datetime as _dt, timedelta as _td
@@ -2139,6 +2181,13 @@ def get_kr_daily_chart(stock_code: str, period: str = "3mo", unit: str = "D") ->
         tdf = _toss_daily_df(stock_code.zfill(6), _days)
         if not tdf.empty:
             return tdf
+
+    # ── 1.5차: 장기 구간은 FDR (KIS가 1000봉에서 막힌다) ──────────────────────
+    # 2년을 넘는 요청에서 KIS를 먼저 쓰면 5y·10y·MAX가 전부 1000봉으로 똑같아진다.
+    if _days > 740:
+        fdf = _fdr_daily_df(stock_code, _start_str, unit)
+        if not fdf.empty:
+            return fdf
 
     # ── 2차: KIS API (장기·주월봉의 1차이자, 토스 실패 시 폴백) ─────────────────
     try:

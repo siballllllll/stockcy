@@ -173,6 +173,50 @@ def us_stock_detail(ticker: str, exchange: str = Query("NASDAQ")):
 _US_TOSS_SHORT = {"1d": 2, "5d": 6, "1mo": 23, "3mo": 66, "6mo": 130}
 
 
+_US_PERIOD_DAYS = {
+    "1d": 2, "5d": 7, "1mo": 35, "3mo": 95, "6mo": 185,
+    "1y": 370, "2y": 740, "5y": 1830, "10y": 3650, "ytd": 370, "max": 20000,
+}
+
+
+def _fdr_us_chart(ticker: str, period: str, interval: str = "1d") -> list:
+    """FDR 미국 일봉 → US 차트 레코드. 실패 시 [].
+
+    [왜] yfinance가 429에 걸리면 토스 200봉(약 9.5개월)으로 떨어져, 1Y·5Y·MAX를 골라도
+    몇 달치만 그려졌다. FDR은 전체 이력을 준다(실측 2026-09-15: NVDA 6,953봉 1999~,
+    GOOGL 5,552봉 2004~). 분봉은 FDR이 주지 않으므로 일/주/월봉에서만 쓴다.
+    """
+    if interval.endswith("m") and interval != "1mo":
+        return []
+    try:
+        from datetime import datetime as _dt, timedelta as _td
+        import FinanceDataReader as _fdr
+        import pandas as _pd
+        days = _US_PERIOD_DAYS.get(period, 370)
+        start = (_dt.now() - _td(days=days)).strftime("%Y-%m-%d")
+        raw = _fdr.DataReader(ticker.upper(), start)
+        if raw is None or raw.empty:
+            return []
+        df = raw[["Open", "High", "Low", "Close", "Volume"]].dropna()
+        if interval in ("1wk", "1mo"):
+            rule = "W" if interval == "1wk" else "ME"
+            df = (df.resample(rule)
+                    .agg({"Open": "first", "High": "max", "Low": "min",
+                          "Close": "last", "Volume": "sum"})
+                    .dropna())
+        return [{
+            "일자":  str(idx)[:10],
+            "시가":  round(float(r.Open), 2),
+            "고가":  round(float(r.High), 2),
+            "저가":  round(float(r.Low), 2),
+            "종가":  round(float(r.Close), 2),
+            "거래량": int(r.Volume) if _pd.notna(r.Volume) else 0,
+        } for idx, r in df.iterrows()]
+    except Exception as e:
+        print(f"[us chart] FDR 실패 {ticker} {period}: {str(e)[:100]}")
+        return []
+
+
 def _toss_us_chart(ticker: str, count: int) -> list:
     """토스 일봉을 US 차트 레코드(일자/시가/.../거래량)로 변환. 실패 시 []."""
     try:
@@ -205,17 +249,21 @@ def us_chart(
 
     from api.circuit import yf_breaker
     if yf_breaker.is_open():
-        # yfinance 장애 — 일봉이면 토스로라도 반환
-        if interval == "1d":
-            return _toss_us_chart(ticker, 200)
-        return []
+        # yfinance 장애 — FDR로 받는다. 토스(200봉)로 떨어뜨리면 1Y·5Y·MAX를 골라도
+        # 9.5개월치만 그려진다(사용자 신고: "전체를 보고 싶어도 몇 달만 보인다").
+        rec = _fdr_us_chart(ticker, period, interval)
+        if rec:
+            return rec
+        return _toss_us_chart(ticker, 200) if interval == "1d" else []
     try:
         import yfinance as yf
         is_minute = interval.endswith("m") and interval != "1mo"
         df = yf.Ticker(ticker.upper()).history(period=period, interval=interval, auto_adjust=True, prepost=is_minute, timeout=4)
         yf_breaker.record_success()
         if df is None or df.empty:
-            # 일봉이면 토스 폴백
+            rec = _fdr_us_chart(ticker, period, interval)
+            if rec:
+                return rec
             return _toss_us_chart(ticker, 200) if interval == "1d" else []
         records = []
         for dt, row in df.iterrows():
@@ -237,7 +285,10 @@ def us_chart(
         return records
     except Exception:
         yf_breaker.record_failure()
-        # 일봉이면 토스 폴백
+        # FDR 먼저 — 토스는 200봉이라 장기 구간에서 화면이 몇 달치로 잘린다.
+        rec = _fdr_us_chart(ticker, period, interval)
+        if rec:
+            return rec
         return _toss_us_chart(ticker, 200) if interval == "1d" else []
 
 

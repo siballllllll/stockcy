@@ -268,24 +268,26 @@ function SearchPageInner() {
   const [minuteInterval, setMinuteInterval] = useState<number>(5);
 
   // 기간 옵션: 차트 타입별 (분봉은 기간 없음)
-  // 일봉의 3M/6M은 토스 소스로 그려짐(현재가·평가액과 일치), 1Y/MAX는 KIS/yfinance.
+  // 일봉 3M/6M은 토스(현재가·평가액과 소스 일치), 1Y~2Y는 KIS, 그 이상은 FDR.
+  // ⚠️ US는 yfinance period 문자열만 유효하다 — 3y는 없으므로 2Y/5Y로 둔다.
   const PERIOD_OPTIONS: Record<string, string[]> = {
-    daily:   ["3M", "6M", "1Y", "MAX"],
-    weekly:  ["MAX"],
-    monthly: ["MAX"],
+    daily:   ["3M", "6M", "1Y", "2Y", "5Y", "MAX"],
+    weekly:  ["1Y", "5Y", "MAX"],
+    monthly: ["5Y", "MAX"],
     minute:  [],
   };
   // KR: 기간 → 일봉 개수 (3M=66·6M=130 → get_kr_daily_chart에서 토스 1차)
+  // 740일을 넘기면 FDR로 간다 — KIS가 1000봉에서 막히기 때문(v3.179.0).
   const KR_PERIOD_DAYS: Record<string, Record<string, number>> = {
-    daily:   { "3M": 66, "6M": 130, "1Y": 250, "MAX": 5000 },
-    weekly:  { "MAX": 1000 },
-    monthly: { "MAX": 600 },
+    daily:   { "3M": 66, "6M": 130, "1Y": 250, "2Y": 740, "5Y": 1830, "MAX": 5000 },
+    weekly:  { "1Y": 370, "5Y": 1830, "MAX": 5000 },
+    monthly: { "5Y": 1830, "MAX": 5000 },
   };
   // US: 기간 → yfinance period (3mo/6mo → us_chart에서 토스 1차)
   const US_PERIOD: Record<string, Record<string, string>> = {
-    daily:   { "3M": "3mo", "6M": "6mo", "1Y": "1y", "MAX": "max" },
-    weekly:  { "MAX": "max" },
-    monthly: { "MAX": "max" },
+    daily:   { "3M": "3mo", "6M": "6mo", "1Y": "1y", "2Y": "2y", "5Y": "5y", "MAX": "max" },
+    weekly:  { "1Y": "1y", "5Y": "5y", "MAX": "max" },
+    monthly: { "5Y": "5y", "MAX": "max" },
   };
   const [showDropdown, setShowDropdown] = useState(false);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -315,11 +317,13 @@ function SearchPageInner() {
   const [alertLoading, setAlertLoading] = useState(false);
   const [alertMsg, setAlertMsg] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
-  // 차트 타입 변경 시 유효한 기간으로 리셋
+  // 차트 타입 변경 시 기간 정리 — 쓰던 기간이 새 타입에도 있으면 그대로 둔다.
+  // (일봉 5Y를 보다가 주봉으로 바꿨는데 MAX로 튀면 보던 구간을 잃는다)
   useEffect(() => {
-    if (chartType !== "minute") {
-      setChartPeriod(chartType === "daily" ? "6M" : "MAX");
-    }
+    if (chartType === "minute") return;
+    const opts = PERIOD_OPTIONS[chartType] || [];
+    if (opts.includes(chartPeriod)) return;
+    setChartPeriod(chartType === "daily" ? "6M" : "MAX");
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [chartType]);
 

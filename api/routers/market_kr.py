@@ -76,14 +76,23 @@ def _rename_chart_cols(df) -> list:
 
 
 def _period_int_to_str(n: int) -> str:
-    """정수 거래일수를 get_kr_daily_chart 기간 문자열로 변환."""
-    if n <= 5:   return "1w"
-    if n <= 22:  return "15d"
-    if n <= 35:  return "1mo"
-    if n <= 95:  return "3mo"
-    if n <= 185: return "6mo"
-    if n <= 370: return "1y"
-    return "2y"
+    """정수 거래일수를 get_kr_daily_chart 기간 문자열로 변환.
+
+    ⚠️ 예전에는 370일을 넘기면 무조건 "2y"를 돌려줬다. 화면의 MAX가 5000일을 보내도
+       2년치만 그려지던 원인이다(v3.179.0에서 수정). get_kr_daily_chart는
+       3y/5y/10y/MAX를 모두 받는다 — 여기서 막지 말 것.
+    """
+    if n <= 5:    return "1w"
+    if n <= 22:   return "15d"
+    if n <= 35:   return "1mo"
+    if n <= 95:   return "3mo"
+    if n <= 185:  return "6mo"
+    if n <= 370:  return "1y"
+    if n <= 740:  return "2y"
+    if n <= 1100: return "3y"
+    if n <= 1830: return "5y"
+    if n <= 3650: return "10y"
+    return "MAX"
 
 
 @router.get("/indices")
