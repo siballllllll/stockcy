@@ -742,39 +742,108 @@ const OWNER_LABEL: Record<string, string> = {
   SHADOW_F: "🔥 섀도우 F — 모멘텀 추격",
 };
 
+// ── 성과·기록 페이지 (v3.183.0 — 탭 구조) ──────────────────────────────────
+// [왜] 패널 7개가 세로로 쌓여 페이지가 끝없이 길었다. 성격이 다른 것들이라
+// (성적 / 내 기록 / 자산 / AI 상태) 한 화면에 다 둘 이유가 없었다.
+// 섀도우 리그 행을 누르면 뜨는 우측 상세 패널은 그대로 두되, '성적' 탭에서만 띄운다.
+const PERF_TABS = [
+  { id: "score",  label: "🏆 성적",    desc: "엔진별 성과와 섀도우 리그" },
+  { id: "record", label: "🔎 내 기록", desc: "내가 분석한 종목과 그날의 시장" },
+  { id: "equity", label: "💰 자산",    desc: "자산 곡선" },
+  { id: "ai",     label: "🤖 AI 상태", desc: "ML 모델과 시나리오 적중률" },
+] as const;
+type PerfTab = (typeof PERF_TABS)[number]["id"];
+const PERF_TAB_KEY = "stockcy.perf.tab";
+
 export default function PerformancePage() {
   // 리그 행 클릭 → 우측 상세 패널 토글 (같은 행 재클릭 시 닫힘)
   const [selOwner, setSelOwner] = useState<string | null>(null);
   const toggleOwner = (o: string) => setSelOwner((cur) => (cur === o ? null : o));
+  const [tab, setTab] = useState<PerfTab>("score");
+
+  // 보던 탭을 기억한다 — 새로고침할 때마다 처음으로 돌아가면 성가시다.
+  // (localStorage는 브라우저가 막아둘 수 있어 실패해도 조용히 넘어간다)
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(PERF_TAB_KEY) as PerfTab | null;
+      if (saved && PERF_TABS.some(t => t.id === saved)) setTab(saved);
+    } catch { /* 저장소 접근 불가 — 기본 탭으로 */ }
+  }, []);
+  const pickTab = (t: PerfTab) => {
+    setTab(t);
+    try { localStorage.setItem(PERF_TAB_KEY, t); } catch { /* 무시 */ }
+  };
+
+  const cur = PERF_TABS.find(t => t.id === tab) ?? PERF_TABS[0];
+  // 상세 패널은 '성적' 탭에서만. 다른 탭으로 옮겼는데 옆에 리그 상세가 남아 있으면 뜬금없다.
+  const showDetail = !!selOwner && tab === "score";
+
   return (
-    <div style={{ display: "flex", gap: "16px", alignItems: "flex-start", flexWrap: "wrap" }}>
-      <div style={{ display: "flex", flexDirection: "column", gap: "16px", maxWidth: "1100px", flex: "1 1 620px", minWidth: 0 }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+      <div>
         <h1 style={{ fontSize: "1.5rem", fontWeight: 800, margin: 0 }}>📊 성과 · 기록</h1>
-        <div style={{ fontSize: "0.82rem", color: "var(--color-muted)", marginTop: "-8px" }}>이 시스템이 실제로 맞고 있는지, 그때 시장을 어떻게 봤는지, 내 자산이 어떻게 변했는지를 한 곳에서.</div>
-        <EngineScoreboard />
-        <MyAnalysisHistory />
-        <MlStatusPanel />
-        <ShadowLeaguePanel selected={selOwner} onSelect={toggleOwner} />
-        {/* 시나리오 적중률·추적 종목 상세 (시나리오 페이지에서 이동) */}
-        <ScenarioTrackingPanel />
-        <EquityCurve />
-        <MarketLogArchive />
-      </div>
-      {selOwner && (
-        <div style={{ flex: "1.4 1 640px", minWidth: "420px", maxWidth: "1100px", position: "sticky", top: "12px", maxHeight: "calc(100vh - 24px)", overflowY: "auto" }}>
-          <div className="stockcy-card" style={{ padding: "0.9rem 1.1rem" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "8px", marginBottom: "10px" }}>
-              <div style={{ fontWeight: 800, fontSize: "0.95rem" }}>{OWNER_LABEL[selOwner] ?? selOwner}</div>
-              <button onClick={() => setSelOwner(null)}
-                style={{ border: "1px solid var(--color-border)", background: "transparent", color: "var(--color-muted)",
-                  borderRadius: "7px", padding: "3px 10px", fontSize: "0.74rem", cursor: "pointer" }}>
-                ✕ 닫기
-              </button>
-            </div>
-            {selOwner === "AI_AGENT" ? <AgentDashboard /> : <ShadowDetail owner={selOwner} />}
-          </div>
+        <div style={{ fontSize: "0.82rem", color: "var(--color-muted)", marginTop: "4px" }}>
+          이 시스템이 실제로 맞고 있는지, 그때 시장을 어떻게 봤는지, 내 자산이 어떻게 변했는지.
         </div>
-      )}
+      </div>
+
+      <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", borderBottom: "1px solid var(--color-border)", paddingBottom: "10px" }}>
+        {PERF_TABS.map(t => (
+          <button key={t.id} onClick={() => pickTab(t.id)} title={t.desc}
+            style={{
+              fontSize: "0.82rem", fontWeight: 700, padding: "6px 14px", borderRadius: "8px", cursor: "pointer",
+              border: `1px solid ${tab === t.id ? "rgba(255,255,255,0.2)" : "transparent"}`,
+              background: tab === t.id ? "rgba(255,255,255,0.1)" : "transparent",
+              color: tab === t.id ? "var(--color-text)" : "var(--color-muted)",
+            }}>
+            {t.label}
+          </button>
+        ))}
+        <span style={{ marginLeft: "auto", alignSelf: "center", fontSize: "0.7rem", color: "var(--color-subtle)" }}>
+          {cur.desc}
+        </span>
+      </div>
+
+      <div style={{ display: "flex", gap: "16px", alignItems: "flex-start", flexWrap: "wrap" }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: "16px", maxWidth: "1100px", flex: "1 1 620px", minWidth: 0 }}>
+          {tab === "score" && (
+            <>
+              <EngineScoreboard />
+              <ShadowLeaguePanel selected={selOwner} onSelect={toggleOwner} />
+            </>
+          )}
+          {tab === "record" && (
+            <>
+              <MyAnalysisHistory />
+              <MarketLogArchive />
+            </>
+          )}
+          {tab === "equity" && <EquityCurve />}
+          {tab === "ai" && (
+            <>
+              <MlStatusPanel />
+              {/* 시나리오 적중률·추적 종목 상세 (시나리오 페이지에서 이동) */}
+              <ScenarioTrackingPanel />
+            </>
+          )}
+        </div>
+
+        {showDetail && selOwner && (
+          <div style={{ flex: "1.4 1 640px", minWidth: "420px", maxWidth: "1100px", position: "sticky", top: "12px", maxHeight: "calc(100vh - 24px)", overflowY: "auto" }}>
+            <div className="stockcy-card" style={{ padding: "0.9rem 1.1rem" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "8px", marginBottom: "10px" }}>
+                <div style={{ fontWeight: 800, fontSize: "0.95rem" }}>{OWNER_LABEL[selOwner] ?? selOwner}</div>
+                <button onClick={() => setSelOwner(null)}
+                  style={{ border: "1px solid var(--color-border)", background: "transparent", color: "var(--color-muted)",
+                    borderRadius: "7px", padding: "3px 10px", fontSize: "0.74rem", cursor: "pointer" }}>
+                  ✕ 닫기
+                </button>
+              </div>
+              {selOwner === "AI_AGENT" ? <AgentDashboard /> : <ShadowDetail owner={selOwner} />}
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
