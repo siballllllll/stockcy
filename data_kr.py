@@ -2159,6 +2159,61 @@ def _fdr_daily_df(stock_code: str, start: str, unit: str = "D") -> pd.DataFrame:
         return pd.DataFrame()
 
 
+
+def _yf_kr_daily_df(stock_code: str, unit: str = "D") -> pd.DataFrame:
+    """yfinance 국내 일봉(전체 기간). 장기 구간에서 FDR보다 길 때만 쓴다.
+
+    [왜] FDR은 3,000봉에서 막힌다(실측 2026-09-15: 005930·043260 모두 3,000봉,
+    2014-06-26 이전은 빈 결과). yfinance는 종목 상장일 근처까지 준다 —
+    네이버 2002-10-29(상장 2002), 잇츠한불 2015-12-28(상장 2015).
+    다만 아주 오래된 종목은 **2000-01-04가 바닥**이다(삼성전자·SK하이닉스).
+    상장이 그보다 이르면(삼성전자 1975) 그 이전은 어떤 무료 소스로도 못 가져온다.
+
+    ⚠️ .KS/.KQ를 **둘 다 받아 긴 쪽**을 쓴다. 틀린 접미사가 빈 결과가 아니라 엉뚱한
+       소량 데이터를 주는 경우가 있다 — 실측: 코스닥 종목 043260을 .KS로 물으면 41봉이
+       나온다. '비었으면 다음 접미사'로 짜면 그 41봉을 그대로 쓰게 된다.
+    ⚠️ yfinance는 국내에서 불안정하다(429·401). 실패하면 호출부가 FDR로 돌아간다.
+    """
+    best = pd.DataFrame()
+    try:
+        import yfinance as yf
+        for suffix in (".KS", ".KQ"):
+            try:
+                raw = yf.Ticker(f"{str(stock_code).zfill(6)}{suffix}").history(
+                    period="max", interval="1d", auto_adjust=True, timeout=8)
+            except Exception:
+                continue
+            if raw is None or raw.empty or len(raw) <= len(best):
+                continue
+            best = raw
+    except Exception as e:
+        print(f"[chart] yfinance 국내 일봉 실패 {stock_code}: {str(e)[:80]}")
+        return pd.DataFrame()
+    if best.empty:
+        return pd.DataFrame()
+
+    df = best.reset_index()
+    dt_col = next((c for c in df.columns
+                   if str(c).lower() in ("date", "datetime", "index")), df.columns[0])
+    df = df.rename(columns={dt_col: "datetime", "Open": "open", "High": "high",
+                            "Low": "low", "Close": "close", "Volume": "volume"})
+    need = ["datetime", "open", "high", "low", "close", "volume"]
+    if not set(need) <= set(df.columns):
+        return pd.DataFrame()
+    df["datetime"] = pd.to_datetime(df["datetime"])
+    if getattr(df["datetime"].dt, "tz", None) is not None:
+        df["datetime"] = df["datetime"].dt.tz_localize(None)
+    df = df[need].dropna(subset=["open", "high", "low", "close"])
+
+    if unit in ("W", "M"):
+        rule = "W" if unit == "W" else "ME"
+        df = (df.set_index("datetime").resample(rule)
+                .agg({"open": "first", "high": "max", "low": "min",
+                      "close": "last", "volume": "sum"})
+                .dropna(subset=["open", "high", "low", "close"]).reset_index())
+    return df.reset_index(drop=True)
+
+
 def get_kr_daily_chart(stock_code: str, period: str = "3mo", unit: str = "D") -> pd.DataFrame:
     """국내 주식 일/주/월봉 데이터. unit: D, W, M"""
     from datetime import datetime as _dt, timedelta as _td
@@ -2186,6 +2241,13 @@ def get_kr_daily_chart(stock_code: str, period: str = "3mo", unit: str = "D") ->
     # 2년을 넘는 요청에서 KIS를 먼저 쓰면 5y·10y·MAX가 전부 1000봉으로 똑같아진다.
     if _days > 740:
         fdf = _fdr_daily_df(stock_code, _start_str, unit)
+        # MAX(10년 초과)에서는 FDR도 3,000봉에서 막힌다. yfinance가 상장일 근처까지
+        # 주므로 둘을 받아 **긴 쪽**을 쓴다. 이 비교는 MAX에서만 한다 —
+        # 5y·10y는 FDR이 이미 요청 범위를 다 채우므로 호출을 늘릴 이유가 없다.
+        if _days > 3650:
+            ydf = _yf_kr_daily_df(stock_code, unit)
+            if len(ydf) > len(fdf):
+                return ydf
         if not fdf.empty:
             return fdf
 
