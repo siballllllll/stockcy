@@ -821,9 +821,13 @@ async def list_analysis_history(days: int = 120, limit: int = 300):
     ⚠️ 경로 순서 주의 — 이 라우트가 /analysis-history/{ticker}보다 **위에** 있어야 한다.
        아래에 두면 FastAPI가 빈 경로를 ticker로 잡지 않아 404가 난다.
     """
-    from db import load_recent_analyses
+    from db import load_recent_analyses, count_analyses
+    days = max(1, min(int(days), 36500))          # '전체'는 100년으로 들어온다
+    limit = max(1, min(int(limit), 1000))
     items = await asyncio.to_thread(load_recent_analyses, days, limit)
-    return {"items": items, "days": days}
+    total = await asyncio.to_thread(count_analyses, days)
+    # total > len(items)면 목록이 limit에 잘린 것 — 화면이 그 사실을 알려야 한다.
+    return {"items": items, "days": days, "limit": limit, "total": total}
 
 
 @router.get("/analysis-history/{ticker}")

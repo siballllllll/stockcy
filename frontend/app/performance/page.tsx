@@ -37,12 +37,16 @@ function MyAnalysisHistory() {
   // 그래서 ① 기본을 '종목별'로 두어 **줄 수가 종목 수만큼으로 고정**되고
   //        ② 시간순으로 볼 때는 표 안에서만 스크롤되게 높이를 묶는다.
   const [mode, setMode] = useState<"stock" | "time">("stock");
-  const { data } = useSWR<{ items: AnalysisRow[] }>(
-    "my-analyses",
-    () => api.ai.recentAnalyses(120, 300),
+  // 기간 선택. '전체'는 100년으로 보낸다(서버가 36500일로 묶는다).
+  const [days, setDays] = useState<number>(90);
+  const { data } = useSWR<{ items: AnalysisRow[]; total: number; limit: number }>(
+    `my-analyses-${days}`,            // ⚠️ 기간을 키에 넣어야 바꿀 때 다시 불러온다
+    () => api.ai.recentAnalyses(days, 300),
     { refreshInterval: 300000 }
   );
   const all = data?.items ?? [];
+  // 서버가 limit에 잘랐는지 — 잘렸으면 화면이 '전부'인 척하면 안 된다.
+  const truncated = !!data && data.total > all.length;
   // ⚠️ "중간추천"도 문자열에 '추천'을 담고 있다. 추천계열 필터는 비추천만 걷어내는 것이고,
   //    라벨도 '추천'이 아니라 '추천계열'이라고 적어 오해를 막는다.
   const rows = useMemo(() => all.filter(r => {
@@ -100,9 +104,12 @@ function MyAnalysisHistory() {
       <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", alignItems: "center", marginBottom: "8px" }}>
         <div style={{ fontWeight: 800, fontSize: "0.95rem" }}>🔎 내가 분석한 종목</div>
         <span style={{ fontSize: "0.7rem", color: "var(--color-muted)" }}>
-          최근 120일 · {rows.length}건{mode === "stock" && ` · ${grouped.length}종목`}
+          {rows.length}건{mode === "stock" && ` · ${grouped.length}종목`}
         </span>
         <div style={{ marginLeft: "auto", display: "flex", gap: "5px", flexWrap: "wrap" }}>
+          {([[30, "1개월"], [90, "3개월"], [365, "1년"], [36500, "전체"]] as const).map(([d, l]) =>
+            <button key={d} style={btn(days === d)} onClick={() => setDays(d)}>{l}</button>)}
+          <span style={{ width: "6px" }} />
           {(["stock", "time"] as const).map(v =>
             <button key={v} style={btn(mode === v)} onClick={() => setMode(v)}
                     title={v === "stock" ? "종목당 한 줄 — 분석을 몇 번 하든 길이가 안 늘어난다"
@@ -227,6 +234,12 @@ function MyAnalysisHistory() {
               })}
             </tbody>
           </table>
+        </div>
+      )}
+      {truncated && (
+        <div style={{ fontSize: "0.66rem", color: "var(--color-warning)", marginTop: "6px" }}>
+          ⚠️ 이 기간에 {data!.total}건이 있는데 최근 {all.length}건만 불러왔습니다.
+          기간을 좁히면 그 구간은 전부 보입니다.
         </div>
       )}
       <div style={{ fontSize: "0.64rem", color: "var(--color-subtle)", marginTop: "6px", lineHeight: 1.6 }}>

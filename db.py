@@ -3276,6 +3276,27 @@ def load_recent_analyses(days: int = 120, limit: int = 300) -> list[dict]:
     return out
 
 
+
+def count_analyses(days: int = 120) -> int:
+    """기간 내 분석 이력 총 건수. 목록이 limit에 잘렸는지 화면이 알 수 있게 따로 센다.
+
+    [왜 따로 두나] load_recent_analyses의 반환형(list)을 바꾸면 이미 쓰는 쪽이 깨진다.
+    세는 일만 하는 함수를 옆에 둔다.
+    """
+    from datetime import datetime as _dt, timedelta as _td
+    cutoff = (_dt.now() - _td(days=max(1, days))).strftime("%Y-%m-%d")
+    conn = get_db_conn()
+    cur = conn.cursor()
+    try:
+        cur.execute("SELECT COUNT(*) FROM analysis_history WHERE analysis_time >= ?", (cutoff,))
+        return int(cur.fetchone()[0] or 0)
+    except Exception as e:
+        print(f"[analysis count] 실패: {e}")
+        return 0
+    finally:
+        conn.close()
+
+
 def load_stock_analysis_history(ticker: str, limit: int = 10) -> list[dict]:
     """로컬 SQLite 'analysis_history'에서 해당 티커의 최근 분석 기록을 반환합니다 (오래된→최신 순)."""
     try:

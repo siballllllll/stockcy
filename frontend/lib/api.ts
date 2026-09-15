@@ -109,7 +109,7 @@ export const api = {
       req<{ items: Array<{ id: number; at: string; market: string | null; ticker: string;
             name: string; price_at: number | null; rating: string; long_rating: string;
             view_pct: string; buy_target: string; d1: number | null; d3: number | null;
-            d7: number | null; checked: boolean }>; days: number }>(
+            d7: number | null; checked: boolean }>; days: number; limit: number; total: number }>(
         `/api/ai/analysis-history?days=${days}&limit=${limit}`),
     analysisHistory: (ticker: string, limit = 1) =>
       // ⚠️ 서버가 한글 키로 돌려준다(분석시간·등급·중장기등급…). 영문으로 바꾸지 말 것 —
