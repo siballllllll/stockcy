@@ -3593,6 +3593,46 @@ def generate_realtime_picks(
         for s in already_done[:15]
     ]
 
+    # ── AI가 고를 수 있는 모든 종목의 현재가를 미리 확보 ──────────────────
+    #
+    # [왜] 종목을 고를 수 있는 경로가 넷인데(급등직전 후보군 / 핫섹터 핵심코드 /
+    # 수급 상위 / 구글검색) 현재가가 붙는 건 첫 번째뿐이었다. 나머지는 코드와 이름만
+    # 주면서 "우선 고려하세요"라고 권하기까지 했다. 가격 앵커가 없으니 모델은 기억
+    # 속 과거 주가로 타점을 만들었다.
+    #   실측(2026-09-16): 무림P&P(009580) 현재가 1,724원인데 진입 4,020원(+132%).
+    #   실측(2026-09-14): 대한항공(003490) 현재가 29,850원인데 진입 21,900원(-26.6%).
+    #   둘 다 from_search=0 — 구글검색이 아니라 가격 없는 후보 목록에서 고른 것이다.
+    # FDR StockListing 벌크(0.6초, 전종목)라 KIS·토스 요청 한도를 쓰지 않는다.
+    _anchor: dict[str, dict] = {}
+    try:
+        _codes = set()
+        for _hs in (hot_sectors or [])[:6]:
+            for _c in (_hs.get("hot_codes") or [])[:5]:
+                _c = str(_c).strip().zfill(6)
+                if _c.isdigit() and _c != "000000":
+                    _codes.add(_c)
+        for _iv in (investor_rank or [])[:8]:
+            _c = str(_iv.get("종목코드", "")).strip().zfill(6)
+            if _c.isdigit() and _c != "000000":
+                _codes.add(_c)
+        if _codes:
+            from data_kr import get_kr_prices_bulk, get_kr_code_to_name_map
+            _anchor = get_kr_prices_bulk(tuple((c, c + ".KS") for c in sorted(_codes))) or {}
+            _c2n = get_kr_code_to_name_map() or {}
+            for _c, _d in _anchor.items():
+                if _d.get("name") in (None, "", _c):
+                    _d["name"] = _c2n.get(_c, _c)
+    except Exception as _ae:
+        print(f"[picks anchor] 후보 현재가 확보 실패(무시): {_ae}")
+
+    def _anchor_str(code: str) -> str:
+        """후보 줄에 붙일 '현재가 ₩1,724 (+3.53%)'. 못 구하면 명시적으로 표시한다 —
+        비워두면 모델이 그 빈칸을 또 기억으로 메운다."""
+        d = _anchor.get(str(code).strip().zfill(6))
+        if not d or not d.get("price"):
+            return "현재가 확인불가(선정 금지)"
+        return f"현재가 ₩{int(d['price']):,} ({float(d.get('change_pct') or 0):+.2f}%)"
+
     # ── 핫 섹터 컨텍스트 구성 ──────────────────────────────────────────────
     hot_sector_block = ""
     if hot_sectors:
@@ -3602,7 +3642,10 @@ def generate_realtime_picks(
             score = hs.get("hot_score", 0)
             reason= hs.get("reason", "")
             news  = hs.get("news_title", "")
-            codes  = ", ".join(hs.get("hot_codes", [])[:5])
+            codes  = "\n      ".join(
+                f"{_anchor.get(str(c).strip().zfill(6), {}).get('name', c)}({c})  {_anchor_str(c)}"
+                for c in (hs.get("hot_codes") or [])[:5]
+            )
             stage  = hs.get("sector_stage", "")
             leader = hs.get("leader_name", "")
             lines.append(
@@ -3610,7 +3653,7 @@ def generate_realtime_picks(
                 + (f"  대장주:{leader}" if leader else "")
                 + f"\n    이유: {reason}"
                 + (f"\n    뉴스: {news}" if news else "")
-                + (f"\n    핵심코드: {codes}" if codes else "")
+                + (f"\n    핵심코드:\n      {codes}" if codes else "")
             )
         hot_sector_block = (
             "\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
@@ -3626,7 +3669,7 @@ def generate_realtime_picks(
     investor_block = ""
     if investor_rank:
         inv_lines = [
-            f"  - {iv.get('종목명','')}({iv.get('종목코드','')})  "
+            f"  - {iv.get('종목명','')}({iv.get('종목코드','')})  {_anchor_str(iv.get('종목코드',''))}  "
             f"외국인:{iv.get('외국인순매수',0):+,}주  기관:{iv.get('기관순매수',0):+,}주"
             for iv in investor_rank[:8]
         ]
@@ -3737,9 +3780,14 @@ KOSDAQ: {kosdaq.get('index',0):,.2f}  ({kosdaq.get('change_pct',0):+.2f}%)
    · 세력(외국인·기관)의 현재 유입/이탈 방향 확인
    · 역사적으로 이 패턴에서 이 종목 또는 유사 종목이 어떻게 움직였는지 참조
 
-🎯 타점 산정 (⚠️ 현재가는 **위 후보 목록에 적힌 값**을 그대로 쓰세요. 검색으로 다시 확인하지 마세요 —
+🎯 타점 산정 (⚠️ 현재가는 **위 목록에 적힌 값**을 그대로 쓰세요. 검색으로 다시 확인하지 마세요 —
    검색에는 며칠 전 기사 가격이 잡혀 오늘 급등한 종목의 타점이 통째로 어긋납니다.
-   검색은 재료·테마 파악에만 쓰세요):
+   검색은 재료·테마 파악에만 쓰세요.
+   ⛔ 기억에 있는 주가를 쓰지 마세요. 후보군·핫섹터 핵심코드·수급 상위 **모든 목록의
+      모든 종목에 현재가가 적혀 있습니다**. 적힌 값 외의 가격대로 타점을 만들면 안 됩니다.
+   ⛔ '현재가 확인불가(선정 금지)'라고 적힌 종목은 선정하지 마세요.
+   ⛔ entry·target·stop은 전부 현재가의 ±15% 안에 있어야 합니다. 이 범위를 벗어났다면
+      당신이 과거 주가를 떠올린 것입니다 — 목록의 현재가를 다시 읽고 계산하세요):
    · 매수 타점: 패턴별 최적 진입가 (위 패턴 기준 + 테마 연동 고려)
    · 목표가: 매수가 대비 +3%~+8% (테마 확산 중이면 +10%까지 설정 가능)
    · 손절가: 매수가 대비 -2% (칼손절)
@@ -3777,7 +3825,11 @@ KOSDAQ: {kosdaq.get('index',0):,.2f}  ({kosdaq.get('change_pct',0):+.2f}%)
 ⚠️ 자가검증 (반드시 수행):
 ① change_pct ≥ 10%인 종목이 있으면 교체하세요.
 ② 위 '급등 직전 시그널 후보군' 목록에 없는 종목을 선택했다면 해당 픽의 'from_search': true로 설정하고 reason에 구글 검색 근거를 명시하세요.
-③ code가 실제 KRX 6자리 코드인지 확인하세요 (숫자 6자리 형식)."""
+③ code가 실제 KRX 6자리 코드인지 확인하세요 (숫자 6자리 형식).
+④ 각 픽마다 |entry - current_price| / current_price 를 실제로 계산하세요. 0.15를 넘으면
+   그 픽의 current_price는 당신이 기억에서 꺼낸 값입니다. 위 목록에서 그 종목의 현재가를
+   다시 찾아 읽고, entry·target·stop을 전부 다시 계산하세요. 목록에 없으면 그 픽을 버리세요.
+⑤ stop < entry < target 순서인지 확인하세요. 손절가가 현재가보다 높으면 잘못된 것입니다."""
 
     try:
         response = _call_llm(prompt, use_search=True, temperature=0.35)

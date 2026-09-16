@@ -389,6 +389,48 @@ def main():
     except Exception as e:
         print(f"   [BLOCKED] 확인 실패: {str(e)[:80]}")
 
+    # ── V15. 타점 가격 앵커(v3.189.0)가 괴리를 줄였는가 ─────────────────────
+    print(_hdr("V15", "AI 타점이 현재가 근처에서 나오는가 — 가격 앵커 도입 효과"))
+    try:
+        rows = list(cur.execute(
+            """SELECT picked_at, ticker, name, price, entry
+               FROM realtime_picks WHERE price > 0 AND entry > 0 ORDER BY picked_at"""))
+        # 날짜가 아니라 **시각**으로 가른다 — 앵커를 넣은 당일 오전에도 픽이 있었고,
+        # 날짜로 자르면 그 픽이 '도입 후'로 잡혀 판정이 오염된다.
+        CUT = "2026-09-16 13:44:59"          # v3.189.0 배포 시각
+        before = [r for r in rows if (r["picked_at"] or "") <  CUT]
+        after  = [r for r in rows if (r["picked_at"] or "") >= CUT]
+
+        def _bad(rs):
+            return [r for r in rs if abs(r["entry"] - r["price"]) / r["price"] > 0.15]
+
+        for label, rs in (("도입 전", before), ("도입 후", after)):
+            if not rs:
+                print(f"   {label}: 표본 0건")
+                continue
+            b = _bad(rs)
+            print(f"   {label}: {len(rs)}건 중 괴리 15% 초과 {len(b)}건 "
+                  f"({len(b) / len(rs) * 100:.0f}%)")
+            for r in b:
+                gap = (r["entry"] - r["price"]) / r["price"] * 100
+                print(f"       {r['picked_at']} {r['name'][:12]}({r['ticker']}) "
+                      f"현재가 {r['price']:,.0f} / 진입 {r['entry']:,.0f}  {gap:+.1f}%")
+
+        if len(after) < 20:
+            print(f"   [WAIT] 도입 후 표본 {len(after)}건 — 20건 이상에서 판정(픽 1회 = 최대 3건).")
+        else:
+            rate = len(_bad(after)) / len(after) * 100
+            if rate <= 5:
+                print(f"   [DONE] 괴리율 {rate:.0f}% — 앵커가 먹혔다. 원장에서 지워도 된다.")
+            else:
+                print(f"   [DUE] 괴리율 {rate:.0f}% — 프롬프트만으로는 부족하다. 서버에서 "
+                      f"타점을 강제 보정하거나 픽을 탈락시킬지 결정할 것.")
+        print("   통과 기준: 도입 후 20건+ 에서 괴리 15% 초과가 5% 이하.")
+        print("   ⚠️ 도입 전 표본은 7건뿐이다(2/7 = 29%). 비율 비교의 근거로는 약하다 —")
+        print("      '줄었다'가 아니라 '도입 후 자체가 5% 이하인가'로 판정할 것.")
+    except Exception as e:
+        print(f"   [BLOCKED] 확인 실패: {str(e)[:80]}")
+
     c.close()
     print(f"\n{'─' * 74}")
     print("자세한 배경과 판정 기준은 VERIFY.md 참조.")
