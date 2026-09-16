@@ -3380,6 +3380,34 @@ def _compute_prebreakout_signals(volume_rank: list, change_rank: list) -> tuple:
     return enriched, already_done
 
 
+def _recent_range_kr(code: str, period: str = "3mo") -> tuple[float, float] | None:
+    """국내 종목의 최근 실거래 범위 (저가 최솟값, 고가 최댓값). 못 구하면 None.
+
+    [왜 퍼센트가 아니라 범위인가] 진입가가 현재가보다 **낮은 건 정상이다** — 눌림목
+    대기가 그렇다(1,000원 종목에 900원 대기). 대칭 ±N% 규칙은 그 정상적인 타점을
+    오류로 몰면서, 정작 진짜 문제는 못 걸러낸다.
+    실제로 틀린 타점의 공통점은 "최근에는 존재한 적 없는 가격"이었다:
+      무림P&P  3개월 1,415~1,960 인데 진입 4,020 (1년 범위엔 있다 — 작년 가격)
+      대한항공 3개월 23,950~30,900 인데 진입 21,900 (1년 범위엔 있다 — 작년 가격)
+    반대로 눌림목 타점은 최근 저가 근처라 이 범위 안에 들어온다. 그래서 범위로 본다.
+    """
+    try:
+        from data_kr import get_kr_daily_chart
+        df = get_kr_daily_chart(str(code).strip().zfill(6), period=period)
+        if df is None or getattr(df, "empty", True):
+            return None
+        cols = {str(c).lower(): c for c in df.columns}
+        lo_col = cols.get("low") or cols.get("close")
+        hi_col = cols.get("high") or cols.get("close")
+        if not lo_col or not hi_col:
+            return None
+        lo, hi = float(df[lo_col].min()), float(df[hi_col].max())
+        return (lo, hi) if lo > 0 and hi >= lo else None
+    except Exception as e:
+        print(f"[picks range] {code} 범위 조회 실패: {e}")
+        return None
+
+
 def _pick_num(v) -> float | None:
     """AI가 준 숫자 필드를 float으로. 못 읽으면 None — 0으로 대체하지 않는다.
 
@@ -3528,14 +3556,29 @@ def _sanity_check_picks(res: dict, price_map: dict | None = None) -> dict:
             return v if (v is not None and v > 0) else None
 
         entry, target, stop = _f("entry"), _f("target"), _f("stop")
+
+        # 진입가 검증 — 퍼센트가 아니라 "최근에 실제로 있던 가격인가"로 본다.
+        # 현재가보다 낮은 진입가는 눌림목 대기라 정상이다. 이 검사는 위아래 모두
+        # '최근 3개월 실거래 범위' 밖일 때만 걸린다(±5% 여유 — 신고가 종목의
+        # 얕은 눌림목, 박스 상단 돌파 진입까지는 정상으로 본다).
         if entry is not None:
-            gap = (entry - real) / real * 100
-            if abs(gap) > 15:
-                warns.append(f"매수타점이 현재가와 {gap:+.1f}% 벌어짐")
-        if target is not None and target <= real:
-            warns.append("목표가가 현재가 이하")
-        if stop is not None and stop >= real:
-            warns.append("손절가가 현재가 이상")
+            rng = _recent_range_kr(code)
+            if rng:
+                lo, hi = rng
+                if entry < lo * 0.95 or entry > hi * 1.05:
+                    warns.append(
+                        f"매수타점 {entry:,.0f}원이 최근 3개월 거래범위"
+                        f"({lo:,.0f}~{hi:,.0f}원) 밖 — 과거 주가일 가능성"
+                    )
+            elif abs((entry - real) / real) > 0.30:
+                # 범위를 못 구했을 때만 쓰는 성긴 그물. 눌림목을 오탐하지 않도록
+                # 30%로 넉넉히 잡는다.
+                warns.append(f"매수타점이 현재가와 {(entry - real) / real * 100:+.1f}% 벌어짐 (범위 확인 불가)")
+
+        if target is not None and entry is not None and target <= entry:
+            warns.append("목표가가 매수타점 이하")
+        if stop is not None and entry is not None and stop >= entry:
+            warns.append("손절가가 매수타점 이상")
         if warns:
             p["price_warning"] = " · ".join(warns)
     return res
@@ -3786,8 +3829,12 @@ KOSDAQ: {kosdaq.get('index',0):,.2f}  ({kosdaq.get('change_pct',0):+.2f}%)
    ⛔ 기억에 있는 주가를 쓰지 마세요. 후보군·핫섹터 핵심코드·수급 상위 **모든 목록의
       모든 종목에 현재가가 적혀 있습니다**. 적힌 값 외의 가격대로 타점을 만들면 안 됩니다.
    ⛔ '현재가 확인불가(선정 금지)'라고 적힌 종목은 선정하지 마세요.
-   ⛔ entry·target·stop은 전부 현재가의 ±15% 안에 있어야 합니다. 이 범위를 벗어났다면
-      당신이 과거 주가를 떠올린 것입니다 — 목록의 현재가를 다시 읽고 계산하세요):
+   ✅ 진입가가 현재가보다 **낮은 것은 정상입니다** — 눌림목 대기가 그렇습니다
+      (현재가 1,000원에 진입 900원). 억지로 현재가에 붙이지 마세요.
+   ⛔ 다만 그 가격은 **최근 몇 달 안에 실제로 거래된 가격대**여야 합니다. 현재가의 2배나
+      절반 같은 값은 눌림목이 아니라 당신이 떠올린 작년 주가입니다.
+      (실제 사고: 현재가 1,733원인 종목에 진입 4,020원 — 그건 작년 가격이었습니다.)
+   ⛔ 진입가가 현재가보다 **높다면 +5% 이내**로만 잡으세요. 그 이상은 추격매수입니다):
    · 매수 타점: 패턴별 최적 진입가 (위 패턴 기준 + 테마 연동 고려)
    · 목표가: 매수가 대비 +3%~+8% (테마 확산 중이면 +10%까지 설정 가능)
    · 손절가: 매수가 대비 -2% (칼손절)
@@ -3826,10 +3873,12 @@ KOSDAQ: {kosdaq.get('index',0):,.2f}  ({kosdaq.get('change_pct',0):+.2f}%)
 ① change_pct ≥ 10%인 종목이 있으면 교체하세요.
 ② 위 '급등 직전 시그널 후보군' 목록에 없는 종목을 선택했다면 해당 픽의 'from_search': true로 설정하고 reason에 구글 검색 근거를 명시하세요.
 ③ code가 실제 KRX 6자리 코드인지 확인하세요 (숫자 6자리 형식).
-④ 각 픽마다 |entry - current_price| / current_price 를 실제로 계산하세요. 0.15를 넘으면
-   그 픽의 current_price는 당신이 기억에서 꺼낸 값입니다. 위 목록에서 그 종목의 현재가를
-   다시 찾아 읽고, entry·target·stop을 전부 다시 계산하세요. 목록에 없으면 그 픽을 버리세요.
-⑤ stop < entry < target 순서인지 확인하세요. 손절가가 현재가보다 높으면 잘못된 것입니다."""
+④ 각 픽의 entry가 그 종목의 최근 몇 달 주가 흐름 안에 있는 값인지 확인하세요.
+   현재가보다 낮은 눌림목 타점은 정상입니다. 하지만 현재가의 1.5배를 넘거나 0.6배 미만이면
+   최근 가격대가 아니라 과거 주가입니다 — 위 목록의 현재가를 다시 읽고 전부 재계산하거나,
+   목록에 없는 종목이면 그 픽을 버리세요.
+⑤ stop < entry < target 순서인지 확인하세요. 목표가·손절가는 **현재가가 아니라 매수타점**
+   기준입니다 — 눌림목 대기 픽은 목표가가 현재가보다 낮을 수도 있고, 그건 정상입니다."""
 
     try:
         response = _call_llm(prompt, use_search=True, temperature=0.35)
