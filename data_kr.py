@@ -1706,6 +1706,15 @@ def get_kr_prebreakout_signal(stock_code: str) -> dict:
 
     label = " · ".join(notes) if notes else "시그널 없음"
 
+    # [v3.190.0] 당일 장중 범위·VWAP — 타점 보드가 진입가를 **당일 축**으로 검증하는 데 쓴다.
+    # 여기서 함께 돌려주는 이유는 today 프레임을 이미 들고 있어서다. 따로 조회하면
+    # 같은 분봉을 두 번 받게 되고 토스 요청 한도만 축낸다.
+    day_high = float(today["high"].max())
+    day_low  = float(today["low"].min())
+    _tp      = (today["high"] + today["low"] + today["close"]) / 3.0
+    _vol_sum = float(today["volume"].sum())
+    vwap     = float((_tp * today["volume"]).sum() / _vol_sum) if _vol_sum > 0 else float(cur_close)
+
     return {
         "code":          stock_code,
         "vol_accel":     vol_accel,
@@ -1716,6 +1725,9 @@ def get_kr_prebreakout_signal(stock_code: str) -> dict:
         "signal_score":  score,
         "signal_label":  label,
         "cur_price":     int(cur_close),
+        "day_high":      round(day_high, 2),
+        "day_low":       round(day_low, 2),
+        "vwap":          round(vwap, 2),
     }
 
 

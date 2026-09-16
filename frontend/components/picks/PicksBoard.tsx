@@ -31,6 +31,19 @@ interface Pick {
   change_pct?:   number;
   leader_name?:  string;
   theme_linkage?: string;
+  // [v3.190.0] 당일 5분봉 상태 — 이 보드는 당일~단타용이라 판정도 당일 축으로 한다.
+  intraday?: {
+    signal_score?: number;   // 0~5
+    signal_label?: string;
+    vol_accel?:    number;   // 최근 30분 / 직전 30분 거래량
+    vol_ratio?:    number;   // 오늘 / 전일 같은 시간대
+    consol_break?: boolean;  // 최근 6봉 고점 돌파
+    above_ma?:     boolean;  // 5분봉 MA5·MA20 위
+    candle_seq?:   boolean;  // 3봉 연속 양봉
+    day_high?:     number;
+    day_low?:      number;
+    vwap?:         number;
+  };
 }
 
 function Toast({ message, type }: { message: string; type: "success" | "info" }) {
@@ -42,6 +55,76 @@ function Toast({ message, type }: { message: string; type: "success" | "info" })
     }`}>
       <CheckCircle size={16} />
       {message}
+    </div>
+  );
+}
+
+/** 당일 5분봉 상태 패널. 이 보드는 당일~단타용이므로 판정도 당일 축으로만 보여준다.
+ *  일봉 지지선·수개월 범위 같은 스윙 잣대는 여기 쓰지 않는다 — 시간축이 어긋난다. */
+function IntradayPanel({ pick, fmtPrice }: { pick: Pick; fmtPrice: (v?: number) => string }) {
+  const it = pick.intraday;
+  if (!it || !it.day_high) return null;
+
+  const score = it.signal_score ?? 0;
+  const flags: [string, boolean | undefined, string][] = [
+    ["거래량가속", (it.vol_accel ?? 0) >= 1.5, `${(it.vol_accel ?? 0).toFixed(1)}x`],
+    ["전일대비",   (it.vol_ratio ?? 0) >= 3.0, `${(it.vol_ratio ?? 0).toFixed(1)}x`],
+    ["박스권돌파", it.consol_break, ""],
+    ["5분봉MA 위", it.above_ma, ""],
+    ["연속양봉",   it.candle_seq, ""],
+  ];
+  const scoreColor = score >= 4 ? "text-emerald-400" : score >= 2 ? "text-yellow-400" : "text-zinc-400";
+
+  // 진입가가 당일 어디쯤인지 — 단타는 이게 전부다.
+  const entry = pick.entry;
+  let entryNote = "";
+  if (typeof entry === "number" && it.day_low && it.day_high) {
+    if (entry < it.day_low)       entryNote = `당일 저가 대비 ${((entry / it.day_low - 1) * 100).toFixed(1)}% — 아직 안 온 자리`;
+    else if (entry > it.day_high) entryNote = `당일 고가 대비 +${((entry / it.day_high - 1) * 100).toFixed(1)}% — 돌파 진입`;
+    else                          entryNote = "당일 범위 안";
+    if (it.vwap) entryNote += ` · VWAP ${entry >= it.vwap ? "위" : "아래"}`;
+  }
+
+  return (
+    <div className="mb-6 p-4 rounded-lg bg-white/5 border border-white/10">
+      <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+        <span className="font-bold text-white flex items-center gap-2 text-sm">
+          <Activity size={14} className="text-indigo-400" /> 당일 장중 상태 (5분봉)
+        </span>
+        <span className={`text-sm font-black ${scoreColor}`}>패턴점수 {score}/5</span>
+      </div>
+
+      <div className="flex flex-wrap gap-1.5 mb-3">
+        {flags.map(([label, on, extra]) => (
+          <span key={label} className={`text-[0.7rem] font-semibold px-2 py-1 rounded border ${
+            on ? "bg-emerald-500/15 text-emerald-300 border-emerald-500/30"
+               : "bg-white/5 text-zinc-500 border-white/10"}`}>
+            {on ? "O" : "X"} {label}{extra && on ? ` ${extra}` : ""}
+          </span>
+        ))}
+      </div>
+
+      <div className="grid grid-cols-3 gap-2 text-center text-xs">
+        <div className="bg-black/20 rounded p-2">
+          <div className="text-zinc-500 mb-0.5">당일 저가</div>
+          <div className="font-bold text-blue-300">{fmtPrice(it.day_low)}</div>
+        </div>
+        <div className="bg-black/20 rounded p-2">
+          <div className="text-zinc-500 mb-0.5">VWAP</div>
+          <div className="font-bold text-zinc-200">{fmtPrice(it.vwap)}</div>
+        </div>
+        <div className="bg-black/20 rounded p-2">
+          <div className="text-zinc-500 mb-0.5">당일 고가</div>
+          <div className="font-bold text-red-300">{fmtPrice(it.day_high)}</div>
+        </div>
+      </div>
+
+      {entryNote && (
+        <div className="mt-3 text-xs text-zinc-300">
+          매수 진입가 <span className="font-bold text-white">{fmtPrice(pick.entry)}</span>
+          <span className="text-zinc-400"> — {entryNote}</span>
+        </div>
+      )}
     </div>
   );
 }
@@ -391,6 +474,16 @@ export function PicksBoard() {
                       <span style={{ fontSize: "0.75rem", color: "var(--color-muted)" }}>{id}</span>
                     </div>
                     <div style={{ display: "flex", gap: "4px" }}>
+                      {typeof pick.intraday?.signal_score === "number" && (
+                        <span title={`당일 5분봉: ${pick.intraday.signal_label || "-"}`} style={{
+                          fontSize: "0.7rem", fontWeight: 800, padding: "2px 6px", borderRadius: "4px",
+                          background: (pick.intraday.signal_score >= 4) ? "rgba(16,185,129,0.2)"
+                                    : (pick.intraday.signal_score >= 2) ? "rgba(234,179,8,0.2)"
+                                    : "rgba(255,255,255,0.08)",
+                          color: (pick.intraday.signal_score >= 4) ? "#6ee7b7"
+                               : (pick.intraday.signal_score >= 2) ? "#fde047" : "var(--color-muted)",
+                        }}>당일 {pick.intraday.signal_score}/5</span>
+                      )}
                       <span style={{ fontSize: "0.7rem", fontWeight: 700, padding: "2px 6px", background: "rgba(255,255,255,0.1)", borderRadius: "4px" }}>{pick.horizon || "단타"}</span>
                       <span style={{ fontSize: "0.7rem", fontWeight: 700, padding: "2px 6px", background: urgencyColor, color: "var(--bg-color)", borderRadius: "4px" }}>{pick.urgency || "보통"}</span>
                     </div>
@@ -484,8 +577,15 @@ export function PicksBoard() {
                     </div>
                   </div>
                   <div className="flex items-center justify-between text-xs mt-3">
-                    <div className="text-emerald-400 font-semibold bg-emerald-400/10 px-2 py-1 rounded border border-emerald-400/20">
-                      기대 {calcReturn(p.entry, p.target)}
+                    <div className="flex items-center gap-1.5">
+                      <div className="text-emerald-400 font-semibold bg-emerald-400/10 px-2 py-1 rounded border border-emerald-400/20">
+                        기대 {calcReturn(p.entry, p.target)}
+                      </div>
+                      {typeof p.intraday?.signal_score === "number" && (
+                        <div className="text-zinc-300 font-semibold bg-white/5 px-2 py-1 rounded border border-white/10">
+                          당일 {p.intraday.signal_score}/5
+                        </div>
+                      )}
                     </div>
                     <div className="text-zinc-400">{p.theme}</div>
                   </div>
@@ -567,6 +667,9 @@ export function PicksBoard() {
                         </span>
                       </div>
                     )}
+
+                    {/* 당일 장중 상태 — 이 보드의 시간축(당일~단타)에 맞는 유일한 판정 */}
+                    <IntradayPanel pick={sp} fmtPrice={fmt} />
 
                     {/* 포착 이유 */}
                     <div className="text-sm text-zinc-300 leading-relaxed bg-white/5 p-4 rounded-lg mb-6 border border-white/5">

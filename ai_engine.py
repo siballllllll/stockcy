@@ -3380,6 +3380,54 @@ def _compute_prebreakout_signals(volume_rank: list, change_rank: list) -> tuple:
     return enriched, already_done
 
 
+def _attach_kr_intraday(res: dict) -> dict:
+    """[v3.190.0] 최종 픽에 **당일 5분봉 상태**를 붙인다 — 이 보드는 당일~단타용이다.
+
+    [왜] 분봉 시그널은 후보 상위 6종목에만 계산해 AI에게 참고로 보여줄 뿐이었고
+    (_compute_prebreakout_signals의 prebreakout[:6]), AI가 고른 **최종 픽**은 그 점수를
+    달고 나오지 않았다. 핫섹터·수급·구글검색으로 고른 종목은 계산조차 안 됐다 —
+    2026-09-16 무림P&P가 정확히 그 경우다.
+    그래서 어느 경로로 뽑혔든 최종 3종목에 대해 여기서 다시 계산한다(픽당 1콜).
+
+    붙는 값: signal_score(0~5)·signal_label·vol_accel·vol_ratio·consol_break·
+             above_ma·candle_seq·day_high·day_low·vwap
+    장 시작 전/마감 후에는 당일 봉이 없어 조용히 건너뛴다(그때는 붙일 상태가 없다).
+    """
+    picks = res.get("picks") if isinstance(res, dict) else None
+    if not isinstance(picks, list):
+        return res
+    try:
+        from data_kr import get_kr_prebreakout_signal
+    except Exception as e:
+        print(f"[picks intraday] 모듈 로드 실패: {e}")
+        return res
+
+    for p in picks:
+        code = str(p.get("code") or "").strip().zfill(6)
+        if not code.isdigit() or code == "000000":
+            continue
+        try:
+            sig = get_kr_prebreakout_signal(code) or {}
+        except Exception as e:
+            print(f"[picks intraday] {code} 시그널 실패: {e}")
+            continue
+        if not sig.get("day_high"):
+            continue                      # 장중 데이터 없음 — 붙일 상태가 없다
+        p["intraday"] = {
+            "signal_score": sig.get("signal_score", 0),
+            "signal_label": sig.get("signal_label", ""),
+            "vol_accel":    sig.get("vol_accel", 0),
+            "vol_ratio":    sig.get("vol_ratio", 0),
+            "consol_break": bool(sig.get("consol_break")),
+            "above_ma":     bool(sig.get("above_ma")),
+            "candle_seq":   bool(sig.get("candle_seq")),
+            "day_high":     sig.get("day_high"),
+            "day_low":      sig.get("day_low"),
+            "vwap":         sig.get("vwap"),
+        }
+    return res
+
+
 def _recent_range_kr(code: str, period: str = "3mo") -> tuple[float, float] | None:
     """국내 종목의 최근 실거래 범위 (저가 최솟값, 고가 최댓값). 못 구하면 None.
 
@@ -3557,23 +3605,31 @@ def _sanity_check_picks(res: dict, price_map: dict | None = None) -> dict:
 
         entry, target, stop = _f("entry"), _f("target"), _f("stop")
 
-        # 진입가 검증 — 퍼센트가 아니라 "최근에 실제로 있던 가격인가"로 본다.
-        # 현재가보다 낮은 진입가는 눌림목 대기라 정상이다. 이 검사는 위아래 모두
-        # '최근 3개월 실거래 범위' 밖일 때만 걸린다(±5% 여유 — 신고가 종목의
-        # 얕은 눌림목, 박스 상단 돌파 진입까지는 정상으로 본다).
-        if entry is not None:
+        # 진입가 검증 — **당일 장중 범위**로 본다. 이 보드는 당일~단타용이고,
+        # 며칠~몇 달짜리 잣대(일봉 지지선·3개월 범위)는 시간축이 어긋난다.
+        # 당일 저가 -3% ~ 당일 고가 +3%를 정상으로 본다:
+        #   · 아래 여유 3% = 아직 안 온 눌림목 대기 자리(정상적인 단타 타점)
+        #   · 위   여유 3% = 박스권 상단 돌파 진입
+        # 이 밖이면 오늘 이 종목의 이야기가 아니다(2026-09-16 무림P&P 진입 4,020원).
+        intra = p.get("intraday") or {}
+        d_lo, d_hi = intra.get("day_low"), intra.get("day_high")
+        if entry is not None and d_lo and d_hi:
+            if entry < d_lo * 0.97 or entry > d_hi * 1.03:
+                warns.append(
+                    f"매수타점 {entry:,.0f}원이 당일 장중 범위"
+                    f"({d_lo:,.0f}~{d_hi:,.0f}원) 밖 — 당일 단타 타점이 아님"
+                )
+        elif entry is not None:
+            # 장 시작 전/마감 후 — 당일 봉이 없어 당일 축으로 볼 수 없다.
+            # 그때만 성긴 그물로 '작년 가격'만 거른다(눌림목 오탐 방지로 범위 ±5%).
             rng = _recent_range_kr(code)
             if rng:
                 lo, hi = rng
                 if entry < lo * 0.95 or entry > hi * 1.05:
                     warns.append(
                         f"매수타점 {entry:,.0f}원이 최근 3개월 거래범위"
-                        f"({lo:,.0f}~{hi:,.0f}원) 밖 — 과거 주가일 가능성"
+                        f"({lo:,.0f}~{hi:,.0f}원) 밖 — 과거 주가일 가능성 (장외 시간 판정)"
                     )
-            elif abs((entry - real) / real) > 0.30:
-                # 범위를 못 구했을 때만 쓰는 성긴 그물. 눌림목을 오탐하지 않도록
-                # 30%로 넉넉히 잡는다.
-                warns.append(f"매수타점이 현재가와 {(entry - real) / real * 100:+.1f}% 벌어짐 (범위 확인 불가)")
 
         if target is not None and entry is not None and target <= entry:
             warns.append("목표가가 매수타점 이하")
@@ -3949,6 +4005,12 @@ KOSDAQ: {kosdaq.get('index',0):,.2f}  ({kosdaq.get('change_pct',0):+.2f}%)
                         p["current_price"] = pm["price"]   # 가격만이라도 살린다(등락률은 비운 채)
         except Exception:
             pass
+
+        # [v3.190.0] 당일 5분봉 상태를 최종 픽에 먼저 붙인다 — 아래 검증이 이 값을 쓴다.
+        try:
+            result = _attach_kr_intraday(result)
+        except Exception as _ie:
+            print(f'[picks intraday] 부착 실패(무시): {_ie}')
 
         # [v3.171.0] 산출된 타점을 실제 시세와 대조해 검증·보정 (흥구석유 사례)
         try:

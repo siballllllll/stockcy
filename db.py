@@ -606,6 +606,14 @@ def init_local_db():
         "ALTER TABLE screener_picks ADD COLUMN price REAL",  # 추천 당시가(교차검증용)
         "ALTER TABLE screener_picks ADD COLUMN hsh_label TEXT",  # 하승훈式 시그널 라벨(교차검증 표시용)
         "ALTER TABLE realtime_picks ADD COLUMN price_warning TEXT",  # _sanity_check_picks 경고(타점이 현재가와 어긋남)
+        # [v3.190.0] 포착 시점의 당일 5분봉 상태. 이걸 남겨야 나중에
+        # "당일 패턴점수가 높은 픽이 실제로 이겼나"를 측정할 수 있다 —
+        # 안 남기면 기준을 또 근거 없이 정하게 된다(V15의 교훈).
+        "ALTER TABLE realtime_picks ADD COLUMN intraday_score INTEGER",
+        "ALTER TABLE realtime_picks ADD COLUMN intraday_label TEXT",
+        "ALTER TABLE realtime_picks ADD COLUMN day_low REAL",
+        "ALTER TABLE realtime_picks ADD COLUMN day_high REAL",
+        "ALTER TABLE realtime_picks ADD COLUMN vwap REAL",
         "ALTER TABLE ml_training_samples ADD COLUMN d20_return REAL",  # 중장기(약 1개월) 라벨용
         "ALTER TABLE ml_training_samples ADD COLUMN pred_d3 REAL",   # 추천 시점 ML 예측확률(%) — 사후검증용
         "ALTER TABLE ml_training_samples ADD COLUMN pred_d7 REAL",
@@ -4969,6 +4977,14 @@ def save_realtime_picks(picks: list, market: str = "KR") -> int:
             rank = int(p.get("rank") or 0)
         except (TypeError, ValueError):
             rank = 0
+        _it = p.get("intraday") or {}
+
+        def _i(v):
+            try:
+                return int(v)
+            except (TypeError, ValueError):
+                return None
+
         payload.append((today, stamp, ticker, p.get("name") or ticker, mk, rank,
                         p.get("pattern") or "", p.get("theme") or "",
                         p.get("urgency") or "", p.get("horizon") or "",
@@ -4978,7 +4994,11 @@ def save_realtime_picks(picks: list, market: str = "KR") -> int:
                         # _sanity_check_picks가 세운 경고. 버리면 '타점이 현재가와 27% 벌어진'
                         # 픽이 멀쩡한 픽과 같은 무게로 교차검증에 올라간다(2026-09-14 실측:
                         # 3건 중 2건이 경고 대상이었다).
-                        (p.get("price_warning") or None)))
+                        (p.get("price_warning") or None),
+                        # 포착 시점의 당일 5분봉 상태 — 사후에 "당일 점수가 높은 픽이
+                        # 실제로 이겼나"를 재려면 그때 값을 남겨둬야 한다.
+                        _i(_it.get("signal_score")), (_it.get("signal_label") or None),
+                        _f(_it.get("day_low")), _f(_it.get("day_high")), _f(_it.get("vwap"))))
     if not payload:
         return 0
 
@@ -4988,8 +5008,9 @@ def save_realtime_picks(picks: list, market: str = "KR") -> int:
         cur.executemany(
             """INSERT OR IGNORE INTO realtime_picks
                (picked_date, picked_at, ticker, name, market, rank, pattern, theme,
-                urgency, horizon, price, entry, target, stop, from_search, price_warning)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""", payload)
+                urgency, horizon, price, entry, target, stop, from_search, price_warning,
+                intraday_score, intraday_label, day_low, day_high, vwap)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""", payload)
         conn.commit()
         after = cur.execute("SELECT COUNT(*) FROM realtime_picks").fetchone()[0]
         return after - before
