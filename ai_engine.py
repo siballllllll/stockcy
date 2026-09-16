@@ -3380,6 +3380,28 @@ def _compute_prebreakout_signals(volume_rank: list, change_rank: list) -> tuple:
     return enriched, already_done
 
 
+def _pick_num(v) -> float | None:
+    """AI가 준 숫자 필드를 float으로. 못 읽으면 None — 0으로 대체하지 않는다.
+
+    "4,020" · "4020원" · "$63.0" 같은 표기가 실제로 온다. 0/음수도 None으로 본다
+    (가격·타점에 0은 값이 아니라 결측이다).
+    """
+    if isinstance(v, bool) or v is None:
+        return None
+    if isinstance(v, (int, float)):
+        f = float(v)
+        return f if f > 0 else None
+    try:
+        import re as _re
+        s = _re.sub(r"[^0-9.\-]", "", str(v))
+        if not s or s in ("-", ".", "-."):
+            return None
+        f = float(s)
+        return f if f > 0 else None
+    except (TypeError, ValueError):
+        return None
+
+
 def _resolve_kr_quote(code: str) -> dict:
     """국내 종목 하나의 현재가·등락률을 소스 체인으로 확정한다 — {price, change_pct} 또는 {}.
 
@@ -3477,6 +3499,18 @@ def _sanity_check_picks(res: dict, price_map: dict | None = None) -> dict:
         return {}
 
     for p in picks:
+        # [v3.188.1] 숫자 필드를 먼저 float으로 정규화한다.
+        # AI는 "4,020"처럼 쉼표 낀 문자열을 돌려줄 때가 있고(db.save_realtime_picks가
+        # 같은 이유로 _f()를 둔다), 종전 _f는 float("4,020")에서 ValueError로 None이 돼
+        # **그 픽의 괴리 경고를 통째로 건너뛰었다**. 프론트도 문자열을 못 읽어 —로 비웠다.
+        for _k in ("entry", "entry_limit", "target", "stop", "current_price", "change_pct"):
+            if _k in p:
+                _v = _pick_num(p.get(_k))
+                if _v is None:
+                    p.pop(_k, None)        # 못 읽는 값은 0으로 두지 말고 없앤다
+                else:
+                    p[_k] = _v
+
         code = str(p.get("code") or "").strip().zfill(6)
         q = _quote(code)
         real = float(q.get("price") or 0)
@@ -3490,11 +3524,8 @@ def _sanity_check_picks(res: dict, price_map: dict | None = None) -> dict:
         warns = []
 
         def _f(key):
-            try:
-                v = float(p.get(key) or 0)
-                return v if v > 0 else None
-            except (TypeError, ValueError):
-                return None
+            v = _pick_num(p.get(key))
+            return v if (v is not None and v > 0) else None
 
         entry, target, stop = _f("entry"), _f("target"), _f("stop")
         if entry is not None:

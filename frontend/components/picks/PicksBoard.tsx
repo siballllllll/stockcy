@@ -208,19 +208,34 @@ export function PicksBoard() {
   // [v3.188.0] 값이 없을 때 0으로 대체하지 않는다.
   // 0은 "보합/변동없음"이라는 정보이고, 없음은 "못 구했다"이다. 둘을 섞으면
   // 등락률 미확보 종목이 ▼0.00%(파란색 하락)로 표시돼 거짓 정보가 된다.
-  const has = (v?: number | null): v is number => typeof v === "number" && Number.isFinite(v);
+  // AI가 숫자를 문자열("4,020")로 돌려줄 때가 있다(db.save_realtime_picks도 같은 이유로
+  // _f()를 통과시킨다). 그걸 "값 없음"으로 오판하면 멀쩡한 타점이 전부 —로 사라진다.
+  const num = (v: unknown): number | null => {
+    if (typeof v === "number") return Number.isFinite(v) ? v : null;
+    if (typeof v === "string") {
+      const n = parseFloat(v.replace(/[,\s₩$%]/g, ""));
+      return Number.isFinite(n) ? n : null;
+    }
+    return null;
+  };
 
-  const fmt = (v?: number) =>
-    !has(v) || v <= 0 ? "—" : isKR ? `₩${v.toLocaleString()}` : `$${v.toFixed(2)}`;
+  const fmt = (v?: number) => {
+    const n = num(v);
+    return n === null || n <= 0 ? "—" : isKR ? `₩${n.toLocaleString()}` : `$${n.toFixed(2)}`;
+  };
 
-  const calcReturn = (entry?: number, target?: number) =>
-    has(entry) && has(target) && entry > 0 ? `+${(((target - entry) / entry) * 100).toFixed(1)}%` : "—";
+  const calcReturn = (entry?: number, target?: number) => {
+    const e = num(entry), t = num(target);
+    return e !== null && t !== null && e > 0 ? `+${(((t - e) / e) * 100).toFixed(1)}%` : "—";
+  };
 
-  const calcRisk = (entry?: number, stop?: number) =>
-    has(entry) && has(stop) && entry > 0 ? `${(((stop - entry) / entry) * 100).toFixed(1)}%` : "—";
+  const calcRisk = (entry?: number, stop?: number) => {
+    const e = num(entry), s = num(stop);
+    return e !== null && s !== null && e > 0 ? `${(((s - e) / e) * 100).toFixed(1)}%` : "—";
+  };
 
   // 등락률 표기 — null이면 "—"(미확보), 0이면 "─ 0.00%"(진짜 보합, 회색)
-  const chgOf    = (p: Pick) => (has(p.change_pct) ? p.change_pct : null);
+  const chgOf    = (p: Pick) => num(p.change_pct);
   const chgColor = (c: number | null) =>
     c === null ? "var(--color-muted)" : c > 0 ? "var(--color-up)" : c < 0 ? "var(--color-down)" : "var(--color-flat)";
   const chgText  = (c: number | null) =>
@@ -457,8 +472,15 @@ export function PicksBoard() {
                       <div className="font-bold text-base text-white">{p.name}</div>
                       <div className="text-xs text-zinc-400">{id}</div>
                     </div>
-                    <div className={`text-[0.65rem] font-bold px-2 py-0.5 rounded ${p.urgency?.includes("즉시") ? "bg-red-500/20 text-red-400 border border-red-500/30" : "bg-orange-500/20 text-orange-400 border border-orange-500/30"}`}>
-                      {p.urgency}
+                    <div className="flex items-center gap-1.5">
+                      {p.price_warning && (
+                        <span title={`타점 신뢰 주의 — ${p.price_warning}`} className="text-red-400">
+                          <AlertCircle size={14} />
+                        </span>
+                      )}
+                      <div className={`text-[0.65rem] font-bold px-2 py-0.5 rounded ${p.urgency?.includes("즉시") ? "bg-red-500/20 text-red-400 border border-red-500/30" : "bg-orange-500/20 text-orange-400 border border-orange-500/30"}`}>
+                        {p.urgency}
+                      </div>
                     </div>
                   </div>
                   <div className="flex items-center justify-between text-xs mt-3">
@@ -529,6 +551,22 @@ export function PicksBoard() {
                         </button>
                       </div>
                     </div>
+
+                    {/* 타점 신뢰 경고 — 백엔드 _sanity_check_picks가 세운 것.
+                        [v3.188.1] 카드뷰(아래 423줄)에만 있어서, 상세뷰는 현재가와 +132%
+                        벌어진 타점(2026-09-16 무림P&P)을 아무 표시 없이 보여주고 있었다.
+                        경고를 못 본 채로는 "타점이 이상하다"는 인상만 남는다. */}
+                    {sp.price_warning && (
+                      <div className="mb-4 px-4 py-3 rounded-lg bg-red-500/15 border border-red-500/40 text-red-300 text-sm font-bold flex items-start gap-2">
+                        <AlertCircle size={16} className="mt-0.5 shrink-0" />
+                        <span>
+                          타점 신뢰 주의 — {sp.price_warning}
+                          <span className="block mt-1 font-normal text-red-300/70 text-xs">
+                            AI가 과거 주가를 현재가로 착각했을 때 나타납니다. 아래 타점을 그대로 쓰지 마세요.
+                          </span>
+                        </span>
+                      </div>
+                    )}
 
                     {/* 포착 이유 */}
                     <div className="text-sm text-zinc-300 leading-relaxed bg-white/5 p-4 rounded-lg mb-6 border border-white/5">
