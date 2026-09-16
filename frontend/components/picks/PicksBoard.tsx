@@ -205,15 +205,26 @@ export function PicksBoard() {
   }, [isKR]);
 
   // ── 계산 헬퍼 ──────────────────────────────────────────────────────────────
-  const fmt = (v?: number) => isKR
-    ? `₩${v?.toLocaleString() ?? "—"}`
-    : `$${v?.toFixed(2) ?? "—"}`;
+  // [v3.188.0] 값이 없을 때 0으로 대체하지 않는다.
+  // 0은 "보합/변동없음"이라는 정보이고, 없음은 "못 구했다"이다. 둘을 섞으면
+  // 등락률 미확보 종목이 ▼0.00%(파란색 하락)로 표시돼 거짓 정보가 된다.
+  const has = (v?: number | null): v is number => typeof v === "number" && Number.isFinite(v);
+
+  const fmt = (v?: number) =>
+    !has(v) || v <= 0 ? "—" : isKR ? `₩${v.toLocaleString()}` : `$${v.toFixed(2)}`;
 
   const calcReturn = (entry?: number, target?: number) =>
-    entry && target ? (((target - entry) / entry) * 100).toFixed(1) : "0";
+    has(entry) && has(target) && entry > 0 ? `+${(((target - entry) / entry) * 100).toFixed(1)}%` : "—";
 
   const calcRisk = (entry?: number, stop?: number) =>
-    entry && stop ? (((stop - entry) / entry) * 100).toFixed(1) : "0";
+    has(entry) && has(stop) && entry > 0 ? `${(((stop - entry) / entry) * 100).toFixed(1)}%` : "—";
+
+  // 등락률 표기 — null이면 "—"(미확보), 0이면 "─ 0.00%"(진짜 보합, 회색)
+  const chgOf    = (p: Pick) => (has(p.change_pct) ? p.change_pct : null);
+  const chgColor = (c: number | null) =>
+    c === null ? "var(--color-muted)" : c > 0 ? "var(--color-up)" : c < 0 ? "var(--color-down)" : "var(--color-flat)";
+  const chgText  = (c: number | null) =>
+    c === null ? "—" : `${c > 0 ? "▲" : c < 0 ? "▼" : "─"} ${Math.abs(c).toFixed(2)}%`;
 
   const picks       = data.picks || [];
   const urgentCount = picks.filter(p => p.urgency?.includes("즉시")).length;
@@ -347,7 +358,7 @@ export function PicksBoard() {
         ) : (
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: "1rem" }}>
             {filteredPicks.map((pick, idx) => {
-              const isUp        = (pick.change_pct || 0) > 0;
+              const chg         = chgOf(pick);
               const id          = identifier(pick);
               const marketParam = isKR ? "" : "&market=US";
               const urgencyColor =
@@ -372,8 +383,9 @@ export function PicksBoard() {
 
                   <div style={{ display: "flex", alignItems: "baseline", gap: "6px" }}>
                     <span style={{ fontSize: "1.2rem", fontWeight: 800 }}>{fmt(pick.current_price)}</span>
-                    <span style={{ fontSize: "0.85rem", fontWeight: 700, color: isUp ? "var(--color-danger)" : "var(--color-primary)" }}>
-                      {isUp ? "▲" : "▼"} {Math.abs(pick.change_pct || 0).toFixed(2)}%
+                    <span style={{ fontSize: "0.85rem", fontWeight: 700, color: chgColor(chg) }}
+                          title={chg === null ? "등락률을 가져오지 못했습니다" : undefined}>
+                      {chgText(chg)}
                     </span>
                   </div>
 
@@ -451,7 +463,7 @@ export function PicksBoard() {
                   </div>
                   <div className="flex items-center justify-between text-xs mt-3">
                     <div className="text-emerald-400 font-semibold bg-emerald-400/10 px-2 py-1 rounded border border-emerald-400/20">
-                      기대 +{calcReturn(p.entry, p.target)}%
+                      기대 {calcReturn(p.entry, p.target)}
                     </div>
                     <div className="text-zinc-400">{p.theme}</div>
                   </div>
@@ -470,8 +482,8 @@ export function PicksBoard() {
               const sp    = selectedPick;
               const id    = identifier(sp)!;
               const isFav = favSet.has(id);
-              const changePct = sp.change_pct ?? 0;
-              const priceColor = changePct > 0 ? "var(--color-up)" : changePct < 0 ? "var(--color-down)" : "var(--color-flat)";
+              const changePct = chgOf(sp);
+              const priceColor = chgColor(changePct);
 
               return (
                 <div className="flex flex-col gap-4">
@@ -486,9 +498,7 @@ export function PicksBoard() {
                           {sp.current_price != null && (
                             <span className="text-lg font-bold" style={{ color: priceColor }}>
                               {fmt(sp.current_price)}
-                              <span className="text-sm ml-1">
-                                {changePct > 0 ? "▲" : changePct < 0 ? "▼" : "─"}{Math.abs(changePct).toFixed(2)}%
-                              </span>
+                              <span className="text-sm ml-1">{chgText(changePct)}</span>
                             </span>
                           )}
                         </div>
@@ -541,20 +551,21 @@ export function PicksBoard() {
                       <div className="bg-red-500/10 border border-red-500/20 p-4 rounded-lg flex flex-col justify-center items-center text-center">
                         <span className="text-xs font-bold text-red-400/80 mb-1">목표가</span>
                         <span className="text-xl font-black text-red-400">{fmt(sp.target)}</span>
-                        <span className="text-[0.7rem] font-bold text-red-400 mt-1">+{calcReturn(sp.entry, sp.target)}% 기대</span>
+                        <span className="text-[0.7rem] font-bold text-red-400 mt-1">{calcReturn(sp.entry, sp.target)} 기대</span>
                       </div>
                       <div className="bg-blue-500/10 border border-blue-500/20 p-4 rounded-lg flex flex-col justify-center items-center text-center">
                         <span className="text-xs font-bold text-blue-400/80 mb-1">손절가</span>
                         <span className="text-xl font-black text-blue-400">{fmt(sp.stop)}</span>
-                        <span className="text-[0.7rem] font-bold text-blue-400 mt-1">{calcRisk(sp.entry, sp.stop)}% 위험</span>
+                        <span className="text-[0.7rem] font-bold text-blue-400 mt-1">{calcRisk(sp.entry, sp.stop)} 위험</span>
                       </div>
                       <div className="bg-orange-500/10 border border-orange-500/20 p-4 rounded-lg flex flex-col justify-center items-center text-center">
                         <span className="text-xs font-bold text-orange-400/80 mb-1">현재가</span>
                         {sp.current_price != null ? (
                           <>
                             <span className="text-xl font-black text-orange-400">{fmt(sp.current_price)}</span>
-                            <span className="text-[0.7rem] font-bold mt-1" style={{ color: priceColor }}>
-                              {changePct > 0 ? "▲" : changePct < 0 ? "▼" : "─"}{Math.abs(changePct).toFixed(2)}%
+                            <span className="text-[0.7rem] font-bold mt-1" style={{ color: priceColor }}
+                                  title={changePct === null ? "등락률을 가져오지 못했습니다" : undefined}>
+                              {chgText(changePct)}
                             </span>
                           </>
                         ) : (

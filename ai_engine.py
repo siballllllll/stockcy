@@ -3380,6 +3380,65 @@ def _compute_prebreakout_signals(volume_rank: list, change_rank: list) -> tuple:
     return enriched, already_done
 
 
+def _resolve_kr_quote(code: str) -> dict:
+    """국내 종목 하나의 현재가·등락률을 소스 체인으로 확정한다 — {price, change_pct} 또는 {}.
+
+    [왜] 픽의 등락률이 비면 프론트가 0으로 대체해 '보합'처럼 보였다. 실제로는
+    "값을 못 구했다"인데 화면에는 ▼0.00%(하락)로 찍혔다. 종전 보정은 FDR 단발
+    호출이라 FDR이 실패하면(ETF 누락·네트워크) 거기서 끝났다.
+
+    체인 순서:
+      1. 네이버 실시간 폴링 — 초 단위. KIS가 코스닥에 보합(0%)을 주는 함정을 피한다.
+      2. get_kr_stock_price — 내부적으로 KIS → 토스 → FDR → yfinance.
+    둘 다 실패하면 빈 dict. 호출부는 **0으로 채우지 말고 필드를 비워둬야 한다** —
+    0은 '보합'이라는 거짓 정보이고, 없음은 없음으로 보여야 한다.
+    """
+    code = str(code or "").strip().zfill(6)
+    if not code.isdigit() or code == "000000":
+        return {}
+
+    try:                                   # 1차: 네이버 실시간
+        from data_kr import get_kr_realtime_price
+        rt = get_kr_realtime_price(code) or {}
+        if rt.get("price"):
+            return {"price": float(rt["price"]), "change_pct": float(rt.get("change_pct") or 0.0)}
+    except Exception as e:
+        print(f"[picks quote] 네이버 실시간 실패 {code}: {e}")
+
+    try:                                   # 2차: KIS → 토스 → FDR → yfinance
+        from data_kr import get_kr_stock_price
+        d = get_kr_stock_price(code) or {}
+        if d.get("price"):
+            return {"price": float(d["price"]), "change_pct": float(d.get("change_pct") or 0.0)}
+    except Exception as e:
+        print(f"[picks quote] 현재가 체인 실패 {code}: {e}")
+
+    return {}
+
+
+def _resolve_us_quote(ticker: str) -> dict:
+    """US 종목 하나의 현재가·등락률 — {price, change_pct} 또는 {}.
+
+    get_us_stock_price_kis가 KIS→yfinance 폴백을 이미 갖고 있으므로 거래소만 순회한다.
+    KR과 마찬가지로 실패 시 빈 dict — 0으로 메우지 않는다.
+    """
+    ticker = str(ticker or "").strip().upper()
+    if not ticker:
+        return {}
+    try:
+        from data_kr import get_us_stock_price_kis
+    except Exception:
+        return {}
+    for exch in ("NASDAQ", "NYSE", "AMEX"):
+        try:
+            d = get_us_stock_price_kis(ticker, exch) or {}
+            if d.get("price", 0) and float(d["price"]) > 0:
+                return {"price": float(d["price"]), "change_pct": float(d.get("change_pct") or 0.0)}
+        except Exception:
+            continue
+    return {}
+
+
 def _sanity_check_picks(res: dict, price_map: dict | None = None) -> dict:
     """[v3.171.0] AI가 낸 타점을 실제 현재가와 대조해 검증·보정한다.
 
@@ -3389,7 +3448,7 @@ def _sanity_check_picks(res: dict, price_map: dict | None = None) -> dict:
     타점·목표가가 현재가와 크게 벌어져 있었다. 목표가가 현재가보다 낮은 경우도 생긴다.
 
     지시문은 고쳤지만 모델이 어길 수 있으므로 여기서 한 번 더 막는다.
-    - current_price는 실제 시세로 덮어쓴다(우리가 정확한 값을 갖고 있다).
+    - current_price·change_pct는 실제 시세로 덮어쓴다(우리가 정확한 값을 갖고 있다).
     - entry가 현재가에서 ±15%를 벗어나면 신뢰할 수 없는 값이므로 flag를 세운다.
     - target이 현재가 이하면 목표가로서 의미가 없으므로 flag를 세운다.
     flag가 선 픽은 제거하지 않고 표시만 한다 — 조용히 지우면 왜 사라졌는지 알 수 없다.
@@ -3400,23 +3459,34 @@ def _sanity_check_picks(res: dict, price_map: dict | None = None) -> dict:
 
     if price_map is None:
         price_map = {}
-        try:
-            from data_kr import get_kr_stock_price
-            for p in picks:
-                code = str(p.get("code") or "").strip()
-                if code and code.isdigit():
-                    d = get_kr_stock_price(code.zfill(6)) or {}
-                    if d.get("price"):
-                        price_map[code.zfill(6)] = float(d["price"])
-        except Exception as e:
-            print(f"[picks sanity] 시세 조회 실패: {e}")
+        for p in picks:
+            code = str(p.get("code") or "").strip()
+            if code and code.isdigit():
+                q = _resolve_kr_quote(code)
+                if q:
+                    price_map[code.zfill(6)] = q
+
+    def _quote(code: str) -> dict:
+        """price_map 항목을 {price, change_pct}로 정규화.
+        예전 호출부가 code→float(가격)만 담아 넘길 수 있어 두 형태를 모두 받는다."""
+        v = price_map.get(code)
+        if isinstance(v, dict):
+            return v
+        if v:
+            return {"price": float(v)}
+        return {}
 
     for p in picks:
         code = str(p.get("code") or "").strip().zfill(6)
-        real = price_map.get(code)
-        if not real or real <= 0:
+        q = _quote(code)
+        real = float(q.get("price") or 0)
+        if real <= 0:
             continue
         p["current_price"] = real          # 실제 시세로 확정
+        # 등락률도 같은 소스에서 함께 확정한다 — 현재가만 덮어쓰고 등락률은 AI 값을
+        # 남겨두면 둘이 다른 시점을 가리킨다(2026-09-08 상한가를 -23%로 읽은 사고의 형태).
+        if q.get("change_pct") is not None:
+            p["change_pct"] = q["change_pct"]
         warns = []
 
         def _f(key):
@@ -3707,6 +3777,9 @@ KOSDAQ: {kosdaq.get('index',0):,.2f}  ({kosdaq.get('change_pct',0):+.2f}%)
 
         # 현재가/등락률을 실시간 랭킹 데이터로 덮어쓰기 — AI가 구글검색으로 채우는 값이
         # 누락/부정확해 PicksBoard에 현재가·등락률이 안 뜨던 문제 보정.
+        # 여기서 확정한 시세는 _resolved에 모아 _sanity_check_picks로 넘긴다 —
+        # 같은 종목을 두 번 조회하면 토스/KIS 요청 한도(429)만 축낸다.
+        _resolved: dict[str, dict] = {}
         try:
             price_map: dict[str, dict] = {}
             for s in (list(volume_rank or []) + list(change_rank or []) +
@@ -3726,28 +3799,28 @@ KOSDAQ: {kosdaq.get('index',0):,.2f}  ({kosdaq.get('change_pct',0):+.2f}%)
                 for p in result.get("picks", []) or []:
                     code = str(p.get("code", "")).strip().zfill(6)
                     pm = price_map.get(code)
-                    if pm and "price" in pm:
+                    if pm and "price" in pm and "chg" in pm:
                         p["current_price"] = pm["price"]
-                        if "chg" in pm:
-                            p["change_pct"] = pm["chg"]
-                    elif not p.get("current_price"):
-                        # 랭킹에 없는(검색으로 고른) 종목 → FDR로 현재가·등락률 직접 조회
-                        try:
-                            import FinanceDataReader as _fdr
-                            from datetime import datetime as _dt, timedelta as _tdd
-                            _df = _fdr.DataReader(code, (_dt.now() - _tdd(days=10)).strftime("%Y-%m-%d"))
-                            if _df is not None and len(_df) >= 2:
-                                cur = float(_df["Close"].iloc[-1]); prv = float(_df["Close"].iloc[-2])
-                                p["current_price"] = round(cur)
-                                p["change_pct"] = round((cur - prv) / prv * 100, 2) if prv else 0
-                        except Exception:
-                            pass
+                        p["change_pct"]    = pm["chg"]
+                        _resolved[code] = {"price": float(pm["price"]),
+                                           "change_pct": float(pm["chg"] or 0)}
+                        continue
+                    # 랭킹에 없거나(검색으로 고른 종목) 등락률이 빈 경우 → 소스 체인으로 재조회.
+                    # [v3.188.0] 종전에는 FDR 단발이라 FDR이 실패하면 등락률이 없는 채로 나갔고,
+                    # 프론트가 그걸 0으로 대체해 ▼0.00%(거짓 보합)로 표시됐다.
+                    q = _resolve_kr_quote(code)
+                    if q:
+                        p["current_price"] = q["price"]
+                        p["change_pct"]    = q["change_pct"]
+                        _resolved[code]    = q
+                    elif pm and "price" in pm:
+                        p["current_price"] = pm["price"]   # 가격만이라도 살린다(등락률은 비운 채)
         except Exception:
             pass
 
         # [v3.171.0] 산출된 타점을 실제 시세와 대조해 검증·보정 (흥구석유 사례)
         try:
-            result = _sanity_check_picks(result)
+            result = _sanity_check_picks(result, _resolved or None)
         except Exception as _se:
             print(f'[picks sanity] 검증 실패(무시): {_se}')
 
@@ -4531,9 +4604,41 @@ DOW    : {dow.get('price',0):,.2f}  ({dow.get('change_pct',0):+.2f}%)
 
     try:
         response = _call_llm(prompt, use_search=True, temperature=0.35)
-        return _parse_json_response(response)
+        result   = _parse_json_response(response)
     except Exception as e:
         return {"error": _friendly_error(e), "picks": []}
+
+    # [v3.188.0] 현재가·등락률 보정 — KR 픽에는 있던 보정이 US에는 아예 없어서
+    # AI가 채운 값(또는 빈 값)이 그대로 화면까지 갔다. 등락률이 비면 프론트가 0으로
+    # 대체해 ▼0.00%로 보였다. 랭킹 → KIS/yfinance 순으로 채운다.
+    try:
+        rank_map: dict[str, dict] = {}
+        for s in (list(volume_rank or []) + list(change_rank or [])):
+            tk = str(s.get("티커", "")).strip().upper()
+            if not tk:
+                continue
+            rm = rank_map.setdefault(tk, {})
+            pr, cg = s.get("현재가($)"), s.get("등락률(%)")
+            if pr not in (None, "", 0) and "price" not in rm:
+                rm["price"] = float(pr)
+            if cg not in (None, "") and "chg" not in rm:
+                rm["chg"] = float(cg)
+
+        for p in (result.get("picks") or []) if isinstance(result, dict) else []:
+            tk = str(p.get("ticker", "")).strip().upper()
+            rm = rank_map.get(tk)
+            if rm and "price" in rm and "chg" in rm:
+                p["current_price"], p["change_pct"] = rm["price"], rm["chg"]
+                continue
+            q = _resolve_us_quote(tk)
+            if q:
+                p["current_price"], p["change_pct"] = q["price"], q["change_pct"]
+            elif rm and "price" in rm:
+                p["current_price"] = rm["price"]   # 가격만이라도 (등락률은 비운 채)
+    except Exception as _ue:
+        print(f"[us picks] 시세 보정 실패(무시): {_ue}")
+
+    return result
 
 
 @st.cache_data(ttl=1800)
