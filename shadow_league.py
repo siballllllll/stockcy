@@ -75,11 +75,44 @@ def _catalyst_budget_today() -> list:
         _CATALYST_BUDGET["left"] = [CATALYST_DAILY_LOOKUPS]
     return _CATALYST_BUDGET["left"]
 
+# ── 추매(분할 진입) 짝 전략 — v3.191.0 ────────────────────────────────────
+#
+# [근거] scratch/shadow_addon_backtest.py로 청산 285건을 되감은 결과(2026-09-18).
+# 지표는 Σ손익/Σ투입(투입자본 대비)이고, 랜덤 대조군(E)의 개선폭을 뺀 순증이다 —
+# 무작위 진입에도 먹히는 개선은 전략 효과가 아니라 재현 산물이기 때문이다.
+#
+#   전략      무조건-4%2회   재진입-4%2회   근거유지-4%2회
+#   A            +2.53p        -2.16p        +3.80p   ← 채택
+#   F            +4.26p        +3.51p        +4.06p   ← 채택
+#   D            +1.58p        +0.27p        +0.78p   ← 채택(약함)
+#   C            +0.13p        -0.14p        +0.07p   ← 효과 없음, 제외
+#
+# [왜 '근거유지'인가] 진입 조건을 그대로 추매 조건으로 쓰면(=재진입형) A가 +2.53p →
+# -2.16p로 뒤집힌다. 승률은 오히려 올랐는데(66.1%→67.9%) 수익이 떨어졌다 — 반등
+# 초입에서 조건이 깨져 **평단을 낮추기 좋았던 자리를 놓쳤기** 때문이다.
+# 추매는 "지금 새로 들어갈 자리인가"가 아니라 "들어간 근거가 무너졌는가"를 물어야 한다.
+# 그래서 _thesis_intact는 '무너졌다는 증거'만 보고, 증거가 없으면 통과시킨다.
+#
+# [왜 불타기가 없나] 8개 전략 전부에서 악화됐다. 모멘텀 전략(F·G·H)에서도 그랬다.
+# [왜 B·G·H가 없나] ML 예측·유료 촉매 검색은 과거 시점 복원이 안 돼 측정하지 못했다.
+#
+# ⚠️ 재현은 현금 제약을 무시해 추매에 공짜 자금을 준다 — 실전 개선폭은 이보다 작다.
+#    그 차이를 재는 것이 이 짝 owner들의 존재 이유다(VERIFY.md V16).
+SHADOW_ADDON = {
+    "SHADOW_A2": {"base": "SHADOW_A", "trigger": -4.0, "max_adds": 2, "size": 1.0},
+    "SHADOW_F2": {"base": "SHADOW_F", "trigger": -4.0, "max_adds": 2, "size": 1.0},
+    "SHADOW_D2": {"base": "SHADOW_D", "trigger": -4.0, "max_adds": 2, "size": 1.0},
+}
+
 SHADOWS = ("SHADOW_A", "SHADOW_B", "SHADOW_C", "SHADOW_D", "SHADOW_E", "SHADOW_F",
-           "SHADOW_G", "SHADOW_H")
+           "SHADOW_G", "SHADOW_H") + tuple(SHADOW_ADDON)
 
 # 전략별 타임스탑 (미지정은 EXIT_DAYS). G만 예외인 이유는 모듈 docstring 참조.
 _EXIT_DAYS_BY_OWNER = {"SHADOW_G": EXIT_DAYS_FAST}
+# 짝 전략의 청산은 원본과 같아야 한다 — 추매 효과만 남기려면 다른 변수를 건드리면 안 된다.
+for _a, _c in SHADOW_ADDON.items():
+    if _c["base"] in _EXIT_DAYS_BY_OWNER:
+        _EXIT_DAYS_BY_OWNER[_a] = _EXIT_DAYS_BY_OWNER[_c["base"]]
 
 
 def _exit_days(owner: str) -> int:
@@ -132,7 +165,8 @@ def _set_cash(cur, owner: str, amount: float):
 
 
 def _holdings(cur, owner: str) -> list:
-    cur.execute("SELECT ticker, name, quantity, buy_price, updated_time, buy_reason FROM portfolio WHERE UPPER(owner)=?",
+    cur.execute("SELECT ticker, name, quantity, buy_price, updated_time, buy_reason, "
+                "add_count, first_buy_price, add_log FROM portfolio WHERE UPPER(owner)=?",
                 (owner.upper(),))
     return [dict(r) for r in cur.fetchall()]
 
@@ -212,7 +246,17 @@ def _blocked_reentry(cur, owner: str) -> dict:
     return blocked
 
 
-def _buy(cur, owner: str, tk: str, name: str, market: str, price: float, qty: int, note: str, usdkrw: float):
+def _buy(cur, owner: str, tk: str, name: str, market: str, price: float, qty: int, note: str,
+         usdkrw: float, add_to: dict | None = None):
+    """신규 매수. add_to가 주어지면 **추매**로 기존 보유에 누적한다.
+
+    [v3.191.0] 종전에는 INSERT OR REPLACE로 수량을 통째로 덮어썼다. 호출부에
+    `tk in held` 가드가 있어 실제 버그로 터진 적은 없지만, 추매를 넣으면서 그 가드를
+    푸는 순간 **직전 보유가 조용히 사라지는** 형태가 된다. 그래서 가드를 풀기 전에
+    이쪽을 먼저 고친다.
+    추매 시 buy_price는 평단이 되고, 첫 진입가·회차는 별도 컬럼에 남긴다 —
+    사후에 "몇 회차 추매가 유효했나"를 재려면 그 값이 있어야 한다.
+    """
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     cost = price * qty * (1 + (0.00015 if market == "국내" else 0.0007))
     if market == "미국":
@@ -221,12 +265,62 @@ def _buy(cur, owner: str, tk: str, name: str, market: str, price: float, qty: in
     if cash < cost or qty < 1:
         return False
     _set_cash(cur, owner, cash - cost)
+
+    if add_to:
+        old_qty = float(add_to.get("quantity") or 0)
+        old_avg = float(add_to.get("buy_price") or 0)
+        new_qty = old_qty + qty
+        new_avg = ((old_avg * old_qty) + (float(price) * qty)) / new_qty if new_qty > 0 else old_avg
+        first = add_to.get("first_buy_price") or old_avg
+        log = (str(add_to.get("add_log") or "") + " | " if add_to.get("add_log") else "")
+        log += f"{now[:10]} @{float(price):,.0f}x{qty}"
+        cur.execute(
+            """UPDATE portfolio SET quantity=?, buy_price=?, add_count=COALESCE(add_count,0)+1,
+                   first_buy_price=?, add_log=? WHERE UPPER(owner)=? AND ticker=?""",
+            (new_qty, new_avg, float(first), log[:500], owner.upper(), tk))
+        return True
+
     cur.execute(
         """INSERT OR REPLACE INTO portfolio (owner, ticker, name, quantity, buy_price, rating,
-               updated_time, trade_source, trade_type, buy_reason)
-           VALUES (?, ?, ?, ?, ?, ?, ?, '섀도우', '가상', ?)""",
-        (owner, tk, name, qty, float(price), f"섀도우 자동 매수 ({owner})", now, note))
+               updated_time, trade_source, trade_type, buy_reason, add_count, first_buy_price, add_log)
+           VALUES (?, ?, ?, ?, ?, ?, ?, '섀도우', '가상', ?, 0, ?, NULL)""",
+        (owner, tk, name, qty, float(price), f"섀도우 자동 매수 ({owner})", now, note, float(price)))
     return True
+
+
+def _thesis_intact(owner: str, ind: dict, tk: str, ctx: dict) -> tuple:
+    """추매 시점에 **들어간 근거가 무너졌는가**를 본다 → (담아도 되나, 사유).
+
+    진입 조건(_wants_buy)과 다른 물음이다. 진입은 "지금 새로 들어갈 자리인가",
+    추매는 "이미 들어간 이유가 아직 유효한가"를 묻는다. 둘을 같은 식으로 쓰면
+    실측상 A가 +2.53p → -2.16p로 뒤집힌다(SHADOW_ADDON 주석 참조).
+    그래서 '무너졌다는 증거'만 보고, 증거가 없으면 통과시킨다.
+
+    ⚠️ scratch/shadow_addon_backtest.py의 _thesis_ok와 동일하게 유지할 것 —
+       어긋나면 위 주석의 수치를 이 코드의 근거로 인용할 수 없게 된다.
+    """
+    m5 = ind.get("mom_5"); rsi = ind.get("rsi"); ma20d = ind.get("ma20_dist")
+    base = SHADOW_ADDON.get(owner, {}).get("base", owner)
+
+    # 공통 가드 — 추세가 통째로 무너지면 어느 전략이든 금지. 무한 물타기를 막는 선이다.
+    if ma20d is not None and float(ma20d) < -10.0:
+        return False, f"20일선 {ma20d}% 이탈 — 눌림이 아니라 붕괴"
+
+    if base == "SHADOW_A":
+        if rsi is not None and float(rsi) <= 25.0:
+            return False, f"RSI {rsi} 투매 국면"
+        return True, "눌림 유지"
+    if base == "SHADOW_F":
+        if m5 is not None and float(m5) <= 0.0:
+            return False, f"5일 모멘텀 {m5}% — 근거 소멸"
+        return True, f"모멘텀 유지(5일 {m5}%)"
+    if base == "SHADOW_D":
+        # 수급이 **이탈했다는 증거**가 있을 때만 막는다. 랭킹에 없는 날은
+        # 모르는 것이지 이탈한 게 아니다(스냅샷이 매일 있지 않다).
+        if ctx.get("supply_loaded") and tk not in ctx.get("supply_set", set()):
+            return False, "수급 상위 이탈"
+        return True, "수급 유지"
+    return True, "근거 유지"
 
 
 def _sell(cur, owner: str, h: dict, market: str, price: float, reason: str, usdkrw: float):
@@ -242,11 +336,13 @@ def _sell(cur, owner: str, h: dict, market: str, price: float, reason: str, usdk
     # buy_reason에 진입 시점 컨텍스트(JSON)가 실려 있음 — 전략×상황 합성 분석의 원료.
     cur.execute(
         """INSERT INTO trade_history (owner, sell_date, ticker, name, quantity, buy_price, sell_price,
-               profit, profit_pct, result, learning_point, trade_source, trade_type, buy_date, buy_reason)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '섀도우', '가상', ?, ?)""",
+               profit, profit_pct, result, learning_point, trade_source, trade_type, buy_date, buy_reason,
+               add_count, first_buy_price, add_log)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '섀도우', '가상', ?, ?, ?, ?, ?)""",
         (owner, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), h["ticker"], h["name"], qty, bp, sp,
          profit, pct, "수익" if profit >= 0 else "손실", reason, str(h.get("updated_time") or ""),
-         str(h.get("buy_reason") or "")))
+         str(h.get("buy_reason") or ""),
+         int(h.get("add_count") or 0), h.get("first_buy_price"), h.get("add_log")))
     cur.execute("DELETE FROM portfolio WHERE UPPER(owner)=? AND ticker=?", (owner.upper(), h["ticker"]))
     return pct
 
@@ -267,6 +363,11 @@ def _wants_buy(owner: str, ind: dict, tk: str = "", ctx: dict = None,
     """전략별 매수 판정 → (매수여부, 사이징 배수, 근거 한 줄). ctx: 사이클 공용 컨텍스트.
 
     blocked_reason: 재진입 차단 종목이면 그때의 매수 근거. G/H만 '새 촉매'일 때 통과시킨다."""
+    # 짝(추매) 전략은 진입 판정을 원본에 위임한다 — 진입이 원본과 어긋나면
+    # 두 owner의 차이가 '추매 효과'가 아니게 된다.
+    if owner in SHADOW_ADDON:
+        owner = SHADOW_ADDON[owner]["base"]
+
     bb = ind.get("bb_pctb"); m5 = ind.get("mom_5"); vr = ind.get("vol_ratio")
     rsi = ind.get("rsi"); ml7 = ind.get("ml_d7"); ma20d = ind.get("ma20_dist")
     if owner == "SHADOW_A":
@@ -375,6 +476,7 @@ def run_shadow_cycle(candidates: list, kr_open: bool, us_open: bool, force: bool
             from data_kr import get_kr_frgn_inst_rank
             _sup = (get_kr_frgn_inst_rank("J", 30, "buy") or []) + (get_kr_frgn_inst_rank("Q", 30, "buy") or [])
             ctx["supply_set"] = {str(s.get("종목코드", "")).strip().zfill(6) for s in _sup if s.get("종목코드")}
+            ctx["supply_loaded"] = bool(ctx["supply_set"])   # 비었으면 '모름'이지 '이탈'이 아니다
         except Exception as e:
             logger.error(f"[shadow] 수급 랭킹 로드 실패: {e}")
     # [v3.155.0] 쓰기가 생길 때마다 즉시 커밋한다.
@@ -414,15 +516,36 @@ def run_shadow_cycle(candidates: list, kr_open: bool, us_open: bool, force: bool
                     conn.commit()      # 즉시 커밋 — 위 주석 참조
                     summary["sell"] += 1
             # 2) 신규 매수 판정 — 메인 스캔이 수집한 후보 재사용 (다운로드 0)
-            held = {str(h["ticker"]) for h in _holdings(cur, owner)}
+            held_rows = {str(h["ticker"]): h for h in _holdings(cur, owner)}
+            held = set(held_rows)
+            # 짝(추매) 전략만 보유 종목을 후보에 남긴다. 등록 안 된 owner는 종전과
+            # 완전히 동일하게 동작한다 — 몇 달 쌓인 기존 표본을 오염시키지 않기 위함이다.
+            addon = SHADOW_ADDON.get(owner)
             blocked = _blocked_reentry(cur, owner)   # 손절·당일청산 종목 재진입 차단
             buys_left = SHADOW_DAILY_BUY_CAP - _today_buys(cur, owner)
             for c in candidates:
                 if buys_left <= 0:
                     break
                 tk = str(c.get("ticker") or "")
-                if not tk or tk in held:
+                if not tk:
                     continue
+                add_to = None
+                if tk in held:
+                    if not addon:
+                        continue                      # 기존 전략 — 종전 그대로 건너뛴다
+                    h = held_rows.get(tk) or {}
+                    if int(h.get("add_count") or 0) >= addon["max_adds"]:
+                        continue                      # 추매 한도 소진
+                    _bp = float(h.get("buy_price") or 0)
+                    _px = float(c.get("price") or 0)
+                    if _bp <= 0 or _px <= 0:
+                        continue
+                    if (_px - _bp) / _bp * 100.0 > addon["trigger"]:
+                        continue                      # 아직 트리거 가격이 아님
+                    ok_t, why_t = _thesis_intact(owner, c.get("ind") or {}, tk, ctx)
+                    if not ok_t:
+                        continue                      # 근거가 무너졌다 — 담지 않는다
+                    add_to = h
                 # 차단 종목: G/H만 '새 촉매' 판정 기회를 준다(아래 _wants_buy에서 최종 판단).
                 if tk in blocked and owner not in ("SHADOW_G", "SHADOW_H"):
                     continue
@@ -458,9 +581,19 @@ def run_shadow_cycle(candidates: list, kr_open: bool, us_open: bool, force: bool
                     "issue": 1 if int(ctx.get("scenario_map", {}).get(tk, 0)) > 0 else 0,
                     "supply": 1 if tk in ctx.get("supply_set", set()) else 0,
                 }, ensure_ascii=False)
-                if _buy(cur, owner, tk, c.get("name") or tk, market, price, qty, _ctx_rec, usdkrw):
+                if add_to:
+                    # 추매 수량은 1회차 대비 size배. 사유에 회차와 판정을 남긴다.
+                    qty = max(1, int(qty * addon["size"]))
+                    _ctx_rec = (f"추매 {int(add_to.get('add_count') or 0) + 1}회차 "
+                                f"({_thesis_intact(owner, ind, tk, ctx)[1]}) | " + _ctx_rec)
+                if _buy(cur, owner, tk, c.get("name") or tk, market, price, qty, _ctx_rec,
+                        usdkrw, add_to=add_to):
                     conn.commit()      # 즉시 커밋 — 위 주석 참조
                     held.add(tk)
+                    if add_to:
+                        # 같은 사이클에서 또 담지 않도록 회차를 즉시 반영
+                        held_rows[tk] = dict(add_to,
+                                             add_count=int(add_to.get("add_count") or 0) + 1)
                     buys_left -= 1
                     summary["buy"] += 1
                     if owner in ("SHADOW_G", "SHADOW_H"):
@@ -740,7 +873,10 @@ def shadow_league_status() -> dict:
              "SHADOW_D": "섀도우 D (수급 추종)", "SHADOW_E": "섀도우 E (랜덤 대조군)",
              "SHADOW_F": "섀도우 F (모멘텀 추격)",
              "SHADOW_G": "섀도우 G (촉매 모멘텀 · 3거래일 청산) ⭐검증중",
-             "SHADOW_H": "섀도우 H (촉매 모멘텀 · 7거래일 청산) ⭐검증중"}
+             "SHADOW_H": "섀도우 H (촉매 모멘텀 · 7거래일 청산) ⭐검증중",
+             "SHADOW_A2": "섀도우 A2 (눌림목 + 근거유지 추매) ⭐검증중",
+             "SHADOW_F2": "섀도우 F2 (모멘텀 + 근거유지 추매) ⭐검증중",
+             "SHADOW_D2": "섀도우 D2 (수급 + 근거유지 추매) ⭐검증중"}
     try:
         for owner in ("AI_AGENT",) + SHADOWS:
             cur.execute(

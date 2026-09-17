@@ -596,6 +596,15 @@ def init_local_db():
         "ALTER TABLE analysis_history ADD COLUMN d3_return REAL",
         "ALTER TABLE analysis_history ADD COLUMN d7_return REAL",
         "ALTER TABLE analysis_history ADD COLUMN outcome_checked_at TEXT",
+        # [v3.191.0] 추매(분할 진입) 기록. buy_price는 평단이 되므로, 첫 진입가와
+        # 회차를 따로 남겨야 "1회차가 나았나 2회차가 나았나"를 사후에 잴 수 있다.
+        # 이게 없으면 또 근거 없이 규칙을 정하게 된다(V15의 교훈).
+        "ALTER TABLE portfolio ADD COLUMN add_count INTEGER DEFAULT 0",
+        "ALTER TABLE portfolio ADD COLUMN first_buy_price REAL",
+        "ALTER TABLE portfolio ADD COLUMN add_log TEXT",
+        "ALTER TABLE trade_history ADD COLUMN add_count INTEGER DEFAULT 0",
+        "ALTER TABLE trade_history ADD COLUMN first_buy_price REAL",
+        "ALTER TABLE trade_history ADD COLUMN add_log TEXT",
         "ALTER TABLE portfolio ADD COLUMN trade_source TEXT DEFAULT '개인'",
         "ALTER TABLE portfolio ADD COLUMN trade_type TEXT DEFAULT '실매매'",
         "ALTER TABLE trade_history ADD COLUMN trade_source TEXT DEFAULT '개인'",

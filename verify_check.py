@@ -431,6 +431,42 @@ def main():
     except Exception as e:
         print(f"   [BLOCKED] 확인 실패: {str(e)[:80]}")
 
+    # ── V16. 추매 짝 전략이 원본을 이기는가 ─────────────────────────────────
+    print(_hdr("V16", "추매(근거유지 물타기) — 짝이 원본보다 나은가"))
+    try:
+        from shadow_league import SHADOW_ADDON
+        pairs = [(a, c["base"]) for a, c in SHADOW_ADDON.items()]
+        rows = {r["owner"]: r for r in cur.execute(
+            """SELECT owner, COUNT(*) n, ROUND(AVG(profit_pct), 2) avg_pct,
+                      ROUND(100.0 * SUM(CASE WHEN profit_pct > 0 THEN 1 ELSE 0 END) / COUNT(*), 1) win,
+                      ROUND(SUM(profit), 0) total, ROUND(AVG(COALESCE(add_count, 0)), 2) adds
+               FROM trade_history WHERE owner LIKE 'SHADOW_%' GROUP BY owner""")}
+        ready = 0
+        for addon, base in pairs:
+            a, b = rows.get(addon), rows.get(base)
+            bn = f"{b['n']}건 {b['avg_pct']:+.2f}% 승률 {b['win']}%" if b else "표본 0"
+            an = (f"{a['n']}건 {a['avg_pct']:+.2f}% 승률 {a['win']}% (평균 추매 {a['adds']}회)"
+                  if a else "표본 0")
+            print(f"   {base} : {bn}")
+            print(f"   {addon}: {an}")
+            if a and a["n"] >= 30:
+                ready += 1
+                delta = a["avg_pct"] - (b["avg_pct"] if b else 0)
+                print(f"      → 차이 {delta:+.2f}%p")
+            print()
+        if ready < len(pairs):
+            print(f"   [WAIT] 30건 이상 쌓인 짝 {ready}/{len(pairs)} — 그전 숫자는 우연과 구분되지 않는다.")
+        else:
+            print("   [DUE] 표본 충족 — 짝이 원본보다 나은지 판정할 것.")
+        print("   통과 기준: 짝의 실현 30건+ 에서 평균 수익률이 원본보다 높을 것.")
+        print("   ⚠️ 재현(scratch/shadow_addon_backtest.py)은 현금 제약을 무시해 추매에")
+        print("      공짜 자금을 줬다. 재현 순증(A +3.80p · F +4.06p · D +0.78p)보다")
+        print("      실전이 낮게 나오는 것이 정상 — 얼마나 남는지가 이 항목의 본체다.")
+        print("   ⚠️ 진입은 원본과 동일하게 위임돼 있다(_wants_buy). 두 owner의 차이가")
+        print("      추매 말고 다른 데서 생기면 이 비교는 무효다.")
+    except Exception as e:
+        print(f"   [BLOCKED] 확인 실패: {str(e)[:80]}")
+
     c.close()
     print(f"\n{'─' * 74}")
     print("자세한 배경과 판정 기준은 VERIFY.md 참조.")
