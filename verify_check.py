@@ -436,19 +436,40 @@ def main():
     try:
         from shadow_league import SHADOW_ADDON
         pairs = [(a, c["base"]) for a, c in SHADOW_ADDON.items()]
-        rows = {r["owner"]: r for r in cur.execute(
-            """SELECT owner, COUNT(*) n, ROUND(AVG(profit_pct), 2) avg_pct,
-                      ROUND(100.0 * SUM(CASE WHEN profit_pct > 0 THEN 1 ELSE 0 END) / COUNT(*), 1) win,
-                      ROUND(SUM(profit), 0) total, ROUND(AVG(COALESCE(add_count, 0)), 2) adds
-               FROM trade_history WHERE owner LIKE 'SHADOW_%' GROUP BY owner""")}
+        # [중요] 같은 기간으로 잘라서 비교한다.
+        # 짝 owner는 보유 0·현금 10,000,000원에서 새로 시작하는 반면 원본은 몇 달치
+        # 보유와 소진된 현금을 안고 있다. 실측(2026-09-18 첫날): A는 041190·035420을
+        # 이미 보유해 `tk in held`로 건너뛴 반면 A2는 미보유라 그 둘을 새로 샀다 —
+        # 같은 날 교집합이 0이었다. 원본의 과거 거래 전체와 짝의 신규 거래를 맞대면
+        # 추매 효과가 아니라 '시기와 포지션 상태의 차이'를 재게 된다.
+        since = {}
+        for a in SHADOW_ADDON:
+            r = cur.execute("SELECT MIN(substr(sell_date,1,10)) d FROM trade_history "
+                            "WHERE owner = ?", (a,)).fetchone()
+            since[a] = (r["d"] if r and r["d"] else None)
+
+        def _stats(owner, frm):
+            q = ("""SELECT COUNT(*) n, ROUND(AVG(profit_pct), 2) avg_pct,
+                           ROUND(100.0 * SUM(CASE WHEN profit_pct > 0 THEN 1 ELSE 0 END)
+                                 / COUNT(*), 1) win,
+                           ROUND(AVG(COALESCE(add_count, 0)), 2) adds
+                    FROM trade_history WHERE owner = ?""")
+            args = [owner]
+            if frm:
+                q += " AND substr(sell_date,1,10) >= ?"
+                args.append(frm)
+            r = cur.execute(q, args).fetchone()
+            return dict(r) if r and r["n"] else None
         ready = 0
         for addon, base in pairs:
-            a, b = rows.get(addon), rows.get(base)
+            frm = since.get(addon)
+            a, b = _stats(addon, frm), _stats(base, frm)
+            tag = f"({frm} 이후 동일 구간)" if frm else "(짝 거래 없음)"
             bn = f"{b['n']}건 {b['avg_pct']:+.2f}% 승률 {b['win']}%" if b else "표본 0"
             an = (f"{a['n']}건 {a['avg_pct']:+.2f}% 승률 {a['win']}% (평균 추매 {a['adds']}회)"
                   if a else "표본 0")
-            print(f"   {base} : {bn}")
-            print(f"   {addon}: {an}")
+            print(f"   {base:<10} {tag}: {bn}")
+            print(f"   {addon:<10} : {an}")
             if a and a["n"] >= 30:
                 ready += 1
                 delta = a["avg_pct"] - (b["avg_pct"] if b else 0)
@@ -462,8 +483,10 @@ def main():
         print("   ⚠️ 재현(scratch/shadow_addon_backtest.py)은 현금 제약을 무시해 추매에")
         print("      공짜 자금을 줬다. 재현 순증(A +3.80p · F +4.06p · D +0.78p)보다")
         print("      실전이 낮게 나오는 것이 정상 — 얼마나 남는지가 이 항목의 본체다.")
-        print("   ⚠️ 진입은 원본과 동일하게 위임돼 있다(_wants_buy). 두 owner의 차이가")
-        print("      추매 말고 다른 데서 생기면 이 비교는 무효다.")
+        print("   ⚠️ 진입 규칙은 원본과 동일하게 위임돼 있지만(_wants_buy) **포지션 상태는**")
+        print("      다르다 — 짝은 보유 0에서 시작하므로, 원본이 이미 들고 있어 건너뛰는")
+        print("      종목을 짝은 새로 산다. 완전한 A/B가 아니라 '같은 규칙·다른 출발점'이다.")
+        print("      그래서 위 비교는 짝의 첫 거래일 이후로 구간을 맞춰 자른다.")
     except Exception as e:
         print(f"   [BLOCKED] 확인 실패: {str(e)[:80]}")
 
