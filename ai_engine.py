@@ -8096,11 +8096,22 @@ def _track_scenario_stocks_performance_impl() -> dict:
 
     conn = get_db_conn()
     cursor = conn.cursor()
+    # [v3.193.0] 장기 창(d20·d60)이 생기면서 "이미 끝난 행"의 정의가 달라졌다.
+    # 전부 읽어 파이썬에서 거르면 매일 수천 행이 네트워크로 내려간다 — SQL에서 추린다.
+    #   · d60까지 찬 행은 영원히 끝
+    #   · d20(20거래일 ≈ 28달력일)·d60(60거래일 ≈ 84달력일)은 시간이 지나야 채울 수 있다
     cursor.execute(
         """SELECT id, ticker, name, market, captured_at, captured_price,
-                  d1_return, d3_return, d7_return
+                  d1_return, d3_return, d7_return, d20_return, d60_return
            FROM scenario_stocks
-           ORDER BY captured_at ASC"""
+           WHERE d60_return IS NULL
+             AND (
+                  d7_return IS NULL
+               OR (d20_return IS NULL AND julianday('now') - julianday(captured_at) >= 28)
+               OR (julianday('now') - julianday(captured_at) >= 84)
+             )
+           ORDER BY captured_at ASC
+           LIMIT 600"""
     )
     rows = [dict(r) for r in cursor.fetchall()]
     today = datetime.now().date()
@@ -8131,10 +8142,11 @@ def _track_scenario_stocks_performance_impl() -> dict:
         return ser
 
     def _bench_returns(captured_date, us: bool):
-        """포착일 기준 1·3·7 거래일 뒤 지수 수익률(%). 못 구하면 (None, None, None)."""
+        """포착일 기준 1·3·7·20·60 거래일 뒤 지수 수익률(%). 못 구하면 전부 None."""
         ser = _bench_series(us)
+        none5 = (None,) * 5
         if not ser:
-            return (None, None, None)
+            return none5
         bi = None
         for j, (d, _) in enumerate(ser):
             if d <= captured_date:
@@ -8142,18 +8154,19 @@ def _track_scenario_stocks_performance_impl() -> dict:
             else:
                 break
         if bi is None:
-            return (None, None, None)
+            return none5
         b0 = ser[bi][1]
         if b0 <= 0:
-            return (None, None, None)
+            return none5
 
         def _br(off):
             k = bi + off
             return round((ser[k][1] - b0) / b0 * 100, 2) if k < len(ser) else None
 
-        return (_br(1), _br(3), _br(7))
+        return (_br(1), _br(3), _br(7), _br(20), _br(60))
 
     pending_updates = []
+    _bar_cache: dict = {}
 
     for row in rows:
         try:
@@ -8162,9 +8175,7 @@ def _track_scenario_stocks_performance_impl() -> dict:
             continue
         if (today - captured).days < 1:
             continue
-        # 이미 7일 후까지 다 채워졌으면 스킵
-        if row.get("d7_return") is not None:
-            continue
+        # 대상 선별은 위 SQL이 한다 — 두 곳에 두면 어긋난다.
 
         raw_ticker = str(row["ticker"]).strip()
         is_us = (row.get("market") == "us") or any(c.isalpha() for c in raw_ticker)
@@ -8174,13 +8185,22 @@ def _track_scenario_stocks_performance_impl() -> dict:
         # 기존엔 '등장일 이후 첫 거래일' 종가를 썼는데, 주말·휴일에 등장하면
         # 그 첫 거래일이 곧 오늘이 되어 기준가=현재가→수익률 0%로 붕괴되는 문제가 있었음.
         fetch_start = (captured - timedelta(days=10)).strftime("%Y-%m-%d")
-        end_date = (captured + timedelta(days=14)).strftime("%Y-%m-%d")
+        # d60(60거래일)까지 담으려면 약 90달력일이 필요하다.
+        end_date = (captured + timedelta(days=95)).strftime("%Y-%m-%d")
 
         try:
-            if is_us:
-                df = yf.download(ticker, start=fetch_start, end=end_date, progress=False, timeout=10)
+            # 같은 종목이 여러 시나리오에 중복 등장한다(실측 9,752행 / 1,048티커 = 9.3배).
+            # 티커+구간 단위로 캐시하지 않으면 같은 봉을 아홉 번 받는다.
+            _ck = (ticker, fetch_start, end_date)
+            if _ck in _bar_cache:
+                df = _bar_cache[_ck]
             else:
-                df = fdr.DataReader(ticker, fetch_start, end_date)
+                if is_us:
+                    df = yf.download(ticker, start=fetch_start, end=end_date,
+                                     progress=False, timeout=10)
+                else:
+                    df = fdr.DataReader(ticker, fetch_start, end_date)
+                _bar_cache[_ck] = df
             if df is None or df.empty:
                 continue
 
@@ -8203,13 +8223,15 @@ def _track_scenario_stocks_performance_impl() -> dict:
                 k = base_i + offset
                 return float(df["Close"].iloc[k]) if len(df) > k else None
 
-            d1, d3, d7 = _p(1), _p(3), _p(7)
+            d1, d3, d7, d20, d60 = _p(1), _p(3), _p(7), _p(20), _p(60)
             def _r(p): return round((p - entry) / entry * 100, 2) if p else None
 
             now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            b1, b3, b7 = _bench_returns(captured, is_us)
+            b1, b3, b7, b20, b60 = _bench_returns(captured, is_us)
             pending_updates.append(
-                (entry, d1, d3, d7, _r(d1), _r(d3), _r(d7), b1, b3, b7, now, row["id"])
+                (entry, d1, d3, d7, d20, d60,
+                 _r(d1), _r(d3), _r(d7), _r(d20), _r(d60),
+                 b1, b3, b7, b20, b60, now, row["id"])
             )
         except Exception as e:
             print(f"[scenario tracking] {ticker} 실패: {e}")
@@ -8222,8 +8244,11 @@ def _track_scenario_stocks_performance_impl() -> dict:
             cursor.executemany(
                 """UPDATE scenario_stocks
                    SET captured_price = ?, d1_price = ?, d3_price = ?, d7_price = ?,
+                       d20_price = ?, d60_price = ?,
                        d1_return = ?, d3_return = ?, d7_return = ?,
+                       d20_return = ?, d60_return = ?,
                        bench_d1_return = ?, bench_d3_return = ?, bench_d7_return = ?,
+                       bench_d20_return = ?, bench_d60_return = ?,
                        updated_at = ?
                    WHERE id = ?""",
                 pending_updates,

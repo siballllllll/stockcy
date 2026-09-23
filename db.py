@@ -638,6 +638,18 @@ def init_local_db():
         "ALTER TABLE scenario_stocks ADD COLUMN bench_d1_return REAL",
         "ALTER TABLE scenario_stocks ADD COLUMN bench_d3_return REAL",
         "ALTER TABLE scenario_stocks ADD COLUMN bench_d7_return REAL",
+        # [v3.193.0] 장기 창. d7(7거래일)만으로는 "급등 직후 7일"밖에 못 본다 —
+        # 급등이 대세 상승의 초입이었는지는 구조적으로 관측 불가였다.
+        # 사용자 지적: "+10%여도 앞으로의 모멘트가 텐베거일 수 있다".
+        # 실제로 d7 기준으로는 급등 구간이 명백히 나쁘지만(초과 -3.68%p), 그건
+        # 7거래일에 대한 답이지 대세 상승 여부에 대한 답이 아니다. 그래서 잘라내기
+        # 전에 먼저 잰다.
+        "ALTER TABLE scenario_stocks ADD COLUMN d20_price REAL",
+        "ALTER TABLE scenario_stocks ADD COLUMN d60_price REAL",
+        "ALTER TABLE scenario_stocks ADD COLUMN d20_return REAL",
+        "ALTER TABLE scenario_stocks ADD COLUMN d60_return REAL",
+        "ALTER TABLE scenario_stocks ADD COLUMN bench_d20_return REAL",
+        "ALTER TABLE scenario_stocks ADD COLUMN bench_d60_return REAL",
         # [확률 보정 v3.134.0] 이 종목을 낳은 시나리오의 확률/분기를 함께 남긴다.
         # 이게 없어서 "73% 시나리오가 실제로 73% 맞았는지"를 단 한 번도 검증할 수 없었다
         # (제목 조인 시도 6,576건 중 매칭 0건 — agent_scenarios는 최근 20건만 보존).
