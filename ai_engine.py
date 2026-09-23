@@ -7531,8 +7531,26 @@ def _aggregate_scenario_stats(cursor) -> dict:
     """scenario_stocks 테이블에서 시나리오/horizon별 적중률·수익률을 집계한다.
     DB만 사용하고 네트워크 호출이 전혀 없어 즉시 반환된다 (가격 재추적과 분리)."""
     # 방향성 반영 적중 판정: 피해(하락 예상)는 하락해야 적중, 그 외(수혜/테마)는 상승해야 적중
-    _WIN_D3 = "(COALESCE(role,'') != '피해' AND d3_return > 0) OR (role = '피해' AND d3_return < 0)"
-    _WIN_D7 = "(COALESCE(role,'') != '피해' AND d7_return > 0) OR (role = '피해' AND d7_return < 0)"
+    #
+    # [v3.192.0] 기준선을 0%에서 **시장 수익률 + 왕복 비용**으로 바꿨다.
+    # [왜] 0% 기준은 "시장이 빠져서 진 것"과 "종목을 잘못 골라서 진 것"을 섞는다.
+    # 실측(2026-09-23, 표본 9,033): 0% 기준 37.2% vs 시장 대비 46.8% — 9.6%p가 시장 탓이었다.
+    # 비용도 뺀다. 0%만 넘으면 이겼다고 세면 +0.1%짜리도 승리가 되는데, 왕복 수수료·세가
+    # 국내 0.21%·미국 0.15%라 실제로는 손실이다.
+    # 벤치마크가 없는 과거 행은 COALESCE로 0을 써서 종전과 같게 집계된다(표본 유실 없음).
+    _FEE = "(CASE WHEN ticker GLOB '[0-9]*' THEN 0.21 ELSE 0.15 END)"
+
+    def _win(col, bench):
+        thr = f"(COALESCE({bench}, 0) + {_FEE})"
+        # 피해(하락 예상)는 시장보다 더 빠져야 적중 — 기준선도 방향을 뒤집는다.
+        return (f"((COALESCE(role,'') != '피해' AND {col} > {thr}) OR "
+                f"(role = '피해' AND {col} < -{thr}))")
+
+    _WIN_D3 = _win("d3_return", "bench_d3_return")
+    _WIN_D7 = _win("d7_return", "bench_d7_return")
+    # 종전 기준(0%)도 함께 낸다 — 화면 숫자가 갑자기 바뀌는 이유를 보여주기 위함이다.
+    _RAW_D3 = "((COALESCE(role,'') != '피해' AND d3_return > 0) OR (role = '피해' AND d3_return < 0))"
+    _RAW_D7 = "((COALESCE(role,'') != '피해' AND d7_return > 0) OR (role = '피해' AND d7_return < 0))"
 
     # 시나리오별 집계 통계
     cursor.execute(
@@ -7541,7 +7559,9 @@ def _aggregate_scenario_stats(cursor) -> dict:
                   AVG(d3_return) AS avg_d3,
                   AVG(d7_return) AS avg_d7,
                   SUM(CASE WHEN {_WIN_D3} THEN 1 ELSE 0 END) AS wins_d3,
-                  SUM(CASE WHEN {_WIN_D7} THEN 1 ELSE 0 END) AS wins_d7
+                  SUM(CASE WHEN {_WIN_D7} THEN 1 ELSE 0 END) AS wins_d7,
+                  SUM(CASE WHEN {_RAW_D7} THEN 1 ELSE 0 END) AS raw_wins_d7,
+                  AVG(d7_return - COALESCE(bench_d7_return, 0)) AS excess_d7
            FROM scenario_stocks
            WHERE d3_return IS NOT NULL
            GROUP BY scenario_keyword
@@ -7559,6 +7579,9 @@ def _aggregate_scenario_stats(cursor) -> dict:
             "avg_d7_return": round(d.get("avg_d7") or 0, 2),
             "win_rate_d3":  round((d.get("wins_d3") or 0) / n * 100, 1) if n else 0,
             "win_rate_d7":  round((d.get("wins_d7") or 0) / n * 100, 1) if n else 0,
+            # 종전 기준(0%) — 숫자가 왜 달라졌는지 비교용
+            "win_rate_d7_raw": round((d.get("raw_wins_d7") or 0) / n * 100, 1) if n else 0,
+            "excess_d7_return": round(d.get("excess_d7") or 0, 2),
         })
 
     # 종목 단위 최고/최저 결과
@@ -7582,7 +7605,9 @@ def _aggregate_scenario_stats(cursor) -> dict:
                   AVG(d3_return) AS avg_d3,
                   AVG(d7_return) AS avg_d7,
                   SUM(CASE WHEN {_WIN_D3} THEN 1 ELSE 0 END) AS wins_d3,
-                  SUM(CASE WHEN {_WIN_D7} THEN 1 ELSE 0 END) AS wins_d7
+                  SUM(CASE WHEN {_WIN_D7} THEN 1 ELSE 0 END) AS wins_d7,
+                  SUM(CASE WHEN {_RAW_D7} THEN 1 ELSE 0 END) AS raw_wins_d7,
+                  AVG(d7_return - COALESCE(bench_d7_return, 0)) AS excess_d7
            FROM scenario_stocks
            WHERE d3_return IS NOT NULL AND horizon IN ('단타', '중장기')
            GROUP BY horizon"""
@@ -7598,9 +7623,33 @@ def _aggregate_scenario_stats(cursor) -> dict:
             "avg_d7_return": round(d.get("avg_d7") or 0, 2),
             "win_rate_d3":  round((d.get("wins_d3") or 0) / n * 100, 1) if n else 0,
             "win_rate_d7":  round((d.get("wins_d7") or 0) / n * 100, 1) if n else 0,
+            "win_rate_d7_raw": round((d.get("raw_wins_d7") or 0) / n * 100, 1) if n else 0,
+            "excess_d7_return": round(d.get("excess_d7") or 0, 2),
         })
 
+    # 전체 요약 — 화면이 "무엇을 기준으로 잰 승률인가"를 알 수 있게 함께 낸다.
+    cursor.execute(
+        f"""SELECT COUNT(*) n,
+                   SUM(CASE WHEN {_WIN_D7} THEN 1 ELSE 0 END) w,
+                   SUM(CASE WHEN {_RAW_D7} THEN 1 ELSE 0 END) rw,
+                   SUM(CASE WHEN bench_d7_return IS NOT NULL THEN 1 ELSE 0 END) benched,
+                   AVG(d7_return) avg_d7,
+                   AVG(d7_return - COALESCE(bench_d7_return, 0)) excess
+            FROM scenario_stocks WHERE d7_return IS NOT NULL""")
+    o = dict(cursor.fetchone() or {})
+    _n = o.get("n") or 0
+    overall = {
+        "count": _n,
+        "benched": o.get("benched") or 0,
+        "win_rate_d7": round((o.get("w") or 0) / _n * 100, 1) if _n else 0,
+        "win_rate_d7_raw": round((o.get("rw") or 0) / _n * 100, 1) if _n else 0,
+        "avg_d7_return": round(o.get("avg_d7") or 0, 2),
+        "excess_d7_return": round(o.get("excess") or 0, 2),
+        "basis": "시장 수익률 + 왕복 비용(국내 0.21% · 미국 0.15%) 초과분",
+    }
+
     return {
+        "overall": overall,
         "by_scenario": by_scenario,
         "by_horizon":  by_horizon,
         "top_winners": top_winners,
@@ -8057,6 +8106,53 @@ def _track_scenario_stocks_performance_impl() -> dict:
     today = datetime.now().date()
     # 네트워크 단계(느림)와 DB write 단계(빠름)를 분리한다.
     # 종목마다 commit하면 write 락을 짧게만 잡아 다른 쓰기 작업과 경합하지 않는다.
+    # [v3.192.0] 시장 기준선 — 종목과 **같은 거래일 오프셋**으로 잰다.
+    # 사이클당 지수 2개만 받으면 되므로 비용은 사실상 0이다.
+    _bench_cache: dict = {}
+
+    def _bench_series(us: bool):
+        key = "us" if us else "kr"
+        if key in _bench_cache:
+            return _bench_cache[key]
+        ser = None
+        try:
+            if us:
+                bdf = yf.download("^GSPC", start="2026-01-01", progress=False, timeout=10)
+                col = bdf["Close"]
+                if hasattr(col, "columns"):        # yfinance 멀티인덱스 방어
+                    col = col.iloc[:, 0]
+                ser = [(d.date(), float(v)) for d, v in col.dropna().items()]
+            else:
+                bdf = fdr.DataReader("KS11", "2026-01-01")
+                ser = [(d.date(), float(v)) for d, v in bdf["Close"].dropna().items()]
+        except Exception as e:
+            print(f"[scenario tracking] 벤치마크({key}) 로드 실패: {e}")
+        _bench_cache[key] = ser
+        return ser
+
+    def _bench_returns(captured_date, us: bool):
+        """포착일 기준 1·3·7 거래일 뒤 지수 수익률(%). 못 구하면 (None, None, None)."""
+        ser = _bench_series(us)
+        if not ser:
+            return (None, None, None)
+        bi = None
+        for j, (d, _) in enumerate(ser):
+            if d <= captured_date:
+                bi = j
+            else:
+                break
+        if bi is None:
+            return (None, None, None)
+        b0 = ser[bi][1]
+        if b0 <= 0:
+            return (None, None, None)
+
+        def _br(off):
+            k = bi + off
+            return round((ser[k][1] - b0) / b0 * 100, 2) if k < len(ser) else None
+
+        return (_br(1), _br(3), _br(7))
+
     pending_updates = []
 
     for row in rows:
@@ -8111,8 +8207,9 @@ def _track_scenario_stocks_performance_impl() -> dict:
             def _r(p): return round((p - entry) / entry * 100, 2) if p else None
 
             now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            b1, b3, b7 = _bench_returns(captured, is_us)
             pending_updates.append(
-                (entry, d1, d3, d7, _r(d1), _r(d3), _r(d7), now, row["id"])
+                (entry, d1, d3, d7, _r(d1), _r(d3), _r(d7), b1, b3, b7, now, row["id"])
             )
         except Exception as e:
             print(f"[scenario tracking] {ticker} 실패: {e}")
@@ -8125,7 +8222,9 @@ def _track_scenario_stocks_performance_impl() -> dict:
             cursor.executemany(
                 """UPDATE scenario_stocks
                    SET captured_price = ?, d1_price = ?, d3_price = ?, d7_price = ?,
-                       d1_return = ?, d3_return = ?, d7_return = ?, updated_at = ?
+                       d1_return = ?, d3_return = ?, d7_return = ?,
+                       bench_d1_return = ?, bench_d3_return = ?, bench_d7_return = ?,
+                       updated_at = ?
                    WHERE id = ?""",
                 pending_updates,
             )

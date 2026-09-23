@@ -629,6 +629,15 @@ def init_local_db():
         "ALTER TABLE ml_training_samples ADD COLUMN pred_d20 REAL",
         "ALTER TABLE screener_backtest_results ADD COLUMN market TEXT DEFAULT 'kr'",
         "ALTER TABLE scenario_stocks ADD COLUMN horizon TEXT",
+        # [v3.192.0] 같은 구간 시장 수익률(벤치마크). 종목과 **동일한 거래일 오프셋**으로
+        # 잰다 — 국내는 KOSPI, 미국은 S&P500.
+        # [왜] 승률을 0% 기준으로 재면 "시장이 빠져서 진 것"과 "종목을 잘못 골라서 진 것"이
+        # 섞인다. 실측(2026-09-23): 현행 37.2% vs 시장 대비 46.8% — 9.6%p가 시장 탓이었다.
+        # 집계 함수(_aggregate_scenario_stats)는 네트워크 호출 0이 전제라, 기준선은
+        # 네트워크를 이미 쓰는 추적기가 채워 둔다.
+        "ALTER TABLE scenario_stocks ADD COLUMN bench_d1_return REAL",
+        "ALTER TABLE scenario_stocks ADD COLUMN bench_d3_return REAL",
+        "ALTER TABLE scenario_stocks ADD COLUMN bench_d7_return REAL",
         # [확률 보정 v3.134.0] 이 종목을 낳은 시나리오의 확률/분기를 함께 남긴다.
         # 이게 없어서 "73% 시나리오가 실제로 73% 맞았는지"를 단 한 번도 검증할 수 없었다
         # (제목 조인 시도 6,576건 중 매칭 0건 — agent_scenarios는 최근 20건만 보존).

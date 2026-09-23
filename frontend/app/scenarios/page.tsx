@@ -1273,9 +1273,45 @@ export function ScenarioTrackingPanel() {
 
       {msg && <div style={{ fontSize: "0.68rem", color: "var(--color-muted)" }}>{msg}</div>}
 
-      <div style={{ fontSize: "0.6rem", color: "var(--color-muted)", lineHeight: 1.4 }}>
-        ※ 적중 = 방향성 기준 (수혜·테마주는 상승 시, 하락 위험주는 하락 시 적중)
+      {/* [v3.192.0] 승률 기준을 0%에서 '시장 대비 + 비용'으로 바꿨다.
+          종전 기준은 시장이 오르면 같이 오른 것도 적중으로 세어, 사실상 시장을 재고 있었다.
+          실측: 전체 37.3% → 43.5%, 그리고 시나리오별 순위가 크게 바뀐다
+          (어떤 건 52.9%→17.6%, 어떤 건 35.7%→71.4%). */}
+      <div style={{ fontSize: "0.6rem", color: "var(--color-muted)", lineHeight: 1.5 }}>
+        ※ 적중 = <b style={{ color: "var(--color-text)" }}>같은 기간 시장(KOSPI·S&amp;P500)보다 더 오른 경우</b>
+        {" "}— 왕복 비용(국내 0.21%·미국 0.15%)까지 뺀 초과분 기준.
+        <br />
+        방향성 반영: 수혜·테마주는 시장 초과 상승 시, 하락 위험주는 시장 대비 더 하락 시 적중.
+        {data?.overall && (
+          <>
+            <br />
+            <span style={{ color: "var(--color-subtle)" }}>
+              (종전 0% 기준이었다면 {data.overall.win_rate_d7_raw}% — 차이는 시장 등락분입니다)
+            </span>
+          </>
+        )}
       </div>
+
+      {data?.overall && (
+        <div style={{ display: "flex", gap: "6px", fontSize: "0.62rem" }}>
+          {[
+            { label: "전체 승률", val: `${data.overall.win_rate_d7}%`, sub: `${data.overall.count}건` },
+            { label: "시장 대비", val: `${data.overall.excess_d7_return > 0 ? "+" : ""}${data.overall.excess_d7_return}%p`,
+              sub: "평균 초과수익", warn: data.overall.excess_d7_return < 0 },
+            { label: "평균 d7", val: `${data.overall.avg_d7_return}%`, sub: "절대 수익률" },
+          ].map(x => (
+            <div key={x.label} style={{
+              flex: 1, padding: "6px 8px", borderRadius: "6px",
+              background: "rgba(255,255,255,0.04)", border: "1px solid var(--color-border)",
+            }}>
+              <div style={{ color: "var(--color-muted)", fontWeight: 700 }}>{x.label}</div>
+              <div style={{ fontSize: "0.9rem", fontWeight: 800,
+                            color: x.warn ? "var(--color-down)" : "var(--color-text)" }}>{x.val}</div>
+              <div style={{ color: "var(--color-subtle)", fontSize: "0.58rem" }}>{x.sub}</div>
+            </div>
+          ))}
+        </div>
+      )}
 
       {byHorizon.length > 0 && (
         <div style={{ display: "flex", gap: "6px" }}>
