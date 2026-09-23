@@ -490,6 +490,33 @@ def main():
     except Exception as e:
         print(f"   [BLOCKED] 확인 실패: {str(e)[:80]}")
 
+    # ── V17. 급등 후 편입 종목을 제외할 것인가 ──────────────────────────────
+    print(_hdr("V17", "시나리오 급등주 — 7일엔 나쁜데 20·60일엔 어떤가"))
+    try:
+        r = _one(cur, """SELECT COUNT(d20_return), COUNT(d60_return), COUNT(*)
+                         FROM scenario_stocks WHERE d7_return IS NOT NULL""")
+        n20, n60, tot = (r + (0, 0, 0))[:3]
+        print(f"   장기 창 적재: d20 {n20 or 0}건 · d60 {n60 or 0}건 (대상 {tot or 0}건)")
+        if (n60 or 0) < 2000:
+            print(f"   [WAIT] d60 {n60 or 0}건 — 2,000건 이상에서 판정. 일일 작업이 회당 600행씩 채운다.")
+            print("          ⚠️ 지금 찬 것은 **가장 오래된 포착분부터**라 특정 시기에 쏠려 있다.")
+            print("             적재 도중의 수치는 그 시기의 장세를 재는 것이지 결론이 아니다.")
+        else:
+            for col, bcol, lab in (("d7_return", "bench_d7_return", "d7"),
+                                   ("d20_return", "bench_d20_return", "d20"),
+                                   ("d60_return", "bench_d60_return", "d60")):
+                rr = _one(cur, f"""SELECT COUNT(*), AVG({col} - COALESCE({bcol},0))
+                                   FROM scenario_stocks WHERE {col} IS NOT NULL""")
+                if rr and rr[0]:
+                    print(f"     {lab:<4} 전체 초과 {rr[1]:+.2f}%p (n={rr[0]})")
+            print("   [DUE] 표본 충족 — 급등 구간(직전 5일 +10%↑)의 d20·d60 초과수익을 볼 것.")
+        print("   통과 기준: 급등 구간의 초과수익이 d20 또는 d60에서 양수로 돌아서면")
+        print("             '제외'가 아니라 '보유기간을 늘린다'가 답이다. 계속 음수면 제외.")
+        print("   ⚠️ d7만 보고 자르지 말 것 — 7거래일로는 대세 상승 초입을 관측할 수 없다.")
+        print("      d7 실측: 급등 구간 초과 -3.68%p·승률 33.9% (비급등 44.6%), 상위 20위 승자 0건.")
+    except Exception as e:
+        print(f"   [BLOCKED] 확인 실패: {str(e)[:80]}")
+
     c.close()
     print(f"\n{'─' * 74}")
     print("자세한 배경과 판정 기준은 VERIFY.md 참조.")
