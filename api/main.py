@@ -494,6 +494,17 @@ def _scenario_tracking_loop():
                     #   추적 계산(track_scenario_stocks_performance)은 유지 = 적중률 데이터는 계속 갱신됨.
                 except Exception as e:
                     print(f"[scenario track] 자동 추적 오류: {e}")
+                # 테마 이름표 채우기 (v3.194.0) — 규칙 기반이라 과금 0원.
+                #   신규 행은 저장 시점에 이미 붙지만, 저장 경로가 여러 갈래라(리서치 워처·
+                #   시나리오 딥다이브·커스텀 이슈) 빈 행이 생길 수 있다. 빈 것만 훑는 싼 경로.
+                try:
+                    from db import backfill_scenario_themes
+                    tb = backfill_scenario_themes()
+                    if tb.get("scanned"):
+                        print(f"[theme label] 이름표 보강 {tb.get('scanned')}행 "
+                              f"(테마 커버리지 {tb.get('theme_coverage_pct')}%)")
+                except Exception as e:
+                    print(f"[theme label] 오류: {e}")
                 # AI추천 사후 성과(d1/d3/d7) 측정 — AI 호출 없이 가격만 사용
                 try:
                     from ai_engine import track_ai_recommendation_outcomes

@@ -517,6 +517,96 @@ def main():
     except Exception as e:
         print(f"   [BLOCKED] 확인 실패: {str(e)[:80]}")
 
+    # ── V18. 테마 이름표 — 테마별 승률이 다음 구간에도 유지되는가 ──────────────
+    print(_hdr("V18", "테마 이름표 — 과거에 잘 된 테마가 계속 잘 되는가"))
+    try:
+        r = _one(cur, """SELECT COUNT(*), COUNT(theme_id),
+                                COUNT(DISTINCT theme_id)
+                         FROM scenario_stocks WHERE d7_return IS NOT NULL""")
+        tot, labeled, kinds = (r + (0, 0, 0))[:3]
+        print(f"   이름표 붙은 픽: {labeled or 0}/{tot or 0}"
+              f" ({(labeled or 0) / (tot or 1) * 100:.1f}%) · 테마 {kinds or 0}종")
+        # ── 전향 검정 ─────────────────────────────────────────────────────────
+        # "과거 성적이 좋은 축을 고르면 실제로 이기나"를 그 픽 이전 정보만으로 재구성한다.
+        #
+        # 두 가지 함정을 둘 다 막아야 숫자가 뜻을 갖는다.
+        #  (1) 장세 — 같은 날 포착된 픽끼리만 비교한다(날짜 내 편차로 중심화). 안 그러면
+        #      상관이 '지수가 오른 날이었나'를 잰다.
+        #  (2) 관측창 겹침 — d7 픽의 어제 픽은 수익률 구간이 6일 겹친다. 그 상태로 재면
+        #      같은 기간을 두 번 세어 "과거가 미래를 안다"는 착시가 생긴다. 실측으로
+        #      이 차이가 결론을 뒤집었다(종목 축 d20: 겹침 허용 +0.509 → 제거 -0.284).
+        #      그래서 **창이 이미 닫힌 과거만** 점수에 쓴다.
+        from collections import defaultdict as _dd
+        from datetime import datetime as _dtm
+
+        def _prospective(key, col, bcol, gap_days, min_prior=10):
+            rs = cur.execute(
+                f"""SELECT {key} AS k, substr(captured_at, 1, 10) AS d,
+                           {col} - COALESCE({bcol}, 0) AS ex
+                    FROM scenario_stocks
+                    WHERE {col} IS NOT NULL AND {key} IS NOT NULL
+                    ORDER BY captured_at"""
+            ).fetchall()
+            hist, byday = _dd(list), _dd(list)
+            for x in rs:
+                try:
+                    t = _dtm.strptime(x["d"], "%Y-%m-%d")
+                except Exception:
+                    continue
+                past = [e for (pt, e) in hist[x["k"]] if (t - pt).days >= gap_days]
+                if len(past) >= min_prior:
+                    byday[x["d"]].append((sum(past) / len(past), x["ex"]))
+                hist[x["k"]].append((t, x["ex"]))
+            xs, ys = [], []
+            for _d, items in byday.items():
+                if len(items) < 4:
+                    continue
+                ms = sum(i[0] for i in items) / len(items)
+                mv = sum(i[1] for i in items) / len(items)
+                for s, v in items:
+                    xs.append(s - ms)
+                    ys.append(v - mv)
+            if len(xs) < 200:
+                return None, len(xs)
+            mx, my = sum(xs) / len(xs), sum(ys) / len(ys)
+            num = sum((a - mx) * (b - my) for a, b in zip(xs, ys))
+            den = (sum((a - mx) ** 2 for a in xs) * sum((b - my) ** 2 for b in ys)) ** 0.5
+            return (num / den if den else 0.0), len(xs)
+
+        verdicts = {}
+        print("   전향 검정 r (같은 날 내 비교 · 관측창 닫힌 과거만):")
+        for key, label in (("theme_id", "테마"), ("sector", "섹터"), ("ticker", "종목")):
+            line = []
+            for col, bcol, gap, w in (("d7_return", "bench_d7_return", 10, "d7"),
+                                      ("d20_return", "bench_d20_return", 28, "d20")):
+                rho, npair = _prospective(key, col, bcol, gap)
+                verdicts[(key, w)] = rho
+                line.append(f"{w} {('%+.3f' % rho) if rho is not None else '표본부족':>7} (쌍 {npair})")
+            print(f"     {label:4} " + " · ".join(line))
+
+        vals = [v for v in verdicts.values() if v is not None]
+        best = max(vals) if vals else None
+        if best is None:
+            print("   [WAIT] 비교쌍 200 미만 — 표본이 더 쌓여야 판정된다.")
+        elif best >= 0.15:
+            print(f"   [DUE] 최고 r = {best:+.3f} — 추종 신호가 있다. 테마/섹터 승률을")
+            print("         시나리오 가중치에 반영할 것.")
+        elif min(vals) <= -0.10:
+            print(f"   [DUE] 부호가 음수다 (최저 r = {min(vals):+.3f}) — '과거에 잘 된 것을")
+            print("         따라가기'는 역효과다. 같은 값을 **역방향**으로 쓸 것:")
+            print("         최근 부진한 테마/종목이 낫다 = 눌림목. 뒷북 필터가 본 처방이다.")
+        else:
+            print(f"   [DUE] r이 0 근처다 (최고 {best:+.3f}) — 이 축에 추종 신호가 없다.")
+            print("         테마 선택이 아니라 진입 시점을 손댈 것.")
+        print("   통과 기준: 전향 r ≥ +0.15 → 테마 승률을 가중치/게이트에 반영")
+        print("             r ≤ -0.10 → 역방향(눌림) 신호로 반영 · 그 사이 → 이 축은 버림")
+        print("   ⚠️ 겹침을 허용하면 숫자가 부풀어 결론이 반대로 나온다 —")
+        print("      종목 d20: 겹침 허용 +0.509 vs 제거 -0.284 (2026-09-29 실측).")
+        print("   ⚠️ 사전(theme_taxonomy.py)을 고치면 과거 집계가 바뀐다.")
+        print("      고친 직후 `POST /api/ai/scenario-tracking/backfill-themes?force=true` 1회.")
+    except Exception as e:
+        print(f"   [BLOCKED] 확인 실패: {str(e)[:80]}")
+
     c.close()
     print(f"\n{'─' * 74}")
     print("자세한 배경과 판정 기준은 VERIFY.md 참조.")

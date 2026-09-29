@@ -1769,6 +1769,17 @@ async def run_scenario_tracking(_user: dict = Depends(get_current_user)):
     return await asyncio.to_thread(track_scenario_stocks_performance)
 
 
+@router.post("/scenario-tracking/backfill-themes")
+async def backfill_scenario_themes_now(force: bool = False, _user: dict = Depends(get_current_user)):
+    """[v3.194.0] 테마 이름표를 과거 행에 소급 적용한다 (규칙 기반·과금 0원).
+
+    `theme_taxonomy.py`의 사전을 손친 직후에는 force=true로 전량 재분류할 것.
+    평소에는 일일 작업이 빈 행만 훑으므로 수동 호출이 필요 없다.
+    """
+    from db import backfill_scenario_themes
+    return await asyncio.to_thread(backfill_scenario_themes, force)
+
+
 @router.get("/scenario-tracking/stats")
 async def get_scenario_tracking_stats():
     """시나리오 적중률 통계 조회 — 가격 재추적 없이 DB 집계만 빠르게 반환.

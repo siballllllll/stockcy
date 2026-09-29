@@ -7648,9 +7648,52 @@ def _aggregate_scenario_stats(cursor) -> dict:
         "basis": "시장 수익률 + 왕복 비용(국내 0.21% · 미국 0.15%) 초과분",
     }
 
+    # ── 테마 이름표별 집계 [v3.194.0] ────────────────────────────────────────
+    # [왜] scenario_keyword로는 집계가 불가능했다 — 6,816종 중 4,407종이 1회성이고
+    # 40건 이상 쌓인 키워드가 0개였다. theme_id는 사전에 고정된 식별자라 표본이 쌓인다.
+    # d20까지 함께 내는 이유: d7 전체 초과가 -1.31%p인데 d20은 +1.36%p로 부호가 뒤집힌다
+    # (V17). 테마별로 '보유기간을 늘려야 하는 것'과 '아예 피할 것'이 갈릴 수 있다.
+    _WIN_D20 = _win("d20_return", "bench_d20_return")
+    cursor.execute(
+        f"""SELECT COALESCE(theme_id, '미분류') AS theme_id,
+                  COUNT(*) AS n,
+                  SUM(CASE WHEN {_WIN_D7} THEN 1 ELSE 0 END) AS wins_d7,
+                  AVG(d7_return - COALESCE(bench_d7_return, 0)) AS excess_d7,
+                  COUNT(d20_return) AS n20,
+                  SUM(CASE WHEN d20_return IS NOT NULL AND {_WIN_D20} THEN 1 ELSE 0 END) AS wins_d20,
+                  AVG(CASE WHEN d20_return IS NOT NULL
+                           THEN d20_return - COALESCE(bench_d20_return, 0) END) AS excess_d20
+           FROM scenario_stocks
+           WHERE d7_return IS NOT NULL
+           GROUP BY COALESCE(theme_id, '미분류')
+           ORDER BY n DESC"""
+    )
+    try:
+        from theme_taxonomy import theme_label, theme_group
+    except Exception:
+        theme_label = theme_group = lambda x: str(x or "미분류")
+    by_theme = []
+    for r in cursor.fetchall():
+        d = dict(r)
+        n = d.get("n") or 0
+        n20 = d.get("n20") or 0
+        tid = d.get("theme_id")
+        by_theme.append({
+            "theme_id": tid,
+            "label":    theme_label(None if tid == "미분류" else tid),
+            "group":    theme_group(None if tid == "미분류" else tid),
+            "count":    n,
+            "win_rate_d7":  round((d.get("wins_d7") or 0) / n * 100, 1) if n else 0,
+            "excess_d7":    round(d.get("excess_d7") or 0, 2),
+            "count_d20":    n20,
+            "win_rate_d20": round((d.get("wins_d20") or 0) / n20 * 100, 1) if n20 else None,
+            "excess_d20":   round(d["excess_d20"], 2) if d.get("excess_d20") is not None else None,
+        })
+
     return {
         "overall": overall,
         "by_scenario": by_scenario,
+        "by_theme":  by_theme,
         "by_horizon":  by_horizon,
         "top_winners": top_winners,
         "top_losers":  top_losers,

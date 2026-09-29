@@ -655,6 +655,13 @@ def init_local_db():
         # (제목 조인 시도 6,576건 중 매칭 0건 — agent_scenarios는 최근 20건만 보존).
         "ALTER TABLE scenario_stocks ADD COLUMN probability_pct INTEGER",
         "ALTER TABLE scenario_stocks ADD COLUMN scenario_label TEXT",
+        # [테마 이름표 v3.194.0] 이슈를 재사용 가능한 식별자로 접는다.
+        # scenario_keyword는 AI가 매번 새로 쓴 자유문장이라 6,816종 중 4,407종이 1회성이었고,
+        # 40건 이상 쌓인 키워드가 0개였다 — "이 흐름은 전에도 봤다"를 누적할 축이 없었던 것.
+        # theme_id = theme_taxonomy.classify_theme() 결과, sector = 종목 섹터(이슈가 미분류여도
+        # 남는 축). 둘 다 규칙 기반이라 과금 0원이고 소급 적용이 가능하다.
+        "ALTER TABLE scenario_stocks ADD COLUMN theme_id TEXT",
+        "ALTER TABLE scenario_stocks ADD COLUMN sector TEXT",
         "ALTER TABLE portfolio ADD COLUMN buy_reason TEXT DEFAULT ''",
         "ALTER TABLE trade_history ADD COLUMN buy_reason TEXT DEFAULT ''",
         "ALTER TABLE agent_decisions ADD COLUMN is_realized INTEGER DEFAULT 0",
@@ -4032,6 +4039,12 @@ def save_scenario_stocks(scenario_keyword: str, scenario_title: str, stocks: lis
         conn = get_db_conn()
         cursor = conn.cursor()
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        # 테마 이름표는 이슈 단위다 — 종목 루프 밖에서 한 번만 분류한다.
+        try:
+            from theme_taxonomy import classify_theme, ticker_sector
+            theme_id = classify_theme(scenario_keyword or "", scenario_title or "")
+        except Exception:
+            theme_id, ticker_sector = None, (lambda _t: None)
         for s in stocks:
             ticker = str(s.get("ticker") or s.get("code") or "").strip()
             name = str(s.get("name") or ticker).strip()
@@ -4055,10 +4068,10 @@ def save_scenario_stocks(scenario_keyword: str, scenario_title: str, stocks: lis
             cursor.execute(
                 """INSERT INTO scenario_stocks
                    (scenario_keyword, scenario_title, ticker, name, market, role, horizon, captured_at, updated_at,
-                    probability_pct, scenario_label)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    probability_pct, scenario_label, theme_id, sector)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (scenario_keyword, scenario_title, ticker, name, market, role, horizon, now, now,
-                 prob_pct, sc_label)
+                 prob_pct, sc_label, theme_id, ticker_sector(ticker))
             )
             # 자체 ML 학습 샘플로도 기록 (피해=하락기대는 제외, 상승 기대 종목만)
             # ⚠️ cursor를 넘겨야 한다 — 여기는 이미 INSERT로 쓰기 트랜잭션이 열린 지점이라
@@ -4074,6 +4087,59 @@ def save_scenario_stocks(scenario_keyword: str, scenario_title: str, stocks: lis
         conn.close()
     except Exception as e:
         print(f"save_scenario_stocks error: {e}")
+
+
+def backfill_scenario_themes(force: bool = False) -> dict:
+    """[테마 이름표 v3.194.0] 기존 scenario_stocks 행에 theme_id·sector를 소급 적용한다.
+
+    규칙 기반 분류라 과금 0원이고, 사전을 손볼 때마다 force=True로 다시 돌리면 된다.
+    이걸 돌려야 이미 쌓인 1만여 건이 학습 재료가 된다 — 새 데이터를 기다릴 필요가 없다.
+
+    force=False: theme_id가 비어 있는 행만 (매일 돌려도 싼 경로)
+    force=True : 전량 재분류 (사전을 고친 직후 한 번)
+    """
+    try:
+        from theme_taxonomy import classify_theme, ticker_sector
+    except Exception as e:
+        return {"ok": False, "error": f"theme_taxonomy 로드 실패: {e}"}
+
+    conn = get_db_conn()
+    cur = conn.cursor()
+    try:
+        where = "" if force else " WHERE theme_id IS NULL OR sector IS NULL"
+        cur.execute(f"SELECT id, scenario_keyword, scenario_title, ticker FROM scenario_stocks{where}")
+        rows = [dict(r) for r in cur.fetchall()]
+
+        # 같은 이슈 문장이 수십 행에 걸쳐 반복되므로 분류 결과를 문장 단위로 캐시한다.
+        cache: dict[tuple, str | None] = {}
+        updates, matched = [], 0
+        for r in rows:
+            key = (r.get("scenario_keyword") or "", r.get("scenario_title") or "")
+            if key not in cache:
+                cache[key] = classify_theme(key[0], key[1])
+            tid = cache[key]
+            if tid:
+                matched += 1
+            updates.append((tid, ticker_sector(r.get("ticker")), r["id"]))
+
+        cur.executemany("UPDATE scenario_stocks SET theme_id = ?, sector = ? WHERE id = ?", updates)
+        conn.commit()
+
+        cur.execute("SELECT COUNT(*), COUNT(theme_id), COUNT(sector) FROM scenario_stocks")
+        tot, with_theme, with_sector = cur.fetchone()[:3]
+        return {
+            "ok": True,
+            "scanned": len(rows),
+            "issues": len(cache),
+            "matched": matched,
+            "total_rows": tot,
+            "theme_coverage_pct": round((with_theme or 0) / tot * 100, 1) if tot else 0,
+            "sector_coverage_pct": round((with_sector or 0) / tot * 100, 1) if tot else 0,
+        }
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+    finally:
+        conn.close()
 
 
 def scenario_probability_calibration(days: int = 365) -> dict:

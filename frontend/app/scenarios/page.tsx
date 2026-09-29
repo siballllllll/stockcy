@@ -1161,6 +1161,77 @@ function AiPerformanceCompare() {
 }
 
 // ── 시나리오 적중률 패널 ──────────────────────────────────────────────────────
+// ── 테마별 실측표 [v3.194.0] ────────────────────────────────────────────────
+// 표본 30건 미만은 기본 접는다. 우연과 구분되지 않는 숫자를 표의 맨 위에 올리면
+// 없는 신호를 읽게 된다 — 섀도우 리그에서 +65.5% 한 건이 평균 순위를 뒤집은 전례가 있다.
+function ThemeScoreboard({ rows }: { rows: any[] }) {
+  const [all, setAll] = useState(false);
+  const MIN_N = 30;
+  const shown = useMemo(() => {
+    const f = all ? rows : rows.filter((r) => (r.count ?? 0) >= MIN_N);
+    return [...f].sort((a, b) => (b.excess_d7 ?? 0) - (a.excess_d7 ?? 0));
+  }, [rows, all]);
+  const hidden = rows.length - rows.filter((r) => (r.count ?? 0) >= MIN_N).length;
+  const col = (v: number | null | undefined) =>
+    v == null ? "var(--color-subtle)" : v > 0 ? "#34d399" : v < 0 ? "#f87171" : "var(--color-muted)";
+  const num = (v: number | null | undefined, suffix = "%p") =>
+    v == null ? "–" : `${v > 0 ? "+" : ""}${v}${suffix}`;
+
+  return (
+    <div style={{ borderTop: "1px solid var(--color-border)", paddingTop: "8px", marginTop: "2px" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "4px" }}>
+        <div style={{ fontSize: "0.72rem", fontWeight: 800, color: "var(--color-muted)" }}>
+          🏷️ 테마별 실측 (시장 대비 초과수익)
+        </div>
+        <button
+          onClick={() => setAll((v) => !v)}
+          style={{ border: "1px solid var(--color-border)", background: "transparent", color: "var(--color-muted)",
+                   borderRadius: "5px", padding: "2px 7px", fontSize: "0.62rem", cursor: "pointer" }}
+        >
+          {all ? `표본 ${MIN_N}건+만` : `전체 보기 (+${hidden})`}
+        </button>
+      </div>
+      <div style={{ fontSize: "0.6rem", color: "var(--color-subtle)", lineHeight: 1.5, marginBottom: "5px" }}>
+        이슈 문장을 고정된 테마 이름표로 접어 집계합니다. d20을 함께 보는 이유 —
+        전체 초과수익이 7일 -1.31%p인데 20일은 +1.36%p로 부호가 뒤집힙니다.
+        <b style={{ color: "var(--color-text)" }}> 7일에 나쁜 테마와 그냥 늦게 오는 테마는 다릅니다.</b>
+      </div>
+      <div style={{ overflowX: "auto" }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.64rem", minWidth: "420px" }}>
+          <thead>
+            <tr style={{ color: "var(--color-muted)", textAlign: "right" }}>
+              <th style={{ textAlign: "left", padding: "3px 4px", fontWeight: 700 }}>테마</th>
+              <th style={{ padding: "3px 4px", fontWeight: 700 }}>n</th>
+              <th style={{ padding: "3px 4px", fontWeight: 700 }}>7일 초과</th>
+              <th style={{ padding: "3px 4px", fontWeight: 700 }}>승률</th>
+              <th style={{ padding: "3px 4px", fontWeight: 700 }}>20일 초과</th>
+              <th style={{ padding: "3px 4px", fontWeight: 700 }}>승률</th>
+            </tr>
+          </thead>
+          <tbody>
+            {shown.map((t) => (
+              <tr key={t.theme_id} style={{ borderTop: "1px solid var(--color-border)" }}>
+                <td style={{ padding: "3px 4px", maxWidth: "160px", overflow: "hidden",
+                             textOverflow: "ellipsis", whiteSpace: "nowrap", color: "var(--color-text)", fontWeight: 600 }}>
+                  <span style={{ color: "var(--color-subtle)", fontWeight: 500 }}>{t.group}</span>{" "}{t.label}
+                </td>
+                <td style={{ padding: "3px 4px", textAlign: "right", color: "var(--color-muted)" }}>{t.count}</td>
+                <td style={{ padding: "3px 4px", textAlign: "right", color: col(t.excess_d7), fontWeight: 700 }}>{num(t.excess_d7)}</td>
+                <td style={{ padding: "3px 4px", textAlign: "right", color: "var(--color-muted)" }}>{t.win_rate_d7}%</td>
+                <td style={{ padding: "3px 4px", textAlign: "right", color: col(t.excess_d20), fontWeight: 700 }}>{num(t.excess_d20)}</td>
+                <td style={{ padding: "3px 4px", textAlign: "right", color: "var(--color-muted)" }}>
+                  {t.win_rate_d20 == null ? "–" : `${t.win_rate_d20}%`}
+                  {t.count_d20 ? <span style={{ color: "var(--color-subtle)" }}> ({t.count_d20})</span> : null}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 export function ScenarioTrackingPanel() {
   const [running, setRunning] = useState(false);
   const [data, setData] = useState<any>(null);
@@ -1232,6 +1303,7 @@ export function ScenarioTrackingPanel() {
   useEffect(() => { loadStats(); }, []);
 
   const byScenario = data?.by_scenario ?? [];
+  const byTheme = data?.by_theme ?? [];
   const byHorizon = data?.by_horizon ?? [];
   const winners = data?.top_winners ?? [];
   const losers = data?.top_losers ?? [];
@@ -1335,6 +1407,11 @@ export function ScenarioTrackingPanel() {
           })}
         </div>
       )}
+
+      {/* [테마 이름표 v3.194.0] 이슈 문장 대신 고정된 테마 ID로 집계한다.
+          종전에는 이 표를 만들 수 없었다 — scenario_keyword가 AI가 매번 새로 쓴 자유문장이라
+          6,816종 중 4,407종이 1회성이고, 40건 이상 쌓인 키워드가 0개였다. */}
+      {byTheme.length > 0 && <ThemeScoreboard rows={byTheme} />}
 
       {byScenario.length === 0 ? (
         <div style={{ fontSize: "0.7rem", color: "var(--color-muted)", padding: "0.4rem 0" }}>
