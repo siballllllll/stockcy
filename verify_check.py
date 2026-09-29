@@ -732,6 +732,23 @@ def main():
                 print("         `venv/Scripts/python -c \"import db; print(db.repair_scenario_tickers(False))\"`")
                 for s in (rep.get("samples") or [])[:5]:
                     print(f"           {s['name']}: {s['wrong']} → {s['correct']} ({s['rows']}행)")
+        # ── 미국 파트 (v3.198.0) ────────────────────────────────────────────
+        us = _one(cur, """SELECT COUNT(*),
+                                 SUM(CASE WHEN COALESCE(track_attempts,0) >= 5 THEN 1 ELSE 0 END),
+                                 SUM(CASE WHEN d7_return IS NOT NULL THEN 1 ELSE 0 END)
+                          FROM scenario_stocks WHERE ticker NOT GLOB '[0-9]*'""")
+        u_tot, u_out, u_meas = (us + (0, 0, 0))[:3]
+        print(f"   미국 픽 {u_tot or 0}행: 측정됨 {u_meas or 0} · 추적 불가로 접은 것 {u_out or 0}")
+        nont = _one(cur, """SELECT COUNT(*) FROM scenario_stocks
+                            WHERE ticker GLOB '*[가-힣]*' OR ticker LIKE '% %'
+                               OR upper(trim(ticker)) IN ('N/A','NA','NONE','TBD','-','--','?')""")
+        print(f"   티커 자리가 종목이 아닌 행: {(nont or (0,))[0]}"
+              " (비상장 회사를 픽으로 낸 것 — 저장 시점에 거른다)")
+        print("   ⚠️ 미국은 이름→티커 재해결을 하지 않는다. 상장 목록(FDR 7,082종)에 ETF·ADR이")
+        print("      빠져 SPY·GLD·BRK-B·RHHBY가 '없는 종목'으로 나오고, us_kr_names 맵은")
+        print("      커버리지 108/548종에 그 자체 오류도 있었다. 표기 정규화(BRK.B→BRK-B)만 한다.")
+        print("   ⚠️ 해외 거래소 표기는 점이 맞다 — 8035.T·1211.HK·2222.SR을 하이픈으로 바꾸면")
+        print("      멀쩡한 심볼이 깨진다. '영문 1~4자+점+한 글자'(미국 클래스주)만 교정한다.")
         print("   통과 기준: 어긋난 코드 0행. 저장 시점 교정이 막고 있으니 늘어나면 경로가 새는 것이다.")
         print("   ⚠️ 사명 변경은 오염이 아니다 — POSCO홀딩스/포스코홀딩스, NAVER/네이버는 같은 회사다.")
         print("      이름이 상장 목록에 있으면서 다른 코드를 가리킬 때만 센다.")

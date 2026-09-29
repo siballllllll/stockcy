@@ -669,6 +669,9 @@ def init_local_db():
         # 조회 시도 횟수 — 상장폐지·비상장·FDR 미수록 종목을 영원히 재시도하지 않기 위함.
         # (실측: 미적재 927티커 중 상당수가 AI가 지어낸 '미상장'·'비상장'·'000000' 같은 값이다)
         "ALTER TABLE scenario_stocks ADD COLUMN mom5_attempts INTEGER DEFAULT 0",
+        # 사후 가격 추적 시도 횟수 — 조회가 원리적으로 불가능한 행(비상장 자리표시자,
+        # 해외 OTC/독일 상장 ADR 등)을 매일 다시 두드리지 않기 위함.
+        "ALTER TABLE scenario_stocks ADD COLUMN track_attempts INTEGER DEFAULT 0",
         "ALTER TABLE portfolio ADD COLUMN buy_reason TEXT DEFAULT ''",
         "ALTER TABLE trade_history ADD COLUMN buy_reason TEXT DEFAULT ''",
         "ALTER TABLE agent_decisions ADD COLUMN is_realized INTEGER DEFAULT 0",
@@ -4070,8 +4073,20 @@ def save_scenario_stocks(scenario_keyword: str, scenario_title: str, stocks: lis
             # 코드가 다른 종목을 가리키면 이름 기준으로 고친다. 소급 교정 1,014행(569종목)의
             # 재발 방지용. 사명 변경(이름이 목록에 없음)은 손대지 않는다. 자세한 근거는
             # `_resolve_kr_ticker` 주석.
+            # [미국 v3.198.0] 티커 자리에 종목이 아닌 값이 오면 **기록하지 않는다.**
+            #   실측(미국 픽 2,234행): 54종 62행이 '미상장'·'비상장'·'미정'·'없음'·'N/A' 등으로,
+            #   AI가 비상장 회사(한화세미텍·에임드바이오·스페이스X·두나무·화웨이)를 픽으로
+            #   낸 것이다. 투자도 추적도 원리적으로 불가능한데, 추적기가 매일 이 값으로
+            #   yfinance를 두드리고 있었다("['비상장'] possibly delisted" 로그).
+            #   분모 보존 원칙의 예외다 — 애초에 종목이 아니라 분모가 될 수 없다.
+            if _is_non_ticker(ticker):
+                print(f"[scenario] 비상장·자리표시자 픽 제외: {name} (티커 자리='{ticker}')")
+                continue
             try:
-                fixed = _resolve_kr_ticker(name, ticker)
+                if market == "kr":
+                    fixed = _resolve_kr_ticker(name, ticker)
+                else:
+                    fixed = _normalize_us_ticker(ticker)   # BRK.B → BRK-B 등 표기만
                 if fixed:
                     print(f"[scenario] 종목코드 교정: {name} {ticker} → {fixed}")
                     ticker = fixed
@@ -4139,6 +4154,56 @@ def _resolve_kr_ticker(name: str, ticker: str) -> str | None:
     return correct if (correct and correct != tk.zfill(6)) else None
 
 
+# 티커 자리에 들어온 '종목이 아닌 값' — AI가 비상장 회사를 픽으로 낼 때 쓰는 표현들.
+# 실측(2026-09-29, 미국 픽 2,234행): 54종 62행. 한화세미텍(18행)·에임드바이오(17)·
+# 에이로봇(9)·레메디(5)·두나무·화웨이·스페이스X — **전부 비상장이라 추적이 원리적으로 불가능**하다.
+# 추적기가 매일 이 값으로 yfinance를 두드리고 있었다("['비상장'] possibly delisted" 로그).
+_NON_TICKER_VALUES = {
+    "N/A", "NA", "NONE", "TBD", "-", "--", "?", "UNKNOWN", "PRIVATE", "UNLISTED",
+}
+
+
+def _is_non_ticker(ticker: str) -> bool:
+    """티커 자리 값이 종목 식별자가 아닌가 (한글·자리표시자·문장)."""
+    tk = str(ticker or "").strip()
+    if not tk:
+        return True
+    if any("가" <= ch <= "힣" for ch in tk):   # 한글이 섞이면 티커가 아니다
+        return True
+    if tk.upper() in _NON_TICKER_VALUES:
+        return True
+    # 미국 티커는 영문 1~5자(+클래스 접미사)다. 공백이 있으면 문장이다.
+    return bool(" " in tk) or len(tk) > 8
+
+
+def _normalize_us_ticker(ticker: str) -> str | None:
+    """미국 티커 표기 정규화. 바꿀 게 없으면 None.
+
+    [왜] 클래스주를 AI는 `BRK.B`로 적는데 yfinance는 `BRK-B`만 받는다 — 실측으로
+    `BRK.B`는 빈 결과, `BRK-B`는 정상이다. 점 하나 때문에 추적이 통째로 실패하고 있었다.
+
+    ⚠️ 상장 목록으로 유효성을 판정하지 말 것. FDR의 미국 리스팅(7,082종)에는 ETF와 ADR이
+       빠져 있어 SPY·GLD·BRK-B·RHHBY가 전부 '없는 종목'으로 나온다(실측). 실제 시세 조회가
+       유일한 판정 수단이고, 조회 실패는 `mom5_attempts`로 접는다.
+    ⚠️ 이름→티커 자동 교정도 하지 말 것. `us_kr_names.US_KR_NAME_MAP`은 커버리지가
+       108/548종인데다 그 자체에 오류가 있었다(`"Eaton"`이 티커 자리에 들어가 ETN을
+       'EATON'으로 교정하려 했다 — v3.198.0에서 그 항목을 고쳤다). 맵을 믿고 자동 교정하면
+       멀쩡한 티커를 깨뜨린다.
+    ⚠️ 점을 무조건 하이픈으로 바꾸면 **해외 거래소 표기를 깨뜨린다.** yfinance에서
+       `8035.T`(도쿄일렉트론)·`1211.HK`(BYD)·`2222.SR`(아람코)는 점이 맞는 형태다.
+       그래서 '영문 1~4자 + 점 + 한 글자'(미국 클래스주)만 고친다 — 숫자로 시작하는
+       해외 상장이나 두 글자 접미사(.HK·.TO)는 손대지 않는다.
+    """
+    import re as _re
+    tk = str(ticker or "").strip().upper()
+    if not tk or _is_non_ticker(tk):
+        return None
+    if _re.fullmatch(r"[A-Z]{1,4}\.[A-Z]", tk):
+        fixed = tk.replace(".", "-")
+        return fixed if fixed != str(ticker or "").strip() else None
+    return tk if tk != str(ticker or "").strip() else None   # 대문자화만 필요한 경우
+
+
 def repair_scenario_tickers(dry_run: bool = True) -> dict:
     """[v3.196.0] 잘못된 종목코드를 이름 기준으로 교정한다.
 
@@ -4150,15 +4215,19 @@ def repair_scenario_tickers(dry_run: bool = True) -> dict:
     conn = get_db_conn()
     cur = conn.cursor()
     try:
-        cur.execute("""SELECT id, ticker, name, d7_return FROM scenario_stocks
-                       WHERE ticker GLOB '[0-9]*'""")
+        cur.execute("""SELECT id, ticker, name, d7_return FROM scenario_stocks""")
         rows = [dict(r) for r in cur.fetchall()]
         cache: dict[tuple, str | None] = {}
         fixes, samples, had_measure = [], {}, 0
         for r in rows:
             key = (r.get("name") or "", r.get("ticker") or "")
             if key not in cache:
-                cache[key] = _resolve_kr_ticker(key[0], key[1])
+                # 국내는 이름으로 코드를 재해결하고, 미국은 표기만 정규화한다(BRK.B → BRK-B).
+                # 미국은 신뢰할 이름→티커 맵이 없어 재해결을 하지 않는다 — 상세는
+                # `_normalize_us_ticker` 주석.
+                cache[key] = (_resolve_kr_ticker(key[0], key[1])
+                              if str(key[1]).strip().isdigit()
+                              else _normalize_us_ticker(key[1]))
             correct = cache[key]
             if not correct:
                 continue
@@ -4176,7 +4245,27 @@ def repair_scenario_tickers(dry_run: bool = True) -> dict:
                         for k, v in sorted(samples.items(), key=lambda x: -x[1][0])[:15]],
             "dry_run": dry_run,
         }
-        if dry_run or not fixes:
+        # 종목이 아닌 값(비상장 자리표시자)은 추적 대상에서 즉시 뺀다 — 실패 5회를
+        # 기다릴 이유가 없다. 행은 남긴다(AI가 비상장을 픽으로 내는 빈도의 기록이다).
+        # 교정 대상이 없어도 이 정리는 실행돼야 하므로 조기 반환보다 앞에 둔다.
+        _RETIRE_SQL = (
+            "UPDATE scenario_stocks SET track_attempts = 99, mom5_attempts = 99 "
+            "WHERE COALESCE(track_attempts, 0) < 99 AND ("
+            "  ticker IS NULL OR trim(ticker) = '' OR ticker LIKE '% %'"
+            "  OR length(ticker) > 8 OR upper(trim(ticker)) IN ('N/A','NA','NONE','TBD','-','--','?')"
+            "  OR ticker GLOB '*[가-힣]*')"
+        )
+        if dry_run:
+            cur.execute(_RETIRE_SQL.replace(
+                "UPDATE scenario_stocks SET track_attempts = 99, mom5_attempts = 99 ",
+                "SELECT COUNT(*) FROM scenario_stocks "))
+            out["non_ticker_to_retire"] = (cur.fetchone() or [0])[0]
+            return out
+        cur.execute(_RETIRE_SQL)
+        out["non_ticker_retired"] = cur.rowcount or 0
+        conn.commit()
+
+        if not fixes:
             return out
 
         cur.executemany(

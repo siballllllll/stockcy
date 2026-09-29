@@ -8190,6 +8190,7 @@ def _track_scenario_stocks_performance_impl() -> dict:
                   d1_return, d3_return, d7_return, d20_return, d60_return
            FROM scenario_stocks
            WHERE d60_return IS NULL
+             AND COALESCE(track_attempts, 0) < 5
              AND (
                   d7_return IS NULL
                OR (d20_return IS NULL AND julianday('now') - julianday(captured_at) >= 28)
@@ -8251,6 +8252,10 @@ def _track_scenario_stocks_performance_impl() -> dict:
         return (_br(1), _br(3), _br(7), _br(20), _br(60))
 
     pending_updates = []
+    # 조회가 실패한 행 — 시도 횟수를 올려 5회 뒤에는 대상에서 빠지게 한다.
+    # [왜] 비상장 자리표시자('미상장'·'비상장')와 yfinance가 못 주는 ADR(BMWYY·IFX)을
+    #      매일 다시 두드리고 있었다. 로그에 "['비상장'] possibly delisted"가 매일 찍혔다.
+    failed_ids: list = []
     _bar_cache: dict = {}
 
     for row in rows:
@@ -8290,6 +8295,7 @@ def _track_scenario_stocks_performance_impl() -> dict:
                     df = fdr.DataReader(ticker, fetch_start, end_date)
                 _bar_cache[_ck] = df
             if df is None or df.empty:
+                failed_ids.append(row["id"])
                 continue
 
             # 기준가 인덱스 = 등장일(captured) 이하 마지막 거래일
@@ -8330,6 +8336,7 @@ def _track_scenario_stocks_performance_impl() -> dict:
                  b1, b3, b7, b20, b60, mom5, now, row["id"])
             )
         except Exception as e:
+            failed_ids.append(row["id"])
             print(f"[scenario tracking] {ticker} 실패: {e}")
             continue
 
@@ -8354,6 +8361,14 @@ def _track_scenario_stocks_performance_impl() -> dict:
             updated = len(pending_updates)
         except Exception as e:
             print(f"[scenario tracking] 일괄 저장 실패: {e}")
+    if failed_ids:
+        try:
+            cursor.executemany(
+                "UPDATE scenario_stocks SET track_attempts = COALESCE(track_attempts, 0) + 1 "
+                "WHERE id = ?", [(i,) for i in failed_ids])
+            conn.commit()
+        except Exception as e:
+            print(f"[scenario tracking] 실패 기록 실패: {e}")
 
     # 집계는 공용 헬퍼로 위임 (DB만 사용) — /stats 경량 조회와 동일 로직 공유
     stats = _aggregate_scenario_stats(cursor)
