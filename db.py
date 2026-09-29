@@ -4066,7 +4066,6 @@ def save_scenario_stocks(scenario_keyword: str, scenario_title: str, stocks: lis
             except (TypeError, ValueError):
                 prob_pct = None
             sc_label = str(s.get("scenario_label") or "").strip() or None
-            market = "us" if any(c.isalpha() for c in ticker) else "kr"
             if not ticker:
                 continue
             # [코드 검증 v3.196.0] AI가 종목코드를 틀리게 적는다 — 이름이 상장 목록에 있고
@@ -4082,6 +4081,10 @@ def save_scenario_stocks(scenario_keyword: str, scenario_title: str, stocks: lis
             if _is_non_ticker(ticker):
                 print(f"[scenario] 비상장·자리표시자 픽 제외: {name} (티커 자리='{ticker}')")
                 continue
+            # 시장 판정은 정규화 뒤에 한다 [v3.199.0] — 접미사(.T·.HK)까지 보고
+            # 'kr'/'us'/'jp'/'hk'... 를 돌려준다. 종전 한 줄 규칙("영문 포함이면 us")은
+            # 해외 상장을 전부 미국으로 만들어 S&P500을 기준선으로 쓰게 했다.
+            market = "kr" if str(ticker).strip().isdigit() else "us"
             try:
                 if market == "kr":
                     fixed = _resolve_kr_ticker(name, ticker)
@@ -4092,6 +4095,14 @@ def save_scenario_stocks(scenario_keyword: str, scenario_title: str, stocks: lis
                     ticker = fixed
             except Exception:
                 pass
+            market = resolve_market(ticker)
+            if market == "unknown":
+                print(f"[scenario] 시장 판정 불가 픽 제외: {name} (티커='{ticker}')")
+                continue
+            # 국내로 판정됐는데 접미사가 붙어 있으면 뗀다 — AI가 `005930.KS`로 적는 경우가 있고,
+            # 그대로 두면 시장은 kr로 맞는데 FDR 조회가 `005930.KS`로 나가 실패한다.
+            if market == "kr" and "." in ticker:
+                ticker = ticker.split(".", 1)[0].zfill(6)
             cursor.execute(
                 """SELECT id FROM scenario_stocks WHERE scenario_keyword=? AND ticker=?""",
                 (scenario_keyword, ticker)
@@ -4172,8 +4183,13 @@ def _is_non_ticker(ticker: str) -> bool:
         return True
     if tk.upper() in _NON_TICKER_VALUES:
         return True
-    # 미국 티커는 영문 1~5자(+클래스 접미사)다. 공백이 있으면 문장이다.
-    return bool(" " in tk) or len(tk) > 8
+    # 환율·선물 심볼은 주식이 아니다 — 'EUR/USD'·'JPY/USD'·'GC=F'(금 선물) 실측.
+    # 사거나 팔 수 있는 종목이 아니라 픽으로서 의미가 없고, 벤치마크 비교도 성립하지 않는다.
+    if "/" in tk or "=" in tk:
+        return True
+    # 공백이 있으면 문장이다. 길이 상한은 12 — 거래소 접미사가 붙으면 9자가 된다
+    # (`005930.KS`·`000001.SS`). 8자로 두면 멀쩡한 해외·국내 접미사 표기가 잘려나간다.
+    return bool(" " in tk) or len(tk) > 12
 
 
 def _normalize_us_ticker(ticker: str) -> str | None:
@@ -4202,6 +4218,77 @@ def _normalize_us_ticker(ticker: str) -> str | None:
         fixed = tk.replace(".", "-")
         return fixed if fixed != str(ticker or "").strip() else None
     return tk if tk != str(ticker or "").strip() else None   # 대문자화만 필요한 경우
+
+
+# ── 시장 판정 (v3.199.0) ────────────────────────────────────────────────────
+# [왜] 종전 규칙은 `market = "us" if 영문 포함 else "kr"` 한 줄이었다. 그래서 AI가 낸
+# 해외 상장 심볼이 전부 미국으로 분류됐다 — `8035.T`(도쿄일렉트론)·`1211.HK`(BYD)·
+# `2222.SR`(사우디 아람코)가 **S&P500을 기준선으로** 평가되고 있었다(실측 5행).
+# 왕복 비용도 어긋났다: 승률 판정의 `_FEE`가 `ticker GLOB '[0-9]*'`로 국내를 가리는데
+# `8035.T`는 숫자로 시작해 **국내 수수료 0.21%**가 매겨졌다.
+#
+# ⚠️ 영향 범위는 지금 5행뿐이다. 과장하지 말 것 — 이걸 고치는 이유는 규모가 아니라
+#    AI가 해외 심볼을 계속 낼 것이고, 틀린 기준선은 조용히 틀리기 때문이다.
+_SUFFIX_MARKET = {
+    "T": "jp", "JP": "jp",            # 도쿄
+    "HK": "hk",                        # 홍콩
+    "SR": "sa",                        # 사우디(타다울)
+    "SS": "cn", "SZ": "cn",            # 상하이·선전
+    "DE": "de", "F": "de",             # 독일
+    "L": "uk",                         # 런던
+    "TO": "ca", "V": "ca",             # 토론토
+    "AX": "au",                        # 호주
+    "PA": "fr", "AS": "nl", "MI": "it", "MC": "es", "SW": "ch",
+    "TW": "tw", "TWO": "tw",
+    "KS": "kr", "KQ": "kr",            # 국내 (접미사가 붙어 들어오는 경우)
+}
+
+# 시장별 왕복 비용(%) — 국내 0.21(수수료+거래세), 그 외는 0.15를 기본값으로 둔다.
+# 해외 각국의 실제 비용을 따로 조사하지 않았다. 0.15는 미국 기준의 유용한 근사치이고,
+# 이 값이 승률 판정의 문턱이 되므로 나중에 시장별로 정교화할 여지가 있다.
+_MARKET_FEE = {"kr": 0.21}
+_DEFAULT_FEE = 0.15
+
+
+def resolve_market(ticker: str) -> str:
+    """티커에서 시장 코드를 판정한다 — 'kr' | 'us' | 'jp' | 'hk' | ... | 'unknown'.
+
+    판정 순서: 거래소 접미사(.T·.HK) → 6자리 숫자(국내) → 영문 티커(미국).
+    종목이 아닌 값은 'unknown'을 돌려준다(환율·선물·자리표시자).
+    """
+    tk = str(ticker or "").strip().upper()
+    if not tk or _is_non_ticker(tk):
+        return "unknown"
+    if "." in tk:
+        suffix = tk.rsplit(".", 1)[-1]
+        # 미국 클래스주(BRK.B)는 접미사가 한 글자 알파벳인데 시장 접미사와 겹친다
+        # (.T=도쿄, .V=토론토, .F=독일). 앞부분이 숫자면 해외 상장, 영문이면 미국 클래스주로 본다.
+        base = tk.rsplit(".", 1)[0]
+        if len(suffix) == 1 and not base.isdigit():
+            return "us"
+        return _SUFFIX_MARKET.get(suffix, "unknown")
+    if tk.isdigit():
+        return "kr" if len(tk) <= 6 else "unknown"
+    return "us"
+
+
+def normalize_ticker(ticker: str) -> str:
+    """시장에 맞는 표준 표기로 정규화한다 — 국내는 6자리 숫자, 그 외는 대문자.
+
+    `005930.KS` → `005930` (국내는 접미사를 떼야 FDR 조회가 된다),
+    `brk.b` → `BRK-B`, `8035.t` → `8035.T`.
+    """
+    tk = str(ticker or "").strip()
+    mkt = resolve_market(tk)
+    if mkt == "kr":
+        base = tk.split(".", 1)[0]
+        return base.zfill(6) if base.isdigit() else base.upper()
+    return (_normalize_us_ticker(tk) or tk.strip().upper())
+
+
+def market_fee(market: str) -> float:
+    """시장별 왕복 비용(%)."""
+    return _MARKET_FEE.get(str(market or "").lower(), _DEFAULT_FEE)
 
 
 def repair_scenario_tickers(dry_run: bool = True) -> dict:
@@ -4252,7 +4339,8 @@ def repair_scenario_tickers(dry_run: bool = True) -> dict:
             "UPDATE scenario_stocks SET track_attempts = 99, mom5_attempts = 99 "
             "WHERE COALESCE(track_attempts, 0) < 99 AND ("
             "  ticker IS NULL OR trim(ticker) = '' OR ticker LIKE '% %'"
-            "  OR length(ticker) > 8 OR upper(trim(ticker)) IN ('N/A','NA','NONE','TBD','-','--','?')"
+            "  OR length(ticker) > 12 OR upper(trim(ticker)) IN ('N/A','NA','NONE','TBD','-','--','?')"
+            "  OR ticker LIKE '%/%' OR ticker LIKE '%=%'"
             "  OR ticker GLOB '*[가-힣]*')"
         )
         if dry_run:
@@ -4264,6 +4352,19 @@ def repair_scenario_tickers(dry_run: bool = True) -> dict:
         cur.execute(_RETIRE_SQL)
         out["non_ticker_retired"] = cur.rowcount or 0
         conn.commit()
+
+        # market 컬럼 재계산 [v3.199.0] — 과거 값은 "영문 포함이면 us" 규칙으로 쓰여
+        # 8035.T(도쿄)·1211.HK(홍콩)가 미국으로 들어가 있다. 기준선·비용이 여기서 갈린다.
+        cur.execute("SELECT DISTINCT ticker, market FROM scenario_stocks")
+        mk_fixes = []
+        for r in cur.fetchall():
+            want = resolve_market(r["ticker"])
+            if want != "unknown" and want != str(r["market"] or ""):
+                mk_fixes.append((want, r["ticker"]))
+        if mk_fixes:
+            cur.executemany("UPDATE scenario_stocks SET market = ? WHERE ticker = ?", mk_fixes)
+            conn.commit()
+        out["market_relabeled"] = len(mk_fixes)
 
         if not fixes:
             return out

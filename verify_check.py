@@ -509,7 +509,12 @@ def main():
             m_tot, m_have = (mr + (0, 0))[:2]
             print(f"   포착 시점 5일 모멘텀 적재: {m_have or 0}/{m_tot or 0}"
                   f" ({(m_have or 0) / (m_tot or 1) * 100:.1f}%)")
-            _FEE = "(CASE WHEN ticker GLOB '[0-9]*' THEN 0.21 ELSE 0.15 END)"
+            # [v3.199.0] 왕복 비용을 **시장 컬럼**으로 가른다. 종전은 `ticker GLOB '[0-9]*'`였는데
+            # `8035.T`(도쿄일렉트론)처럼 숫자로 시작하는 해외 심볼이 국내 수수료 0.21%로 잡혔다.
+            # market이 비어 있는 과거 행은 '전부 숫자면 국내'로 되짚는다(종전과 같은 결과).
+            _FEE = ("(CASE WHEN COALESCE(market, '') = 'kr' "
+            "        OR (COALESCE(market, '') = '' AND ticker NOT GLOB '*[^0-9]*') "
+            "      THEN 0.21 ELSE 0.15 END)")
             HOT = "mom5_at_capture >= 10"
             rows_ok = True
             for col, bcol, lab in (("d7_return", "bench_d7_return", "d7"),

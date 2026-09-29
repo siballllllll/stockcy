@@ -7538,7 +7538,12 @@ def _aggregate_scenario_stats(cursor) -> dict:
     # 비용도 뺀다. 0%만 넘으면 이겼다고 세면 +0.1%짜리도 승리가 되는데, 왕복 수수료·세가
     # 국내 0.21%·미국 0.15%라 실제로는 손실이다.
     # 벤치마크가 없는 과거 행은 COALESCE로 0을 써서 종전과 같게 집계된다(표본 유실 없음).
-    _FEE = "(CASE WHEN ticker GLOB '[0-9]*' THEN 0.21 ELSE 0.15 END)"
+    # [v3.199.0] 왕복 비용을 **시장 컬럼**으로 가른다. 종전은 `ticker GLOB '[0-9]*'`였는데
+    # `8035.T`(도쿄일렉트론)처럼 숫자로 시작하는 해외 심볼이 국내 수수료 0.21%로 잡혔다.
+    # market이 비어 있는 과거 행은 '전부 숫자면 국내'로 되짚는다(종전과 같은 결과).
+    _FEE = ("(CASE WHEN COALESCE(market, '') = 'kr' "
+            "        OR (COALESCE(market, '') = '' AND ticker NOT GLOB '*[^0-9]*') "
+            "      THEN 0.21 ELSE 0.15 END)")
 
     def _win(col, bench):
         thr = f"(COALESCE({bench}, 0) + {_FEE})"
@@ -8207,29 +8212,41 @@ def _track_scenario_stocks_performance_impl() -> dict:
     # 사이클당 지수 2개만 받으면 되므로 비용은 사실상 0이다.
     _bench_cache: dict = {}
 
-    def _bench_series(us: bool):
-        key = "us" if us else "kr"
+    # 시장별 기준 지수 [v3.199.0] — 종전에는 '미국이냐 아니냐'뿐이라 해외 상장 심볼이
+    # 전부 S&P500과 비교됐다(8035.T 도쿄일렉트론·1211.HK BYD·2222.SR 아람코, 실측 5행).
+    # 사우디(^TASI)는 yfinance가 주지 않아 일부러 비워둔다 — 없는 기준선을 지어내면
+    # '시장 대비'가 아니라 절대 수익을 재면서 그렇게 안 보인다.
+    _BENCH_SYMBOL = {
+        "us": "^GSPC", "jp": "^N225", "hk": "^HSI", "cn": "000001.SS",
+        "de": "^GDAXI", "uk": "^FTSE",
+        # "sa": ^TASI 없음 · ca/au/fr/nl/it/es/ch/tw 미확인 — 확인한 것만 넣는다
+    }
+
+    def _bench_series(market: str):
+        key = str(market or "us").lower()
         if key in _bench_cache:
             return _bench_cache[key]
         ser = None
         try:
-            if us:
-                bdf = yf.download("^GSPC", start="2026-01-01", progress=False, timeout=10)
-                col = bdf["Close"]
-                if hasattr(col, "columns"):        # yfinance 멀티인덱스 방어
-                    col = col.iloc[:, 0]
-                ser = [(d.date(), float(v)) for d, v in col.dropna().items()]
-            else:
+            if key == "kr":
                 bdf = fdr.DataReader("KS11", "2026-01-01")
                 ser = [(d.date(), float(v)) for d, v in bdf["Close"].dropna().items()]
+            else:
+                sym = _BENCH_SYMBOL.get(key)
+                if sym:
+                    bdf = yf.download(sym, start="2026-01-01", progress=False, timeout=10)
+                    col = bdf["Close"]
+                    if hasattr(col, "columns"):        # yfinance 멀티인덱스 방어
+                        col = col.iloc[:, 0]
+                    ser = [(d.date(), float(v)) for d, v in col.dropna().items()]
         except Exception as e:
             print(f"[scenario tracking] 벤치마크({key}) 로드 실패: {e}")
         _bench_cache[key] = ser
         return ser
 
-    def _bench_returns(captured_date, us: bool):
+    def _bench_returns(captured_date, market: str):
         """포착일 기준 1·3·7·20·60 거래일 뒤 지수 수익률(%). 못 구하면 전부 None."""
-        ser = _bench_series(us)
+        ser = _bench_series(market)
         none5 = (None,) * 5
         if not ser:
             return none5
@@ -8268,8 +8285,15 @@ def _track_scenario_stocks_performance_impl() -> dict:
         # 대상 선별은 위 SQL이 한다 — 두 곳에 두면 어긋난다.
 
         raw_ticker = str(row["ticker"]).strip()
-        is_us = (row.get("market") == "us") or any(c.isalpha() for c in raw_ticker)
-        ticker = raw_ticker.upper() if is_us else raw_ticker.zfill(6)
+        # 시장은 티커에서 직접 판정한다 [v3.199.0] — DB의 market 컬럼은 종전 규칙
+        # ("영문 포함이면 us")으로 쓰인 과거 값이 섞여 있어 그대로 믿을 수 없다.
+        from db import resolve_market as _rm
+        mkt = _rm(raw_ticker)
+        if mkt == "unknown":
+            failed_ids.append(row["id"])
+            continue
+        is_kr = (mkt == "kr")
+        ticker = raw_ticker.zfill(6) if is_kr else raw_ticker.upper()
         # 등장일 직전~이후 데이터를 함께 받아, '등장 시점에 사용자가 본 가격'
         # (= 등장일 당일 또는 그 직전 거래일 종가)을 기준가로 잡는다.
         # 기존엔 '등장일 이후 첫 거래일' 종가를 썼는데, 주말·휴일에 등장하면
@@ -8288,11 +8312,11 @@ def _track_scenario_stocks_performance_impl() -> dict:
             if _ck in _bar_cache:
                 df = _bar_cache[_ck]
             else:
-                if is_us:
+                if is_kr:
+                    df = fdr.DataReader(ticker, fetch_start, end_date)
+                else:
                     df = yf.download(ticker, start=fetch_start, end=end_date,
                                      progress=False, timeout=10)
-                else:
-                    df = fdr.DataReader(ticker, fetch_start, end_date)
                 _bar_cache[_ck] = df
             if df is None or df.empty:
                 failed_ids.append(row["id"])
@@ -8329,7 +8353,7 @@ def _track_scenario_stocks_performance_impl() -> dict:
                     mom5 = round((entry - prev) / prev * 100, 2)
 
             now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            b1, b3, b7, b20, b60 = _bench_returns(captured, is_us)
+            b1, b3, b7, b20, b60 = _bench_returns(captured, mkt)
             pending_updates.append(
                 (entry, d1, d3, d7, d20, d60,
                  _r(d1), _r(d3), _r(d7), _r(d20), _r(d60),
