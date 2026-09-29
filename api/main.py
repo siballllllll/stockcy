@@ -505,6 +505,17 @@ def _scenario_tracking_loop():
                               f"(테마 커버리지 {tb.get('theme_coverage_pct')}%)")
                 except Exception as e:
                     print(f"[theme label] 오류: {e}")
+                # 포착 시점 5일 모멘텀 소급 적재 (v3.195.0) — 뒷북 여부 판정의 재료.
+                #   일일 추적은 '아직 안 끝난 행'만 보므로 이미 끝난 과거 행은 여기서 채운다.
+                #   회당 티커 120개로 제한 — 며칠에 걸쳐 채워지고 그동안 다른 작업을 막지 않는다.
+                try:
+                    from ai_engine import backfill_scenario_mom5
+                    mb = backfill_scenario_mom5(max_tickers=120)
+                    if mb.get("filled"):
+                        print(f"[mom5] 소급 적재 {mb.get('filled')}행 "
+                              f"(커버리지 {mb.get('coverage_pct')}% · 남은 티커 {mb.get('tickers_left')})")
+                except Exception as e:
+                    print(f"[mom5] 오류: {e}")
                 # AI추천 사후 성과(d1/d3/d7) 측정 — AI 호출 없이 가격만 사용
                 try:
                     from ai_engine import track_ai_recommendation_outcomes

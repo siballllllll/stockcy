@@ -1161,6 +1161,44 @@ function AiPerformanceCompare() {
 }
 
 // ── 시나리오 적중률 패널 ──────────────────────────────────────────────────────
+// ── 뒷북(급등 후 편입) 분해 [v3.195.0] ──────────────────────────────────────
+// V17 판정을 화면으로 옮긴 것. 사용자의 종전 우려("+10%여도 텐베거 초입일 수 있다")를
+// d60까지 재서 기각했다 — 급등 편입분은 시간이 갈수록 초과수익이 더 벌어진다.
+function ChaseSplit({ rows, meta }: { rows: any[]; meta: any }) {
+  return (
+    <div style={{ borderTop: "1px solid var(--color-border)", paddingTop: "8px", marginTop: "2px" }}>
+      <div style={{ fontSize: "0.72rem", fontWeight: 800, color: "var(--color-muted)", marginBottom: "4px" }}>
+        🔺 뒷북 여부로 가른 성적
+      </div>
+      <div style={{ display: "flex", gap: "6px" }}>
+        {rows.map((r: any) => {
+          const bad = r.label !== "비급등";
+          const c = bad ? "#f87171" : "#34d399";
+          return (
+            <div key={r.label} style={{ flex: 1, padding: "7px 9px", borderRadius: "7px",
+              background: bad ? "rgba(248,113,113,0.08)" : "rgba(52,211,153,0.08)",
+              border: `1px solid ${c}44` }}>
+              <div style={{ fontSize: "0.66rem", fontWeight: 800, color: c }}>
+                {bad ? "🔺 " : "✅ "}{r.label} <span style={{ color: "var(--color-subtle)", fontWeight: 500 }}>{r.count}건</span>
+              </div>
+              <div style={{ fontSize: "0.62rem", color: "var(--color-muted)", lineHeight: 1.6 }}>
+                7일 {r.excess_d7 > 0 ? "+" : ""}{r.excess_d7}%p · 승률 {r.win_rate_d7}%<br />
+                20일 {r.excess_d20 == null ? "–" : `${r.excess_d20 > 0 ? "+" : ""}${r.excess_d20}%p`}
+                {r.win_rate_d20 != null && ` · 승률 ${r.win_rate_d20}%`}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      <div style={{ fontSize: "0.6rem", color: "var(--color-subtle)", lineHeight: 1.5, marginTop: "4px" }}>
+        뒷북 = {meta?.threshold ?? "포착 직전 급등"}에 편입된 픽. 보유기간을 20일로 늘려도 회복되지 않아
+        <b style={{ color: "var(--color-text)" }}> 재료 집계에서 제외</b>합니다(기록은 남습니다).
+        {meta?.coverage_pct != null && <span> 측정 {meta.coverage_pct}% ({meta.measured}/{meta.total}행)</span>}
+      </div>
+    </div>
+  );
+}
+
 // ── 테마별 실측표 [v3.194.0] ────────────────────────────────────────────────
 // 표본 30건 미만은 기본 접는다. 우연과 구분되지 않는 숫자를 표의 맨 위에 올리면
 // 없는 신호를 읽게 된다 — 섀도우 리그에서 +65.5% 한 건이 평균 순위를 뒤집은 전례가 있다.
@@ -1411,6 +1449,8 @@ export function ScenarioTrackingPanel() {
       {/* [테마 이름표 v3.194.0] 이슈 문장 대신 고정된 테마 ID로 집계한다.
           종전에는 이 표를 만들 수 없었다 — scenario_keyword가 AI가 매번 새로 쓴 자유문장이라
           6,816종 중 4,407종이 1회성이고, 40건 이상 쌓인 키워드가 0개였다. */}
+      {(data?.by_chase ?? []).length === 2 && <ChaseSplit rows={data.by_chase} meta={data.chase_meta} />}
+
       {byTheme.length > 0 && <ThemeScoreboard rows={byTheme} />}
 
       {byScenario.length === 0 ? (
@@ -1530,6 +1570,15 @@ export function ScenarioTrackingPanel() {
                               {isUs && <span style={{ fontSize: "0.62rem", padding: "1px 5px", borderRadius: "3px", background: "rgba(50,200,100,0.15)", color: "#34d399", border: "1px solid rgba(50,200,100,0.3)" }}>US</span>}
                               {s.role && <span style={{ fontSize: "0.62rem", padding: "1px 5px", borderRadius: "3px", color: expectUp ? "#34d399" : "#f87171", border: `1px solid ${(expectUp ? "#34d399" : "#f87171")}55` }}>{roleLabel}</span>}
                               {s.horizon && <span style={{ fontSize: "0.62rem", padding: "1px 5px", borderRadius: "3px", color: "var(--color-muted)", border: "1px solid var(--color-border)" }}>{s.horizon}</span>}
+                              {/* [v3.195.0] 뒷북 표시 — 포착 직전 5거래일 +10%↑ 뒤에 편입된 픽.
+                                  실측(V17): d7 -4.40%p·승률 34.8% / d20 -3.73%p·36.7%.
+                                  시간을 더 줘도 회복되지 않아 재료 집계에서 제외된다. */}
+                              {s.mom5_at_capture != null && s.mom5_at_capture >= 10 && (
+                                <span title={`포착 직전 5거래일 ${s.mom5_at_capture > 0 ? "+" : ""}${s.mom5_at_capture}% — 이미 오른 뒤에 담은 픽`}
+                                  style={{ fontSize: "0.62rem", padding: "1px 5px", borderRadius: "3px", color: "#f87171", border: "1px solid #f8717155", background: "rgba(248,113,113,0.1)", fontWeight: 700 }}>
+                                  🔺뒷북 {s.mom5_at_capture > 0 ? "+" : ""}{s.mom5_at_capture}%
+                                </span>
+                              )}
                             </div>
                             {sceneText && (
                               <div title={sceneText} style={{ fontSize: "0.74rem", color: "var(--color-subtle)", display: "-webkit-box", WebkitBoxOrient: "vertical", WebkitLineClamp: 1, overflow: "hidden", wordBreak: "keep-all", lineHeight: 1.3 }}>

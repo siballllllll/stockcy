@@ -662,6 +662,10 @@ def init_local_db():
         # 남는 축). 둘 다 규칙 기반이라 과금 0원이고 소급 적용이 가능하다.
         "ALTER TABLE scenario_stocks ADD COLUMN theme_id TEXT",
         "ALTER TABLE scenario_stocks ADD COLUMN sector TEXT",
+        # [뒷북 진단 v3.195.0] 포착 직전 5거래일 수익률(%). V17('급등 후 편입을 제외할지')의
+        # 판정에 이 값이 필요한데 DB에 없어서 매번 네트워크로 다시 재고 있었다.
+        # 추적 job이 이미 포착일 전후 봉을 받으므로 여기서 같이 계산하면 추가 비용이 0이다.
+        "ALTER TABLE scenario_stocks ADD COLUMN mom5_at_capture REAL",
         "ALTER TABLE portfolio ADD COLUMN buy_reason TEXT DEFAULT ''",
         "ALTER TABLE trade_history ADD COLUMN buy_reason TEXT DEFAULT ''",
         "ALTER TABLE agent_decisions ADD COLUMN is_realized INTEGER DEFAULT 0",
@@ -4467,13 +4471,36 @@ def get_issue_stocks(keyword: str, exclude_ticker: str = None, limit: int = 12, 
         return []
 
 
-def load_scenario_stocks_set() -> dict:
-    """모든 시나리오 등장 종목의 ticker → 시나리오 개수 맵."""
+def load_scenario_stocks_set(exclude_chase: bool | None = None) -> dict:
+    """모든 시나리오 등장 종목의 ticker → 시나리오 개수 맵.
+
+    [뒷북 제외 v3.195.0] `exclude_chase`면 **포착 직전 5거래일 +10% 이상 오른 뒤에 편입된
+    행**을 재료로 세지 않는다. V17 판정(2026-09-29):
+
+        급등 편입분   d7 -4.12%p(33.0%) · d20 -4.43%p(35.8%) · d60 -6.32%p(32.6%)
+        비급등        d7 -0.76%p(42.4%) · d20 +1.85%p(56.5%) · d60 -0.34%p(47.5%)
+
+    시간을 더 줘도 회복되지 않는다 — 오히려 벌어진다. 그래서 '보유기간 연장'이 아니라
+    '제외'가 답이다(사용자의 종전 우려 "+10%여도 텐베거 초입일 수 있다"는 d60까지 재서 기각).
+
+    ⚠️ 효과 범위를 오해하지 말 것. 전체 티커 1,622개 중 이 필터로 재료가 0이 되는 것은
+       **1개**다(뒷북으로만 등장한 종목이 거의 없다). 즉 binary `linked`는 거의 그대로고,
+       바뀌는 것은 `linked_n`(재료 개수)과 그걸 무게로 쓰는 쪽이다. 같은 날 매수 판단의
+       뒷북 차단은 `ai_engine.issue_zone_signal`의 `not_hot`(실시간 5일 모멘텀<5%)이 맡는다.
+    ⚠️ mom5_at_capture가 NULL인 행은 **남긴다**. 모르는 것을 뒷북으로 단정하면 표본이
+       조용히 사라진다(적재는 일일 작업이 회당 티커 120개씩 채운다).
+
+    SCENARIO_EXCLUDE_CHASE=0 으로 끌 수 있다.
+    """
+    if exclude_chase is None:
+        exclude_chase = os.environ.get("SCENARIO_EXCLUDE_CHASE", "1") != "0"
+    where = " WHERE mom5_at_capture IS NULL OR mom5_at_capture < 10" if exclude_chase else ""
     try:
         conn = get_db_conn()
         cursor = conn.cursor()
         cursor.execute(
-            """SELECT ticker, COUNT(DISTINCT scenario_keyword) AS n FROM scenario_stocks GROUP BY ticker"""
+            f"""SELECT ticker, COUNT(DISTINCT scenario_keyword) AS n
+                FROM scenario_stocks{where} GROUP BY ticker"""
         )
         result = {row["ticker"]: int(row["n"]) for row in cursor.fetchall()}
         conn.close()

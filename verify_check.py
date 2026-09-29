@@ -502,14 +502,66 @@ def main():
             print("          ⚠️ 지금 찬 것은 **가장 오래된 포착분부터**라 특정 시기에 쏠려 있다.")
             print("             적재 도중의 수치는 그 시기의 장세를 재는 것이지 결론이 아니다.")
         else:
+            # [v3.195.0] mom5_at_capture 컬럼이 생겨 네트워크 없이 DB만으로 판정한다.
+            #   종전에는 포착 시점 모멘텀이 저장돼 있지 않아 매번 시세를 다시 받아야 했고,
+            #   그래서 이 항목은 표본이 찬 뒤에도 판정되지 않은 채 남아 있었다.
+            mr = _one(cur, """SELECT COUNT(*), COUNT(mom5_at_capture) FROM scenario_stocks""")
+            m_tot, m_have = (mr + (0, 0))[:2]
+            print(f"   포착 시점 5일 모멘텀 적재: {m_have or 0}/{m_tot or 0}"
+                  f" ({(m_have or 0) / (m_tot or 1) * 100:.1f}%)")
+            _FEE = "(CASE WHEN ticker GLOB '[0-9]*' THEN 0.21 ELSE 0.15 END)"
+            HOT = "mom5_at_capture >= 10"
+            rows_ok = True
+            for col, bcol, lab in (("d7_return", "bench_d7_return", "d7"),
+                                   ("d20_return", "bench_d20_return", "d20"),
+                                   ("d60_return", "bench_d60_return", "d60")):
+                win = (f"((COALESCE(role,'') != '피해' AND {col} > COALESCE({bcol},0) + {_FEE}) OR "
+                       f"(role = '피해' AND {col} < -(COALESCE({bcol},0) + {_FEE})))")
+                parts = []
+                for tag, cond in (("급등", HOT), ("비급등", f"NOT ({HOT})")):
+                    rr = _one(cur, f"""SELECT COUNT(*), AVG({col} - COALESCE({bcol},0)),
+                                              100.0 * SUM(CASE WHEN {win} THEN 1 ELSE 0 END) / COUNT(*)
+                                       FROM scenario_stocks
+                                       WHERE {col} IS NOT NULL AND mom5_at_capture IS NOT NULL
+                                         AND {cond}""")
+                    if not rr or rr[0] in (0, "ERR") or rr[1] is None:
+                        parts.append(f"{tag} 표본부족")
+                        rows_ok = False
+                    else:
+                        parts.append(f"{tag} n={rr[0]} 초과 {rr[1]:+.2f}%p 승률 {rr[2]:.1f}%")
+                print(f"     {lab:<4} " + " · ".join(parts))
+            # 판정 — 급등 구간이 d20/d60에서 양수로 돌아서는지
+            hot = {}
             for col, bcol, lab in (("d7_return", "bench_d7_return", "d7"),
                                    ("d20_return", "bench_d20_return", "d20"),
                                    ("d60_return", "bench_d60_return", "d60")):
                 rr = _one(cur, f"""SELECT COUNT(*), AVG({col} - COALESCE({bcol},0))
-                                   FROM scenario_stocks WHERE {col} IS NOT NULL""")
-                if rr and rr[0]:
-                    print(f"     {lab:<4} 전체 초과 {rr[1]:+.2f}%p (n={rr[0]})")
-            print("   [DUE] 표본 충족 — 급등 구간(직전 5일 +10%↑)의 d20·d60 초과수익을 볼 것.")
+                                   FROM scenario_stocks
+                                   WHERE {col} IS NOT NULL AND {HOT}""")
+                hot[lab] = (rr[0], rr[1]) if rr and rr[0] and rr[1] is not None else (0, None)
+            if (m_have or 0) < 4000:
+                print(f"   [WAIT] 모멘텀 적재 {m_have or 0}행 — 4,000행 이상에서 판정."
+                      " 일일 작업이 회당 티커 120개씩 채운다.")
+            elif not rows_ok:
+                print("   [WAIT] 구간별 표본이 아직 얇다.")
+            else:
+                long_pos = [lab for lab in ("d20", "d60")
+                            if hot[lab][1] is not None and hot[lab][1] > 0]
+                on = os.environ.get("SCENARIO_EXCLUDE_CHASE", "1") != "0"
+                if long_pos:
+                    print(f"   [DUE] 급등 구간이 {'·'.join(long_pos)}에서 양수로 돌아선다 →")
+                    print("         답은 '제외'가 아니라 **보유기간을 늘린다**. 편입은 유지하고")
+                    print("         d7 기준 판단·청산에서만 급등분을 분리할 것.")
+                    if on:
+                        print("         ⚠️ 그런데 지금 제외가 켜져 있다(SCENARIO_EXCLUDE_CHASE=1) — 재검토할 것.")
+                elif on:
+                    print("   [DONE] 급등 구간이 d20·d60에서도 음수 → 재료 집계에서 제외 적용 중")
+                    print("          (v3.195.0 · SCENARIO_EXCLUDE_CHASE=0으로 끔). 행은 그대로 쌓인다.")
+                    print("          효과 범위: linked_n 11,912→10,477. binary linked는 거의 불변 —")
+                    print("          같은 날 매수 차단은 issue_zone_signal의 not_hot이 이미 맡고 있었다.")
+                else:
+                    print("   [DUE] 급등 구간이 d20·d60에서도 음수인데 제외가 꺼져 있다"
+                          " (SCENARIO_EXCLUDE_CHASE=0) — 켤 것.")
         print("   통과 기준: 급등 구간의 초과수익이 d20 또는 d60에서 양수로 돌아서면")
         print("             '제외'가 아니라 '보유기간을 늘린다'가 답이다. 계속 음수면 제외.")
         print("   ⚠️ d7만 보고 자르지 말 것 — 7거래일로는 대세 상승 초입을 관측할 수 없다.")

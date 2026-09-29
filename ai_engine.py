@@ -7690,10 +7690,51 @@ def _aggregate_scenario_stats(cursor) -> dict:
             "excess_d20":   round(d["excess_d20"], 2) if d.get("excess_d20") is not None else None,
         })
 
+    # ── 뒷북(급등 후 편입) 분해 [v3.195.0] ──────────────────────────────────
+    # V17 판정을 화면으로 옮긴다. 급등 편입분은 시간을 줘도 회복되지 않는다 —
+    # d7 -4.12%p → d20 -4.43%p → d60 -6.32%p로 오히려 벌어진다(2026-09-29).
+    by_chase = []
+    for tag, cond in (("급등 후 편입", "mom5_at_capture >= 10"),
+                      ("비급등", "mom5_at_capture < 10")):
+        cursor.execute(
+            f"""SELECT COUNT(*) n,
+                       SUM(CASE WHEN {_WIN_D7} THEN 1 ELSE 0 END) w7,
+                       AVG(d7_return - COALESCE(bench_d7_return, 0)) ex7,
+                       COUNT(d20_return) n20,
+                       SUM(CASE WHEN d20_return IS NOT NULL AND {_WIN_D20} THEN 1 ELSE 0 END) w20,
+                       AVG(CASE WHEN d20_return IS NOT NULL
+                                THEN d20_return - COALESCE(bench_d20_return, 0) END) ex20
+                FROM scenario_stocks
+                WHERE d7_return IS NOT NULL AND mom5_at_capture IS NOT NULL AND {cond}"""
+        )
+        d = dict(cursor.fetchone() or {})
+        n, n20 = d.get("n") or 0, d.get("n20") or 0
+        if not n:
+            continue
+        by_chase.append({
+            "label": tag,
+            "count": n,
+            "win_rate_d7": round((d.get("w7") or 0) / n * 100, 1),
+            "excess_d7": round(d.get("ex7") or 0, 2),
+            "count_d20": n20,
+            "win_rate_d20": round((d.get("w20") or 0) / n20 * 100, 1) if n20 else None,
+            "excess_d20": round(d["ex20"], 2) if d.get("ex20") is not None else None,
+        })
+    cursor.execute("SELECT COUNT(*), COUNT(mom5_at_capture) FROM scenario_stocks")
+    _mt, _mh = (cursor.fetchone() or (0, 0))[:2]
+    chase_meta = {
+        "measured": _mh or 0,
+        "total": _mt or 0,
+        "coverage_pct": round((_mh or 0) / _mt * 100, 1) if _mt else 0,
+        "threshold": "포착 직전 5거래일 +10% 이상",
+    }
+
     return {
         "overall": overall,
         "by_scenario": by_scenario,
         "by_theme":  by_theme,
+        "by_chase":  by_chase,
+        "chase_meta": chase_meta,
         "by_horizon":  by_horizon,
         "top_winners": top_winners,
         "top_losers":  top_losers,
@@ -7721,7 +7762,8 @@ def load_scenario_tracking_list(limit: int = 300) -> list:
     try:
         cur.execute(
             """SELECT ticker, name, market, scenario_keyword, scenario_title, role, horizon,
-                      captured_at, captured_price, d1_return, d3_return, d7_return
+                      captured_at, captured_price, d1_return, d3_return, d7_return,
+                      theme_id, mom5_at_capture
                FROM scenario_stocks
                ORDER BY captured_at DESC
                LIMIT ?""",
@@ -8227,7 +8269,10 @@ def _track_scenario_stocks_performance_impl() -> dict:
         # (= 등장일 당일 또는 그 직전 거래일 종가)을 기준가로 잡는다.
         # 기존엔 '등장일 이후 첫 거래일' 종가를 썼는데, 주말·휴일에 등장하면
         # 그 첫 거래일이 곧 오늘이 되어 기준가=현재가→수익률 0%로 붕괴되는 문제가 있었음.
-        fetch_start = (captured - timedelta(days=10)).strftime("%Y-%m-%d")
+        # [v3.195.0] -10일 → -15일. 포착 직전 5거래일 모멘텀을 재려면 기준봉 앞에 5봉이
+        # 더 있어야 한다(연휴가 끼면 10달력일로는 모자란다). 같은 요청의 구간만 늘리므로
+        # 추가 호출은 없다.
+        fetch_start = (captured - timedelta(days=15)).strftime("%Y-%m-%d")
         # d60(60거래일)까지 담으려면 약 90달력일이 필요하다.
         end_date = (captured + timedelta(days=95)).strftime("%Y-%m-%d")
 
@@ -8269,12 +8314,20 @@ def _track_scenario_stocks_performance_impl() -> dict:
             d1, d3, d7, d20, d60 = _p(1), _p(3), _p(7), _p(20), _p(60)
             def _r(p): return round((p - entry) / entry * 100, 2) if p else None
 
+            # 포착 직전 5거래일 수익률 — '뒷북 여부'를 사후에 되짚을 수 있게 남긴다.
+            # 이 값이 없어서 V17('급등 후 편입을 제외할지')을 매번 네트워크로 다시 재야 했다.
+            mom5 = None
+            if base_i >= 5:
+                prev = float(df["Close"].iloc[base_i - 5])
+                if prev > 0:
+                    mom5 = round((entry - prev) / prev * 100, 2)
+
             now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             b1, b3, b7, b20, b60 = _bench_returns(captured, is_us)
             pending_updates.append(
                 (entry, d1, d3, d7, d20, d60,
                  _r(d1), _r(d3), _r(d7), _r(d20), _r(d60),
-                 b1, b3, b7, b20, b60, now, row["id"])
+                 b1, b3, b7, b20, b60, mom5, now, row["id"])
             )
         except Exception as e:
             print(f"[scenario tracking] {ticker} 실패: {e}")
@@ -8292,6 +8345,7 @@ def _track_scenario_stocks_performance_impl() -> dict:
                        d20_return = ?, d60_return = ?,
                        bench_d1_return = ?, bench_d3_return = ?, bench_d7_return = ?,
                        bench_d20_return = ?, bench_d60_return = ?,
+                       mom5_at_capture = COALESCE(?, mom5_at_capture),
                        updated_at = ?
                    WHERE id = ?""",
                 pending_updates,
@@ -8305,6 +8359,116 @@ def _track_scenario_stocks_performance_impl() -> dict:
     stats = _aggregate_scenario_stats(cursor)
     conn.close()
     return {"updated_now": updated, **stats}
+
+
+def backfill_scenario_mom5(max_tickers: int = 80) -> dict:
+    """[v3.195.0] 과거 행의 `mom5_at_capture`(포착 직전 5거래일 수익률)를 소급해 채운다.
+
+    [왜 별도 함수인가] 일일 추적 job은 '아직 안 끝난 행'만 훑으므로, 이미 d60까지 찬
+    과거 행은 영원히 다시 보지 않는다. 그런데 V17(급등 후 편입을 제외할지)의 판정 대상은
+    바로 그 끝난 행들이다.
+
+    [왜 티커 단위인가] 행 단위로 받으면 같은 종목을 아홉 번 받는다(9,755행 / 1,048티커).
+    티커마다 긴 구간 한 번만 받아 그 종목의 모든 행을 한꺼번에 계산한다.
+
+    한 번에 max_tickers개만 처리하고 끝낸다 — 일일 작업에 걸어두면 며칠에 걸쳐 채워진다.
+    (V17의 d20·d60 적재도 같은 방식으로 회당 600행씩 채웠다.)
+    """
+    from db import get_db_conn
+    from datetime import datetime, timedelta
+    import FinanceDataReader as fdr
+    import yfinance as yf
+
+    conn = get_db_conn()
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            """SELECT ticker, market, COUNT(*) AS n,
+                      MIN(captured_at) AS first_at, MAX(captured_at) AS last_at
+               FROM scenario_stocks
+               WHERE mom5_at_capture IS NULL
+               GROUP BY ticker, market
+               ORDER BY n DESC
+               LIMIT ?""",
+            (int(max_tickers),),
+        )
+        targets = [dict(r) for r in cur.fetchall()]
+        if not targets:
+            cur.execute("""SELECT COUNT(*), COUNT(mom5_at_capture) FROM scenario_stocks""")
+            tot, done = cur.fetchone()[:2]
+            return {"ok": True, "done": True, "filled": 0, "total": tot, "with_mom5": done}
+
+        filled, failed = 0, 0
+        for t in targets:
+            raw = str(t["ticker"]).strip()
+            is_us = (t.get("market") == "us") or any(c.isalpha() for c in raw)
+            ticker = raw.upper() if is_us else raw.zfill(6)
+            try:
+                start = (datetime.fromisoformat(str(t["first_at"])[:19])
+                         - timedelta(days=20)).strftime("%Y-%m-%d")
+                end = (datetime.fromisoformat(str(t["last_at"])[:19])
+                       + timedelta(days=3)).strftime("%Y-%m-%d")
+                if is_us:
+                    df = yf.download(ticker, start=start, end=end, progress=False, timeout=10)
+                else:
+                    df = fdr.DataReader(ticker, start, end)
+                if df is None or df.empty:
+                    failed += 1
+                    continue
+                col = df["Close"]
+                if hasattr(col, "columns"):   # yfinance 멀티인덱스 방어(NVDA에서 실측 실패)
+                    col = col.iloc[:, 0]
+                closes = [(d.date() if hasattr(d, "date") else d, float(v))
+                          for d, v in col.dropna().items()]
+                if len(closes) < 6:
+                    failed += 1
+                    continue
+
+                cur.execute(
+                    """SELECT id, captured_at FROM scenario_stocks
+                       WHERE ticker = ? AND mom5_at_capture IS NULL""",
+                    (t["ticker"],),
+                )
+                rows = [dict(r) for r in cur.fetchall()]
+                ups = []
+                for r in rows:
+                    try:
+                        cap = datetime.fromisoformat(str(r["captured_at"])[:19]).date()
+                    except Exception:
+                        continue
+                    base_i = None
+                    for j, (d, _) in enumerate(closes):
+                        if d <= cap:
+                            base_i = j
+                        else:
+                            break
+                    if base_i is None or base_i < 5:
+                        continue
+                    prev, now_px = closes[base_i - 5][1], closes[base_i][1]
+                    if prev > 0:
+                        ups.append((round((now_px - prev) / prev * 100, 2), r["id"]))
+                if ups:
+                    cur.executemany(
+                        "UPDATE scenario_stocks SET mom5_at_capture = ? WHERE id = ?", ups)
+                    conn.commit()
+                    filled += len(ups)
+            except Exception as e:
+                failed += 1
+                print(f"[mom5 backfill] {ticker} 실패: {str(e)[:60]}")
+                continue
+
+        cur.execute("SELECT COUNT(*), COUNT(mom5_at_capture) FROM scenario_stocks")
+        tot, done = cur.fetchone()[:2]
+        cur.execute("SELECT COUNT(DISTINCT ticker) FROM scenario_stocks WHERE mom5_at_capture IS NULL")
+        left = cur.fetchone()[0]
+        return {"ok": True, "done": left == 0, "filled": filled, "failed": failed,
+                "tickers_done": len(targets), "tickers_left": left,
+                "total": tot, "with_mom5": done,
+                "coverage_pct": round((done or 0) / tot * 100, 1) if tot else 0}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+    finally:
+        conn.close()
 
 
 # ── 패턴 스크리너 백테스트 ────────────────────────────────────────────────────
