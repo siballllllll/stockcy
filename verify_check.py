@@ -659,6 +659,35 @@ def main():
     except Exception as e:
         print(f"   [BLOCKED] 확인 실패: {str(e)[:80]}")
 
+    # ── V20. 시나리오 종목코드 오염 감시 ──────────────────────────────────────
+    print(_hdr("V20", "시나리오 종목코드 — AI가 적은 코드가 실제 그 종목인가"))
+    try:
+        import db as _db
+        rep = _db.repair_scenario_tickers(dry_run=True)
+        if rep.get("error"):
+            print(f"   [BLOCKED] 확인 실패: {str(rep['error'])[:70]}")
+        else:
+            bad = rep.get("rows_to_fix") or 0
+            measured = rep.get("measured_rows_reset") or 0
+            tot = _one(cur, "SELECT COUNT(*) FROM scenario_stocks WHERE ticker GLOB '[0-9]*'")
+            tot = (tot or (0,))[0] or 0
+            print(f"   국내 픽 {tot}행 중 코드가 이름과 어긋난 것: {bad}행"
+                  f" ({bad / (tot or 1) * 100:.1f}%)")
+            if bad == 0:
+                print("   [DONE] 오염 없음. 저장 시점 교정이 작동 중(v3.196.0).")
+            else:
+                print(f"   [DUE] {bad}행 — 그중 {measured}행은 이미 엉뚱한 종목 주가로 승률이 계산됐다.")
+                print("         `venv/Scripts/python -c \"import db; print(db.repair_scenario_tickers(False))\"`")
+                for s in (rep.get("samples") or [])[:5]:
+                    print(f"           {s['name']}: {s['wrong']} → {s['correct']} ({s['rows']}행)")
+        print("   통과 기준: 어긋난 코드 0행. 저장 시점 교정이 막고 있으니 늘어나면 경로가 새는 것이다.")
+        print("   ⚠️ 사명 변경은 오염이 아니다 — POSCO홀딩스/포스코홀딩스, NAVER/네이버는 같은 회사다.")
+        print("      이름이 상장 목록에 있으면서 다른 코드를 가리킬 때만 센다.")
+        print("   ⚠️ 교정하면 그 행의 측정값(가격·수익률·벤치마크)은 NULL로 되돌아간다 —")
+        print("      잘못된 주가로 계산된 값을 남기면 승률이 계속 오염된다. 추적 job이 다시 잰다.")
+    except Exception as e:
+        print(f"   [BLOCKED] 확인 실패: {str(e)[:80]}")
+
     c.close()
     print(f"\n{'─' * 74}")
     print("자세한 배경과 판정 기준은 VERIFY.md 참조.")

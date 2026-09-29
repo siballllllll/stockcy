@@ -666,6 +666,9 @@ def init_local_db():
         # 판정에 이 값이 필요한데 DB에 없어서 매번 네트워크로 다시 재고 있었다.
         # 추적 job이 이미 포착일 전후 봉을 받으므로 여기서 같이 계산하면 추가 비용이 0이다.
         "ALTER TABLE scenario_stocks ADD COLUMN mom5_at_capture REAL",
+        # 조회 시도 횟수 — 상장폐지·비상장·FDR 미수록 종목을 영원히 재시도하지 않기 위함.
+        # (실측: 미적재 927티커 중 상당수가 AI가 지어낸 '미상장'·'비상장'·'000000' 같은 값이다)
+        "ALTER TABLE scenario_stocks ADD COLUMN mom5_attempts INTEGER DEFAULT 0",
         "ALTER TABLE portfolio ADD COLUMN buy_reason TEXT DEFAULT ''",
         "ALTER TABLE trade_history ADD COLUMN buy_reason TEXT DEFAULT ''",
         "ALTER TABLE agent_decisions ADD COLUMN is_realized INTEGER DEFAULT 0",
@@ -4063,6 +4066,17 @@ def save_scenario_stocks(scenario_keyword: str, scenario_title: str, stocks: lis
             market = "us" if any(c.isalpha() for c in ticker) else "kr"
             if not ticker:
                 continue
+            # [코드 검증 v3.196.0] AI가 종목코드를 틀리게 적는다 — 이름이 상장 목록에 있고
+            # 코드가 다른 종목을 가리키면 이름 기준으로 고친다. 소급 교정 1,014행(569종목)의
+            # 재발 방지용. 사명 변경(이름이 목록에 없음)은 손대지 않는다. 자세한 근거는
+            # `_resolve_kr_ticker` 주석.
+            try:
+                fixed = _resolve_kr_ticker(name, ticker)
+                if fixed:
+                    print(f"[scenario] 종목코드 교정: {name} {ticker} → {fixed}")
+                    ticker = fixed
+            except Exception:
+                pass
             cursor.execute(
                 """SELECT id FROM scenario_stocks WHERE scenario_keyword=? AND ticker=?""",
                 (scenario_keyword, ticker)
@@ -4091,6 +4105,102 @@ def save_scenario_stocks(scenario_keyword: str, scenario_title: str, stocks: lis
         conn.close()
     except Exception as e:
         print(f"save_scenario_stocks error: {e}")
+
+
+def _resolve_kr_ticker(name: str, ticker: str) -> str | None:
+    """종목명으로 올바른 국내 종목코드를 찾는다. 교정이 필요 없으면 None.
+
+    [왜 필요한가 — v3.196.0] AI가 종목코드를 틀리게 적는다. 실측(2026-09-29, 국내 픽 9,682행):
+      · 존재하지 않는 코드 701행(7.2%) → 시세 조회 실패 → 승률 통계에서 조용히 탈락
+      · **다른 회사의 코드 493행(5.1%)** → 그중 335행은 이미 엉뚱한 종목 주가로 승률이 계산됨
+
+    실제 사례: '고려아연'에 005490(POSCO홀딩스) · 'LS'에 006220(제주은행) ·
+    'LG씨엔에스'에 032830(삼성생명) · '동국씨엠'에 000720(현대건설).
+    측정만 망치는 게 아니라 `load_scenario_stocks_set`의 재료도 오염된다 —
+    제주은행이 'LS' 재료를 갖게 되고, 그 상태로 매수 게이트를 통과할 수 있다.
+
+    ⚠️ 사명 변경은 교정하지 않는다(439행). POSCO홀딩스/포스코홀딩스, NAVER/네이버,
+       LIG넥스원→LIG디펜스앤에어로스페이스는 **같은 회사**다. 이름이 목록에 없으면
+       손대지 않는 것이 그 구분이다 — 목록에 있는 이름이 다른 코드를 가리킬 때만 고친다.
+    """
+    nm = str(name or "").strip()
+    tk = str(ticker or "").strip()
+    if not nm or not tk or any(c.isalpha() for c in tk):
+        return None                      # 미국 종목·빈 값은 대상이 아니다
+    try:
+        from data_kr import get_kr_name_to_code_map
+        n2c = get_kr_name_to_code_map() or {}
+    except Exception:
+        return None
+    hit = n2c.get(nm) or n2c.get(nm.replace(" ", ""))
+    if not hit:
+        return None                      # 목록에 없는 이름 = 사명 변경·비상장 → 그대로 둔다
+    correct = str(hit.get("code") or "").zfill(6)
+    return correct if (correct and correct != tk.zfill(6)) else None
+
+
+def repair_scenario_tickers(dry_run: bool = True) -> dict:
+    """[v3.196.0] 잘못된 종목코드를 이름 기준으로 교정한다.
+
+    측정값(가격·수익률·벤치마크·mom5)은 **NULL로 되돌린다.** 엉뚱한 종목 주가로 계산된
+    값을 남겨두면 승률이 계속 오염된다 — 지우면 추적 job이 올바른 종목으로 다시 잰다.
+
+    dry_run=True(기본)면 무엇을 바꿀지만 돌려준다.
+    """
+    conn = get_db_conn()
+    cur = conn.cursor()
+    try:
+        cur.execute("""SELECT id, ticker, name, d7_return FROM scenario_stocks
+                       WHERE ticker GLOB '[0-9]*'""")
+        rows = [dict(r) for r in cur.fetchall()]
+        cache: dict[tuple, str | None] = {}
+        fixes, samples, had_measure = [], {}, 0
+        for r in rows:
+            key = (r.get("name") or "", r.get("ticker") or "")
+            if key not in cache:
+                cache[key] = _resolve_kr_ticker(key[0], key[1])
+            correct = cache[key]
+            if not correct:
+                continue
+            fixes.append((correct, r["id"]))
+            if r.get("d7_return") is not None:
+                had_measure += 1
+            samples.setdefault(key, [0, correct])
+            samples[key][0] += 1
+
+        out = {
+            "rows_to_fix": len(fixes),
+            "tickers_to_fix": len(samples),
+            "measured_rows_reset": had_measure,
+            "samples": [{"name": k[0], "wrong": k[1], "correct": v[1], "rows": v[0]}
+                        for k, v in sorted(samples.items(), key=lambda x: -x[1][0])[:15]],
+            "dry_run": dry_run,
+        }
+        if dry_run or not fixes:
+            return out
+
+        cur.executemany(
+            """UPDATE scenario_stocks
+               SET ticker = ?,
+                   captured_price = NULL,
+                   d1_price = NULL, d3_price = NULL, d7_price = NULL,
+                   d20_price = NULL, d60_price = NULL,
+                   d1_return = NULL, d3_return = NULL, d7_return = NULL,
+                   d20_return = NULL, d60_return = NULL,
+                   bench_d1_return = NULL, bench_d3_return = NULL, bench_d7_return = NULL,
+                   bench_d20_return = NULL, bench_d60_return = NULL,
+                   mom5_at_capture = NULL, mom5_attempts = 0,
+                   sector = NULL
+               WHERE id = ?""",
+            fixes,
+        )
+        conn.commit()
+        out["applied"] = len(fixes)
+        return out
+    except Exception as e:
+        return {"error": str(e)}
+    finally:
+        conn.close()
 
 
 def backfill_scenario_themes(force: bool = False) -> dict:

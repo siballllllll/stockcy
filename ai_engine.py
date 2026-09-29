@@ -8382,21 +8382,41 @@ def backfill_scenario_mom5(max_tickers: int = 80) -> dict:
     conn = get_db_conn()
     cur = conn.cursor()
     try:
+        # ⚠️ 시도 횟수를 세지 않으면 이 함수는 진행하지 않는다. 실패한 티커가 매번 같은
+        #    'n DESC' 상위에 다시 뽑혀 새 티커에 도달하지 못한다(실측: 14회 반복 중
+        #    후반 10회가 같은 실패 티커만 재시도해 회당 4행씩 채웠다).
+        #    3회 실패하면 접는다 — 상장폐지·비상장·FDR 미수록은 기다려도 안 나온다.
+        MAX_TRY = 3
         cur.execute(
             """SELECT ticker, market, COUNT(*) AS n,
-                      MIN(captured_at) AS first_at, MAX(captured_at) AS last_at
+                      MIN(captured_at) AS first_at, MAX(captured_at) AS last_at,
+                      MAX(COALESCE(mom5_attempts, 0)) AS tries
                FROM scenario_stocks
-               WHERE mom5_at_capture IS NULL
+               WHERE mom5_at_capture IS NULL AND COALESCE(mom5_attempts, 0) < ?
                GROUP BY ticker, market
-               ORDER BY n DESC
+               ORDER BY tries ASC, n DESC
                LIMIT ?""",
-            (int(max_tickers),),
+            (MAX_TRY, int(max_tickers)),
         )
         targets = [dict(r) for r in cur.fetchall()]
         if not targets:
-            cur.execute("""SELECT COUNT(*), COUNT(mom5_at_capture) FROM scenario_stocks""")
-            tot, done = cur.fetchone()[:2]
-            return {"ok": True, "done": True, "filled": 0, "total": tot, "with_mom5": done}
+            cur.execute("""SELECT COUNT(*), COUNT(mom5_at_capture),
+                                  SUM(CASE WHEN mom5_at_capture IS NULL
+                                            AND COALESCE(mom5_attempts,0) >= ? THEN 1 ELSE 0 END)
+                           FROM scenario_stocks""", (MAX_TRY,))
+            tot, done, gave_up = cur.fetchone()[:3]
+            return {"ok": True, "done": True, "filled": 0, "total": tot, "with_mom5": done,
+                    "unavailable": gave_up or 0}
+
+        def _mark_failed(tk):
+            """조회 실패를 그 티커의 모든 행에 기록한다(다음 호출에서 뒤로 밀리도록)."""
+            try:
+                cur.execute(
+                    """UPDATE scenario_stocks SET mom5_attempts = COALESCE(mom5_attempts, 0) + 1
+                       WHERE ticker = ? AND mom5_at_capture IS NULL""", (tk,))
+                conn.commit()
+            except Exception:
+                pass
 
         filled, failed = 0, 0
         for t in targets:
@@ -8414,6 +8434,7 @@ def backfill_scenario_mom5(max_tickers: int = 80) -> dict:
                     df = fdr.DataReader(ticker, start, end)
                 if df is None or df.empty:
                     failed += 1
+                    _mark_failed(t["ticker"])
                     continue
                 col = df["Close"]
                 if hasattr(col, "columns"):   # yfinance 멀티인덱스 방어(NVDA에서 실측 실패)
@@ -8422,6 +8443,7 @@ def backfill_scenario_mom5(max_tickers: int = 80) -> dict:
                           for d, v in col.dropna().items()]
                 if len(closes) < 6:
                     failed += 1
+                    _mark_failed(t["ticker"])
                     continue
 
                 cur.execute(
@@ -8452,17 +8474,27 @@ def backfill_scenario_mom5(max_tickers: int = 80) -> dict:
                         "UPDATE scenario_stocks SET mom5_at_capture = ? WHERE id = ?", ups)
                     conn.commit()
                     filled += len(ups)
+                else:
+                    # 봉은 받았는데 포착일 앞에 5봉이 없는 경우 — 기다려도 생기지 않는다.
+                    _mark_failed(t["ticker"])
             except Exception as e:
                 failed += 1
+                _mark_failed(t["ticker"])
                 print(f"[mom5 backfill] {ticker} 실패: {str(e)[:60]}")
                 continue
 
-        cur.execute("SELECT COUNT(*), COUNT(mom5_at_capture) FROM scenario_stocks")
-        tot, done = cur.fetchone()[:2]
-        cur.execute("SELECT COUNT(DISTINCT ticker) FROM scenario_stocks WHERE mom5_at_capture IS NULL")
+        cur.execute("""SELECT COUNT(*), COUNT(mom5_at_capture),
+                              SUM(CASE WHEN mom5_at_capture IS NULL
+                                        AND COALESCE(mom5_attempts,0) >= ? THEN 1 ELSE 0 END)
+                       FROM scenario_stocks""", (MAX_TRY,))
+        tot, done, gave_up = cur.fetchone()[:3]
+        cur.execute(
+            "SELECT COUNT(DISTINCT ticker) FROM scenario_stocks "
+            "WHERE mom5_at_capture IS NULL AND COALESCE(mom5_attempts,0) < ?", (MAX_TRY,))
         left = cur.fetchone()[0]
         return {"ok": True, "done": left == 0, "filled": filled, "failed": failed,
                 "tickers_done": len(targets), "tickers_left": left,
+                "unavailable": gave_up or 0,
                 "total": tot, "with_mom5": done,
                 "coverage_pct": round((done or 0) / tot * 100, 1) if tot else 0}
     except Exception as e:

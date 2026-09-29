@@ -1780,6 +1780,18 @@ async def backfill_scenario_themes_now(force: bool = False, _user: dict = Depend
     return await asyncio.to_thread(backfill_scenario_themes, force)
 
 
+@router.post("/scenario-tracking/repair-tickers")
+async def repair_scenario_tickers_now(apply: bool = False, _user: dict = Depends(get_current_user)):
+    """[v3.196.0] AI가 틀리게 적은 종목코드를 이름 기준으로 교정한다.
+
+    apply=false(기본)면 무엇을 바꿀지만 돌려준다. apply=true면 실제로 고치고, 그 행의
+    측정값(가격·수익률·벤치마크·mom5)을 NULL로 되돌려 추적 job이 올바른 종목으로 다시 재게 한다.
+    상시 감시는 현황판 V20이 한다.
+    """
+    from db import repair_scenario_tickers
+    return await asyncio.to_thread(repair_scenario_tickers, not apply)
+
+
 @router.get("/scenario-tracking/stats")
 async def get_scenario_tracking_stats():
     """시나리오 적중률 통계 조회 — 가격 재추적 없이 DB 집계만 빠르게 반환.
