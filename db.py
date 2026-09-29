@@ -4581,7 +4581,7 @@ def get_issue_stocks(keyword: str, exclude_ticker: str = None, limit: int = 12, 
         return []
 
 
-def load_scenario_stocks_set(exclude_chase: bool | None = None) -> dict:
+def load_scenario_stocks_set(exclude_chase: bool | None = None, min_gap_days: int = 0) -> dict:
     """모든 시나리오 등장 종목의 ticker → 시나리오 개수 맵.
 
     [뒷북 제외 v3.195.0] `exclude_chase`면 **포착 직전 5거래일 +10% 이상 오른 뒤에 편입된
@@ -4600,14 +4600,51 @@ def load_scenario_stocks_set(exclude_chase: bool | None = None) -> dict:
     ⚠️ mom5_at_capture가 NULL인 행은 **남긴다**. 모르는 것을 뒷북으로 단정하면 표본이
        조용히 사라진다(적재는 일일 작업이 회당 티커 120개씩 채운다).
 
+    [반복 제외 v3.197.0] `min_gap_days`면 **직전 등장이 그 일수 안에 있는 행**을 재료로
+    세지 않는다(첫 등장은 남는다). 실측(2026-09-29): 직전 등장이 1~3일 전인 픽은
+    d7 -1.49%p·승률 40.8%인데, 15~45일 전이면 +0.68%p·50.1%다. 며칠 연속 시나리오에
+    박히는 종목은 그냥 지금 뜨거운 종목이다.
+    ⚠️ 기본값 0(끔)이다. 전체 픽의 73%가 '직전 3일 내 반복'이라, 켜면 `linked` 의미가
+       통째로 바뀌고 섀도우 C의 실측 근거(국내 승률 70.8%)를 인용할 수 없게 된다.
+       그래서 본선이 아니라 짝 전략(SHADOW_C2)에서만 쓴다 — VERIFY.md V19.
+
     SCENARIO_EXCLUDE_CHASE=0 으로 끌 수 있다.
     """
     if exclude_chase is None:
         exclude_chase = os.environ.get("SCENARIO_EXCLUDE_CHASE", "1") != "0"
-    where = " WHERE mom5_at_capture IS NULL OR mom5_at_capture < 10" if exclude_chase else ""
+    conds = []
+    if exclude_chase:
+        conds.append("(mom5_at_capture IS NULL OR mom5_at_capture < 10)")
+    where = (" WHERE " + " AND ".join(conds)) if conds else ""
     try:
         conn = get_db_conn()
         cursor = conn.cursor()
+        if min_gap_days and min_gap_days > 0:
+            # ⚠️ 이걸 SQL 상관 서브쿼리(NOT EXISTS)로 쓰면 O(n²)라 **41초** 걸린다(실측).
+            #    섀도우 사이클이 매번 부르는 함수라 그 비용은 쓸 수 없다 — 한 번 훑어
+            #    파이썬에서 직전 등장 시각만 들고 가며 거른다(0.1초).
+            cursor.execute(
+                f"""SELECT ticker, scenario_keyword, captured_at
+                    FROM scenario_stocks{where} ORDER BY ticker, captured_at"""
+            )
+            from datetime import datetime as _dtm
+            gap = float(min_gap_days)
+            seen: dict[str, set] = {}
+            last: dict[str, object] = {}
+            for row in cursor.fetchall():
+                tk = row["ticker"]
+                try:
+                    at = _dtm.fromisoformat(str(row["captured_at"])[:19])
+                except Exception:
+                    continue
+                prev = last.get(tk)
+                last[tk] = at
+                # 직전 등장이 gap일 안이면 '반복'이라 재료로 세지 않는다(첫 등장은 남는다).
+                if prev is not None and (at - prev).total_seconds() <= gap * 86400:
+                    continue
+                seen.setdefault(tk, set()).add(row["scenario_keyword"])
+            conn.close()
+            return {tk: len(v) for tk, v in seen.items()}
         cursor.execute(
             f"""SELECT ticker, COUNT(DISTINCT scenario_keyword) AS n
                 FROM scenario_stocks{where} GROUP BY ticker"""

@@ -104,13 +104,33 @@ SHADOW_ADDON = {
     "SHADOW_D2": {"base": "SHADOW_D", "trigger": -4.0, "max_adds": 2, "size": 1.0},
 }
 
+# ── 규칙 짝 (v3.197.0) — 원본과 **규칙 한 줄만** 다른 쌍둥이 ────────────────
+# [추매 짝(SHADOW_ADDON)과 다른 점] 저쪽은 진입을 원본에 위임하고 '추매'만 다르다.
+# 이쪽은 진입 규칙 자체의 한 조각을 바꿔 그 조각의 값을 잰다.
+#
+# SHADOW_C2 = C에서 `linked`(재료 있음) 판정만 '직전 3일 내 반복 등장은 안 셈'으로 바꿘 것.
+# [왜] 실측(2026-09-29): 그 종목의 직전 등장이 1~3일 전이면 d7 -1.49%p·승률 40.8%,
+#      15~45일 전이면 +0.68%p·50.1%. 며칠 연속 시나리오에 박히는 종목은 그냥 지금
+#      뜨거운 종목이다. 재료합이 9,978 → 3,148로 줄지만 재료가 0이 되는 티커는 없다
+#      (첫 등장은 남긴다).
+# [왜 본선을 바로 안 고치나] 전체 픽의 73%가 반복분이라 C의 정의가 통째로 바뀌고,
+#      C의 실측 근거(국내 승률 70.8%·p=0.0024)를 더는 인용할 수 없게 된다. 그리고 위
+#      근거는 **사후 관찰**이라 진입 규칙으로 옮겼을 때 재현될지 모른다 — VERIFY.md V19.
+SHADOW_RULEPAIR = {
+    "SHADOW_C2": {"base": "SHADOW_C", "min_gap_days": 3},
+}
+
 SHADOWS = ("SHADOW_A", "SHADOW_B", "SHADOW_C", "SHADOW_D", "SHADOW_E", "SHADOW_F",
-           "SHADOW_G", "SHADOW_H") + tuple(SHADOW_ADDON)
+           "SHADOW_G", "SHADOW_H") + tuple(SHADOW_ADDON) + tuple(SHADOW_RULEPAIR)
 
 # 전략별 타임스탑 (미지정은 EXIT_DAYS). G만 예외인 이유는 모듈 docstring 참조.
 _EXIT_DAYS_BY_OWNER = {"SHADOW_G": EXIT_DAYS_FAST}
 # 짝 전략의 청산은 원본과 같아야 한다 — 추매 효과만 남기려면 다른 변수를 건드리면 안 된다.
 for _a, _c in SHADOW_ADDON.items():
+    if _c["base"] in _EXIT_DAYS_BY_OWNER:
+        _EXIT_DAYS_BY_OWNER[_a] = _EXIT_DAYS_BY_OWNER[_c["base"]]
+# 규칙 짝도 마찬가지 — 청산이 다르면 두 owner의 차이가 '그 규칙 한 줄'이 아니게 된다.
+for _a, _c in SHADOW_RULEPAIR.items():
     if _c["base"] in _EXIT_DAYS_BY_OWNER:
         _EXIT_DAYS_BY_OWNER[_a] = _EXIT_DAYS_BY_OWNER[_c["base"]]
 
@@ -380,14 +400,19 @@ def _wants_buy(owner: str, ind: dict, tk: str = "", ctx: dict = None,
         ok = ml7 is not None and ml7 >= 55.0
         mult = 1.0 + min(0.5, max(0.0, ((ml7 or 55) - 55) / 20.0)) if ok else 1.0
         return ok, mult, f"ML d7 {ml7}%"
-    if owner == "SHADOW_C":
-        # 이슈×구간 — 재료(최근 시나리오 등장)가 있는 종목이 지지 구간에 왔을 때만
-        linked = int((ctx or {}).get("scenario_map", {}).get(tk, 0)) > 0
+    if owner in ("SHADOW_C", "SHADOW_C2"):
+        # 이슈×구간 — 재료(최근 시나리오 등장)가 있는 종목이 지지 구간에 왔을 때만.
+        # C2는 재료 맵만 다르다(직전 3일 내 반복 등장 제외). 나머지 조건은 공유해야
+        # 두 owner의 차이가 '그 한 줄' 밖으로 새지 않는다.
+        _gap = int(SHADOW_RULEPAIR.get(owner, {}).get("min_gap_days") or 0)
+        _key = f"scenario_map_gap{_gap}" if _gap > 0 else "scenario_map"
+        linked = int((ctx or {}).get(_key, {}).get(tk, 0)) > 0
         zone = ((bb is not None and bb <= 0.35)
                 or (ma20d is not None and -3.0 <= ma20d <= 1.0))
         not_hot = m5 is None or m5 < 5.0   # 급등 중 재료주 추격 배제
         ok = linked and zone and not_hot
-        return ok, 1.0, f"이슈연관×지지구간(bb {bb}·MA20 {ma20d}%·5일 {m5}%)"
+        _tag = f"(반복제외 {_gap}일)" if _gap else ""
+        return ok, 1.0, f"이슈연관×지지구간{_tag}(bb {bb}·MA20 {ma20d}%·5일 {m5}%)"
     if owner == "SHADOW_D":
         # 수급 추종 — 외국인·기관 순매수 상위(KR)면 매수, 과열만 배제
         in_supply = tk in (ctx or {}).get("supply_set", set())
@@ -469,6 +494,11 @@ def run_shadow_cycle(candidates: list, kr_open: bool, us_open: bool, force: bool
     try:
         from db import load_scenario_stocks_set
         ctx["scenario_map"] = load_scenario_stocks_set() or {}
+        # 규칙 짝(C2)용 — 직전 3일 내 반복 등장을 재료로 세지 않은 맵. 0.03초·과금 0.
+        for _p, _cfg in SHADOW_RULEPAIR.items():
+            _gap = int(_cfg.get("min_gap_days") or 0)
+            if _gap > 0:
+                ctx[f"scenario_map_gap{_gap}"] = load_scenario_stocks_set(min_gap_days=_gap) or {}
     except Exception as e:
         logger.error(f"[shadow] 시나리오 맵 로드 실패: {e}")
     if kr_open or force:
@@ -876,7 +906,8 @@ def shadow_league_status() -> dict:
              "SHADOW_H": "섀도우 H (촉매 모멘텀 · 7거래일 청산) ⭐검증중",
              "SHADOW_A2": "섀도우 A2 (눌림목 + 근거유지 추매) ⭐검증중",
              "SHADOW_F2": "섀도우 F2 (모멘텀 + 근거유지 추매) ⭐검증중",
-             "SHADOW_D2": "섀도우 D2 (수급 + 근거유지 추매) ⭐검증중"}
+             "SHADOW_D2": "섀도우 D2 (수급 + 근거유지 추매) ⭐검증중",
+             "SHADOW_C2": "섀도우 C2 (이슈×구간 · 반복 등장 제외) ⭐검증중"}
     try:
         for owner in ("AI_AGENT",) + SHADOWS:
             cur.execute(

@@ -659,6 +659,58 @@ def main():
     except Exception as e:
         print(f"   [BLOCKED] 확인 실패: {str(e)[:80]}")
 
+    # ── V19. 규칙 짝 — 반복 등장 픽을 재료에서 빼는 게 나은가 ─────────────────
+    print(_hdr("V19", "반복 등장 픽 제외 — 짝(C2)이 원본(C)보다 나은가"))
+    try:
+        from shadow_league import SHADOW_RULEPAIR
+        # V16과 같은 방식으로 구간을 맞춘다 — 짝은 보유 0·현금 만액에서 새로 출발하므로
+        # 원본의 과거 거래 전체와 맞대면 '규칙 차이'가 아니라 '출발점 차이'를 재게 된다.
+        ready = 0
+        for pair, cfg in SHADOW_RULEPAIR.items():
+            base = cfg["base"]
+            r = cur.execute("SELECT MIN(substr(sell_date,1,10)) d FROM trade_history "
+                            "WHERE owner = ?", (pair,)).fetchone()
+            frm = r["d"] if r and r["d"] else None
+
+            def _st(owner):
+                q = """SELECT COUNT(*) n, ROUND(AVG(profit_pct), 2) avg_pct,
+                              ROUND(100.0 * SUM(CASE WHEN profit_pct > 0 THEN 1 ELSE 0 END)
+                                    / COUNT(*), 1) win
+                       FROM trade_history WHERE owner = ?"""
+                args = [owner]
+                if frm:
+                    q += " AND substr(sell_date,1,10) >= ?"
+                    args.append(frm)
+                x = cur.execute(q, args).fetchone()
+                return dict(x) if x and x["n"] else None
+
+            a, b = _st(pair), _st(base)
+            tag = f"({frm} 이후 동일 구간)" if frm else "(짝 거래 없음 — 대기)"
+            print(f"   {base:<10} {tag}: "
+                  + (f"{b['n']}건 {b['avg_pct']:+.2f}% 승률 {b['win']}%" if b else "표본 0"))
+            print(f"   {pair:<10} : "
+                  + (f"{a['n']}건 {a['avg_pct']:+.2f}% 승률 {a['win']}%" if a else "표본 0")
+                  + f"   [재료 판정: 직전 {cfg['min_gap_days']}일 내 반복 등장 제외]")
+            if a and a["n"] >= 30:
+                ready += 1
+                print(f"      → 평균 차이 {a['avg_pct'] - (b['avg_pct'] if b else 0):+.2f}%p")
+        if ready < len(SHADOW_RULEPAIR):
+            print(f"   [WAIT] 30건 이상 쌓인 짝 {ready}/{len(SHADOW_RULEPAIR)} —"
+                  " 그전 숫자는 우연과 구분되지 않는다.")
+        else:
+            print("   [DUE] 표본 충족 — 짝이 원본보다 나은지 판정할 것.")
+        print("   통과 기준: 짝의 실현 30건+ 에서 평균 수익률·승률이 원본보다 높을 것.")
+        print("             이기면 본선 게이트(issue_zone_signal)의 linked 정의를 바꾼다.")
+        print("   근거(사후 관찰): 직전 등장이 1~3일 전인 픽 d7 -1.49%p·승률 40.8% vs")
+        print("             15~45일 전 +0.68%p·50.1%. 재료합 9,978 → 3,148로 줄지만")
+        print("             재료가 0이 되는 티커는 없다(첫 등장은 남긴다).")
+        print("   ⚠️ 위 근거는 사후 관찰이지 진입 규칙이 아니다 — 그래서 짝으로 재는 것이다.")
+        print("      같은 함정을 V18에서 밟았다(겹침 허용 +0.509 → 제거 -0.284).")
+        print("   ⚠️ 본선 C를 먼저 고치지 말 것. 전체 픽의 73%가 반복분이라 정의가 통째로")
+        print("      바뀌고, C의 실측 근거(국내 승률 70.8%·p=0.0024)를 인용할 수 없게 된다.")
+    except Exception as e:
+        print(f"   [BLOCKED] 확인 실패: {str(e)[:80]}")
+
     # ── V20. 시나리오 종목코드 오염 감시 ──────────────────────────────────────
     print(_hdr("V20", "시나리오 종목코드 — AI가 적은 코드가 실제 그 종목인가"))
     try:
