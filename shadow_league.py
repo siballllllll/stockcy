@@ -116,8 +116,17 @@ SHADOW_ADDON = {
 # [왜 본선을 바로 안 고치나] 전체 픽의 73%가 반복분이라 C의 정의가 통째로 바뀌고,
 #      C의 실측 근거(국내 승률 70.8%·p=0.0024)를 더는 인용할 수 없게 된다. 그리고 위
 #      근거는 **사후 관찰**이라 진입 규칙으로 옮겼을 때 재현될지 모른다 — VERIFY.md V19.
+# SHADOW_C3 = C에서 **시나리오 조건만** 뺀 것. 구간·과열배제·청산·사이징은 C와 공유한다.
+# [왜] C의 실측 승률 70.8%가 '시나리오 덕'인지 '눌림 덕'인지 구분되지 않았다. A(순수 눌림목)와
+#      비교하려 했지만 A는 눌림 조건 자체가 더 깐깐하다(bb<0.25·5일≤-3%·RSI<55 vs
+#      bb≤0.35 or MA20근처·5일<5%) — 두 변수가 같이 달라져 답이 안 나온다.
+#      C3는 시나리오 한 조각만 빼므로 C−C3 = 시나리오가 기여하는 값이다.
+# [근거] 시나리오 명단 자체는 같은 시총·같은 날 종목보다 일관되게 나빴다(2026-09-30 실측:
+#      d7 -6.6%p · d20 -7.3%p, 4개월 모두 음수). 그런데 그 명단을 쓰는 C는 최고 전략이다.
+#      둘 다 참이려면 '눌림 조건이 명단의 해악을 상쇄하고도 남는다'여야 한다 — 이걸 잰다.
 SHADOW_RULEPAIR = {
     "SHADOW_C2": {"base": "SHADOW_C", "min_gap_days": 3},
+    "SHADOW_C3": {"base": "SHADOW_C", "ignore_linked": True},
 }
 
 SHADOWS = ("SHADOW_A", "SHADOW_B", "SHADOW_C", "SHADOW_D", "SHADOW_E", "SHADOW_F",
@@ -400,18 +409,24 @@ def _wants_buy(owner: str, ind: dict, tk: str = "", ctx: dict = None,
         ok = ml7 is not None and ml7 >= 55.0
         mult = 1.0 + min(0.5, max(0.0, ((ml7 or 55) - 55) / 20.0)) if ok else 1.0
         return ok, mult, f"ML d7 {ml7}%"
-    if owner in ("SHADOW_C", "SHADOW_C2"):
+    # 규칙 짝은 base로 판정한다 — 짝을 추가할 때마다 이 튜플을 손대야 하면 반드시 잊는다
+    # (실측: C3를 SHADOW_RULEPAIR에만 넣고 여기 빠뜨려 전부 매수 False가 됐다).
+    if owner == "SHADOW_C" or SHADOW_RULEPAIR.get(owner, {}).get("base") == "SHADOW_C":
         # 이슈×구간 — 재료(최근 시나리오 등장)가 있는 종목이 지지 구간에 왔을 때만.
         # C2는 재료 맵만 다르다(직전 3일 내 반복 등장 제외). 나머지 조건은 공유해야
         # 두 owner의 차이가 '그 한 줄' 밖으로 새지 않는다.
-        _gap = int(SHADOW_RULEPAIR.get(owner, {}).get("min_gap_days") or 0)
+        _cfg = SHADOW_RULEPAIR.get(owner, {})
+        _gap = int(_cfg.get("min_gap_days") or 0)
         _key = f"scenario_map_gap{_gap}" if _gap > 0 else "scenario_map"
         linked = int((ctx or {}).get(_key, {}).get(tk, 0)) > 0
+        if _cfg.get("ignore_linked"):
+            linked = True          # C3 — 시나리오 조건을 통째로 면제한다
         zone = ((bb is not None and bb <= 0.35)
                 or (ma20d is not None and -3.0 <= ma20d <= 1.0))
         not_hot = m5 is None or m5 < 5.0   # 급등 중 재료주 추격 배제
         ok = linked and zone and not_hot
-        _tag = f"(반복제외 {_gap}일)" if _gap else ""
+        _tag = ("(시나리오 면제)" if _cfg.get("ignore_linked")
+                else f"(반복제외 {_gap}일)" if _gap else "")
         return ok, 1.0, f"이슈연관×지지구간{_tag}(bb {bb}·MA20 {ma20d}%·5일 {m5}%)"
     if owner == "SHADOW_D":
         # 수급 추종 — 외국인·기관 순매수 상위(KR)면 매수, 과열만 배제
@@ -907,7 +922,8 @@ def shadow_league_status() -> dict:
              "SHADOW_A2": "섀도우 A2 (눌림목 + 근거유지 추매) ⭐검증중",
              "SHADOW_F2": "섀도우 F2 (모멘텀 + 근거유지 추매) ⭐검증중",
              "SHADOW_D2": "섀도우 D2 (수급 + 근거유지 추매) ⭐검증중",
-             "SHADOW_C2": "섀도우 C2 (이슈×구간 · 반복 등장 제외) ⭐검증중"}
+             "SHADOW_C2": "섀도우 C2 (이슈×구간 · 반복 등장 제외) ⭐검증중",
+             "SHADOW_C3": "섀도우 C3 (구간만 · 시나리오 면제) ⭐검증중"}
     try:
         for owner in ("AI_AGENT",) + SHADOWS:
             cur.execute(

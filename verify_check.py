@@ -693,9 +693,11 @@ def main():
             tag = f"({frm} 이후 동일 구간)" if frm else "(짝 거래 없음 — 대기)"
             print(f"   {base:<10} {tag}: "
                   + (f"{b['n']}건 {b['avg_pct']:+.2f}% 승률 {b['win']}%" if b else "표본 0"))
+            what = ("[시나리오 조건 면제 — 구간만으로 매수]" if cfg.get("ignore_linked")
+                    else f"[재료 판정: 직전 {cfg.get('min_gap_days')}일 내 반복 등장 제외]")
             print(f"   {pair:<10} : "
                   + (f"{a['n']}건 {a['avg_pct']:+.2f}% 승률 {a['win']}%" if a else "표본 0")
-                  + f"   [재료 판정: 직전 {cfg['min_gap_days']}일 내 반복 등장 제외]")
+                  + f"   {what}")
             if a and a["n"] >= 30:
                 ready += 1
                 print(f"      → 평균 차이 {a['avg_pct'] - (b['avg_pct'] if b else 0):+.2f}%p")
@@ -705,7 +707,10 @@ def main():
         else:
             print("   [DUE] 표본 충족 — 짝이 원본보다 나은지 판정할 것.")
         print("   통과 기준: 짝의 실현 30건+ 에서 평균 수익률·승률이 원본보다 높을 것.")
-        print("             이기면 본선 게이트(issue_zone_signal)의 linked 정의를 바꾼다.")
+        print("             C2가 이기면 본선 게이트(issue_zone_signal)의 linked 정의를 바꾼다.")
+        print("             C3가 이기면 **시나리오를 매수 재료에서 뺀다** — C의 70.8%가")
+        print("             시나리오 덕이 아니라 눌림 덕이었다는 뜻이다.")
+        print("             C3가 지면 시나리오는 명단이 나빠도 필터로는 값이 있다는 뜻이다.")
         print("   근거(사후 관찰): 직전 등장이 1~3일 전인 픽 d7 -1.49%p·승률 40.8% vs")
         print("             15~45일 전 +0.68%p·50.1%. 재료합 9,978 → 3,148로 줄지만")
         print("             재료가 0이 되는 티커는 없다(첫 등장은 남긴다).")
