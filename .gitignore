@@ -39,6 +39,7 @@ scratch/*
 !scratch/toss_check.py
 !scratch/check_prices.py
 !scratch/theme_report.py
+!scratch/baseline_check.py
 cloudflared.exe
 
 # 런타임 데이터 (세션마다 변해 커밋 노이즈 유발)
