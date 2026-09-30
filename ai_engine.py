@@ -707,16 +707,44 @@ def _call_openai(prompt, use_search=False, temperature=0.7, response_mime_type=N
     try:
         if use_search:
             # ── 실시간 웹 검색 그라운딩 (Responses API) ──────────────────────
+            # [v3.201.0] JSON 강제가 이 경로에만 빠져 있었다. 아래 else(Chat Completions)는
+            # response_format={"type":"json_object"}를 넣는데 여기는 아무 지시가 없어서,
+            # Gemini 장애 시 넘어온 종목분석이 **줄글**로 돌아와 파서가 통째로 버렸다.
+            #   실측(2026-09-30): Gemini 크레딧 고갈 → openai로 failover → 내용은 정상인
+            #   1,475자 리포트를 받았는데 JSON이 아니라 "분석 오류"로 떨어졌다.
+            #   즉 이중화의 반쪽이 실제로는 못 쓰는 상태였다.
+            want_json = (response_mime_type == "application/json"
+                         or "json" in prompt.lower())
+            _input = prompt
+            if want_json:
+                # SDK/모델 버전에 따라 Responses API의 구조화 출력 파라미터 이름이 달라
+                # 거부될 수 있다. 그래서 **프롬프트 지시를 1차 수단**으로 두고,
+                # 구조화 파라미터는 되면 얹는 식으로 쓴다(아래 TypeError 폴백).
+                _input = prompt + (
+                    "\n\n[출력 형식] 인사말·설명·마크다운 코드펜스 없이 "
+                    "**JSON 객체 하나만** 출력하라. 다른 텍스트를 덧붙이지 말 것.")
             kwargs = {
                 "model": target_model,
-                "input": prompt,
+                "input": _input,
                 "tools": [{"type": "web_search"}],
                 "temperature": temperature,
                 "timeout": _timeout,
             }
             if max_output_tokens:
                 kwargs["max_output_tokens"] = max_output_tokens
-            response = client.responses.create(**kwargs)
+            if want_json:
+                kwargs["text"] = {"format": {"type": "json_object"}}
+            try:
+                response = client.responses.create(**kwargs)
+            except Exception as _je:
+                # 구조화 파라미터를 지원하지 않는 SDK/모델이면 그것만 떼고 재시도한다.
+                # (프롬프트 지시는 남으므로 JSON 요구 자체는 유지된다)
+                if want_json and "text" in kwargs:
+                    kwargs.pop("text", None)
+                    print(f"[openai] Responses 구조화 출력 미지원 → 프롬프트 지시로 대체 ({str(_je)[:60]})")
+                    response = client.responses.create(**kwargs)
+                else:
+                    raise
             latency = _t.perf_counter() - start_t
 
             res_text = getattr(response, "output_text", "") or ""
