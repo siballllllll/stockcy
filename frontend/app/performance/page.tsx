@@ -356,11 +356,12 @@ function EngineScoreboard() {
 
   // 엔진별 d7 헤드라인 산출
   const recH = (rec?.horizons ?? []).find((h: any) => h.horizon === "7일");
-  // 시나리오: by_scenario 가중 평균
-  const bs: any[] = scn?.by_scenario ?? [];
-  const scnN = bs.reduce((a, b) => a + (b.count || 0), 0);
-  const scnWin = scnN > 0 ? Math.round(bs.reduce((a, b) => a + (b.win_rate_d7 || 0) * (b.count || 0), 0) / scnN * 10) / 10 : null;
-  const scnAvg = scnN > 0 ? Math.round(bs.reduce((a, b) => a + (b.avg_d7_return || 0) * (b.count || 0), 0) / scnN * 100) / 100 : null;
+  // 시나리오: 서버의 전체 요약(d7이 찬 행만)을 그대로 쓴다 [v3.201.1]
+  //   종전 by_scenario 가중평균은 d3만 찬 행까지 분모에 넣어 승률이 깎였다(42.6% → 39.5%로 표시).
+  const so = scn?.overall;
+  const scnN = so?.count ?? 0;
+  const scnWin = scnN > 0 ? so.win_rate_d7 : null;
+  const scnAvg = scnN > 0 ? so.avg_d7_return : null;
   const scrO = scr?.overall ?? {};
 
   const engines = [

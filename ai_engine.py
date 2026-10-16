@@ -7589,6 +7589,7 @@ def _aggregate_scenario_stats(cursor) -> dict:
     cursor.execute(
         f"""SELECT scenario_keyword, scenario_title,
                   COUNT(*) AS n,
+                  COUNT(d7_return) AS n7,
                   AVG(d3_return) AS avg_d3,
                   AVG(d7_return) AS avg_d7,
                   SUM(CASE WHEN {_WIN_D3} THEN 1 ELSE 0 END) AS wins_d3,
@@ -7604,6 +7605,9 @@ def _aggregate_scenario_stats(cursor) -> dict:
     for r in cursor.fetchall():
         d = dict(r)
         n = d.get("n", 0) or 0
+        # d7 승률 분모는 d7이 찬 행만 [v3.201.1] — d3만 찬 행을 '패배'로 세면 승률이 깎인다
+        # (성과 페이지가 이 값을 가중평균해 39.5%로 보이던 원인. 실제 전체는 42.6%).
+        n7 = d.get("n7", 0) or 0
         by_scenario.append({
             "keyword": d.get("scenario_keyword"),
             "title":   d.get("scenario_title"),
@@ -7611,9 +7615,9 @@ def _aggregate_scenario_stats(cursor) -> dict:
             "avg_d3_return": round(d.get("avg_d3") or 0, 2),
             "avg_d7_return": round(d.get("avg_d7") or 0, 2),
             "win_rate_d3":  round((d.get("wins_d3") or 0) / n * 100, 1) if n else 0,
-            "win_rate_d7":  round((d.get("wins_d7") or 0) / n * 100, 1) if n else 0,
+            "win_rate_d7":  round((d.get("wins_d7") or 0) / n7 * 100, 1) if n7 else 0,
             # 종전 기준(0%) — 숫자가 왜 달라졌는지 비교용
-            "win_rate_d7_raw": round((d.get("raw_wins_d7") or 0) / n * 100, 1) if n else 0,
+            "win_rate_d7_raw": round((d.get("raw_wins_d7") or 0) / n7 * 100, 1) if n7 else 0,
             "excess_d7_return": round(d.get("excess_d7") or 0, 2),
         })
 
@@ -7635,6 +7639,7 @@ def _aggregate_scenario_stats(cursor) -> dict:
     cursor.execute(
         f"""SELECT horizon,
                   COUNT(*) AS n,
+                  COUNT(d7_return) AS n7,
                   AVG(d3_return) AS avg_d3,
                   AVG(d7_return) AS avg_d7,
                   SUM(CASE WHEN {_WIN_D3} THEN 1 ELSE 0 END) AS wins_d3,
@@ -7649,14 +7654,17 @@ def _aggregate_scenario_stats(cursor) -> dict:
     for r in cursor.fetchall():
         d = dict(r)
         n = d.get("n", 0) or 0
+        # d7 승률 분모는 d7이 찬 행만 [v3.201.1] — d3만 찬 행을 '패배'로 세면 승률이 깎인다
+        # (성과 페이지가 이 값을 가중평균해 39.5%로 보이던 원인. 실제 전체는 42.6%).
+        n7 = d.get("n7", 0) or 0
         by_horizon.append({
             "horizon": d.get("horizon"),
             "count":   n,
             "avg_d3_return": round(d.get("avg_d3") or 0, 2),
             "avg_d7_return": round(d.get("avg_d7") or 0, 2),
             "win_rate_d3":  round((d.get("wins_d3") or 0) / n * 100, 1) if n else 0,
-            "win_rate_d7":  round((d.get("wins_d7") or 0) / n * 100, 1) if n else 0,
-            "win_rate_d7_raw": round((d.get("raw_wins_d7") or 0) / n * 100, 1) if n else 0,
+            "win_rate_d7":  round((d.get("wins_d7") or 0) / n7 * 100, 1) if n7 else 0,
+            "win_rate_d7_raw": round((d.get("raw_wins_d7") or 0) / n7 * 100, 1) if n7 else 0,
             "excess_d7_return": round(d.get("excess_d7") or 0, 2),
         })
 
@@ -8194,19 +8202,19 @@ def track_confluence_outcomes() -> dict:
     return {"updated_now": updated, "scanned": len(rows)}
 
 
-def track_scenario_stocks_performance() -> dict:
+def track_scenario_stocks_performance(limit: int = 600) -> dict:
     """시나리오에 등장한 종목들의 등장 시점 가격 + 1/3/7일 후 가격 자동 추적."""
     # 중복 실행 방지: 이미 추적이 돌고 있으면 즉시 반환.
     # (동시 실행 시 느린 네트워크 구간에서 DB write 락이 겹쳐 'database is locked' 발생)
     if not _SCENARIO_TRACK_LOCK.acquire(blocking=False):
         return {"updated_now": 0, "skipped": "already_running"}
     try:
-        return _track_scenario_stocks_performance_impl()
+        return _track_scenario_stocks_performance_impl(limit)
     finally:
         _SCENARIO_TRACK_LOCK.release()
 
 
-def _track_scenario_stocks_performance_impl() -> dict:
+def _track_scenario_stocks_performance_impl(limit: int = 600) -> dict:
     from db import get_db_conn
     from datetime import datetime, timedelta
     import FinanceDataReader as fdr
@@ -8229,9 +8237,17 @@ def _track_scenario_stocks_performance_impl() -> dict:
                OR (d20_return IS NULL AND julianday('now') - julianday(captured_at) >= 28)
                OR (julianday('now') - julianday(captured_at) >= 84)
              )
-           ORDER BY captured_at ASC
-           LIMIT 600"""
+           ORDER BY CASE WHEN d7_return IS NULL THEN 0
+                         WHEN d20_return IS NULL THEN 1 ELSE 2 END,
+                    captured_at ASC
+           LIMIT ?""",
+        (int(limit),),
     )
+    # [v3.201.1] 정렬을 '오래된 순'에서 '짧은 창 먼저'로 바꿨다.
+    # [왜] d20·d60 창(v3.193.0)이 생기자 대기열이 7,959행으로 불었는데 하루 600행을
+    # 오래된 순으로만 집었다. 5~8월 행(d20·d60 대기)이 매일 600칸을 다 먹어서
+    # 9/19 이후 포착분은 d3조차 한 번도 채워지지 않았다 — 화면 적중률이 9월 중순에 멈춘 원인.
+    # d1~d7은 화면 적중률의 재료라 먼저, 장기 창은 남는 칸으로 채운다.
     rows = [dict(r) for r in cursor.fetchall()]
     today = datetime.now().date()
     # 네트워크 단계(느림)와 DB write 단계(빠름)를 분리한다.
