@@ -1797,7 +1797,14 @@ async def get_scenario_tracking_stats():
     """시나리오 적중률 통계 조회 — 가격 재추적 없이 DB 집계만 빠르게 반환.
     (가격 추적은 POST /scenario-tracking/run에서만 수행)"""
     from ai_engine import load_scenario_tracking_stats
-    return await asyncio.to_thread(load_scenario_tracking_stats)
+    stats = await asyncio.to_thread(load_scenario_tracking_stats)
+    # [v3.202.1] by_scenario는 키워드가 1회성이라 7,740행(2.6MB)까지 불었다. 화면은 상위 5개만
+    # 쓰는데 통째로 보내서 Next 프록시·터널을 거치면 30~60초 → 성과 페이지 승률 칸이 빈칸이었다.
+    # 전체 건수는 by_scenario_total로 남긴다.
+    bs = stats.get("by_scenario") or []
+    stats["by_scenario_total"] = len(bs)
+    stats["by_scenario"] = bs[:30]
+    return stats
 
 
 def _enrich_scenario_list_current(rows: list) -> list:
