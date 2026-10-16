@@ -7740,6 +7740,7 @@ def _aggregate_scenario_stats(cursor) -> dict:
         cursor.execute(
             f"""SELECT COUNT(*) n,
                        SUM(CASE WHEN {_WIN_D7} THEN 1 ELSE 0 END) w7,
+                       AVG(d7_return) avg7,
                        AVG(d7_return - COALESCE(bench_d7_return, 0)) ex7,
                        COUNT(d20_return) n20,
                        SUM(CASE WHEN d20_return IS NOT NULL AND {_WIN_D20} THEN 1 ELSE 0 END) w20,
@@ -7756,6 +7757,8 @@ def _aggregate_scenario_stats(cursor) -> dict:
             "label": tag,
             "count": n,
             "win_rate_d7": round((d.get("w7") or 0) / n * 100, 1),
+            # 성과 페이지 대표 카드가 '비급등' 행을 헤드라인으로 쓴다 [v3.202.0]
+            "avg_d7_return": round(d.get("avg7") or 0, 2),
             "excess_d7": round(d.get("ex7") or 0, 2),
             "count_d20": n20,
             "win_rate_d20": round((d.get("w20") or 0) / n20 * 100, 1) if n20 else None,

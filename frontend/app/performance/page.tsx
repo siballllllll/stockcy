@@ -356,17 +356,24 @@ function EngineScoreboard() {
 
   // 엔진별 d7 헤드라인 산출
   const recH = (rec?.horizons ?? []).find((h: any) => h.horizon === "7일");
-  // 시나리오: 서버의 전체 요약(d7이 찬 행만)을 그대로 쓴다 [v3.201.1]
-  //   종전 by_scenario 가중평균은 d3만 찬 행까지 분모에 넣어 승률이 깎였다(42.6% → 39.5%로 표시).
+  // 시나리오: 대표 숫자 = '비급등' 행 [v3.202.0]
+  //   실제 매수 판단은 급등 후 편입(포착 직전 5일 +10%↑)을 재료에서 뺀다(db.load_scenario_stocks_set).
+  //   명단 전체 승률을 헤드라인에 두면 사지도 않는 뒷북분이 섞여 화면과 실제 매매 기준이 어긋난다.
+  //   전체(overall)는 참고로 아래 줄에 남긴다. 비급등 행이 없으면 전체로 폴백.
   const so = scn?.overall;
-  const scnN = so?.count ?? 0;
-  const scnWin = scnN > 0 ? so.win_rate_d7 : null;
-  const scnAvg = scnN > 0 ? so.avg_d7_return : null;
+  const nc = (scn?.by_chase ?? []).find((c: any) => c.label === "비급등");
+  const scnHead = nc ?? so;
+  const scnN = scnHead?.count ?? 0;
+  const scnWin = scnN > 0 ? scnHead.win_rate_d7 : null;
+  const scnAvg = scnN > 0 ? scnHead.avg_d7_return : null;
+  const scnNote = nc
+    ? `급등 후 편입 제외(실제 매수 기준) · 20일 승률 ${nc.win_rate_d20 ?? "-"}% — 명단 전체는 ${so?.win_rate_d7 ?? "-"}% (${so?.count ?? 0}건)`
+    : "시나리오 등장 종목 7일 후 (방향 적중) — 아래 상세";
   const scrO = scr?.overall ?? {};
 
   const engines = [
     { name: "🤖 AI추천", n: rec?.measured ?? 0, win: recH?.win_rate ?? null, avg: recH?.avg_return ?? null, note: "단타발굴·종목분석 추천의 7일 후 성과", href: "" },
-    { name: "📈 시나리오", n: scnN, win: scnWin, avg: scnAvg, note: "시나리오 등장 종목 7일 후 (방향 적중) — 아래 상세", href: "" },
+    { name: "📈 시나리오", n: scnN, win: scnWin, avg: scnAvg, note: scnNote, href: "" },
     { name: "🔍 복합스크리너", n: scr?.total_picks_backtested ?? 0, win: scrO.win_rate_d7 ?? null, avg: scrO.avg_d7_return ?? null, note: "패턴 스크리너 픽 7일 후 백테스트", href: "" },
     { name: "🦾 AI에이전트", n: agent?.n ?? 0, win: agent?.win_rate ?? null, avg: agent?.avg_return ?? null, note: "에이전트 모의매매 '확정 거래'의 실현 승률·수익률", href: "/agent" },
   ];
