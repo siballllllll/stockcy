@@ -586,6 +586,21 @@ def _scenario_tracking_loop():
                     save_ai_cache("verify_due_notified", sorted(_due_ids), 24 * 30)
                 except Exception as e:
                     print(f"[verify] 원장 확인 오류: {e}")
+                # v4.0 승격 게이트 감시 (v3.206.1) — 통과한 첫날 텔레그램 1회.
+                #   통과 지평 집합을 ai_cache에 두어, 새 지평이 통과할 때만 다시 알린다.
+                #   게이트에서 떨어지면 집합에서 빠지므로 다시 통과하면 재알림된다.
+                try:
+                    from db import check_v4_gate, format_v4_gate_message, load_ai_cache, save_ai_cache
+                    _gate = check_v4_gate()
+                    _prev_g = set(load_ai_cache("v4_gate_notified") or [])
+                    _now_g = set(_gate["passed_horizons"])
+                    if _now_g - _prev_g:
+                        from telegram_bot import send_message
+                        send_message(format_v4_gate_message(_gate))
+                        print(f"[v4 gate] 통과 알림 발송: {sorted(_now_g)} ({today})")
+                    save_ai_cache("v4_gate_notified", sorted(_now_g), 24 * 30)
+                except Exception as e:
+                    print(f"[v4 gate] 확인 오류: {e}")
                 # 자체 ML 자동 재학습 — 샘플 보강 직후 1회 (scikit-learn 로컬·무과금).
                 #   MIN_SAMPLES 미만 horizon은 train_model이 알아서 보류(trained=False).
                 try:

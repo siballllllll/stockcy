@@ -2907,6 +2907,52 @@ def load_ml_prediction_verification() -> dict:
         return {"available": False, "error": str(e), "horizons": {}}
 
 
+# v4.0 승격 게이트 (성과 페이지에 '확정'으로 걸린 기준과 같다).
+V4_GATE_MIN_N = 100
+V4_GATE_MIN_AUC = 0.6
+V4_GATE_MIN_HIGH_WIN = 50.0
+# '55%+ 예측' 구간이 2~3건이면 한두 번 맞은 것으로 통과해버린다 — 최소 표본을 둔다.
+V4_GATE_MIN_HIGH_N = 10
+
+
+def check_v4_gate(ver: dict | None = None) -> dict:
+    """v4.0 승격 게이트 판정. 한 지평(d3/d7/d20)이라도 세 조건을 모두 채우면 passed.
+    버전을 올리지는 않는다 — 알림만 보내고 선언은 사용자가 정한다."""
+    ver = ver if ver is not None else load_ml_prediction_verification()
+    out = {"passed": False, "passed_horizons": [], "horizons": {}}
+    for h, info in (ver.get("horizons") or {}).items():
+        high = next((b for b in info.get("buckets", []) if b.get("label") == "55% 이상"), None)
+        n_ok = info.get("n", 0) >= V4_GATE_MIN_N
+        auc = info.get("live_auc")
+        auc_ok = auc is not None and auc >= V4_GATE_MIN_AUC
+        high_ok = bool(high and high["n"] >= V4_GATE_MIN_HIGH_N
+                       and high["actual_win_rate"] >= V4_GATE_MIN_HIGH_WIN)
+        out["horizons"][h] = {
+            "n": info.get("n", 0), "live_auc": auc,
+            "high_n": high["n"] if high else 0,
+            "high_win": high["actual_win_rate"] if high else None,
+            "n_ok": n_ok, "auc_ok": auc_ok, "high_ok": high_ok,
+        }
+        if n_ok and auc_ok and high_ok:
+            out["passed_horizons"].append(h)
+    out["passed"] = bool(out["passed_horizons"])
+    return out
+
+
+def format_v4_gate_message(gate: dict) -> str:
+    HL = {"d3": "단타(3일)", "d7": "스윙(7일)", "d20": "중장기(20일)"}
+    mk = lambda ok: "✅" if ok else "❌"
+    lines = ["🏁 <b>스톡시 v4.0 승격 게이트 통과</b>",
+             f"통과 지평: {', '.join(HL.get(h, h) for h in gate['passed_horizons'])}", ""]
+    for h, v in gate["horizons"].items():
+        hw = f"{v['high_win']}%" if v["high_win"] is not None else "-"
+        lines.append(f"<b>{HL.get(h, h)}</b> 표본 {v['n']}건{mk(v['n_ok'])} · "
+                     f"실전 AUC {v['live_auc']}{mk(v['auc_ok'])} · "
+                     f"55%+ 구간 {hw}({v['high_n']}건){mk(v['high_ok'])}")
+    lines += ["", "버전은 자동으로 올리지 않았습니다 — 4.0.0 선언 여부를 정해주세요."]
+    return "\n".join(lines)
+
+
 def backfill_ml_samples_from_history() -> dict:
     """기존 과거 추천(시나리오·스크리너)을 ML 통합 학습테이블로 소급 등록.
     피처/라벨은 track_ml_sample_outcomes가 과거 데이터로 사후 채움. (티커,날짜) 중복 무시."""
