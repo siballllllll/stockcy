@@ -387,6 +387,26 @@ def _price_of(tk: str, market: str):
         return 0.0
 
 
+def _ext_price_of(tk: str) -> float:
+    """[v3.205.0] 프리·애프터마켓 가격 — 토스 체결가가 **방금(15분 안) 체결된 값**일 때만.
+
+    국내는 넥스트레이드 미상장 종목, 미국은 장외 거래가 없는 종목이면 토스가 직전
+    정규장 종가를 그대로 준다. 그 값으로 손절하면 '움직이지 않은 가격'에 판 셈이 되므로
+    0을 돌려 이번 사이클은 건너뛴다(다음 정규장에서 평소대로 판정).
+    """
+    try:
+        from toss_api import get_quotes
+        from zoneinfo import ZoneInfo
+        q = get_quotes([tk]).get(tk)
+        if not q or q[0] <= 0 or not q[1]:
+            return 0.0
+        ts = datetime.fromisoformat(q[1])
+        age = (datetime.now(ZoneInfo("Asia/Seoul")) - ts).total_seconds()
+        return float(q[0]) if -60 <= age <= 900 else 0.0   # -60: 시계 오차 허용
+    except Exception:
+        return 0.0
+
+
 def _wants_buy(owner: str, ind: dict, tk: str = "", ctx: dict = None,
                blocked_reason: str = None) -> tuple:
     """전략별 매수 판정 → (매수여부, 사이징 배수, 근거 한 줄). ctx: 사이클 공용 컨텍스트.
@@ -491,10 +511,13 @@ def _wants_buy(owner: str, ind: dict, tk: str = "", ctx: dict = None,
 
 
 def run_shadow_cycle(candidates: list, kr_open: bool, us_open: bool, force: bool = False,
-                     usdkrw: float = 1450.0, regimes: dict = None) -> dict:
+                     usdkrw: float = 1450.0, regimes: dict = None,
+                     kr_ext: bool = False, us_ext: bool = False) -> dict:
     """1주기 섀도우 운용 — 메인 스캔 직후 호출. candidates: 메인 루프가 수집한
     [{ticker, name, market, price, ind}] (ind = decision._indicators, ml_d7 포함).
-    regimes: {'국내': '공격/중립/수비', '미국': ...} — 진입 컨텍스트 기록용."""
+    regimes: {'국내': '공격/중립/수비', '미국': ...} — 진입 컨텍스트 기록용.
+    kr_ext/us_ext: 프리·애프터마켓 시간대 [v3.205.0] — **청산 판정만** 돈다.
+    매수는 정규장(kr_open/us_open)에서만 한다(가격 소스·호가 공백 검증 전)."""
     out = {}
     conn = _conn(); cur = conn.cursor()
     # 사이클 공용 컨텍스트 — C(이슈 연관 맵)·D(수급 상위 집합) 판정용, 사이클당 1회 로드
@@ -539,9 +562,12 @@ def run_shadow_cycle(candidates: list, kr_open: bool, us_open: bool, force: bool
             for h in _holdings(cur, owner):
                 tk = str(h["ticker"])
                 market = "국내" if tk.isdigit() else "미국"
-                if (market == "국내" and not kr_open and not force) or (market == "미국" and not us_open and not force):
+                regular = force or (kr_open if market == "국내" else us_open)
+                ext = (kr_ext if market == "국내" else us_ext) and not regular
+                if not (regular or ext):
                     continue
-                px = _price_of(tk, market)
+                # 장외는 방금 체결된 토스 가격만 쓴다 — 아니면 0이라 아래에서 건너뛴다
+                px = _price_of(tk, market) if regular else _ext_price_of(tk)
                 if px <= 0 or not h.get("buy_price"):
                     continue
                 net = (px - float(h["buy_price"])) / float(h["buy_price"]) * 100.0 - _fee(market)
@@ -557,6 +583,8 @@ def run_shadow_cycle(candidates: list, kr_open: bool, us_open: bool, force: bool
                     reason = (f"기간만료 청산 {held_days}일/{_exit_days(owner)}일 ({net:+.2f}%) "
                               f"— 근거를 끝까지 지켜본 결과")
                 if reason:
+                    if ext:
+                        reason += " [장외 체결가]"
                     _sell(cur, owner, h, market, px, reason, usdkrw)
                     conn.commit()      # 즉시 커밋 — 위 주석 참조
                     summary["sell"] += 1

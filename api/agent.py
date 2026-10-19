@@ -57,6 +57,41 @@ def _get_usd_krw_rate() -> float:
         pass
     return 1350.0
 
+# 2026년 한국 거래소(KRX) 공식 지정 휴장일 리스트
+_KR_HOLIDAYS = {
+    "2026-01-01",  # 신정
+    "2026-02-16", "2026-02-17", "2026-02-18",  # 설날 연휴
+    "2026-03-01",  # 삼일절
+    "2026-03-02",  # 삼일절 대체공휴일
+    "2026-05-05",  # 어린이날
+    "2026-05-24",  # 석가탄신일
+    "2026-05-25",  # 석가탄신일 대체공휴일 (★오늘!)
+    "2026-06-06",  # 현충일
+    "2026-08-15",  # 광복절
+    "2026-08-17",  # 광복절 대체공휴일
+    "2026-09-24", "2026-09-25", "2026-09-26", "2026-09-27", "2026-09-28", # 추석 연휴 및 대체공휴일
+    "2026-10-03",  # 개천절
+    "2026-10-09",  # 한글날
+    "2026-12-25",  # 성탄절
+    "2026-12-31"   # 연말 휴장일
+}
+
+# 2026년 미국 공식 주식시장(NYSE/NASDAQ) 휴장일 리스트
+_US_HOLIDAYS = {
+    "2026-01-01",  # New Year's Day
+    "2026-01-19",  # Martin Luther King Jr. Day
+    "2026-02-16",  # Washington's Birthday (Presidents' Day)
+    "2026-04-03",  # Good Friday
+    "2026-05-25",  # Memorial Day (★오늘!)
+    "2026-06-19",  # Juneteenth National Independence Day
+    "2026-07-03",  # Independence Day Observed
+    "2026-07-04",  # Independence Day
+    "2026-09-07",  # Labor Day
+    "2026-11-26",  # Thanksgiving Day
+    "2026-12-25"   # Christmas Day
+}
+
+
 def _is_market_open(market: str) -> bool:
     """한국장/미국장의 실제 개장 및 영업 시간인지 정밀 판정 (주말, 공휴일 및 대체휴일 철저히 배제)"""
     from datetime import datetime, timedelta, timezone
@@ -72,24 +107,8 @@ def _is_market_open(market: str) -> bool:
     if now_kst.weekday() in [5, 6]:
         return False
         
-    # 2026년 한국 거래소(KRX) 공식 지정 휴장일 리스트
-    kr_holidays = {
-        "2026-01-01",  # 신정
-        "2026-02-16", "2026-02-17", "2026-02-18",  # 설날 연휴
-        "2026-03-01",  # 삼일절
-        "2026-03-02",  # 삼일절 대체공휴일
-        "2026-05-05",  # 어린이날
-        "2026-05-24",  # 석가탄신일
-        "2026-05-25",  # 석가탄신일 대체공휴일 (★오늘!)
-        "2026-06-06",  # 현충일
-        "2026-08-15",  # 광복절
-        "2026-08-17",  # 광복절 대체공휴일
-        "2026-09-24", "2026-09-25", "2026-09-26", "2026-09-27", "2026-09-28", # 추석 연휴 및 대체공휴일
-        "2026-10-03",  # 개천절
-        "2026-10-09",  # 한글날
-        "2026-12-25",  # 성탄절
-        "2026-12-31"   # 연말 휴장일
-    }
+    kr_holidays = _KR_HOLIDAYS
+
     
     # 2. 미국 시간 (NY: 서머타임 판정 적용)
     def is_dst(dt: datetime) -> bool:
@@ -108,20 +127,8 @@ def _is_market_open(market: str) -> bool:
     if now_ny.weekday() in [5, 6]:
         return False
         
-    # 2026년 미국 공식 주식시장(NYSE/NASDAQ) 휴장일 리스트
-    us_holidays = {
-        "2026-01-01",  # New Year's Day
-        "2026-01-19",  # Martin Luther King Jr. Day
-        "2026-02-16",  # Washington's Birthday (Presidents' Day)
-        "2026-04-03",  # Good Friday
-        "2026-05-25",  # Memorial Day (★오늘!)
-        "2026-06-19",  # Juneteenth National Independence Day
-        "2026-07-03",  # Independence Day Observed
-        "2026-07-04",  # Independence Day
-        "2026-09-07",  # Labor Day
-        "2026-11-26",  # Thanksgiving Day
-        "2026-12-25"   # Christmas Day
-    }
+    us_holidays = _US_HOLIDAYS
+
     
     if market == "국내":
         if today_kst_str in kr_holidays:
@@ -170,6 +177,26 @@ def _is_market_open(market: str) -> bool:
         return True
         
     return False
+
+def _is_extended_session(market: str) -> bool:
+    """[v3.205.0] 프리·애프터마켓 시간대인가 — 섀도우 리그가 **청산 판정만** 돈다.
+
+    국내: 넥스트레이드 프리 08:00~08:50 · 애프터 15:30~20:00 (KST)
+    미국: 프리 04:00~09:30 · 애프터 16:00~20:00 (뉴욕 현지, 서머타임은 zoneinfo가 처리)
+    정규장 시간이면 False — 정규장은 _is_market_open이 맡는다.
+    """
+    from zoneinfo import ZoneInfo
+    if market == "국내":
+        now = datetime.now(ZoneInfo("Asia/Seoul"))
+        hol, windows = _KR_HOLIDAYS, (((8, 0), (8, 50)), ((15, 30), (20, 0)))
+    else:
+        now = datetime.now(ZoneInfo("America/New_York"))
+        hol, windows = _US_HOLIDAYS, (((4, 0), (9, 30)), ((16, 0), (20, 0)))
+    if now.weekday() >= 5 or now.strftime("%Y-%m-%d") in hol:
+        return False
+    hm = (now.hour, now.minute)
+    return any(s <= hm < e for s, e in windows)
+
 
 def _get_today_buy_count() -> int:
     """KST 기준 오늘(당일) AI 에이전트가 실제로 실행한 매수(BUY) 성공 건수를 조회합니다."""
@@ -377,10 +404,23 @@ def _run_one_scan(force: bool = False) -> dict:
         try:
             kr_open = _is_market_open("국내")
             us_open = _is_market_open("미국")
+            kr_ext = _is_extended_session("국내")
+            us_ext = _is_extended_session("미국")
 
             if not kr_open and not us_open and not force:
-                logger.info("[agent] 모든 시장 휴장 중. 스캔 건너뜀.")
                 summary["skipped"] = "market_closed"
+                # [v3.205.0] 프리·애프터마켓이면 섀도우 **청산 판정만** 돈다 — 밤사이 미국
+                # 종목이 폭락해도 다음 정규장까지 손절이 안 되던 것. 메인 매매·매수는 그대로 쉰다.
+                if kr_ext or us_ext:
+                    try:
+                        from shadow_league import run_shadow_cycle
+                        summary["shadow"] = run_shadow_cycle(
+                            [], kr_open=False, us_open=False, usdkrw=_get_usd_krw_rate(),
+                            kr_ext=kr_ext, us_ext=us_ext)
+                        summary["skipped"] = "market_closed_shadow_exits_only"
+                    except Exception as _se:
+                        logger.error(f"[shadow] 장외 청산 사이클 오류: {_se}")
+                logger.info(f"[agent] 정규장 휴장 중. 스캔 건너뜀 (장외 청산: 국내 {kr_ext} · 미국 {us_ext}).")
                 return summary
 
             logger.info(f"[agent] 시장 스캔 시작 (국내: {'개장' if kr_open else '휴장'}, 미국: {'개장' if us_open else '휴장'}, force={force})")
@@ -1179,6 +1219,7 @@ def _run_one_scan(force: bool = False) -> dict:
                 from shadow_league import run_shadow_cycle
                 summary["shadow"] = run_shadow_cycle(
                     shadow_candidates, kr_open=kr_open, us_open=us_open,
+                    kr_ext=kr_ext, us_ext=us_ext,   # 한쪽 정규장 + 다른 쪽 장외가 겹치는 시간
                     force=force, usdkrw=_get_usd_krw_rate(),
                     regimes={"국내": _market_regime("국내")[0], "미국": _market_regime("미국")[0]})
             except Exception as _se:
