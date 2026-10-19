@@ -7777,7 +7777,7 @@ def _aggregate_scenario_stats(cursor) -> dict:
     # 같은 행을 '등장일 종가 진입(종전)'과 '등장 순간 진입(지금)'으로 나란히 잰다.
     # 재계산이 끝난 행만 비교한다 — 섞으면 차이가 기준 탓인지 표본 탓인지 모른다.
     _BASIS_LABEL = {"quote": "장중 등장 · 등장 순간 시세",
-                    "quote_pre": "프리마켓 등장 · NXT 체결가", "quote_after": "애프터마켓 등장 · NXT 체결가", "close": "장중 등장 · 시세 없음(종가)",
+                    "quote_pre": "정규장 전 등장 · 장외 체결가", "quote_after": "정규장 뒤 등장 · 장외 체결가", "close": "장중 등장 · 시세 없음(종가)",
                     "open": "장 전 등장 · 당일 시가", "next_open": "마감 뒤 등장 · 다음날 시가"}
     by_entry_basis = []
     cursor.execute(
@@ -8312,18 +8312,25 @@ def _bar_col(df, name: str):
     return col
 
 
-# 국내 넥스트레이드 프리·애프터마켓 [v3.204.0] — 사용자는 이 시간대에도 산다.
-#   프리 08:00~08:50 → 등장 순간 체결가(quote_pre), 진입봉 = 그날
-#   애프터 15:30~20:00 → 등장 순간 체결가(quote_after), 진입봉 = 그날(d1 = 다음날 종가)
-# 체결가가 '지금 거래된 값'일 때만 쓴다(토스 timestamp가 그 시간대·등장 30분 안).
-# 넥스트레이드 미상장 종목이거나 체결이 없으면 전날·당일 종가가 남아 있으므로
-# 종전처럼 정규장 시가(open / next_open)로 간다.
-_KR_PRE = ((8, 0), (9, 0))
-_KR_AFTER = ((15, 30), (20, 0))
+# 장외 체결가 진입 — 사용자는 정규장 밖에서도 산다.
+#   [v3.204.0] 국내 넥스트레이드 프리 08:00~08:50 · 애프터 15:30~20:00
+#   [v3.206.0] 미국 프리 04:00~09:30 · 애프터 16:00~20:00 · 주간거래 20:00~04:00(현지)
+#     = 사실상 평일 24시간. 토스가 주간거래 체결가를 준다(2026-10-19 KST 10:41 AAPL 실측).
+# 두 갈래로 접는다:
+#   'pre'   = 그날 정규장 **전** (진입봉 = 그날, 지수는 그날 시가에서)      basis='quote_pre'
+#   'after' = 그날 정규장 **뒤** (진입봉 = 그날, d1 = 다음날 종가, 지수는 그날 종가에서)
+#             미국 주간거래 저녁분(20~24시)도 여기다 — 그날 봉은 이미 끝났다.  basis='quote_after'
+# 체결가가 '지금 거래된 값'일 때만 쓴다(토스 timestamp가 같은 갈래·등장 30분 안).
+# NXT 미상장·무체결이면 직전 종가가 남아 있으므로 종전처럼 정규장 시가(open / next_open)로 간다.
+_EXT_WINDOWS = {
+    #       pre 갈래              after 갈래        가격 상식 범위(직전 종가 대비)
+    "kr": (((8, 0), (9, 0)),   ((15, 30), (20, 0)), 0.30),   # 가격제한폭 ±30%
+    "us": (((0, 0), (9, 30)),  ((16, 0), (24, 0)), 0.50),   # 제한폭 없음 — 다른 종목 값만 거른다
+}
 
 
-def _fresh_ext_quote(quote_price, quote_ts, local, window, ref_close) -> float | None:
-    """프리·애프터 시간대에 받은 시세가 실제 그 시간대 체결가면 그 값, 아니면 None."""
+def _fresh_ext_quote(quote_price, quote_ts, local, window, ref_close, band) -> float | None:
+    """장외 시간대에 받은 시세가 실제 그 시간대 체결가면 그 값, 아니면 None."""
     from datetime import datetime as _dt
     try:
         q = float(quote_price or 0)
@@ -8332,15 +8339,14 @@ def _fresh_ext_quote(quote_price, quote_ts, local, window, ref_close) -> float |
         ts = _dt.fromisoformat(str(quote_ts)).astimezone(local.tzinfo)
     except Exception:
         return None
-    (sh, sm), (eh, em) = window
+    start, end = window
     t = (ts.hour, ts.minute)
-    in_window = ts.date() == local.date() and (sh, sm) <= t < (eh, em)
-    # 15:30:00은 정규장 종가 단일가 체결 시각이다 — 애프터 체결로 치지 않는다
-    if window == _KR_AFTER and t == (15, 30):
+    in_window = ts.date() == local.date() and start <= t < end
+    # after 갈래의 시작 시각(국내 15:30·미국 16:00)은 정규장 종가 체결이다 — 장외 체결로 치지 않는다
+    if start in ((15, 30), (16, 0)) and t == start:
         in_window = False
     recent = abs((local - ts).total_seconds()) <= 1800
-    # 가격제한폭(±30%) 밖이면 다른 종목 값이다
-    sane = ref_close * 0.7 <= q <= ref_close * 1.3
+    sane = ref_close * (1 - band) <= q <= ref_close * (1 + band)
     return q if (in_window and recent and sane) else None
 
 
@@ -8374,17 +8380,27 @@ def _scenario_entry(df, captured_at, mkt: str, quote_price=None, quote_ts=None):
     local = cap.replace(tzinfo=ZoneInfo("Asia/Seoul")).astimezone(ZoneInfo(tz))
     ld, hm = local.date(), (local.hour, local.minute)
     day_i = next((j for j, d in enumerate(dates) if d == ld), None)
-    if mkt == "kr" and day_i is not None:
-        if _KR_PRE[0] <= hm < _KR_PRE[1] and day_i >= 1:
-            q = _fresh_ext_quote(quote_price, quote_ts, local, _KR_PRE,
-                                 float(closes.iloc[day_i - 1]))
+    ext = _EXT_WINDOWS.get(mkt)
+    if ext:
+        pre_w, after_w, band = ext
+        if pre_w[0] <= hm < pre_w[1] and day_i is not None and day_i >= 1:
+            q = _fresh_ext_quote(quote_price, quote_ts, local, pre_w,
+                                 float(closes.iloc[day_i - 1]), band)
             if q:
                 return day_i, q, "quote_pre"
-        elif _KR_AFTER[0] <= hm < _KR_AFTER[1]:
-            q = _fresh_ext_quote(quote_price, quote_ts, local, _KR_AFTER,
-                                 float(closes.iloc[day_i]))
-            if q:
-                return day_i, q, "quote_after"
+        elif after_w[0] <= hm < after_w[1]:
+            # 그날이 휴장(미국 일요일 밤 주간거래 등)이면 직전 거래일 봉이 진입봉이다
+            last_i = None
+            for j, d in enumerate(dates):
+                if d <= ld:
+                    last_i = j
+                else:
+                    break
+            if last_i is not None:
+                q = _fresh_ext_quote(quote_price, quote_ts, local, after_w,
+                                     float(closes.iloc[last_i]), band)
+                if q:
+                    return last_i, q, "quote_after"
     if day_i is not None and hm < open_hm:
         return day_i, _open(day_i), "open"
     if day_i is not None and hm < close_hm:

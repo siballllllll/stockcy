@@ -183,19 +183,32 @@ def _is_extended_session(market: str) -> bool:
 
     국내: 넥스트레이드 프리 08:00~08:50 · 애프터 15:30~20:00 (KST)
     미국: 프리 04:00~09:30 · 애프터 16:00~20:00 (뉴욕 현지, 서머타임은 zoneinfo가 처리)
+          + 주간거래(대체거래소 야간 세션) 20:00~04:00, 일~목 밤 [v3.206.0]
+          = 한국 낮 시간. 토스가 이 시간 체결가를 준다(2026-10-19 실측: KST 10:41 AAPL 체결).
     정규장 시간이면 False — 정규장은 _is_market_open이 맡는다.
+    달력이 조금 어긋나도 위험은 작다 — 장외 가격은 '15분 안 체결'만 쓰므로(shadow_league._ext_price_of)
+    거래가 없는 시간이면 그냥 건너뛴다.
     """
     from zoneinfo import ZoneInfo
+    from datetime import timedelta
     if market == "국내":
         now = datetime.now(ZoneInfo("Asia/Seoul"))
-        hol, windows = _KR_HOLIDAYS, (((8, 0), (8, 50)), ((15, 30), (20, 0)))
-    else:
-        now = datetime.now(ZoneInfo("America/New_York"))
-        hol, windows = _US_HOLIDAYS, (((4, 0), (9, 30)), ((16, 0), (20, 0)))
-    if now.weekday() >= 5 or now.strftime("%Y-%m-%d") in hol:
-        return False
+        if now.weekday() >= 5 or now.strftime("%Y-%m-%d") in _KR_HOLIDAYS:
+            return False
+        hm = (now.hour, now.minute)
+        return (8, 0) <= hm < (8, 50) or (15, 30) <= hm < (20, 0)
+    now = datetime.now(ZoneInfo("America/New_York"))
     hm = (now.hour, now.minute)
-    return any(s <= hm < e for s, e in windows)
+
+    def _trading(d) -> bool:
+        return d.weekday() < 5 and d.strftime("%Y-%m-%d") not in _US_HOLIDAYS
+
+    # 주간거래 저녁분(20:00~24:00)은 **다음 거래일**의 세션이다 — 일요일 밤도 열린다
+    if hm >= (20, 0):
+        return _trading(now + timedelta(days=1))
+    if not _trading(now):
+        return False
+    return hm < (9, 30) or (16, 0) <= hm < (20, 0)   # 00~04 주간거래 + 04~09:30 프리, 애프터
 
 
 def _get_today_buy_count() -> int:
