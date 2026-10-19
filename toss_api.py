@@ -180,6 +180,32 @@ def get_prices(symbols: list[str] | str) -> dict[str, float]:
     return out
 
 
+def get_quotes(symbols: list[str]) -> dict[str, tuple[float, str]]:
+    """현재가 + 마지막 체결 시각. {symbol: (lastPrice, timestamp ISO)}.
+
+    체결 시각으로 '지금 거래되는 가격'인지 '전날 종가가 남은 것'인지 가른다 —
+    시나리오 진입가가 넥스트레이드 프리·애프터마켓 시세를 쓸지 판단하는 재료다.
+    """
+    symbols_param = ",".join(str(s).strip() for s in symbols if str(s).strip())
+    if not symbols_param:
+        return {}
+    try:
+        data = _api_get("/api/v1/prices", {"symbols": symbols_param})
+    except Exception as e:
+        logger.warning(f"[toss] 현재가 조회 실패 ({symbols_param[:60]}): {e}")
+        return {}
+    out: dict[str, tuple[float, str]] = {}
+    for item in data.get("result", []) or []:
+        sym, raw = item.get("symbol") or item.get("code"), item.get("lastPrice")
+        if sym is None or raw is None:
+            continue
+        try:
+            out[str(sym)] = (float(raw), str(item.get("timestamp") or ""))
+        except (TypeError, ValueError):
+            continue
+    return out
+
+
 def get_price(symbol: str) -> float | None:
     """단일 종목 현재가. 실패 시 None."""
     return get_prices([symbol]).get(str(symbol).strip())

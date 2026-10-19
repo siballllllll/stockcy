@@ -678,6 +678,9 @@ def init_local_db():
         # entry_basis = 실제로 쓴 진입가의 종류(quote/open/next_open/close).
         "ALTER TABLE scenario_stocks ADD COLUMN quote_price REAL",
         "ALTER TABLE scenario_stocks ADD COLUMN quote_at TEXT",
+        # 그 시세의 마지막 체결 시각(토스 timestamp). 프리·애프터마켓에 받은 값이
+        # 실제 넥스트레이드 체결가인지, 전날 종가가 남은 것인지 가른다.
+        "ALTER TABLE scenario_stocks ADD COLUMN quote_ts TEXT",
         "ALTER TABLE scenario_stocks ADD COLUMN entry_basis TEXT",
         "ALTER TABLE scenario_stocks ADD COLUMN rebase_attempts INTEGER DEFAULT 0",
         # 종가 기준 시절 값 — 재계산 때 덮어쓰기 직전에 한 번 떠 둔다(전후 비교용).
@@ -4163,18 +4166,18 @@ def _capture_scenario_quotes(targets: list) -> None:
     실패하면 남기지 않는다. 그 행은 종전처럼 그날 종가 기준(basis='close')이 된다.
     """
     try:
-        from toss_api import get_prices
+        from toss_api import get_quotes
         syms = sorted({tk for _, tk in targets})
         px: dict = {}
         for i in range(0, len(syms), 200):   # 토스 한 번에 최대 200종목
-            px.update(get_prices(syms[i:i + 200]))
+            px.update(get_quotes(syms[i:i + 200]))
         at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        ups = [(px[tk], at, rid) for rid, tk in targets if px.get(tk)]
+        ups = [(px[tk][0], at, px[tk][1] or None, rid) for rid, tk in targets if px.get(tk)]
         if not ups:
             return
         conn = get_db_conn()
         conn.executemany(
-            "UPDATE scenario_stocks SET quote_price = ?, quote_at = ? "
+            "UPDATE scenario_stocks SET quote_price = ?, quote_at = ?, quote_ts = ? "
             "WHERE id = ? AND quote_price IS NULL", ups)
         conn.commit()
         conn.close()

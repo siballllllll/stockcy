@@ -793,6 +793,21 @@ def main():
             print("   [DUE] 장중 등장인데 종가로 간 행이 더 많다 — 시세가 그날 고저 범위를 벗어나는지 확인.")
         else:
             print("   [DONE] 등장 순간 시세가 진입가로 쓰이고 있다.")
+    # 넥스트레이드(v3.204.0): 프리·애프터 시간대 등장분에 그 시간대 체결가가 붙는가
+    nx = _one(cur, """SELECT
+          SUM(CASE WHEN substr(captured_at,12,5) >= '15:40' AND substr(captured_at,12,5) < '20:00'
+                    AND quote_ts IS NOT NULL THEN 1 ELSE 0 END),
+          SUM(CASE WHEN substr(captured_at,12,5) >= '15:40' AND substr(captured_at,12,5) < '20:00'
+                    AND substr(quote_ts,12,5) > '15:30' THEN 1 ELSE 0 END),
+          SUM(CASE WHEN entry_basis IN ('quote_pre','quote_after') THEN 1 ELSE 0 END)
+        FROM scenario_stocks WHERE captured_at >= '2026-10-20' AND ticker GLOB '[0-9]*'""")
+    if nx and nx[0] != "ERR":
+        a_tot, a_live, nxt_used = [(x or 0) for x in (nx + (0, 0, 0))[:3]]
+        print(f"   넥스트레이드: 애프터 시간대 국내 시세 {a_tot}건 중 15:30 이후 체결 {a_live}건"
+              f" · 프리/애프터 체결가로 진입 {nxt_used}건")
+        if a_tot >= 10 and a_live == 0:
+            print("   [DUE] 애프터 시간대인데 체결 시각이 전부 15:30 이전이다 — 토스가 NXT 체결가를"
+                  " 안 준다. 그 시간대는 계속 다음날 시가로 잡힌다(틀린 건 아니지만 의도와 다름).")
     print("   통과 기준: 장중 등장 행의 대부분이 basis='quote'. 'close'는 시세 조회 실패분이다.")
 
     c.close()
