@@ -366,8 +366,12 @@ function EngineScoreboard() {
   const scnN = scnHead?.count ?? 0;
   const scnWin = scnN > 0 ? scnHead.win_rate_d7 : null;
   const scnAvg = scnN > 0 ? scnHead.avg_d7_return : null;
+  // 진입가 = 등장 순간 살 수 있던 가격(장중 시세·장 전 시가·마감 뒤 다음날 시가) [v3.203.0]
+  //   종전 '등장일 종가' 기준 승률을 같은 표본으로 나란히 보여준다.
+  const cmp = scn?.entry_compare?.["비급등"];
+  const cmpNote = cmp ? ` · 등장일 종가 기준이었으면 ${cmp.win_rate_d7_close}%` : "";
   const scnNote = nc
-    ? `급등 후 편입 제외(실제 매수 기준) · 20일 승률 ${nc.win_rate_d20 ?? "-"}% — 명단 전체는 ${so?.win_rate_d7 ?? "-"}% (${so?.count ?? 0}건)`
+    ? `등장 순간 매수 · 급등 후 편입 제외 · 20일 승률 ${nc.win_rate_d20 ?? "-"}%${cmpNote} — 명단 전체는 ${so?.win_rate_d7 ?? "-"}% (${so?.count ?? 0}건)`
     : "시나리오 등장 종목 7일 후 (방향 적중) — 아래 상세";
   const scrO = scr?.overall ?? {};
 

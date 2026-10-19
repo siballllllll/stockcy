@@ -7773,7 +7773,58 @@ def _aggregate_scenario_stats(cursor) -> dict:
         "threshold": "포착 직전 5거래일 +10% 이상",
     }
 
+    # ── 진입 기준가 분해 [v3.203.0] ──────────────────────────────────────────
+    # 같은 행을 '등장일 종가 진입(종전)'과 '등장 순간 진입(지금)'으로 나란히 잰다.
+    # 재계산이 끝난 행만 비교한다 — 섞으면 차이가 기준 탓인지 표본 탓인지 모른다.
+    _BASIS_LABEL = {"quote": "장중 등장 · 등장 순간 시세", "close": "장중 등장 · 시세 없음(종가)",
+                    "open": "장 전 등장 · 당일 시가", "next_open": "마감 뒤 등장 · 다음날 시가"}
+    by_entry_basis = []
+    cursor.execute(
+        f"""SELECT COALESCE(entry_basis, 'pending') AS b, COUNT(*) n,
+                   SUM(CASE WHEN {_WIN_D7} THEN 1 ELSE 0 END) w7,
+                   AVG(d7_return) avg7
+            FROM scenario_stocks WHERE d7_return IS NOT NULL
+            GROUP BY b ORDER BY n DESC""")
+    for r in cursor.fetchall():
+        d = dict(r)
+        n = d.get("n") or 0
+        if not n:
+            continue
+        by_entry_basis.append({
+            "basis": d["b"],
+            "label": _BASIS_LABEL.get(d["b"], "재계산 대기(종가 기준)"),
+            "count": n,
+            "win_rate_d7": round((d.get("w7") or 0) / n * 100, 1),
+            "avg_d7_return": round(d.get("avg7") or 0, 2),
+        })
+    _WIN_D7_LEG = _win("legacy_d7_return", "legacy_bench_d7_return")
+    entry_compare = {}
+    for tag, cond_new, cond_old in (("전체", "1=1", "1=1"),
+                                    ("비급등", "mom5_at_capture < 10", "legacy_mom5 < 10")):
+        cursor.execute(
+            f"""SELECT SUM(CASE WHEN {cond_new} THEN 1 ELSE 0 END) n_new,
+                       SUM(CASE WHEN {cond_new} AND {_WIN_D7} THEN 1 ELSE 0 END) w_new,
+                       AVG(CASE WHEN {cond_new} THEN d7_return END) a_new,
+                       SUM(CASE WHEN {cond_old} THEN 1 ELSE 0 END) n_old,
+                       SUM(CASE WHEN {cond_old} AND {_WIN_D7_LEG} THEN 1 ELSE 0 END) w_old,
+                       AVG(CASE WHEN {cond_old} THEN legacy_d7_return END) a_old
+                FROM scenario_stocks
+                WHERE entry_basis IS NOT NULL AND d7_return IS NOT NULL
+                  AND legacy_d7_return IS NOT NULL""")
+        d = dict(cursor.fetchone() or {})
+        nn, no = d.get("n_new") or 0, d.get("n_old") or 0
+        if not (nn and no):
+            continue
+        entry_compare[tag] = {
+            "count_new": nn, "win_rate_d7_new": round((d.get("w_new") or 0) / nn * 100, 1),
+            "avg_d7_new": round(d.get("a_new") or 0, 2),
+            "count_close": no, "win_rate_d7_close": round((d.get("w_old") or 0) / no * 100, 1),
+            "avg_d7_close": round(d.get("a_old") or 0, 2),
+        }
+
     return {
+        "by_entry_basis": by_entry_basis,
+        "entry_compare": entry_compare,
         "overall": overall,
         "by_scenario": by_scenario,
         "by_theme":  by_theme,
@@ -8217,11 +8268,216 @@ def track_scenario_stocks_performance(limit: int = 600) -> dict:
         _SCENARIO_TRACK_LOCK.release()
 
 
-def _track_scenario_stocks_performance_impl(limit: int = 600) -> dict:
-    from db import get_db_conn
-    from datetime import datetime, timedelta
+# ── 진입 기준가 [v3.203.0] ────────────────────────────────────────────────────
+# 종전: 등장일(또는 직전 거래일) **종가**에 샀다고 쳤다. 등장 순간 실제로 살 수 있던
+# 가격이 아니다. 국내 측정분의 등장 시각(2026-10-19 실측):
+#   · 장중(09~15시) 48% → 등장 뒤 오른 만큼 비싸게 산 셈(승률 과소)
+#   · 마감 뒤(16~23시) 35% → 등장 **전에** 정해진 가격으로 산 셈, 다음 날 갭을 안 냄(과대)
+#   · 장 전(00~08시) 17% → 그날 장중 움직임만큼 어긋남
+# 지금: 등장 순간 실제로 살 수 있던 가격.
+#   · 장중 + 저장 순간 시세(quote_price) 있음 → 그 시세                basis='quote'
+#   · 장중인데 시세 없음(과거 행·조회 실패) → 그날 종가(종전과 같음)    basis='close'
+#   · 장 시작 전 → 그날 시가                                            basis='open'
+#   · 장 마감 뒤·휴장일 → 다음 거래일 시가                               basis='next_open'
+# 매도(d1~d60)는 **진입봉** 기준 n거래일 뒤 종가다. 시각 판정은 그 시장의 현지 시간으로
+# 한다 — 미국은 한국 날짜와 하루씩 어긋나서 종전 방식이 엉뚱한 봉을 잡았다.
+_MARKET_SESSION = {
+    "kr": ("Asia/Seoul", (9, 0), (15, 30)),
+    "us": ("America/New_York", (9, 30), (16, 0)),
+    "jp": ("Asia/Tokyo", (9, 0), (15, 30)),
+    "hk": ("Asia/Hong_Kong", (9, 30), (16, 0)),
+    "cn": ("Asia/Shanghai", (9, 30), (15, 0)),
+    "de": ("Europe/Berlin", (9, 0), (17, 30)),
+    "uk": ("Europe/London", (8, 0), (16, 30)),
+    # 장 시간을 확인 안 한 시장은 종전 방식(등장일 이하 마지막 종가)으로 둔다
+}
+
+# 시장별 기준 지수 [v3.199.0] — 종전에는 '미국이냐 아니냐'뿐이라 해외 상장 심볼이
+# 전부 S&P500과 비교됐다(8035.T 도쿄일렉트론·1211.HK BYD·2222.SR 아람코, 실측 5행).
+# 사우디(^TASI)는 yfinance가 주지 않아 일부러 비워둔다 — 없는 기준선을 지어내면
+# '시장 대비'가 아니라 절대 수익을 재면서 그렇게 안 보인다.
+_BENCH_SYMBOL = {
+    "us": "^GSPC", "jp": "^N225", "hk": "^HSI", "cn": "000001.SS",
+    "de": "^GDAXI", "uk": "^FTSE",
+    # "sa": ^TASI 없음 · ca/au/fr/nl/it/es/ch/tw 미확인 — 확인한 것만 넣는다
+}
+
+
+def _bar_col(df, name: str):
+    """일봉의 한 컬럼을 1차원으로 — yfinance 멀티인덱스(NVDA에서 실측) 방어."""
+    col = df[name]
+    if hasattr(col, "columns"):
+        col = col.iloc[:, 0]
+    return col
+
+
+def _scenario_entry(df, captured_at, mkt: str, quote_price=None):
+    """등장 순간 실제로 살 수 있던 진입가. (진입봉 인덱스, 진입가, basis) — 진입봉이 아직
+    없으면(마감 뒤 등장인데 다음 거래일이 안 왔다) None."""
+    from datetime import datetime as _dt
+    from zoneinfo import ZoneInfo
+    cap = _dt.fromisoformat(str(captured_at)[:19])
+    dates = [(d.date() if hasattr(d, "date") else d) for d in df.index]
+    opens, closes = _bar_col(df, "Open"), _bar_col(df, "Close")
+    highs, lows = _bar_col(df, "High"), _bar_col(df, "Low")
+
+    def _open(i):
+        # 거래정지일은 FDR이 시가를 0으로 준다 — 그날 종가로 대신한다
+        o = float(opens.iloc[i])
+        return o if o == o and o > 0 else float(closes.iloc[i])
+
+    sess = _MARKET_SESSION.get(mkt)
+    if sess is None:
+        idx = None
+        for j, d in enumerate(dates):
+            if d <= cap.date():
+                idx = j
+            else:
+                break
+        return (idx, float(closes.iloc[idx]), "close") if idx is not None else None
+
+    tz, open_hm, close_hm = sess
+    # captured_at은 노트북 시계(KST)로 찍힌다
+    local = cap.replace(tzinfo=ZoneInfo("Asia/Seoul")).astimezone(ZoneInfo(tz))
+    ld, hm = local.date(), (local.hour, local.minute)
+    day_i = next((j for j, d in enumerate(dates) if d == ld), None)
+    if day_i is not None and hm < open_hm:
+        return day_i, _open(day_i), "open"
+    if day_i is not None and hm < close_hm:
+        q = float(quote_price) if quote_price else 0.0
+        # 시세가 그날 고저 범위를 크게 벗어나면 다른 종목·다른 날 값이다 — 쓰지 않는다
+        if q > 0 and float(lows.iloc[day_i]) * 0.97 <= q <= float(highs.iloc[day_i]) * 1.03:
+            return day_i, q, "quote"
+        return day_i, float(closes.iloc[day_i]), "close"
+    nxt = next((j for j, d in enumerate(dates) if d > ld), None)
+    if nxt is None:
+        return None
+    return nxt, _open(nxt), "next_open"
+
+
+def _make_bench_lookup():
+    """기준 지수 수익률 조회기 — 사이클마다 지수 2~3개만 받는다(시장별 캐시)."""
     import FinanceDataReader as fdr
     import yfinance as yf
+    cache: dict = {}
+
+    def _series(market: str):
+        key = str(market or "us").lower()
+        if key in cache:
+            return cache[key]
+        ser = None
+        try:
+            if key == "kr":
+                bdf = fdr.DataReader("KS11", "2026-01-01")
+            else:
+                sym = _BENCH_SYMBOL.get(key)
+                bdf = yf.download(sym, start="2026-01-01", progress=False, timeout=10) if sym else None
+            if bdf is not None and not bdf.empty:
+                o, c = _bar_col(bdf, "Open"), _bar_col(bdf, "Close")
+                ser = [(d.date(), float(o.loc[d]), float(v)) for d, v in c.dropna().items()]
+        except Exception as e:
+            print(f"[scenario tracking] 벤치마크({key}) 로드 실패: {e}")
+        cache[key] = ser
+        return ser
+
+    def lookup(entry_date, basis: str, market: str):
+        """진입봉과 **같은 거래일 오프셋**의 지수 수익률(%) 1·3·7·20·60. 못 구하면 None들.
+        종목을 시가·장중에 샀으면 지수도 그날 시가에서 출발한다(장중 지수값은 없어 시가로 근사)."""
+        none5 = (None,) * 5
+        ser = _series(market)
+        if not ser:
+            return none5
+        bi = None
+        for j, (d, _, _) in enumerate(ser):
+            if d <= entry_date:
+                bi = j
+            else:
+                break
+        if bi is None:
+            return none5
+        d0, o0, c0 = ser[bi]
+        b0 = o0 if (basis != "close" and d0 == entry_date and o0 == o0 and o0 > 0) else c0
+        if b0 <= 0:
+            return none5
+
+        def _br(off):
+            k = bi + off
+            return round((ser[k][2] - b0) / b0 * 100, 2) if k < len(ser) else None
+
+        return (_br(1), _br(3), _br(7), _br(20), _br(60))
+
+    return lookup
+
+
+def _measure_scenario_row(df, row: dict, mkt: str, bench) -> tuple | None:
+    """한 행의 진입가·n일 뒤 가격·수익률·지수·포착 직전 모멘텀. UPDATE 인자 순서로 반환.
+    진입봉이 아직 없으면 None(실패가 아니다 — 다음 사이클에 다시 본다)."""
+    from datetime import datetime as _dt
+    ent = _scenario_entry(df, row["captured_at"], mkt, row.get("quote_price"))
+    if ent is None:
+        return None
+    ei, entry, basis = ent
+    if not entry or entry <= 0:
+        return None
+    closes = _bar_col(df, "Close")
+
+    def _p(off):
+        k = ei + off
+        return float(closes.iloc[k]) if len(closes) > k else None
+
+    d1, d3, d7, d20, d60 = _p(1), _p(3), _p(7), _p(20), _p(60)
+    def _r(p): return round((p - entry) / entry * 100, 2) if p else None
+
+    # 포착 직전 5거래일 수익률 — '뒷북 여부'. [v3.203.0] 등장 **전에 끝난** 마지막 봉에서 잰다.
+    # 종전에는 등장일 종가를 썼는데, 장중 등장 종목이 등장 뒤 급등하면 그 급등까지 '등장 전
+    # 모멘텀'으로 세서 급등 편입으로 분류됐다(미래 정보). 장 시간을 모르는 시장은 종전대로.
+    pre = ei - 1 if mkt in _MARKET_SESSION else ei
+    mom5 = None
+    if pre >= 5:
+        prev, last = float(closes.iloc[pre - 5]), float(closes.iloc[pre])
+        if prev > 0:
+            mom5 = round((last - prev) / prev * 100, 2)
+
+    ed = df.index[ei]
+    ed = ed.date() if hasattr(ed, "date") else ed
+    b1, b3, b7, b20, b60 = bench(ed, basis, mkt)
+    now = _dt.now().strftime("%Y-%m-%d %H:%M:%S")
+    return (entry, d1, d3, d7, d20, d60,
+            _r(d1), _r(d3), _r(d7), _r(d20), _r(d60),
+            b1, b3, b7, b20, b60, mom5, basis, now, row["id"])
+
+
+# 종가 기준 시절 값(legacy_*)은 **처음 재계산될 때 한 번만** 떠 둔다 — SQLite의 SET 우변은
+# 갱신 전 값을 보므로 같은 문장 안에서 안전하다.
+_SCENARIO_MEASURE_UPDATE = """UPDATE scenario_stocks
+   SET legacy_d7_return = CASE WHEN entry_basis IS NULL THEN d7_return ELSE legacy_d7_return END,
+       legacy_bench_d7_return = CASE WHEN entry_basis IS NULL THEN bench_d7_return ELSE legacy_bench_d7_return END,
+       legacy_d20_return = CASE WHEN entry_basis IS NULL THEN d20_return ELSE legacy_d20_return END,
+       legacy_bench_d20_return = CASE WHEN entry_basis IS NULL THEN bench_d20_return ELSE legacy_bench_d20_return END,
+       legacy_mom5 = CASE WHEN entry_basis IS NULL THEN mom5_at_capture ELSE legacy_mom5 END,
+       captured_price = ?, d1_price = ?, d3_price = ?, d7_price = ?,
+       d20_price = ?, d60_price = ?,
+       d1_return = ?, d3_return = ?, d7_return = ?,
+       d20_return = ?, d60_return = ?,
+       bench_d1_return = ?, bench_d3_return = ?, bench_d7_return = ?,
+       bench_d20_return = ?, bench_d60_return = ?,
+       mom5_at_capture = COALESCE(?, mom5_at_capture),
+       entry_basis = ?,
+       updated_at = ?
+   WHERE id = ?"""
+
+
+def _fetch_scenario_bars(ticker: str, is_kr: bool, start: str, end: str):
+    import FinanceDataReader as fdr
+    import yfinance as yf
+    if is_kr:
+        return fdr.DataReader(ticker, start, end)
+    return yf.download(ticker, start=start, end=end, progress=False, timeout=10)
+
+
+def _track_scenario_stocks_performance_impl(limit: int = 600) -> dict:
+    from db import get_db_conn, resolve_market as _rm
+    from datetime import datetime, timedelta
 
     conn = get_db_conn()
     cursor = conn.cursor()
@@ -8230,7 +8486,7 @@ def _track_scenario_stocks_performance_impl(limit: int = 600) -> dict:
     #   · d60까지 찬 행은 영원히 끝
     #   · d20(20거래일 ≈ 28달력일)·d60(60거래일 ≈ 84달력일)은 시간이 지나야 채울 수 있다
     cursor.execute(
-        """SELECT id, ticker, name, market, captured_at, captured_price,
+        """SELECT id, ticker, name, market, captured_at, captured_price, quote_price,
                   d1_return, d3_return, d7_return, d20_return, d60_return
            FROM scenario_stocks
            WHERE d60_return IS NULL
@@ -8254,66 +8510,8 @@ def _track_scenario_stocks_performance_impl(limit: int = 600) -> dict:
     rows = [dict(r) for r in cursor.fetchall()]
     today = datetime.now().date()
     # 네트워크 단계(느림)와 DB write 단계(빠름)를 분리한다.
-    # 종목마다 commit하면 write 락을 짧게만 잡아 다른 쓰기 작업과 경합하지 않는다.
     # [v3.192.0] 시장 기준선 — 종목과 **같은 거래일 오프셋**으로 잰다.
-    # 사이클당 지수 2개만 받으면 되므로 비용은 사실상 0이다.
-    _bench_cache: dict = {}
-
-    # 시장별 기준 지수 [v3.199.0] — 종전에는 '미국이냐 아니냐'뿐이라 해외 상장 심볼이
-    # 전부 S&P500과 비교됐다(8035.T 도쿄일렉트론·1211.HK BYD·2222.SR 아람코, 실측 5행).
-    # 사우디(^TASI)는 yfinance가 주지 않아 일부러 비워둔다 — 없는 기준선을 지어내면
-    # '시장 대비'가 아니라 절대 수익을 재면서 그렇게 안 보인다.
-    _BENCH_SYMBOL = {
-        "us": "^GSPC", "jp": "^N225", "hk": "^HSI", "cn": "000001.SS",
-        "de": "^GDAXI", "uk": "^FTSE",
-        # "sa": ^TASI 없음 · ca/au/fr/nl/it/es/ch/tw 미확인 — 확인한 것만 넣는다
-    }
-
-    def _bench_series(market: str):
-        key = str(market or "us").lower()
-        if key in _bench_cache:
-            return _bench_cache[key]
-        ser = None
-        try:
-            if key == "kr":
-                bdf = fdr.DataReader("KS11", "2026-01-01")
-                ser = [(d.date(), float(v)) for d, v in bdf["Close"].dropna().items()]
-            else:
-                sym = _BENCH_SYMBOL.get(key)
-                if sym:
-                    bdf = yf.download(sym, start="2026-01-01", progress=False, timeout=10)
-                    col = bdf["Close"]
-                    if hasattr(col, "columns"):        # yfinance 멀티인덱스 방어
-                        col = col.iloc[:, 0]
-                    ser = [(d.date(), float(v)) for d, v in col.dropna().items()]
-        except Exception as e:
-            print(f"[scenario tracking] 벤치마크({key}) 로드 실패: {e}")
-        _bench_cache[key] = ser
-        return ser
-
-    def _bench_returns(captured_date, market: str):
-        """포착일 기준 1·3·7·20·60 거래일 뒤 지수 수익률(%). 못 구하면 전부 None."""
-        ser = _bench_series(market)
-        none5 = (None,) * 5
-        if not ser:
-            return none5
-        bi = None
-        for j, (d, _) in enumerate(ser):
-            if d <= captured_date:
-                bi = j
-            else:
-                break
-        if bi is None:
-            return none5
-        b0 = ser[bi][1]
-        if b0 <= 0:
-            return none5
-
-        def _br(off):
-            k = bi + off
-            return round((ser[k][1] - b0) / b0 * 100, 2) if k < len(ser) else None
-
-        return (_br(1), _br(3), _br(7), _br(20), _br(60))
+    bench = _make_bench_lookup()
 
     pending_updates = []
     # 조회가 실패한 행 — 시도 횟수를 올려 5회 뒤에는 대상에서 빠지게 한다.
@@ -8334,20 +8532,14 @@ def _track_scenario_stocks_performance_impl(limit: int = 600) -> dict:
         raw_ticker = str(row["ticker"]).strip()
         # 시장은 티커에서 직접 판정한다 [v3.199.0] — DB의 market 컬럼은 종전 규칙
         # ("영문 포함이면 us")으로 쓰인 과거 값이 섞여 있어 그대로 믿을 수 없다.
-        from db import resolve_market as _rm
         mkt = _rm(raw_ticker)
         if mkt == "unknown":
             failed_ids.append(row["id"])
             continue
         is_kr = (mkt == "kr")
         ticker = raw_ticker.zfill(6) if is_kr else raw_ticker.upper()
-        # 등장일 직전~이후 데이터를 함께 받아, '등장 시점에 사용자가 본 가격'
-        # (= 등장일 당일 또는 그 직전 거래일 종가)을 기준가로 잡는다.
-        # 기존엔 '등장일 이후 첫 거래일' 종가를 썼는데, 주말·휴일에 등장하면
-        # 그 첫 거래일이 곧 오늘이 되어 기준가=현재가→수익률 0%로 붕괴되는 문제가 있었음.
-        # [v3.195.0] -10일 → -15일. 포착 직전 5거래일 모멘텀을 재려면 기준봉 앞에 5봉이
-        # 더 있어야 한다(연휴가 끼면 10달력일로는 모자란다). 같은 요청의 구간만 늘리므로
-        # 추가 호출은 없다.
+        # [v3.195.0] 포착 직전 5거래일 모멘텀을 재려면 진입봉 앞에 6봉이 있어야 한다
+        # (연휴가 끼면 10달력일로는 모자란다).
         fetch_start = (captured - timedelta(days=15)).strftime("%Y-%m-%d")
         # d60(60거래일)까지 담으려면 약 90달력일이 필요하다.
         end_date = (captured + timedelta(days=95)).strftime("%Y-%m-%d")
@@ -8359,53 +8551,14 @@ def _track_scenario_stocks_performance_impl(limit: int = 600) -> dict:
             if _ck in _bar_cache:
                 df = _bar_cache[_ck]
             else:
-                if is_kr:
-                    df = fdr.DataReader(ticker, fetch_start, end_date)
-                else:
-                    df = yf.download(ticker, start=fetch_start, end=end_date,
-                                     progress=False, timeout=10)
+                df = _fetch_scenario_bars(ticker, is_kr, fetch_start, end_date)
                 _bar_cache[_ck] = df
             if df is None or df.empty:
                 failed_ids.append(row["id"])
                 continue
-
-            # 기준가 인덱스 = 등장일(captured) 이하 마지막 거래일
-            base_i = None
-            for j, dt in enumerate(df.index):
-                d = dt.date() if hasattr(dt, "date") else dt
-                if d <= captured:
-                    base_i = j
-                else:
-                    break
-            if base_i is None:
-                base_i = 0  # 등장일 이전 데이터가 없으면 첫 행 사용
-
-            entry = float(df["Close"].iloc[base_i])
-            if entry <= 0:
-                continue
-
-            def _p(offset):
-                k = base_i + offset
-                return float(df["Close"].iloc[k]) if len(df) > k else None
-
-            d1, d3, d7, d20, d60 = _p(1), _p(3), _p(7), _p(20), _p(60)
-            def _r(p): return round((p - entry) / entry * 100, 2) if p else None
-
-            # 포착 직전 5거래일 수익률 — '뒷북 여부'를 사후에 되짚을 수 있게 남긴다.
-            # 이 값이 없어서 V17('급등 후 편입을 제외할지')을 매번 네트워크로 다시 재야 했다.
-            mom5 = None
-            if base_i >= 5:
-                prev = float(df["Close"].iloc[base_i - 5])
-                if prev > 0:
-                    mom5 = round((entry - prev) / prev * 100, 2)
-
-            now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            b1, b3, b7, b20, b60 = _bench_returns(captured, mkt)
-            pending_updates.append(
-                (entry, d1, d3, d7, d20, d60,
-                 _r(d1), _r(d3), _r(d7), _r(d20), _r(d60),
-                 b1, b3, b7, b20, b60, mom5, now, row["id"])
-            )
+            m = _measure_scenario_row(df, row, mkt, bench)
+            if m is not None:
+                pending_updates.append(m)
         except Exception as e:
             failed_ids.append(row["id"])
             print(f"[scenario tracking] {ticker} 실패: {e}")
@@ -8415,19 +8568,7 @@ def _track_scenario_stocks_performance_impl(limit: int = 600) -> dict:
     updated = 0
     if pending_updates:
         try:
-            cursor.executemany(
-                """UPDATE scenario_stocks
-                   SET captured_price = ?, d1_price = ?, d3_price = ?, d7_price = ?,
-                       d20_price = ?, d60_price = ?,
-                       d1_return = ?, d3_return = ?, d7_return = ?,
-                       d20_return = ?, d60_return = ?,
-                       bench_d1_return = ?, bench_d3_return = ?, bench_d7_return = ?,
-                       bench_d20_return = ?, bench_d60_return = ?,
-                       mom5_at_capture = COALESCE(?, mom5_at_capture),
-                       updated_at = ?
-                   WHERE id = ?""",
-                pending_updates,
-            )
+            cursor.executemany(_SCENARIO_MEASURE_UPDATE, pending_updates)
             conn.commit()
             updated = len(pending_updates)
         except Exception as e:
@@ -8445,6 +8586,99 @@ def _track_scenario_stocks_performance_impl(limit: int = 600) -> dict:
     stats = _aggregate_scenario_stats(cursor)
     conn.close()
     return {"updated_now": updated, **stats}
+
+
+def rebase_scenario_entries(max_tickers: int = 150) -> dict:
+    """[v3.203.0] 이미 측정된 과거 행을 '등장 순간 진입가' 기준으로 다시 잰다.
+
+    일일 추적은 아직 안 끝난 행만 보므로, d7·d60까지 찬 과거 행은 여기서 고친다.
+    종가 기준 값은 덮어쓰기 전에 legacy_*로 떠 둔다(_SCENARIO_MEASURE_UPDATE).
+    과거 행은 등장 순간 시세가 없어서 장중 등장분은 종가(basis='close')로 남는다 —
+    장 전·마감 뒤 등장분만 실제로 바뀐다.
+
+    티커 단위로 긴 구간을 한 번 받아 그 종목의 행을 한꺼번에 계산한다(backfill_scenario_mom5와 같은 이유).
+    회당 max_tickers개 — 일일 작업에 걸어두면 며칠에 걸쳐 끝난다.
+    """
+    from db import get_db_conn, resolve_market as _rm
+    from datetime import datetime, timedelta
+
+    MAX_TRY = 3
+    conn = get_db_conn()
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            """SELECT ticker, MIN(captured_at) AS first_at, MAX(captured_at) AS last_at
+               FROM scenario_stocks
+               WHERE entry_basis IS NULL AND d3_return IS NOT NULL
+                 AND COALESCE(rebase_attempts, 0) < ?
+               GROUP BY ticker
+               ORDER BY MAX(COALESCE(rebase_attempts, 0)) ASC, COUNT(*) DESC
+               LIMIT ?""",
+            (MAX_TRY, int(max_tickers)),
+        )
+        targets = [dict(r) for r in cur.fetchall()]
+        bench = _make_bench_lookup()
+        today = datetime.now().date()
+        rebased, failed = 0, 0
+
+        def _mark_failed(tk):
+            cur.execute(
+                """UPDATE scenario_stocks SET rebase_attempts = COALESCE(rebase_attempts, 0) + 1
+                   WHERE ticker = ? AND entry_basis IS NULL""", (tk,))
+            conn.commit()
+
+        for t in targets:
+            raw = str(t["ticker"]).strip()
+            mkt = _rm(raw)
+            if mkt == "unknown":
+                _mark_failed(raw)
+                failed += 1
+                continue
+            is_kr = (mkt == "kr")
+            ticker = raw.zfill(6) if is_kr else raw.upper()
+            try:
+                start = (datetime.fromisoformat(str(t["first_at"])[:19]).date()
+                         - timedelta(days=15)).strftime("%Y-%m-%d")
+                end_d = min(datetime.fromisoformat(str(t["last_at"])[:19]).date()
+                            + timedelta(days=95), today + timedelta(days=1))
+                df = _fetch_scenario_bars(ticker, is_kr, start, end_d.strftime("%Y-%m-%d"))
+                if df is None or df.empty:
+                    _mark_failed(raw)
+                    failed += 1
+                    continue
+                cur.execute(
+                    """SELECT id, captured_at, quote_price FROM scenario_stocks
+                       WHERE ticker = ? AND entry_basis IS NULL AND d3_return IS NOT NULL""",
+                    (raw,))
+                ups = []
+                for r in [dict(x) for x in cur.fetchall()]:
+                    m = _measure_scenario_row(df, r, mkt, bench)
+                    if m is not None:
+                        ups.append(m)
+                if ups:
+                    cur.executemany(_SCENARIO_MEASURE_UPDATE, ups)
+                    conn.commit()
+                    rebased += len(ups)
+                else:
+                    _mark_failed(raw)
+                    failed += 1
+            except Exception as e:
+                failed += 1
+                try:
+                    _mark_failed(raw)
+                except Exception:
+                    pass
+                print(f"[entry rebase] {ticker} 실패: {str(e)[:60]}")
+
+        cur.execute(
+            """SELECT COUNT(DISTINCT ticker) FROM scenario_stocks
+               WHERE entry_basis IS NULL AND d3_return IS NOT NULL
+                 AND COALESCE(rebase_attempts, 0) < ?""", (MAX_TRY,))
+        left = cur.fetchone()[0]
+        return {"ok": True, "rebased": rebased, "failed_tickers": failed,
+                "tickers_left": left, "done": left == 0}
+    finally:
+        conn.close()
 
 
 def backfill_scenario_mom5(max_tickers: int = 80) -> dict:

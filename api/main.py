@@ -516,6 +516,16 @@ def _scenario_tracking_loop():
                               f"(커버리지 {mb.get('coverage_pct')}% · 남은 티커 {mb.get('tickers_left')})")
                 except Exception as e:
                     print(f"[mom5] 오류: {e}")
+                # 과거 행 진입가 재계산 (v3.203.0) — '등장일 종가'→'등장 순간 진입가'.
+                #   일일 추적은 끝난 행을 다시 보지 않으므로 여기서 회당 티커 150개씩 고친다.
+                try:
+                    from ai_engine import rebase_scenario_entries
+                    rb = rebase_scenario_entries(max_tickers=150)
+                    if rb.get("rebased"):
+                        print(f"[entry rebase] {rb.get('rebased')}행 재계산 "
+                              f"(남은 티커 {rb.get('tickers_left')})")
+                except Exception as e:
+                    print(f"[entry rebase] 오류: {e}")
                 # AI추천 사후 성과(d1/d3/d7) 측정 — AI 호출 없이 가격만 사용
                 try:
                     from ai_engine import track_ai_recommendation_outcomes

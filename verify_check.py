@@ -767,6 +767,34 @@ def main():
     except Exception as e:
         print(f"   [BLOCKED] 확인 실패: {str(e)[:80]}")
 
+    # ── V21. 시나리오 진입가 = 등장 순간 (v3.203.0) ──────────────────────────
+    print(_hdr("V21", "시나리오 진입가 — 장중 등장 종목에 '등장 순간 시세'가 붙고 있나", "2026-10-26"))
+    q = _one(cur, """SELECT COUNT(*), COUNT(quote_price),
+                            SUM(CASE WHEN entry_basis = 'quote' THEN 1 ELSE 0 END),
+                            SUM(CASE WHEN entry_basis = 'close' THEN 1 ELSE 0 END)
+                     FROM scenario_stocks
+                     WHERE captured_at >= '2026-10-20'
+                       AND (ticker GLOB '[0-9]*' OR ticker NOT LIKE '%.%')""")
+    if q and q[0] == "ERR":
+        print(f"   [BLOCKED] 확인 실패: {q[1]}")
+    else:
+        q_tot, q_has, q_used, q_close = [(x or 0) for x in (q + (0, 0, 0, 0))[:4]]
+        left = _one(cur, """SELECT COUNT(*) FROM scenario_stocks
+                            WHERE entry_basis IS NULL AND d3_return IS NOT NULL
+                              AND COALESCE(rebase_attempts,0) < 3""")
+        print(f"   10/20 이후 국내·미국 픽 {q_tot}행: 시세 저장 {q_has} · 진입가로 사용 {q_used}"
+              f" · 장중인데 시세 없어 종가로 간 것 {q_close}")
+        print(f"   과거 행 재계산 대기: {(left or (0,))[0]}행 (일일 작업이 회당 티커 150개씩)")
+        if q_tot < 20:
+            print("   [WAIT] 새 픽이 아직 적다.")
+        elif q_has == 0:
+            print("   [DUE] 시세가 한 건도 안 붙는다 — db._capture_scenario_quotes(토스 토큰·IP 허용목록) 확인.")
+        elif q_close > q_used:
+            print("   [DUE] 장중 등장인데 종가로 간 행이 더 많다 — 시세가 그날 고저 범위를 벗어나는지 확인.")
+        else:
+            print("   [DONE] 등장 순간 시세가 진입가로 쓰이고 있다.")
+    print("   통과 기준: 장중 등장 행의 대부분이 basis='quote'. 'close'는 시세 조회 실패분이다.")
+
     c.close()
     print(f"\n{'─' * 74}")
     print("자세한 배경과 판정 기준은 VERIFY.md 참조.")

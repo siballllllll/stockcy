@@ -672,6 +672,20 @@ def init_local_db():
         # 사후 가격 추적 시도 횟수 — 조회가 원리적으로 불가능한 행(비상장 자리표시자,
         # 해외 OTC/독일 상장 ADR 등)을 매일 다시 두드리지 않기 위함.
         "ALTER TABLE scenario_stocks ADD COLUMN track_attempts INTEGER DEFAULT 0",
+        # [진입 기준가 v3.203.0] 종전에는 '등장일 종가'에 샀다고 쳤다 — 등장 순간 실제로
+        # 살 수 있던 가격이 아니다(장중 등장은 등장 뒤 오른 만큼 비싸게, 마감 뒤 등장은
+        # 등장 전에 정해진 가격으로 산 셈). quote_price = 저장 순간 시세(토스),
+        # entry_basis = 실제로 쓴 진입가의 종류(quote/open/next_open/close).
+        "ALTER TABLE scenario_stocks ADD COLUMN quote_price REAL",
+        "ALTER TABLE scenario_stocks ADD COLUMN quote_at TEXT",
+        "ALTER TABLE scenario_stocks ADD COLUMN entry_basis TEXT",
+        "ALTER TABLE scenario_stocks ADD COLUMN rebase_attempts INTEGER DEFAULT 0",
+        # 종가 기준 시절 값 — 재계산 때 덮어쓰기 직전에 한 번 떠 둔다(전후 비교용).
+        "ALTER TABLE scenario_stocks ADD COLUMN legacy_d7_return REAL",
+        "ALTER TABLE scenario_stocks ADD COLUMN legacy_bench_d7_return REAL",
+        "ALTER TABLE scenario_stocks ADD COLUMN legacy_d20_return REAL",
+        "ALTER TABLE scenario_stocks ADD COLUMN legacy_bench_d20_return REAL",
+        "ALTER TABLE scenario_stocks ADD COLUMN legacy_mom5 REAL",
         "ALTER TABLE portfolio ADD COLUMN buy_reason TEXT DEFAULT ''",
         "ALTER TABLE trade_history ADD COLUMN buy_reason TEXT DEFAULT ''",
         "ALTER TABLE agent_decisions ADD COLUMN is_realized INTEGER DEFAULT 0",
@@ -4055,6 +4069,7 @@ def save_scenario_stocks(scenario_keyword: str, scenario_title: str, stocks: lis
             theme_id = classify_theme(scenario_keyword or "", scenario_title or "")
         except Exception:
             theme_id, ticker_sector = None, (lambda _t: None)
+        quote_targets: list = []   # (row id, ticker) — 저장 직후 등장 순간 시세를 붙인다
         for s in stocks:
             ticker = str(s.get("ticker") or s.get("code") or "").strip()
             name = str(s.get("name") or ticker).strip()
@@ -4117,6 +4132,8 @@ def save_scenario_stocks(scenario_keyword: str, scenario_title: str, stocks: lis
                 (scenario_keyword, scenario_title, ticker, name, market, role, horizon, now, now,
                  prob_pct, sc_label, theme_id, ticker_sector(ticker))
             )
+            if market in ("kr", "us"):
+                quote_targets.append((cursor.lastrowid, ticker))
             # 자체 ML 학습 샘플로도 기록 (피해=하락기대는 제외, 상승 기대 종목만)
             # ⚠️ cursor를 넘겨야 한다 — 여기는 이미 INSERT로 쓰기 트랜잭션이 열린 지점이라
             #    별도 커넥션을 열면 자기 락을 자기가 기다리는 데드락이 된다(v3.156.0).
@@ -4129,8 +4146,40 @@ def save_scenario_stocks(scenario_keyword: str, scenario_title: str, stocks: lis
                     pass
         conn.commit()
         conn.close()
+        if quote_targets:
+            # 시세 조회는 네트워크라 저장 트랜잭션 밖, 별도 스레드에서 한다 — 시나리오 생성을
+            # 기다리게 하지 않는다. 몇 초 늦어도 '등장 순간'으로 충분히 가깝다.
+            threading.Thread(target=_capture_scenario_quotes, args=(quote_targets,),
+                             daemon=True).start()
     except Exception as e:
         print(f"save_scenario_stocks error: {e}")
+
+
+def _capture_scenario_quotes(targets: list) -> None:
+    """[v3.203.0] 시나리오 등장 순간의 시세를 `quote_price`에 남긴다.
+
+    추적 job이 '장중 등장' 행의 진입가로 쓴다(ai_engine._scenario_entry). 장이 닫혀 있을 때
+    받은 시세는 직전 종가일 뿐이라 거기서 쓰지 않는다 — 그런 행은 시가 기준으로 간다.
+    실패하면 남기지 않는다. 그 행은 종전처럼 그날 종가 기준(basis='close')이 된다.
+    """
+    try:
+        from toss_api import get_prices
+        syms = sorted({tk for _, tk in targets})
+        px: dict = {}
+        for i in range(0, len(syms), 200):   # 토스 한 번에 최대 200종목
+            px.update(get_prices(syms[i:i + 200]))
+        at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        ups = [(px[tk], at, rid) for rid, tk in targets if px.get(tk)]
+        if not ups:
+            return
+        conn = get_db_conn()
+        conn.executemany(
+            "UPDATE scenario_stocks SET quote_price = ?, quote_at = ? "
+            "WHERE id = ? AND quote_price IS NULL", ups)
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"[scenario] 등장 시세 저장 실패: {e}")
 
 
 def _resolve_kr_ticker(name: str, ticker: str) -> str | None:
