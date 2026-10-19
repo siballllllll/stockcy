@@ -2949,7 +2949,6 @@ def format_v4_gate_message(gate: dict) -> str:
         lines.append(f"<b>{HL.get(h, h)}</b> 표본 {v['n']}건{mk(v['n_ok'])} · "
                      f"실전 AUC {v['live_auc']}{mk(v['auc_ok'])} · "
                      f"55%+ 구간 {hw}({v['high_n']}건){mk(v['high_ok'])}")
-    lines += ["", "버전은 자동으로 올리지 않았습니다 — 4.0.0 선언 여부를 정해주세요."]
     return "\n".join(lines)
 
 

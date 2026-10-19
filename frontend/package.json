@@ -1,6 +1,6 @@
 {
   "name": "frontend",
-  "version": "3.206.1",
+  "version": "3.207.0",
   "private": true,
   "scripts": {
     "dev": "next dev",

@@ -589,16 +589,38 @@ def _scenario_tracking_loop():
                 # v4.0 승격 게이트 감시 (v3.206.1) — 통과한 첫날 텔레그램 1회.
                 #   통과 지평 집합을 ai_cache에 두어, 새 지평이 통과할 때만 다시 알린다.
                 #   게이트에서 떨어지면 집합에서 빠지므로 다시 통과하면 재알림된다.
+                # 자동 승격 (v3.207.0) — STREAK_DAYS일 연속 통과하면 4.0.0으로 올리고 커밋·푸시.
+                #   하루라도 미통과면 연속 일수는 0으로 돌아간다. 이미 4 이상이면 감시만 멈춘다.
                 try:
                     from db import check_v4_gate, format_v4_gate_message, load_ai_cache, save_ai_cache
-                    _gate = check_v4_gate()
-                    _prev_g = set(load_ai_cache("v4_gate_notified") or [])
-                    _now_g = set(_gate["passed_horizons"])
-                    if _now_g - _prev_g:
+                    from version_promote import current_version, promote_to_v4, STREAK_DAYS
+                    if int(current_version().split(".")[0]) < 4:
                         from telegram_bot import send_message
-                        send_message(format_v4_gate_message(_gate))
-                        print(f"[v4 gate] 통과 알림 발송: {sorted(_now_g)} ({today})")
-                    save_ai_cache("v4_gate_notified", sorted(_now_g), 24 * 30)
+                        _gate = check_v4_gate()
+                        _prev_g = set(load_ai_cache("v4_gate_notified") or [])
+                        _now_g = set(_gate["passed_horizons"])
+                        _st = load_ai_cache("v4_gate_streak") or {}
+                        if _gate["passed"]:
+                            _n = _st.get("n", 0) + (0 if _st.get("last") == today else 1)
+                        else:
+                            _n = 0
+                        save_ai_cache("v4_gate_streak", {"last": today, "n": _n}, 24 * 30)
+                        if _now_g - _prev_g:
+                            send_message(format_v4_gate_message(_gate)
+                                         + f"\n\n{STREAK_DAYS}일 연속 통과하면 4.0.0으로 자동 승격합니다. (현재 {_n}일째)")
+                            print(f"[v4 gate] 통과 알림 발송: {sorted(_now_g)} ({today})")
+                        save_ai_cache("v4_gate_notified", sorted(_now_g), 24 * 30)
+                        if _n >= STREAK_DAYS:
+                            _pr = promote_to_v4(_gate)
+                            print(f"[v4 gate] 자동 승격: {_pr}")
+                            if _pr.get("promoted"):
+                                _tail = ("커밋·푸시 완료" if _pr.get("pushed")
+                                         else f"⚠️ {_pr.get('error', '푸시 안 됨')}")
+                                send_message(f"🎉 <b>스톡시 v4.0.0 승격</b>\nML 게이트 {_n}일 연속 통과 "
+                                             f"(이전 v{_pr['from']}) — {_tail}")
+                            elif _pr.get("error"):
+                                # 커밋 실패 시 파일은 되돌려져 있고 내일 다시 시도한다.
+                                send_message(f"⚠️ v4.0.0 자동 승격 실패 — 내일 재시도\n{_pr['error'][:300]}")
                 except Exception as e:
                     print(f"[v4 gate] 확인 오류: {e}")
                 # 자체 ML 자동 재학습 — 샘플 보강 직후 1회 (scikit-learn 로컬·무과금).
