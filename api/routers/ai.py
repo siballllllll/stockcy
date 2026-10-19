@@ -1807,6 +1807,13 @@ async def get_scenario_tracking_stats():
     return stats
 
 
+@router.get("/market-judgment/stats")
+async def get_market_judgment_stats():
+    """그날 시장 판단(매수 기회/중립/관망) 채점 — v3.208.0. DB 집계만, 과금 0."""
+    from market_judgment import load_judgment_stats
+    return await asyncio.to_thread(load_judgment_stats)
+
+
 def _enrich_scenario_list_current(rows: list) -> list:
     """추적 목록에 현재가/현재수익률 보강.
     KR=KRX_PRICE_CACHE(인메모리, 즉시), US=1회 배치 yfinance(서킷 브레이커 가드).

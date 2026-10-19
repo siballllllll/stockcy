@@ -124,9 +124,15 @@ SHADOW_ADDON = {
 # [근거] 시나리오 명단 자체는 같은 시총·같은 날 종목보다 일관되게 나빴다(2026-09-30 실측:
 #      d7 -6.6%p · d20 -7.3%p, 4개월 모두 음수). 그런데 그 명단을 쓰는 C는 최고 전략이다.
 #      둘 다 참이려면 '눌림 조건이 명단의 해악을 상쇄하고도 남는다'여야 한다 — 이걸 잰다.
+# SHADOW_C4 (v3.208.0) = C와 진입 규칙이 똑같고, 그날 시장 판단(market_judgment)이 '관망'인
+#      시장에서만 신규 매수를 쉰다. 보유 청산은 C와 같다.
+# [왜] 10월 급락(KOSPI 7,004→5,675) 동안 섀도우 국내 승률이 16%였다. 숫자 브레이크(지수 20일
+#      모멘텀 -3%)는 너무 늦게 걸렸고, '빠진 날 = 매수 금지'도 답이 아니었다(고점 대비 -8% 이하
+#      구간은 승률 46%). 원인을 보고 판단하는 AI가 실제로 조정과 붕괴를 가르는지 C−C4로 잰다.
 SHADOW_RULEPAIR = {
     "SHADOW_C2": {"base": "SHADOW_C", "min_gap_days": 3},
     "SHADOW_C3": {"base": "SHADOW_C", "ignore_linked": True},
+    "SHADOW_C4": {"base": "SHADOW_C", "judgment_brake": True},
 }
 
 SHADOWS = ("SHADOW_A", "SHADOW_B", "SHADOW_C", "SHADOW_D", "SHADOW_E", "SHADOW_F",
@@ -539,6 +545,13 @@ def run_shadow_cycle(candidates: list, kr_open: bool, us_open: bool, force: bool
                 ctx[f"scenario_map_gap{_gap}"] = load_scenario_stocks_set(min_gap_days=_gap) or {}
     except Exception as e:
         logger.error(f"[shadow] 시나리오 맵 로드 실패: {e}")
+    # C4용 그날 시장 판단 — {'국내': '관망', ...}. 판단이 없으면 빈 dict라 C와 똑같이 산다.
+    try:
+        from market_judgment import today_stances
+        ctx["stances"] = today_stances()
+    except Exception as e:
+        ctx["stances"] = {}
+        logger.error(f"[shadow] 시장 판단 로드 실패: {e}")
     if kr_open or force:
         try:
             from data_kr import get_kr_frgn_inst_rank
@@ -625,6 +638,10 @@ def run_shadow_cycle(candidates: list, kr_open: bool, us_open: bool, force: bool
                 _mkt = c.get("market") or ("국내" if tk.isdigit() else "미국")
                 # 개장 게이트 — 후보는 메인 루프에서 이미 걸러지지만 방어적으로 재확인
                 if not force and ((_mkt == "국내" and not kr_open) or (_mkt == "미국" and not us_open)):
+                    continue
+                # C4 — 그날 시장 판단이 '관망'인 시장은 신규 매수만 쉰다(추매·청산과 무관)
+                if (SHADOW_RULEPAIR.get(owner, {}).get("judgment_brake")
+                        and ctx.get("stances", {}).get(_mkt) == "관망"):
                     continue
                 ind = c.get("ind") or {}
                 ok, mult, note = _wants_buy(owner, ind, tk=tk, ctx=ctx,
@@ -951,7 +968,8 @@ def shadow_league_status() -> dict:
              "SHADOW_F2": "섀도우 F2 (모멘텀 + 근거유지 추매) ⭐검증중",
              "SHADOW_D2": "섀도우 D2 (수급 + 근거유지 추매) ⭐검증중",
              "SHADOW_C2": "섀도우 C2 (이슈×구간 · 반복 등장 제외) ⭐검증중",
-             "SHADOW_C3": "섀도우 C3 (구간만 · 시나리오 면제) ⭐검증중"}
+             "SHADOW_C3": "섀도우 C3 (구간만 · 시나리오 면제) ⭐검증중",
+             "SHADOW_C4": "섀도우 C4 (이슈×구간 · 시장판단 '관망'일 휴식) ⭐검증중"}
     try:
         for owner in ("AI_AGENT",) + SHADOWS:
             cur.execute(

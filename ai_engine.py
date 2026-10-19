@@ -1450,6 +1450,9 @@ def _current_market_snapshot() -> str:
     return text
 
 
+_SCOUT_GROUNDING = {"last": {}}   # 스카우트 호출이 본 출처 — 반환 스키마(list)를 안 바꾸려고 따로 둔다
+
+
 def _scout_market_issues(recent_titles: list) -> list:
     """1단계 스카우트 — 오늘의 이슈 후보를 넓게 발굴하고 최근 이슈와 대조해 분류.
     출력이 짧아 저비용(검색 포함, thinking 억제). 실패 시 예외 전파(호출부가 레거시 폴백)."""
@@ -1480,12 +1483,84 @@ def _scout_market_issues(recent_titles: list) -> list:
     cands = res.get("candidates") if isinstance(res, dict) else None
     if not isinstance(cands, list) or not cands:
         raise ValueError("스카우트 결과 비어있음")
+    _SCOUT_GROUNDING["last"] = _grounding_sources(response)
     out = []
     for c in cands:
         if isinstance(c, dict) and str(c.get("title") or "").strip():
             out.append(c)
     out.sort(key=lambda c: int(c.get("impact_rank") or 99))
     return out
+
+
+def _grounding_sources(response) -> dict:
+    """[v3.208.0] Gemini 검색 그라운딩이 실제로 본 출처(검색어·웹 문서)를 꺼낸다.
+    시나리오가 틀렸을 때 '재료가 틀렸나(뉴스를 놓쳤나) vs 해석이 틀렸나'를 가르려면
+    AI가 무엇을 보고 판단했는지가 남아 있어야 한다. OpenAI 폴백 응답엔 없으므로 빈 dict."""
+    out = {"queries": [], "web": []}
+    try:
+        cand = (getattr(response, "candidates", None) or [None])[0]
+        gm = getattr(cand, "grounding_metadata", None) if cand is not None else None
+        if not gm:
+            return out
+        out["queries"] = [str(q) for q in (getattr(gm, "web_search_queries", None) or [])][:10]
+        for ch in (getattr(gm, "grounding_chunks", None) or [])[:15]:
+            web = getattr(ch, "web", None)
+            if web is not None:
+                out["web"].append({"title": str(getattr(web, "title", "") or ""),
+                                   "uri": str(getattr(web, "uri", "") or "")})
+    except Exception:
+        pass
+    return out
+
+
+def _rss_items(query: str, limit: int) -> list:
+    import re
+    import urllib.parse
+    import xml.etree.ElementTree as ET
+    import requests
+    ko = bool(re.search(r"[가-힣]", query))
+    loc = "hl=ko&gl=KR&ceid=KR:ko" if ko else "hl=en-US&gl=US&ceid=US:en"
+    url = f"https://news.google.com/rss/search?q={urllib.parse.quote(query)}&{loc}"
+    resp = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=4)
+    if resp.status_code != 200:
+        return []
+    out = []
+    for item in ET.fromstring(resp.content).findall(".//item")[:limit]:
+        g = lambda tag: (item.findtext(tag) or "").strip()
+        out.append({"title": g("title"), "link": g("link"), "published": g("pubDate"),
+                    "source": g("source"), "query": query})
+    return out
+
+
+_NEWS_STOPWORDS = {"및", "가능성", "분석", "동향", "전망", "영향", "우려", "관련", "이슈", "본격화", "심화", "가속화"}
+
+
+def _news_snapshot(title: str, grounding: dict | None = None, limit: int = 5) -> list:
+    """[v3.208.0] 이슈마다 생성 시점의 뉴스 헤드라인을 떠 둔다 (구글 뉴스 RSS·무료).
+    그라운딩 출처는 도메인·리다이렉트 링크만 주는 경우가 많아, 사람이 나중에 읽을 수 있는
+    헤드라인·보도 시각·언론사를 따로 남긴다. 생성 시점의 스냅샷이라 사후에 끼워 맞출 수 없다.
+    검색 순서: ① 제목 앞 핵심어 3개(최근 3일) ② AI가 실제로 던진 검색어(최근 3일, 영문이면 미국판).
+    긴 제목을 통째로 넣으면 0건이거나 몇 년 전 기사가 나온다(실측 10-19: '미국 부채한도 협상
+    재점화 및 셧다운 가능성' → 2023·2025년 기사). 결과가 0건이면 그 자체가 기록할 신호다."""
+    import re
+    words = [w for w in re.split(r"[\s,·/:()\[\]]+", title or "") if w and w not in _NEWS_STOPWORDS]
+    queries = []
+    if words:
+        queries.append(" ".join(words[:3]) + " when:3d")
+    for q in ((grounding or {}).get("queries") or [])[:3]:
+        queries.append(f"{q} when:3d")
+    out, seen = [], set()
+    for q in queries:
+        if len(out) >= limit:
+            break
+        try:
+            for it in _rss_items(q, limit):
+                if it["title"] not in seen:
+                    seen.add(it["title"])
+                    out.append(it)
+        except Exception as e:
+            print(f"[news snapshot] '{q[:30]}' 실패: {e}")
+    return out[:limit]
 
 
 def _deep_dive_issue(stub: dict) -> dict:
@@ -1577,6 +1652,7 @@ def _deep_dive_issue(stub: dict) -> dict:
             parsed = _parse_json_response(response)
             if isinstance(parsed, dict) and parsed.get("scenarios"):
                 issue = parsed
+                issue["grounding"] = _grounding_sources(response)
                 break
         except Exception as e:
             if attempt == 1:
@@ -1678,8 +1754,21 @@ def generate_market_scenarios() -> dict:
         for n, it in enumerate(issues, 1):
             it["issue_no"] = n
 
+        # 재료 스냅샷 [v3.208.0] — 이슈마다 생성 시점의 뉴스 헤드라인을 떠 둔다(이월 이슈 포함,
+        # 그날 시장이 그 이슈를 어떻게 보도했는지가 달라지므로). 실패해도 시나리오는 그대로 낸다.
+        _now_s = _dt.now().strftime("%Y-%m-%d %H:%M:%S")
+        try:
+            with _fut.ThreadPoolExecutor(max_workers=6) as ex:
+                snaps = list(ex.map(lambda it: _news_snapshot(str(it.get("title") or ""),
+                                                              it.get("grounding")), issues))
+            for it, sn in zip(issues, snaps):
+                it["news_snapshot"] = {"fetched_at": _now_s, "items": sn}
+        except Exception as se:
+            print(f"[news snapshot] 실패: {se}")
+
         res = {"issues": issues, "pipeline": "scout_deep_v2",
-               "generated_at": _dt.now().strftime("%Y-%m-%d %H:%M:%S")}
+               "scout_grounding": _SCOUT_GROUNDING.get("last") or {},
+               "generated_at": _now_s}
         _fix_scenario_names(res)
         _diversify_probabilities(res)
         _override_targets(res)   # 이월 이슈도 현재가 기준 타점 재계산
@@ -7555,6 +7644,69 @@ def send_scenario_tracking_alert() -> dict:
 
 # ── 시나리오 적중률 추적 ──────────────────────────────────────────────────────
 
+def _rescore_scenarios(cursor) -> dict:
+    """[v3.208.0] 시나리오 다시 채점 — '예측력 0' 결론이 채점 방식 탓이었는지 가른다.
+    종전 채점과 다른 점:
+      1) 중복 제거: 같은 날 같은 종목·같은 역할이 여러 시나리오에 반복되면 한 번만 센다
+         (12,176행 중 서로 다른 건 6,264건 — 반복 편입된 종목이 표본을 지배했다).
+      2) 보유 기간: 7일만이 아니라 20·60일까지. 시나리오는 몇 주~몇 달짜리 테마인데
+         ML은 3·7일로 채점했다 — '예측력 0'은 거기서 나왔다.
+      3) 승률과 평균을 같이: 이긴 비율은 42%인데 평균 초과는 플러스일 수 있다
+         (소수의 큰 승자가 수익을 만드는 구조). 중앙값도 낸다.
+      4) 방향 반영 초과수익: 피해 종목은 시장보다 덜 오르면(더 빠지면) 플러스로 센다.
+    종목코드 오류는 저장·소급 교정(v3.196.0)으로 이미 0행이라 따로 거르지 않는다."""
+    cursor.execute(
+        """SELECT id, ticker, role, market, captured_at, mom5_at_capture AS m5,
+                  d7_return, bench_d7_return, d20_return, bench_d20_return,
+                  d60_return, bench_d60_return
+           FROM scenario_stocks WHERE d7_return IS NOT NULL ORDER BY id""")
+    rows = [dict(r) for r in cursor.fetchall()]
+    total = len(rows)
+    seen, uniq = set(), []
+    for r in rows:
+        k = (r["ticker"], str(r["captured_at"] or "")[:10], r["role"] or "")
+        if k in seen:
+            continue
+        seen.add(k)
+        uniq.append(r)
+
+    def _stats(rs, h):
+        xs = []
+        for r in rs:
+            ret = r.get(f"d{h}_return")
+            if ret is None:
+                continue
+            fee = 0.21 if (r.get("market") or ("kr" if str(r["ticker"]).isdigit() else "")) == "kr" else 0.15
+            ex = ret - (r.get(f"bench_d{h}_return") or 0)
+            if r.get("role") == "피해":
+                ex = -ex
+            xs.append((ex, ex > fee))
+        if not xs:
+            return None
+        exs = sorted(e for e, _ in xs)
+        mid = len(exs) // 2
+        med = exs[mid] if len(exs) % 2 else (exs[mid - 1] + exs[mid]) / 2
+        return {"n": len(xs), "win_rate": round(sum(w for _, w in xs) / len(xs) * 100, 1),
+                "avg_excess": round(sum(exs) / len(exs), 2), "median_excess": round(med, 2)}
+
+    def _row(label, rs):
+        return {"label": label, "count": len(rs),
+                **{f"d{h}": _stats(rs, h) for h in (7, 20, 60)}}
+
+    calm = [r for r in uniq if r["m5"] is not None and r["m5"] < 10]
+    groups = [_row("전체", uniq), _row("비급등", calm),
+              _row("급등 후 편입", [r for r in uniq if r["m5"] is not None and r["m5"] >= 10])]
+    by_role = [_row(role, [r for r in calm if (r["role"] or "수혜") == role])
+               for role in ("수혜", "테마", "피해")]
+    d60_dates = sorted(str(r["captured_at"])[:10] for r in uniq if r.get("d60_return") is not None)
+    return {
+        "rows_total": total, "rows_unique": len(uniq),
+        "groups": groups, "by_role_calm": [g for g in by_role if g["count"]],
+        "d60_period": [d60_dates[0], d60_dates[-1]] if d60_dates else None,
+        "basis": "시장 대비 초과수익(피해는 방향 반대) · 같은 날 같은 종목 1회 · 승리 = 비용 초과",
+    }
+
+
 def _aggregate_scenario_stats(cursor) -> dict:
     """scenario_stocks 테이블에서 시나리오/horizon별 적중률·수익률을 집계한다.
     DB만 사용하고 네트워크 호출이 전혀 없어 즉시 반환된다 (가격 재추적과 분리)."""
@@ -7574,10 +7726,11 @@ def _aggregate_scenario_stats(cursor) -> dict:
             "      THEN 0.21 ELSE 0.15 END)")
 
     def _win(col, bench):
-        thr = f"(COALESCE({bench}, 0) + {_FEE})"
-        # 피해(하락 예상)는 시장보다 더 빠져야 적중 — 기준선도 방향을 뒤집는다.
-        return (f"((COALESCE(role,'') != '피해' AND {col} > {thr}) OR "
-                f"(role = '피해' AND {col} < -{thr}))")
+        # 피해(하락 예상)는 시장보다 비용 이상 더 빠져야 적중.
+        # [v3.208.0] 종전 식 `col < -(bench + fee)`는 시장 수익률의 부호까지 뒤집었다 —
+        # 시장 -5%인 날엔 +4.79% 아래면 적중, 시장 +3%인 날엔 -3.21% 아래여야 적중이었다.
+        return (f"((COALESCE(role,'') != '피해' AND {col} > COALESCE({bench}, 0) + {_FEE}) OR "
+                f"(role = '피해' AND {col} < COALESCE({bench}, 0) - {_FEE}))")
 
     _WIN_D3 = _win("d3_return", "bench_d3_return")
     _WIN_D7 = _win("d7_return", "bench_d7_return")
@@ -7823,7 +7976,13 @@ def _aggregate_scenario_stats(cursor) -> dict:
             "avg_d7_close": round(d.get("a_old") or 0, 2),
         }
 
+    try:
+        rescore = _rescore_scenarios(cursor)
+    except Exception as e:
+        rescore = {"error": str(e)}
+
     return {
+        "rescore": rescore,
         "by_entry_basis": by_entry_basis,
         "entry_compare": entry_compare,
         "overall": overall,

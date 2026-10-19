@@ -526,6 +526,14 @@ def _scenario_tracking_loop():
                               f"(남은 티커 {rb.get('tickers_left')})")
                 except Exception as e:
                     print(f"[entry rebase] 오류: {e}")
+                # 그날 시장 판단 채점 (v3.208.0) — 판단일 지수 시가→종가(d1)·5거래일(d5). 과금 0.
+                try:
+                    from market_judgment import track_judgment_outcomes
+                    jo = track_judgment_outcomes()
+                    if jo.get("updated"):
+                        print(f"[market judgment] 결과 채점 {jo['updated']}건 ({today})")
+                except Exception as e:
+                    print(f"[market judgment] 채점 오류: {e}")
                 # AI추천 사후 성과(d1/d3/d7) 측정 — AI 호출 없이 가격만 사용
                 try:
                     from ai_engine import track_ai_recommendation_outcomes
@@ -713,6 +721,8 @@ def start_scenario_tracking_scheduler():
 # ── 10-b1b. 메인 시나리오 아침 보충 (평일 08~11시 그날 1회 — 부팅·상시가동 무관) ──
 _LAST_MAIN_SCENARIO_DATE = ""
 _MAIN_SCENARIO_ATTEMPTS: dict = {}   # {date: 시도횟수} — 실패 무한 재시도(과금 폭주) 방지
+_LAST_JUDGE_DATE = ""
+_JUDGE_ATTEMPTS: dict = {}           # 시장 판단 실패 재시도 상한 (v3.208.0)
 
 def _main_scenario_morning_loop():
     """평일 아침(08~11시) 오늘 메인 시나리오 캐시가 없으면 1회 생성.
@@ -722,7 +732,7 @@ def _main_scenario_morning_loop():
     5분마다 무한 재시도 + 대시보드 자동생성과 중복 → 15분에 9회(422원) 과금.
     → ①시간창 08~11시 제한(기존 hour>=8은 사실상 종일 조건이었음)
       ②하루 최대 3회 시도 후 그날 중단  ③TTL 12→16h(저녁까지 커버, 밤 재생성 차단)."""
-    global _LAST_MAIN_SCENARIO_DATE
+    global _LAST_MAIN_SCENARIO_DATE, _LAST_JUDGE_DATE
     import datetime as _dt
     _time.sleep(20)   # 서버 안정화 후 시작
     while True:
@@ -752,6 +762,21 @@ def _main_scenario_morning_loop():
                     else:
                         print(f"[main scenario] 아침 보충 실패 ({_MAIN_SCENARIO_ATTEMPTS[today]}/3회) — "
                               f"{'오늘 중단' if _MAIN_SCENARIO_ATTEMPTS[today] >= 3 else '다음 틱 재시도'} ({today})")
+            # 그날 시장 판단 (v3.208.0) — 오늘 시나리오가 생긴 뒤 1회. 시나리오가 어느 경로로
+            #   만들어졌든(시작 시·아침 보충·화면 요청) 오늘 날짜 로그만 읽으므로 여기 한 곳이면 된다.
+            #   국내 판단은 09:00 전에 만든 것만 채점된다(pre_open) — 5분 틱이라 08:3x 생성분은 제때 잡힌다.
+            if (now.weekday() < 5 and 8 <= now.hour < 11 and _LAST_JUDGE_DATE != today
+                    and _JUDGE_ATTEMPTS.get(today, 0) < 3):
+                from market_judgment import judge_market_today
+                try:
+                    _jr = judge_market_today()
+                except Exception as _je:   # 예외도 시도로 센다 — 안 세면 5분마다 유료 호출이 반복된다
+                    _jr = {"error": str(_je)}
+                if _jr.get("saved") or _jr.get("skipped") == "exists":
+                    _LAST_JUDGE_DATE = today
+                elif _jr.get("skipped") != "no_scenarios":   # 시나리오 대기는 시도 횟수로 안 센다
+                    _JUDGE_ATTEMPTS[today] = _JUDGE_ATTEMPTS.get(today, 0) + 1
+                    print(f"[market judgment] 실패 {_JUDGE_ATTEMPTS[today]}/3: {_jr}")
         except Exception as e:
             print(f"[main scenario] 보충 루프 오류: {e}")
         _time.sleep(300)   # 5분마다 체크

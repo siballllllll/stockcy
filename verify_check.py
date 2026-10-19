@@ -521,7 +521,7 @@ def main():
                                    ("d20_return", "bench_d20_return", "d20"),
                                    ("d60_return", "bench_d60_return", "d60")):
                 win = (f"((COALESCE(role,'') != '피해' AND {col} > COALESCE({bcol},0) + {_FEE}) OR "
-                       f"(role = '피해' AND {col} < -(COALESCE({bcol},0) + {_FEE})))")
+                       f"(role = '피해' AND {col} < COALESCE({bcol},0) - {_FEE}))")
                 parts = []
                 for tag, cond in (("급등", HOT), ("비급등", f"NOT ({HOT})")):
                     rr = _one(cur, f"""SELECT COUNT(*), AVG({col} - COALESCE({bcol},0)),
@@ -694,6 +694,7 @@ def main():
             print(f"   {base:<10} {tag}: "
                   + (f"{b['n']}건 {b['avg_pct']:+.2f}% 승률 {b['win']}%" if b else "표본 0"))
             what = ("[시나리오 조건 면제 — 구간만으로 매수]" if cfg.get("ignore_linked")
+                    else "[시장 판단 '관망'일 신규 매수 휴식 — V22]" if cfg.get("judgment_brake")
                     else f"[재료 판정: 직전 {cfg.get('min_gap_days')}일 내 반복 등장 제외]")
             print(f"   {pair:<10} : "
                   + (f"{a['n']}건 {a['avg_pct']:+.2f}% 승률 {a['win']}%" if a else "표본 0")
@@ -809,6 +810,41 @@ def main():
             print("   [DUE] 애프터 시간대인데 체결 시각이 전부 15:30 이전이다 — 토스가 NXT 체결가를"
                   " 안 준다. 그 시간대는 계속 다음날 시가로 잡힌다(틀린 건 아니지만 의도와 다름).")
     print("   통과 기준: 장중 등장 행의 대부분이 basis='quote'. 'close'는 시세 조회 실패분이다.")
+    # ── V22. 그날 시장 판단 (v3.208.0) ─────────────────────────────────────
+    print(_hdr("V22", "그날 시장 판단 — AI가 조정(기회)과 붕괴(관망)를 가르는가", "2026-12-15"))
+    try:
+        import market_judgment as _mj
+        _js = _mj.load_judgment_stats()
+        _g = _js.get("groups") or []
+        for g in _g:
+            print(f"   {g['market']} {g['stance']:<5} {g['days']}일 · 지수 당일 {g['idx_d1_avg']} / 5일 {g['idx_d5_avg']}"
+                  f" · 그날 섀도우 매수 {g['shadow_trades']}건 승률 {g['shadow_win_rate']}")
+        _watch = sum(g["days"] for g in _g if g["stance"] == "관망")
+        _days = sum(g["days"] for g in _g)
+        if _days == 0:
+            print("   [WAIT] 장 전 판단이 아직 없다 — 평일 아침 시나리오 생성 뒤 자동으로 적힌다.")
+        elif _watch < 8:
+            print(f"   [WAIT] 장 전 판단 {_days}일 · 그중 관망 {_watch}일 — 관망일 8일+ 필요.")
+        else:
+            print("   [DUE] 관망일 표본 충족 — 관망일 지수 5일 수익이 다른 날보다 낮은가, C4가 C보다 나은가(V19 줄).")
+        print("   통과 기준: ① 관망일의 지수 5일 평균이 매수 기회일보다 낮다(방향을 맞힌다)")
+        print("             ② 관망일 섀도우 매수 승률이 다른 날보다 낮다(쉬는 게 이득)")
+        print("             ③ C4 실현 30건+에서 평균·승률이 C보다 높다. 셋 다 맞으면 메인 브레이크로 옮긴다.")
+        print("   ⚠️ 관망을 남발하면 ①②는 맞아도 수익 기회를 같이 버린다 — 관망 비율도 같이 볼 것.")
+        print("   ⚠️ 틀렸을 때는 evidence 칸(헤드라인)을 먼저 본다: 재료가 틀렸나(보도 없음·오래된 기사)")
+        print("      vs 해석이 틀렸나. 10-19 첫 판단은 국내 보도가 거의 없던 '부채한도'를 근거로 관망했다.")
+    except Exception as e:
+        print(f"   [BLOCKED] 확인 실패: {str(e)[:80]}")
+
+    # ── V23. ML 시나리오 라벨 재설계 (v3.208.0) ─────────────────────────────
+    print(_hdr("V23", "ML 학습에 시나리오를 다시 넣을까 — 라벨을 시장 대비·20일로"))
+    print("   배경: 시나리오는 ML에서 '예측력 0'으로 빠졌다(v3.136.1). 그런데 그 라벨은 '3·7일 뒤")
+    print("         절대수익 > 0'이었고 피해 종목도 같은 기준이었다. 재채점(v3.208.0, 중복 제거·비급등)은")
+    print("         7일 -0.17%p · 20일 +1.61%p · 60일 +4.76%p(중앙 +3.59)로 기간이 길수록 신호가 선다.")
+    print("   [WAIT] 재설계 전 — 할 일: 시나리오 소스만 d20 '시장 대비 초과 > 비용' 라벨로 따로 학습해")
+    print("          단독 AUC를 잰다(피해 제외). CV가 아니라 실전 예측으로 0.55+일 때만 편입.")
+    print("   ⚠️ 60일 근거는 05-30~07-21 편입분 한 시기다. CV는 실전을 ~0.08 과대평가해 왔다.")
+
 
     c.close()
     print(f"\n{'─' * 74}")

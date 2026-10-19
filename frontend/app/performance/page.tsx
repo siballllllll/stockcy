@@ -418,6 +418,9 @@ function EngineScoreboard() {
         </div>
       )}
 
+      {/* 시나리오 다시 채점 [v3.208.0] — 중복 제거 · 7/20/60일 · 승률+평균+중앙값 */}
+      {scn?.rescore?.groups?.length > 0 && <ScenarioRescore rs={scn.rescore} />}
+
       {/* AI추천 1/3/7일 분해 */}
       {(rec?.horizons ?? []).length > 0 && (
         <div style={{ marginTop: "12px", borderTop: "1px solid var(--color-border)", paddingTop: "10px" }}>
@@ -429,6 +432,101 @@ function EngineScoreboard() {
               </div>
             ))}
           </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── 시나리오 다시 채점 [v3.208.0] ────────────────────────────────────────────────
+//   7일 승률만 보면 시나리오가 '맞히지 못하는' 것처럼 보였다. 테마는 몇 주~몇 달짜리라
+//   보유 기간을 늘리고, 같은 날 반복 편입된 종목은 한 번만 세고, 승률과 함께 평균·중앙값
+//   초과수익을 나란히 둔다. 피해 종목은 시장보다 덜 오를수록 플러스.
+function ScenarioRescore({ rs }: { rs: any }) {
+  const cell = (s: any) => s ? (
+    <span>
+      <b style={{ color: wrColor(s.win_rate) }}>{s.win_rate}%</b>{" "}
+      <span style={{ color: s.avg_excess >= 0 ? "#34d399" : "#f87171" }}>{s.avg_excess >= 0 ? "+" : ""}{s.avg_excess}%p</span>
+      <span style={{ color: "var(--color-muted)", fontSize: "0.66rem" }}> · 중앙 {s.median_excess >= 0 ? "+" : ""}{s.median_excess} · {s.n}건</span>
+    </span>
+  ) : <span style={{ color: "var(--color-muted)" }}>-</span>;
+  const rows = [...(rs.groups ?? []), ...(rs.by_role_calm ?? []).map((g: any) => ({ ...g, label: `└ 비급등 · ${g.label}` }))];
+  return (
+    <div style={{ marginTop: "12px", borderTop: "1px solid var(--color-border)", paddingTop: "10px" }}>
+      <div style={{ fontSize: "0.78rem", fontWeight: 700, color: "var(--color-muted)", marginBottom: "4px" }}>
+        📈 시나리오 다시 채점 — 보유 기간별 시장 대비 성적
+      </div>
+      <div style={{ fontSize: "0.66rem", color: "var(--color-subtle)", marginBottom: "6px" }}>
+        {rs.basis} · {rs.rows_total}행 → 중복 제거 {rs.rows_unique}건
+      </div>
+      <div style={{ overflowX: "auto" }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.74rem", minWidth: "560px" }}>
+          <thead>
+            <tr style={{ color: "var(--color-muted)", textAlign: "left" }}>
+              <th style={{ padding: "4px 6px" }}>구분</th><th style={{ padding: "4px 6px" }}>7일</th>
+              <th style={{ padding: "4px 6px" }}>20일</th><th style={{ padding: "4px 6px" }}>60일</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((g: any, i: number) => (
+              <tr key={i} style={{ borderTop: "1px solid var(--color-border)" }}>
+                <td style={{ padding: "4px 6px", whiteSpace: "nowrap", fontWeight: 600 }}>{g.label}</td>
+                <td style={{ padding: "4px 6px" }}>{cell(g.d7)}</td>
+                <td style={{ padding: "4px 6px" }}>{cell(g.d20)}</td>
+                <td style={{ padding: "4px 6px" }}>{cell(g.d60)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {rs.d60_period && (
+        <div style={{ fontSize: "0.64rem", color: "var(--color-warning)", marginTop: "4px" }}>
+          ⚠️ 60일 결과는 {rs.d60_period[0]} ~ {rs.d60_period[1]} 편입분만입니다 — 한 시기라 확정 전.
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── 그날 시장 판단 [v3.208.0] ────────────────────────────────────────────────────
+//   장 전에 AI가 '매수 기회 / 중립 / 관망'을 적고, 나중에 지수 결과와 그날 섀도우 매수 성적으로
+//   채점한다. 지수가 빠진 날이 조정(기회)인지 붕괴(관망)인지 원인을 보고 가르는지 확인하는 용도.
+//   실전 매매에는 아직 안 쓴다 — 섀도우 C4만 '관망'일에 신규 매수를 쉰다.
+function MarketJudgmentPanel() {
+  const { data } = useSWR(`${B}/api/ai/market-judgment/stats`, fetcher);
+  const groups: any[] = data?.groups ?? [];
+  const recent: any[] = data?.recent ?? [];
+  const stCol: Record<string, string> = { "매수 기회": "#34d399", "중립": "#a5b4fc", "관망": "#f87171" };
+  const r2 = (v: any) => v == null ? "-" : `${v >= 0 ? "+" : ""}${v}%`;
+  return (
+    <div className="stockcy-card" style={{ padding: "1rem 1.2rem" }}>
+      <div style={{ fontWeight: 800, fontSize: "1rem", marginBottom: "4px" }}>🧭 그날 시장 판단 <span style={{ fontSize: "0.72rem", fontWeight: 600, color: "var(--color-muted)" }}>— 장 전 판단 vs 실제 결과</span></div>
+      <div style={{ fontSize: "0.72rem", color: "var(--color-muted)", marginBottom: "10px", lineHeight: 1.5 }}>
+        매일 아침 시나리오 이슈와 뉴스 헤드라인을 보고 AI가 신규 매수 여부를 판단합니다. 지수가 빠졌다는 것만으로 관망하지 않고 원인을 봅니다. {data?.note}
+      </div>
+      {groups.length > 0 ? (
+        <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", marginBottom: "10px" }}>
+          {groups.map((g, i) => (
+            <div key={i} style={{ background: "rgba(255,255,255,0.03)", border: "1px solid var(--color-border)", borderRadius: "8px", padding: "8px 12px", fontSize: "0.76rem", minWidth: "200px" }}>
+              <div style={{ fontWeight: 700 }}>{g.market} · <span style={{ color: stCol[g.stance] }}>{g.stance}</span> <span style={{ color: "var(--color-muted)", fontWeight: 500 }}>{g.days}일</span></div>
+              <div style={{ color: "var(--color-subtle)" }}>지수 당일 {r2(g.idx_d1_avg)} · 5일 {r2(g.idx_d5_avg)}</div>
+              <div style={{ color: "var(--color-subtle)" }}>그날 섀도우 매수 {g.shadow_trades}건{g.shadow_win_rate != null && <> · 승률 <b style={{ color: wrColor(g.shadow_win_rate) }}>{g.shadow_win_rate}%</b> · 평균 {r2(g.shadow_avg)}</>}</div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div style={{ fontSize: "0.76rem", color: "var(--color-muted)", marginBottom: "8px" }}>판단 기록이 쌓이는 중입니다 — 평일 아침 시나리오 생성 뒤 자동으로 적힙니다.</div>
+      )}
+      {recent.length > 0 && (
+        <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
+          {recent.slice(0, 6).map((r, i) => (
+            <div key={i} style={{ fontSize: "0.72rem", color: "var(--color-subtle)", lineHeight: 1.45 }}>
+              <b>{r.judge_date}</b> {r.market === "kr" ? "국내" : "미국"} <b style={{ color: stCol[r.stance] }}>{r.stance}</b> · {r.cause_type} · 확신 {r.confidence}
+              {!r.pre_open && <span style={{ color: "var(--color-warning)" }}> (장중 작성 · 채점 제외)</span>}
+              {r.idx_d1 != null && <> · 지수 당일 {r2(r.idx_d1)}{r.idx_d5 != null && <> / 5일 {r2(r.idx_d5)}</>}</>}
+              <div style={{ color: "var(--color-muted)" }}>{r.reason}</div>
+            </div>
+          ))}
         </div>
       )}
     </div>
@@ -948,6 +1046,8 @@ const OWNER_LABEL: Record<string, string> = {
   // [v3.197.0] 규칙 짝 — 진입 규칙의 한 조각만 다르다(재료 판정에서 반복 등장 제외).
   SHADOW_C2: "🔁 섀도우 C2 — 이슈×구간 · 반복 등장 제외",
   SHADOW_C3: "🚫 섀도우 C3 — 구간만 (시나리오 면제)",
+  // [v3.208.0] C와 같고, 그날 시장 판단이 '관망'인 시장에서만 신규 매수를 쉰다.
+  SHADOW_C4: "🧭 섀도우 C4 — 이슈×구간 · 시장판단 '관망'일 휴식",
 };
 
 // ── 성과·기록 페이지 (v3.183.0 — 탭 구조) ──────────────────────────────────
@@ -1024,6 +1124,7 @@ export default function PerformancePage() {
           {tab === "score" && (
             <>
               <EngineScoreboard />
+              <MarketJudgmentPanel />
               <ShadowLeaguePanel selected={selOwner} onSelect={toggleOwner} />
             </>
           )}
