@@ -111,7 +111,8 @@ def judge_market_today(scenarios: dict | None = None, force: bool = False) -> di
     finally:
         conn.close()
     if scenarios is None:
-        from db import load_daily_market_log
+        from db import load_daily_market_log, ensure_today_scenario_log
+        ensure_today_scenario_log()   # 캐시만 있고 로그가 빠진 날 보정(v3.208.1)
         scenarios = load_daily_market_log(today, "scenarios") or {}
     issues = (scenarios or {}).get("issues") or []
     if not issues:

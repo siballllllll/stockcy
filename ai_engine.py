@@ -1498,6 +1498,8 @@ def _grounding_sources(response) -> dict:
     AI가 무엇을 보고 판단했는지가 남아 있어야 한다. OpenAI 폴백 응답엔 없으므로 빈 dict."""
     out = {"queries": [], "web": []}
     try:
+        # _call_llm은 LLMResponse로 감싸 돌려준다 — Gemini 원본은 raw_response 안에 있다(v3.208.1)
+        response = getattr(response, "raw_response", None) or response
         cand = (getattr(response, "candidates", None) or [None])[0]
         gm = getattr(cand, "grounding_metadata", None) if cand is not None else None
         if not gm:

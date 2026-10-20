@@ -2637,6 +2637,30 @@ def save_daily_market_log(kind: str, data: dict):
         return False
 
 
+def ensure_today_scenario_log() -> bool:
+    """[v3.208.1] 오늘 만든 메인 시나리오 캐시가 있는데 날짜별 로그가 빠져 있으면 채운다.
+    시나리오를 만드는 경로가 셋(서버 시작 보강·에이전트 이슈 분석·아침 보충)인데 아침 보충만
+    로그를 남겨서, 앞의 두 경로가 먼저 만든 날은 역사 누적도 그날 시장 판단도 통째로 빠졌다.
+    True = 오늘 로그가 있음(원래 있었거나 방금 채움)."""
+    import json as _json
+    today = datetime.now().strftime("%Y-%m-%d")
+    if load_daily_market_log(today, "scenarios"):
+        return True
+    try:
+        conn = get_db_conn(); cur = conn.cursor()
+        cur.execute("SELECT saved_time, data_json FROM ai_cache WHERE cache_key='market_scenarios_latest'")
+        row = cur.fetchone(); conn.close()
+    except Exception as e:
+        print(f"ensure_today_scenario_log error: {e}")
+        return False
+    if not row or not str(row["saved_time"] or "").startswith(today):
+        return False
+    data = _json.loads(str(row["data_json"] or "") or "null")
+    if not isinstance(data, dict) or "error" in data or not data.get("issues"):
+        return False
+    return save_daily_market_log("scenarios", data)
+
+
 def load_daily_market_log(log_date: str, kind: str) -> dict | None:
     """특정 날짜·종류의 시장 로그 1건 조회."""
     import json as _json

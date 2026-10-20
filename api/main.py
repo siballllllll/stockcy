@@ -746,6 +746,8 @@ def _main_scenario_morning_loop():
                 existing = load_ai_cache("market_scenarios_latest")
                 if existing and "error" not in existing:
                     _LAST_MAIN_SCENARIO_DATE = today   # 이미 있음 → 생성 스킵(비용 0)
+                    from db import ensure_today_scenario_log
+                    ensure_today_scenario_log()   # 다른 경로가 만든 캐시면 날짜별 로그가 빠져 있다(v3.208.1)
                     print(f"[main scenario] 오늘 메인 시나리오 이미 존재 → 보충 스킵 ({today})")
                 else:
                     _MAIN_SCENARIO_ATTEMPTS[today] = _MAIN_SCENARIO_ATTEMPTS.get(today, 0) + 1
