@@ -22,15 +22,35 @@
 
 보고서:  venv/Scripts/python model_shadow.py [일수]
 """
+import contextlib
+import contextvars
 import json
 import os
 import threading
 import time
+import uuid
 from collections import Counter, defaultdict
 from datetime import datetime, timedelta
 
 _BASE = os.path.dirname(os.path.abspath(__file__))
 _LOG_PATH = os.path.join(_BASE, "data_csv", "model_shadow.jsonl")
+_GRADE_PATH = os.path.join(_BASE, "data_csv", "model_shadow_grades.jsonl")
+_HORIZONS = (1, 3, 7)       # 거래일
+_FEE_PCT = {"kr": 0.21, "us": 0.15}   # 승률 판정 문턱 — 시나리오 채점과 같은 왕복 비용
+
+# [결과 채점] 매매 판단 호출부가 "무슨 종목을 얼마에 보고 물었나"를 걸어두면 그림자 기록에 붙는다.
+# 메인 응답 직후 같은 스레드에서 maybe_shadow가 읽으므로 contextvar로 충분하다.
+_ctx = contextvars.ContextVar("model_shadow_ctx", default=None)
+
+
+@contextlib.contextmanager
+def decision_context(ticker, market, price, position):
+    tok = _ctx.set({"ticker": str(ticker), "market": str(market or ""),
+                    "entry_price": float(price or 0), "position": str(position or "")})
+    try:
+        yield
+    finally:
+        _ctx.reset(tok)
 _TEXT_LIMIT = 6000          # 응답 원문 보관 길이 (리서치 감시 응답이 길어 파일이 커지는 것 방지)
 _TIMEOUT_SEC = 120
 _MAX_CONCURRENT = 3
@@ -91,7 +111,7 @@ def maybe_shadow(provider: str, primary_model: str, primary_text: str, primary_l
                    "latency": round(float(primary_latency or 0), 3), "cost": float(primary_cost or 0)}
         opts = {"use_search": bool(use_search), "temperature": temperature,
                 "response_mime_type": response_mime_type, "max_output_tokens": max_output_tokens,
-                "thinking": bool(thinking)}
+                "thinking": bool(thinking), "ctx": _ctx.get()}
         threading.Thread(target=_run, args=(provider, shadow_model, prompt, source, primary, opts),
                          daemon=True, name="model-shadow").start()
         held = False  # 이제 스레드가 반납한다
@@ -231,11 +251,19 @@ def _parse(text):
 def _record(provider, source, prompt, primary, shadow_model, res, shadow_latency, err, opts):
     p_json = _parse(primary["text"])
     s_json = _parse(res["text"]) if res else None
-    p_act = p_json.get("action") if isinstance(p_json, dict) else None
-    s_act = s_json.get("action") if isinstance(s_json, dict) else None
+    p_act = str(p_json.get("action") or "").upper() or None if isinstance(p_json, dict) else None
+    s_act = str(s_json.get("action") or "").upper() or None if isinstance(s_json, dict) else None
+    ctx = opts.get("ctx") or {}
     rec = {
+        "id": uuid.uuid4().hex[:12],
         "ts": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "source": source,
+        "ticker": ctx.get("ticker"),
+        "market": ctx.get("market"),
+        "entry_price": ctx.get("entry_price"),
+        "position": ctx.get("position"),
+        "primary_confidence": p_json.get("confidence") if isinstance(p_json, dict) else None,
+        "shadow_confidence": s_json.get("confidence") if isinstance(s_json, dict) else None,
         "provider": provider,
         "search": opts["use_search"],
         "prompt_chars": len(prompt),
@@ -322,6 +350,165 @@ def get_model_shadow_report(days: int = 7) -> dict:
     }
 
 
+def _is_us(ticker: str) -> bool:
+    return any(c.isalpha() for c in str(ticker))
+
+
+def _decision_date(ts: str, us: bool):
+    """판단이 속한 거래일. 미국장은 한국 시간 밤~새벽이라 14시간 당겨 현지 날짜로 맞춘다."""
+    dt = datetime.strptime(ts, "%Y-%m-%d %H:%M:%S")
+    return (dt - timedelta(hours=14)).date() if us else dt.date()
+
+
+def _load_grades() -> dict:
+    out = {}
+    try:
+        with open(_GRADE_PATH, encoding="utf-8") as f:
+            for line in f:
+                try:
+                    g = json.loads(line)
+                    out[g["id"]] = g   # 뒤에 쓴 줄이 최신
+                except Exception:
+                    continue
+    except FileNotFoundError:
+        pass
+    return out
+
+
+def grade_pending(max_age_days: int = 30) -> dict:
+    """종목이 붙은 그림자 기록에 판단 뒤 1·3·7거래일 종가 수익률을 채운다. 과금 0(가격만 조회).
+    기준가는 판단 순간 에이전트가 본 가격(entry_price) — 장중 판단을 그날 종가로 재면 왜곡된다."""
+    import FinanceDataReader as fdr
+    import yfinance as yf
+
+    grades = _load_grades()
+    cutoff = (datetime.now() - timedelta(days=max_age_days)).strftime("%Y-%m-%d %H:%M:%S")
+    rows = []
+    try:
+        with open(_LOG_PATH, encoding="utf-8") as f:
+            for line in f:
+                try:
+                    r = json.loads(line)
+                except Exception:
+                    continue
+                if (r.get("id") and r.get("ticker") and (r.get("entry_price") or 0) > 0
+                        and r.get("shadow_ok") and r.get("ts", "") >= cutoff
+                        and (grades.get(r["id"]) or {}).get("d7") is None):
+                    rows.append(r)
+    except FileNotFoundError:
+        return {"updated": 0, "pending": 0}
+
+    by_ticker = defaultdict(list)
+    for r in rows:
+        by_ticker[r["ticker"]].append(r)
+
+    new = []
+    for ticker, rs in by_ticker.items():
+        us = _is_us(ticker)
+        first = min(_decision_date(r["ts"], us) for r in rs)
+        try:
+            if us:
+                df = yf.download(ticker.upper(), start=first.strftime("%Y-%m-%d"), progress=False, timeout=10)
+            else:
+                df = fdr.DataReader(str(ticker).zfill(6), first.strftime("%Y-%m-%d"))
+            if df is None or df.empty:
+                continue
+            closes = df["Close"]
+            if hasattr(closes, "columns"):   # yfinance 멀티인덱스
+                closes = closes.iloc[:, 0]
+            series = [(idx.date() if hasattr(idx, "date") else idx, float(v)) for idx, v in closes.items()]
+        except Exception as e:
+            print(f"[model shadow grade] {ticker} 가격 조회 실패: {str(e)[:80]}")
+            continue
+        # 오늘 봉은 장중이면 아직 종가가 아니다 — 한 번 채운 칸은 다시 안 보므로 확정된 날만 쓴다
+        market_today = _decision_date(datetime.now().strftime("%Y-%m-%d %H:%M:%S"), us)
+        for r in rs:
+            dd = _decision_date(r["ts"], us)
+            after = [c for d, c in series if dd < d < market_today]
+            g = {"id": r["id"], "graded_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
+            for h in _HORIZONS:
+                g[f"d{h}"] = (round((after[h - 1] / r["entry_price"] - 1) * 100, 2)
+                              if len(after) >= h and after[h - 1] > 0 else None)
+            old = grades.get(r["id"]) or {}
+            if any(g[f"d{h}"] is not None and old.get(f"d{h}") is None for h in _HORIZONS):
+                new.append(g)
+    if new:
+        with _write_lock:
+            with open(_GRADE_PATH, "a", encoding="utf-8") as f:
+                for g in new:
+                    f.write(json.dumps(g, ensure_ascii=False) + "\n")
+    return {"updated": len(new), "pending": len(rows)}
+
+
+def _right(position: str, action: str, ret: float, fee: float):
+    """판단이 맞았나. 미보유: 샀으면 비용 넘게 올라야, 안 샀으면 비용 넘게 못 올라야 정답.
+    보유 중: 팔았으면 떨어져야, 들고 있었으면 안 떨어져야 정답."""
+    if not action or ret is None:
+        return None
+    if str(position).upper() in ("", "NONE"):
+        return ret > fee if action == "BUY" else ret <= fee
+    return ret < 0 if action == "SELL" else ret >= 0
+
+
+def get_graded_report(days: int = 30) -> dict:
+    """채점된 매매 판단만 모아 현행 vs 신형을 수익률로 비교."""
+    grades = _load_grades()
+    cutoff = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S")
+    rows = []
+    try:
+        with open(_LOG_PATH, encoding="utf-8") as f:
+            for line in f:
+                try:
+                    r = json.loads(line)
+                except Exception:
+                    continue
+                if r.get("id") in grades and r.get("ts", "") >= cutoff and r.get("primary_action") and r.get("shadow_action"):
+                    r.update({k: v for k, v in grades[r["id"]].items() if k.startswith("d")})
+                    rows.append(r)
+    except FileNotFoundError:
+        pass
+
+    out = {"period_days": days, "by_provider": []}
+    for prov in sorted({r["provider"] for r in rows}):
+        prs = [r for r in rows if r["provider"] == prov]
+        block = {"provider": prov, "shadow_model": prs[-1]["shadow_model"], "primary_model": prs[-1]["primary_model"]}
+        for h in (3, 7):
+            hs = [r for r in prs if r.get(f"d{h}") is not None]
+            if not hs:
+                block[f"d{h}"] = {"n": 0}
+                continue
+
+            def fee(r):
+                return _FEE_PCT["us" if _is_us(r["ticker"]) else "kr"]
+            pr = [_right(r["position"], r["primary_action"], r[f"d{h}"], fee(r)) for r in hs]
+            sr = [_right(r["position"], r["shadow_action"], r[f"d{h}"], fee(r)) for r in hs]
+            diff = [(p, s) for r, p, s in zip(hs, pr, sr) if r["primary_action"] != r["shadow_action"]]
+
+            def buys(key):
+                b = [r[f"d{h}"] for r in hs if r[key] == "BUY" and str(r["position"]).upper() in ("", "NONE")]
+                wins = [r for r in hs if r[key] == "BUY" and str(r["position"]).upper() in ("", "NONE") and r[f"d{h}"] > fee(r)]
+                return {"n": len(b), "avg_ret": round(sum(b) / len(b), 2) if b else None,
+                        "win_pct": round(100 * len(wins) / len(b), 1) if b else None}
+            # 현행만 샀고 신형은 안 산 종목 — 이 평균이 음수면 신형이 손실을 피한 것
+            only_p = [r[f"d{h}"] for r in hs if r["primary_action"] == "BUY" and r["shadow_action"] != "BUY"]
+            only_s = [r[f"d{h}"] for r in hs if r["shadow_action"] == "BUY" and r["primary_action"] != "BUY"]
+            block[f"d{h}"] = {
+                "n": len(hs),
+                "primary_acc_pct": round(100 * sum(1 for x in pr if x) / len(hs), 1),
+                "shadow_acc_pct": round(100 * sum(1 for x in sr if x) / len(hs), 1),
+                "disagree_n": len(diff),
+                "disagree_primary_right": sum(1 for p, s in diff if p and not s),
+                "disagree_shadow_right": sum(1 for p, s in diff if s and not p),
+                "primary_buys": buys("primary_action"),
+                "shadow_buys": buys("shadow_action"),
+                "only_primary_buy": {"n": len(only_p), "avg_ret": round(sum(only_p) / len(only_p), 2) if only_p else None},
+                "only_shadow_buy": {"n": len(only_s), "avg_ret": round(sum(only_s) / len(only_s), 2) if only_s else None},
+            }
+        out["by_provider"].append(block)
+    out["sample"] = len(rows)
+    return out
+
+
 if __name__ == "__main__":
     import sys
     try:
@@ -344,3 +531,19 @@ if __name__ == "__main__":
                   f"JSON {s['primary_json_ok_pct']}/{s['shadow_json_ok_pct']} · 비용 x{s['cost_ratio']} · 길이 x{s['chars_ratio']}")
     if rep["errors"]:
         print("\n그림자 실패:", rep["errors"])
+
+    g = get_graded_report(max(d, 30))
+    print(f"\n── 결과 채점 (매매 판단, 최근 {max(d, 30)}일 · {g['sample']}건) ──")
+    for b in g["by_provider"]:
+        print(f"[{b['provider']}] {b['primary_model']} vs {b['shadow_model']}")
+        for h in (3, 7):
+            x = b[f"d{h}"]
+            if not x["n"]:
+                print(f"   d{h}: 아직 채점된 표본 없음")
+                continue
+            print(f"   d{h} {x['n']}건 · 정답률 현행 {x['primary_acc_pct']}% / 신형 {x['shadow_acc_pct']}%"
+                  f" · 판단 갈림 {x['disagree_n']}건 중 현행 맞음 {x['disagree_primary_right']} / 신형 맞음 {x['disagree_shadow_right']}")
+            pb, sb = x["primary_buys"], x["shadow_buys"]
+            print(f"      매수 픽: 현행 {pb['n']}건 평균 {pb['avg_ret']}% 승률 {pb['win_pct']}%"
+                  f" / 신형 {sb['n']}건 평균 {sb['avg_ret']}% 승률 {sb['win_pct']}%")
+            print(f"      현행만 산 종목 {x['only_primary_buy']} · 신형만 산 종목 {x['only_shadow_buy']}")

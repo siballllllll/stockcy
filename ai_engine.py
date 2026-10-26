@@ -2436,14 +2436,17 @@ def analyze_autonomous_trading(ticker: str, name: str, current_price: float, mar
 }}
 절대 다른 마크다운이나 설명을 덧붙이지 마세요."""
 
-        response = _call_llm(
-            prompt=full_prompt,
-            use_search=False,
-            temperature=0.3,
-            response_mime_type="application/json",
-            provider=provider,
-            allow_failover=allow_failover
-        )
+        # [v3.210.0] 그림자 비교가 이 판단을 종목·가격과 함께 기록해 나중에 수익률로 채점한다
+        import model_shadow as _ms
+        with _ms.decision_context(ticker, market, current_price, position):
+            response = _call_llm(
+                prompt=full_prompt,
+                use_search=False,
+                temperature=0.3,
+                response_mime_type="application/json",
+                provider=provider,
+                allow_failover=allow_failover
+            )
         res_text = str(response).strip()
         if res_text.startswith("```json"):
             res_text = res_text[7:-3].strip()

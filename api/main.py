@@ -541,6 +541,13 @@ def _scenario_tracking_loop():
                     print(f"[ai-rec track] AI추천 성과 측정: {ar.get('updated_now', 0)}건 갱신 ({today})")
                 except Exception as e:
                     print(f"[ai-rec track] 오류: {e}")
+                # 모델 그림자 비교 결과 채점 (v3.210.0) — 현행 vs 신형 매매 판단에 d1/d3/d7 수익률. 과금 0.
+                try:
+                    from model_shadow import grade_pending
+                    ms = grade_pending()
+                    print(f"[model shadow] 결과 채점 {ms.get('updated', 0)}건 (대기 {ms.get('pending', 0)}) ({today})")
+                except Exception as e:
+                    print(f"[model shadow] 채점 오류: {e}")
                 # 종목분석 이력 사후 성과 측정 (v3.140.0) — 적중률 검증의 실제 데이터원.
                 # 위 ai-rec 추적은 ai_recommendations에 데이터가 들어오는 경로가 없어 계속
                 # 빈 테이블을 돌고 있었다. 실제로 쌓이는 쪽은 analysis_history이므로 이쪽을 추적한다.

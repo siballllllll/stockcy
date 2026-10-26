@@ -854,6 +854,13 @@ def main():
             print(f"   {p['provider']:6} {p['primary_model']} → {p['shadow_model']} {p['n']}건(실패 {p['shadow_fail']})"
                   f" · 판단일치 {p['action_agree_pct']}%({p['action_n']}) · JSON {p['primary_json_ok_pct']}/{p['shadow_json_ok_pct']}%"
                   f" · 지연 {p['latency_primary']}→{p['latency_shadow']}s · 비용 x{p['cost_ratio']}")
+        for b in _ms.get_graded_report(days=30)["by_provider"]:
+            for h in (3, 7):
+                x = b[f"d{h}"]
+                if x["n"]:
+                    print(f"   {b['provider']:6} d{h} 채점 {x['n']}건 · 정답률 현행 {x['primary_acc_pct']}% / 신형 {x['shadow_acc_pct']}%"
+                          f" · 갈림 {x['disagree_n']}건(현행 맞음 {x['disagree_primary_right']} / 신형 {x['disagree_shadow_right']})"
+                          f" · 매수픽 평균 {x['primary_buys']['avg_ret']}% / {x['shadow_buys']['avg_ret']}%")
         _n = _rep["sample"]
         if _n == 0:
             print("   [BLOCKED] 표본 0 — MODEL_SHADOW=0이거나 백엔드가 v3.209.0 이전 코드로 떠 있다(재시작 필요).")
