@@ -282,3 +282,15 @@ async def ai_engine_benchmark_report(days: int = 30, _admin: dict = Depends(requ
     report = get_engine_benchmark_report(days=days)
     report["benchmark_enabled"] = os.environ.get("AGENT_AI_BENCHMARK") == "1"
     return report
+
+
+@router.get("/model-shadow-report")
+async def model_shadow_report(days: int = 7, _admin: dict = Depends(require_admin)):
+    """[v3.209.0] 현행 모델 vs 신형 모델(그림자) 응답 비교 — 일치율·JSON 성공률·지연·비용 배율.
+    MODEL_SHADOW=0이면 표본이 더 쌓이지 않는다(기본 on)."""
+    import os
+    from model_shadow import get_model_shadow_report, _candidate
+    report = get_model_shadow_report(days=days)
+    report["enabled"] = os.environ.get("MODEL_SHADOW", "1").strip() not in ("0", "false", "off", "")
+    report["candidates"] = {"gemini": _candidate("gemini"), "openai": _candidate("openai")}
+    return report

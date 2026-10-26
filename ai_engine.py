@@ -484,23 +484,47 @@ def _calc_estimated_cost(provider: str, model: str, in_tokens: int, out_tokens: 
     단종된 1.5/2.0-flash 기준이라 출력 비용을 8.3배 낮게 잡고 있었다."""
     p = provider.lower()
     m = model.lower()
-    # 구체적인 모델명부터 매칭 (gpt-4.1-mini가 gpt-4.1에 잘못 매칭되지 않도록 순서 유의)
-    for key in ("gpt-4o-mini", "gpt-4.1-mini", "o3-mini", "gpt-4o", "gpt-4.1"):
+    # 긴 이름부터 매칭 — gpt-4.1-mini가 gpt-4.1에, gemini-2.5-flash-lite가 2.5-flash에 잘못 붙지 않도록
+    table = _OPENAI_COST_TABLE if ("gpt" in m or m.startswith("o")) else _GEMINI_COST_TABLE
+    for key in sorted(table, key=len, reverse=True):
         if key in m:
-            in_rate, out_rate = _OPENAI_COST_TABLE[key]
+            in_rate, out_rate = table[key]
+            if key in _GEMINI_2027_DOUBLE and time.localtime().tm_year >= 2027:
+                in_rate, out_rate = in_rate * 2, out_rate * 2
             return (in_tokens * in_rate + out_tokens * out_rate) / 1_000_000
-    if "gemini-2.5" in m or "gemini-2.0" in m or "gemini" in p:
+    if "gemini" in m or "gemini" in p:
+        # 표에 없는 Gemini는 현행 주력(2.5-flash) 단가로 — 0원으로 두면 비용 집계에서 사라진다
         return (in_tokens * 0.30 + out_tokens * 2.50) / 1_000_000
     return 0.0
 
 
+# [v3.209.0] 2026-10-26 공식 가격표 기준 (USD / 100만 토큰, 입력·출력). 출력에는 thinking/추론 토큰 포함.
+#   https://developers.openai.com/api/docs/pricing · https://ai.google.dev/gemini-api/docs/pricing
 _OPENAI_COST_TABLE = {
     "gpt-4o-mini": (0.15, 0.60),
     "gpt-4o": (2.50, 10.00),
     "gpt-4.1-mini": (0.40, 1.60),
     "gpt-4.1": (2.00, 8.00),
     "o3-mini": (1.10, 4.40),
+    "gpt-5.4-nano": (0.20, 1.25),
+    "gpt-5.4-mini": (0.75, 4.50),
+    "gpt-5.5": (5.00, 30.00),
+    "gpt-5.6-luna": (0.20, 1.20),
+    "gpt-6-luna": (0.10, 0.50),
+    "gpt-6-sol": (2.00, 10.00),
+    "gpt-6-astra": (10.00, 50.00),
 }
+
+_GEMINI_COST_TABLE = {
+    "gemini-2.5-flash": (0.30, 2.50),
+    "gemini-2.5-flash-lite": (0.10, 0.40),
+    "gemini-3.5-flash-lite": (0.30, 2.50),
+    "gemini-3.6-flash": (0.75, 3.75),
+    "gemini-3.8-flash": (0.75, 3.75),
+    "gemini-3.1-pro": (2.00, 12.00),   # 프롬프트 20만 토큰 이하 기준
+}
+# 2026년 말까지 할인가 — 2027-01-01부터 입력·출력 모두 두 배(가격표 명시)
+_GEMINI_2027_DOUBLE = {"gemini-3.6-flash", "gemini-3.8-flash"}
 
 
 def _log_llm_usage(response, source: str, use_search: bool = False, provider: str = "gemini", latency_sec: float = 0.0):
@@ -560,6 +584,32 @@ def _log_llm_usage(response, source: str, use_search: bool = False, provider: st
             path_gem = os.path.join(os.path.dirname(__file__), "data_csv", "gemini_usage.jsonl")
             with open(path_gem, "a", encoding="utf-8") as f:
                 f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+    except Exception:
+        pass
+
+
+def _shadow_compare(provider, response, latency, prompt, source, use_search, temperature,
+                    response_mime_type, max_output_tokens, thinking):
+    """[v3.209.0] 메인 응답이 나간 뒤 같은 질문을 신형 모델에도 던져 기록만 한다(model_shadow.py).
+    실행에는 영향 없음 — 어떤 실패도 삼킨다."""
+    try:
+        import model_shadow
+        if isinstance(response, LLMResponse):
+            text, mdl, in_t, out_t = response.text, response.model, response.in_tokens, response.out_tokens
+        else:
+            try:
+                text = response.text or ""
+            except Exception:
+                text = ""
+            um = getattr(response, "usage_metadata", None)
+            in_t = int(getattr(um, "prompt_token_count", 0) or 0) if um else 0
+            out_t = (int(getattr(um, "candidates_token_count", 0) or 0)
+                     + int(getattr(um, "thoughts_token_count", 0) or 0)) if um else 0
+            mdl = str(getattr(response, "model_version", "") or "gemini")
+        model_shadow.maybe_shadow(
+            provider, mdl, text, latency, _calc_estimated_cost(provider, mdl, in_t, out_t),
+            prompt, source, use_search=use_search, temperature=temperature,
+            response_mime_type=response_mime_type, max_output_tokens=max_output_tokens, thinking=thinking)
     except Exception:
         pass
 
@@ -788,6 +838,8 @@ def _call_openai(prompt, use_search=False, temperature=0.7, response_mime_type=N
             raw_response=response
         )
         _log_llm_usage(llm_res, _usage_src, use_search=use_search, provider="openai", latency_sec=latency)
+        _shadow_compare("openai", llm_res, latency, prompt, _usage_src,
+                        use_search, temperature, response_mime_type, max_output_tokens, False)
         return llm_res
 
     except Exception as e:
@@ -973,6 +1025,8 @@ def _call_gemini(prompt, use_search=False, temperature=0.7, response_mime_type=N
                 ex.shutdown(wait=False)
 
                 _log_gemini_usage(response, _usage_src, use_search, latency_sec=_gt.perf_counter() - _start_t)
+                _shadow_compare("gemini", response, _gt.perf_counter() - _start_t, prompt, _usage_src,
+                                use_search, temperature, response_mime_type, max_output_tokens, thinking)
                 return response
 
             except Exception as api_err:

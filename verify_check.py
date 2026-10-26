@@ -845,6 +845,26 @@ def main():
     print("          단독 AUC를 잰다(피해 제외). CV가 아니라 실전 예측으로 0.55+일 때만 편입.")
     print("   ⚠️ 60일 근거는 05-30~07-21 편입분 한 시기다. CV는 실전을 ~0.08 과대평가해 왔다.")
 
+    # ── V24. 신형 모델 그림자 비교 (v3.209.0) ──────────────────────────────
+    print(_hdr("V24", "신형 모델로 갈아탈까 — 그림자 비교(3.8-flash · gpt-6-luna)", "2026-11-02"))
+    try:
+        import model_shadow as _ms
+        _rep = _ms.get_model_shadow_report(days=14)
+        for p in _rep["by_provider"]:
+            print(f"   {p['provider']:6} {p['primary_model']} → {p['shadow_model']} {p['n']}건(실패 {p['shadow_fail']})"
+                  f" · 판단일치 {p['action_agree_pct']}%({p['action_n']}) · JSON {p['primary_json_ok_pct']}/{p['shadow_json_ok_pct']}%"
+                  f" · 지연 {p['latency_primary']}→{p['latency_shadow']}s · 비용 x{p['cost_ratio']}")
+        _n = _rep["sample"]
+        if _n == 0:
+            print("   [BLOCKED] 표본 0 — MODEL_SHADOW=0이거나 백엔드가 v3.209.0 이전 코드로 떠 있다(재시작 필요).")
+        elif _days_to("2026-11-02") > 0 and _n < 300:
+            print(f"   [WAIT] 표본 {_n}건 — 11-02까지 쌓는다.")
+        else:
+            print(f"   [DUE] 표본 {_n}건 — 일치율·JSON·비용배율·지연 보고 전환 여부 결정(VERIFY.md V24).")
+        print("   ⚠️ gpt-6-luna 전환 시 _call_openai의 temperature/max_tokens/검색+JSON 처리를 같이 고칠 것.")
+    except Exception as e:
+        print(f"   [BLOCKED] 확인 실패: {str(e)[:80]}")
+
 
     c.close()
     print(f"\n{'─' * 74}")
