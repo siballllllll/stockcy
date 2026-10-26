@@ -17,7 +17,7 @@
     MODEL_SHADOW=1                    0이면 끔
     MODEL_SHADOW_GEMINI=gemini-3.8-flash
     MODEL_SHADOW_OPENAI=gpt-6-luna
-    MODEL_SHADOW_OPENAI_EFFORT=low    추론형 모델 reasoning_effort (빈 값이면 안 보냄)
+    MODEL_SHADOW_OPENAI_EFFORT=none,low  추론형 모델 reasoning_effort — 쉼표로 여러 개면 각각 따로 잰다
     MODEL_SHADOW_DAILY_CAP=200
 
 보고서:  venv/Scripts/python model_shadow.py [일수]
@@ -53,7 +53,7 @@ def decision_context(ticker, market, price, position):
         _ctx.reset(tok)
 _TEXT_LIMIT = 6000          # 응답 원문 보관 길이 (리서치 감시 응답이 길어 파일이 커지는 것 방지)
 _TIMEOUT_SEC = 120
-_MAX_CONCURRENT = 3
+_MAX_CONCURRENT = 4
 
 _slots = threading.BoundedSemaphore(_MAX_CONCURRENT)
 _count_lock = threading.Lock()
@@ -90,7 +90,6 @@ def maybe_shadow(provider: str, primary_model: str, primary_text: str, primary_l
                  thinking: bool = False):
     """메인 호출 성공 직후 불린다. 조건이 맞으면 그림자 호출을 백그라운드로 띄우고 즉시 반환.
     어떤 예외도 메인으로 올리지 않는다."""
-    held = False
     try:
         if not _enabled() or not prompt:
             return
@@ -99,25 +98,40 @@ def maybe_shadow(provider: str, primary_model: str, primary_text: str, primary_l
         shadow_model = _candidate(provider)
         if not shadow_model or shadow_model in str(primary_model):
             return  # 이미 신형으로 돌고 있으면 비교할 게 없다
-        if not _slots.acquire(blocking=False):
-            with _count_lock:
-                _daily["dropped"][provider] += 1
-            return
-        held = True
-        if not _take_quota(provider):
-            _slots.release()
-            return
         primary = {"model": primary_model, "text": primary_text or "",
                    "latency": round(float(primary_latency or 0), 3), "cost": float(primary_cost or 0)}
-        opts = {"use_search": bool(use_search), "temperature": temperature,
+        ctx = _ctx.get()
+        for effort in _efforts(provider):
+            _launch(provider, shadow_model, effort, prompt, source, primary, {
+                "use_search": bool(use_search), "temperature": temperature,
                 "response_mime_type": response_mime_type, "max_output_tokens": max_output_tokens,
-                "thinking": bool(thinking), "ctx": _ctx.get()}
+                "thinking": bool(thinking), "ctx": ctx, "effort": effort})
+    except Exception:
+        pass
+
+
+def _efforts(provider: str) -> list:
+    """OpenAI 추론형 모델은 추론 강도별로 따로 잰다(v3.211.0: none·low 둘 다). Gemini는 한 벌."""
+    if provider != "openai":
+        return [None]
+    raw = os.getenv("MODEL_SHADOW_OPENAI_EFFORT", "none,low")
+    return [e.strip() for e in raw.split(",") if e.strip()] or [None]
+
+
+def _launch(provider, shadow_model, effort, prompt, source, primary, opts):
+    key = f"{provider}@{effort}" if effort else provider
+    if not _slots.acquire(blocking=False):
+        with _count_lock:
+            _daily["dropped"][key] += 1
+        return
+    try:
+        if not _take_quota(key):
+            _slots.release()
+            return
         threading.Thread(target=_run, args=(provider, shadow_model, prompt, source, primary, opts),
                          daemon=True, name="model-shadow").start()
-        held = False  # 이제 스레드가 반납한다
     except Exception:
-        if held:
-            _slots.release()
+        _slots.release()
 
 
 def _run(provider, shadow_model, prompt, source, primary, opts):
@@ -179,7 +193,7 @@ def _call_openai_shadow(model, prompt, opts, source):
 
     client = ai_engine._get_openai_client()
     want_json = opts["response_mime_type"] == "application/json" or "json" in prompt.lower()
-    effort = os.getenv("MODEL_SHADOW_OPENAI_EFFORT", "low").strip()
+    effort = opts.get("effort")
     t0 = time.perf_counter()
     if opts["use_search"]:
         kw = {"model": model, "tools": [{"type": "web_search"}], "timeout": _TIMEOUT_SEC,
@@ -273,7 +287,8 @@ def _record(provider, source, prompt, primary, shadow_model, res, shadow_latency
         "primary_chars": len(primary["text"]),
         "primary_json_ok": p_json is not None,
         "primary_action": p_act,
-        "shadow_model": (res or {}).get("model") or shadow_model,
+        # 추론 강도가 다르면 다른 후보로 본다 — 보고서가 shadow_model로 묶으므로 이름에 붙인다
+        "shadow_model": ((res or {}).get("model") or shadow_model) + (f"@{opts['effort']}" if opts.get("effort") else ""),
         "shadow_ok": res is not None,
         "shadow_error": err,
         "shadow_latency": shadow_latency,
@@ -469,9 +484,9 @@ def get_graded_report(days: int = 30) -> dict:
         pass
 
     out = {"period_days": days, "by_provider": []}
-    for prov in sorted({r["provider"] for r in rows}):
-        prs = [r for r in rows if r["provider"] == prov]
-        block = {"provider": prov, "shadow_model": prs[-1]["shadow_model"], "primary_model": prs[-1]["primary_model"]}
+    for prov, smodel in sorted({(r["provider"], r["shadow_model"]) for r in rows}):
+        prs = [r for r in rows if r["provider"] == prov and r["shadow_model"] == smodel]
+        block = {"provider": prov, "shadow_model": smodel, "primary_model": prs[-1]["primary_model"]}
         for h in (3, 7):
             hs = [r for r in prs if r.get(f"d{h}") is not None]
             if not hs:
