@@ -864,8 +864,9 @@ def main():
         _n = _rep["sample"]
         if _n == 0:
             print("   [BLOCKED] 표본 0 — MODEL_SHADOW=0이거나 백엔드가 v3.209.0 이전 코드로 떠 있다(재시작 필요).")
-        elif _days_to("2026-11-02") > 0 and _n < 300:
-            print(f"   [WAIT] 표본 {_n}건 — 11-02까지 쌓는다.")
+        elif _days_to("2026-11-02") > 0:
+            # 표본 수로 앞당기지 않는다 — 하루 ~145건이라 이틀이면 차지만, 판정 근거인 d3 채점은 그만큼 안 쌓인다
+            print(f"   [WAIT] 표본 {_n}건 — 11-02까지 쌓는다(d3 채점이 쌓일 시간).")
         else:
             print(f"   [DUE] 표본 {_n}건 — 일치율·JSON·비용배율·지연 보고 전환 여부 결정(VERIFY.md V24).")
         print("   ⚠️ gpt-6-luna 전환 시 _call_openai의 temperature/max_tokens/검색+JSON 처리를 같이 고칠 것.")
