@@ -254,13 +254,15 @@ function HitRateBadge({ rates, direction, roles }: { rates?: HitRates; direction
       title={`최근 ${Math.round(rates.days / 7)}주, '${direction}' 시나리오에 나온 종목이 7일 뒤 시장을 (수수료 빼고) 이긴 비율입니다.\n하락위험주는 시장보다 더 빠지면 적중입니다.\nAI가 적은 확률은 실제 적중과 상관이 없어서, 이 숫자를 보세요. (전체 평균 ${base}%)`}
       style={{ display: "inline-flex", gap: "6px", alignItems: "center", flexWrap: "wrap", fontSize: "0.76rem",
                padding: "2px 9px", borderRadius: "10px", background: "rgba(255,255,255,0.05)", border: "1px solid var(--color-border)" }}>
-      <span style={{ color: "var(--color-muted)", fontWeight: 700 }}>📏 실측 적중</span>
+      <span style={{ color: "var(--color-muted)", fontWeight: 700 }}>📏 이런 시나리오 종목, 최근 성적</span>
       {rows.map(({ role, b }) => {
         const wr = b?.win_rate_d7;
+        // 숫자만 보여주면 뜻을 다시 해석해야 한다 — 평균 대비 ±5%p로 좋음/보통/나쁨을 말로 붙인다
+        const verdict = wr == null ? "아직 모름" : wr >= base + 5 ? "좋음" : wr <= base - 5 ? "나쁨" : "반반";
         const color = wr == null ? "var(--color-subtle)" : wr >= base + 5 ? "#69f0ae" : wr <= base - 5 ? "#ff6b6b" : "var(--color-text)";
         return (
           <span key={role} style={{ color, fontWeight: 700 }}>
-            {roleName[role] ?? role} {wr == null ? `표본 부족(${b?.count ?? 0})` : `${wr.toFixed(0)}%`}
+            {roleName[role] ?? role} {verdict}{wr == null ? "" : ` (10개 중 ${Math.round(wr / 10)}개 맞음)`}
           </span>
         );
       })}
