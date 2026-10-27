@@ -689,6 +689,10 @@ def init_local_db():
         "ALTER TABLE scenario_stocks ADD COLUMN legacy_d20_return REAL",
         "ALTER TABLE scenario_stocks ADD COLUMN legacy_bench_d20_return REAL",
         "ALTER TABLE scenario_stocks ADD COLUMN legacy_mom5 REAL",
+        # [실측 적중률 v3.212.0] 이 종목을 낳은 시나리오의 시장 방향(강세/약세/혼조).
+        # 10-27 분해: AI 확률은 적중과 무관했고, 갈린 축은 방향이었다 — 강세 시나리오 수혜주
+        # d7 39% vs 약세 시나리오 수혜주 57%. A/B 라벨은 순서일 뿐이라 방향을 따로 남긴다.
+        "ALTER TABLE scenario_stocks ADD COLUMN market_direction TEXT",
         "ALTER TABLE portfolio ADD COLUMN buy_reason TEXT DEFAULT ''",
         "ALTER TABLE trade_history ADD COLUMN buy_reason TEXT DEFAULT ''",
         "ALTER TABLE agent_decisions ADD COLUMN is_realized INTEGER DEFAULT 0",
@@ -4153,6 +4157,7 @@ def save_scenario_stocks(scenario_keyword: str, scenario_title: str, stocks: lis
             except (TypeError, ValueError):
                 prob_pct = None
             sc_label = str(s.get("scenario_label") or "").strip() or None
+            sc_dir = str(s.get("market_direction") or "").strip() or None
             if not ticker:
                 continue
             # [코드 검증 v3.196.0] AI가 종목코드를 틀리게 적는다 — 이름이 상장 목록에 있고
@@ -4199,10 +4204,10 @@ def save_scenario_stocks(scenario_keyword: str, scenario_title: str, stocks: lis
             cursor.execute(
                 """INSERT INTO scenario_stocks
                    (scenario_keyword, scenario_title, ticker, name, market, role, horizon, captured_at, updated_at,
-                    probability_pct, scenario_label, theme_id, sector)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    probability_pct, scenario_label, theme_id, sector, market_direction)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (scenario_keyword, scenario_title, ticker, name, market, role, horizon, now, now,
-                 prob_pct, sc_label, theme_id, ticker_sector(ticker))
+                 prob_pct, sc_label, theme_id, ticker_sector(ticker), sc_dir)
             )
             if market in ("kr", "us"):
                 quote_targets.append((cursor.lastrowid, ticker))
@@ -4561,6 +4566,45 @@ def backfill_scenario_themes(force: bool = False) -> dict:
             "theme_coverage_pct": round((with_theme or 0) / tot * 100, 1) if tot else 0,
             "sector_coverage_pct": round((with_sector or 0) / tot * 100, 1) if tot else 0,
         }
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+    finally:
+        conn.close()
+
+
+def backfill_scenario_directions() -> dict:
+    """[실측 적중률 v3.212.0] market_direction이 빈 메인 시나리오 행을 날짜별 시나리오 로그로 채운다.
+
+    종목 행에는 라벨(A/B)만 있고 방향은 없었다. 로그의 이슈 제목·라벨로 되짚는다 —
+    저장 키가 `[메인] {이슈 제목}`이라 같은 규칙으로 맞춘다. 과금 0원, 매일 돌려도 싸다.
+    로그가 없는 날(캐시만 쓴 날)은 못 채운다 — 모르는 방향을 지어내지 않는다."""
+    import json as _json
+    conn = get_db_conn()
+    cur = conn.cursor()
+    try:
+        dmap: dict[tuple, str] = {}
+        cur.execute("SELECT data_json FROM daily_market_log WHERE kind='scenarios'")
+        blobs = [r[0] for r in cur.fetchall()]
+        cur.execute("SELECT data_json FROM ai_cache WHERE cache_key='market_scenarios_latest'")
+        blobs += [r[0] for r in cur.fetchall()]
+        for js in blobs:
+            try:
+                o = _json.loads(js) if isinstance(js, str) else (js or {})
+            except Exception:
+                continue
+            for iss in (o.get("issues") or []) if isinstance(o, dict) else []:
+                title = str(iss.get("title") or "메인시나리오").strip()
+                for sc in iss.get("scenarios") or []:
+                    lab = str(sc.get("label") or "").strip()
+                    d = str(sc.get("market_direction") or "").strip()
+                    if lab and d:
+                        dmap[(f"[메인] {title}", lab)] = d
+        cur.execute("""SELECT id, scenario_keyword, scenario_label FROM scenario_stocks
+                       WHERE market_direction IS NULL AND scenario_label IS NOT NULL""")
+        updates = [(dmap[(r[1], r[2])], r[0]) for r in cur.fetchall() if (r[1], r[2]) in dmap]
+        cur.executemany("UPDATE scenario_stocks SET market_direction = ? WHERE id = ?", updates)
+        conn.commit()
+        return {"ok": True, "filled": len(updates), "known_scenarios": len(dmap)}
     except Exception as e:
         return {"ok": False, "error": str(e)}
     finally:

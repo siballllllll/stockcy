@@ -238,10 +238,55 @@ function MarketBadge({ ticker }: { ticker: string }) {
 // ── 종목 카드 행 (상승/하락) ───────────────────────────────────────────────────
 type PriceEntry = { price: number; change_pct: number };
 
-function StockRow({ stock, priceEntry, onClick }: {
+// v3.212.0 실측 적중률 — AI 확률은 적중과 무관했다(10-27, 본선·대안 둘 다 d7 46%).
+// 갈린 축은 시나리오 방향 × 종목 역할. 최근 8주 7일 뒤 시장 대비(비용 차감) 적중률.
+interface HitRateBucket { direction: string; role: string; count: number; win_rate_d7: number | null; excess_d7: number | null }
+interface HitRates { days: number; min_count: number; buckets: HitRateBucket[]; overall_win_rate_d7: number | null; count: number }
+
+function HitRateBadge({ rates, direction, roles }: { rates?: HitRates; direction: string; roles: string[] }) {
+  if (!rates || !direction) return null;
+  const rows = roles.map(role => ({ role, b: rates.buckets.find(x => x.direction === direction && x.role === role) }));
+  if (!rows.some(r => r.b)) return null;
+  const base = rates.overall_win_rate_d7 ?? 50;
+  const roleName: Record<string, string> = { "수혜": "수혜주", "피해": "하락위험주", "테마": "관련주" };
+  return (
+    <span
+      title={`최근 ${Math.round(rates.days / 7)}주, '${direction}' 시나리오에 나온 종목이 7일 뒤 시장을 (수수료 빼고) 이긴 비율입니다.\n하락위험주는 시장보다 더 빠지면 적중입니다.\nAI가 적은 확률은 실제 적중과 상관이 없어서, 이 숫자를 보세요. (전체 평균 ${base}%)`}
+      style={{ display: "inline-flex", gap: "6px", alignItems: "center", flexWrap: "wrap", fontSize: "0.76rem",
+               padding: "2px 9px", borderRadius: "10px", background: "rgba(255,255,255,0.05)", border: "1px solid var(--color-border)" }}>
+      <span style={{ color: "var(--color-muted)", fontWeight: 700 }}>📏 실측 적중</span>
+      {rows.map(({ role, b }) => {
+        const wr = b?.win_rate_d7;
+        const color = wr == null ? "var(--color-subtle)" : wr >= base + 5 ? "#69f0ae" : wr <= base - 5 ? "#ff6b6b" : "var(--color-text)";
+        return (
+          <span key={role} style={{ color, fontWeight: 700 }}>
+            {roleName[role] ?? role} {wr == null ? `표본 부족(${b?.count ?? 0})` : `${wr.toFixed(0)}%`}
+          </span>
+        );
+      })}
+    </span>
+  );
+}
+
+function ChaseBadge({ mom5 }: { mom5?: number | null }) {
+  if (mom5 == null || mom5 < 10) return null;
+  const hot = mom5 >= 15;
+  return (
+    <span title={`최근 5거래일 +${mom5.toFixed(1)}% — 이미 오른 뒤입니다. 5일 +15% 넘게 오른 뒤 담은 시나리오 종목은 7일 뒤 적중 37%, 평균 -4.3%로 가장 나빴습니다.`}
+      style={{ display: "inline-block", padding: "1px 7px", borderRadius: "10px", fontSize: "0.7rem", fontWeight: 800,
+               background: hot ? "rgba(239,68,68,0.15)" : "rgba(251,191,36,0.12)",
+               border: `1px solid ${hot ? "rgba(239,68,68,0.5)" : "rgba(251,191,36,0.45)"}`,
+               color: hot ? "#f87171" : "#fbbf24" }}>
+      🔺 5일 +{mom5.toFixed(0)}% {hot ? "추격주의" : "급등 후"}
+    </span>
+  );
+}
+
+function StockRow({ stock, priceEntry, onClick, mom5 }: {
   stock: StockEntry;
   priceEntry?: PriceEntry | null;
   onClick: () => void;
+  mom5?: number | null;
 }) {
   const isKr = isKrTicker(stock.ticker);
   const up   = (priceEntry?.change_pct ?? 0) >= 0;
@@ -269,6 +314,7 @@ function StockRow({ stock, priceEntry, onClick }: {
           <span style={{ fontSize: "0.7rem", color: "var(--color-muted)" }}>({stock.ticker})</span>
           <MarketBadge ticker={stock.ticker} />
           {stock.signal && <SignalBadge signal={stock.signal} />}
+          <ChaseBadge mom5={mom5} />
         </div>
         {/* 현재가 */}
         {priceEntry && priceEntry.price > 0 && (
@@ -316,10 +362,11 @@ function StockRow({ stock, priceEntry, onClick }: {
 }
 
 // ── 테마주 카드 ───────────────────────────────────────────────────────────────
-function ThemeStockRow({ stock, priceEntry, onClick }: {
+function ThemeStockRow({ stock, priceEntry, onClick, mom5 }: {
   stock: ThemeStock;
   priceEntry?: PriceEntry | null;
   onClick: () => void;
+  mom5?: number | null;
 }) {
   const isKr = isKrTicker(stock.ticker);
   const up   = (priceEntry?.change_pct ?? 0) >= 0;
@@ -363,6 +410,7 @@ function ThemeStockRow({ stock, priceEntry, onClick }: {
             {stock.type}
           </span>
           {stock.signal && <SignalBadge signal={stock.signal} />}
+          <ChaseBadge mom5={mom5} />
         </div>
         {priceEntry && priceEntry.price > 0 && (
           <div style={{ textAlign: "right", flexShrink: 0, minWidth: "70px" }}>
@@ -624,6 +672,27 @@ function ScenarioContent({ scenario, issueTitle }: { scenario: Scenario; issueTi
 
   const priceMap: Record<string, PriceEntry> = { ...(krPrices ?? {}), ...(usPrices ?? {}) };
 
+  // v3.212.0 실측 적중률(페이지 전체 공유 키) + 종목별 최근 5일 수익률(추격주의)
+  const { data: hitRates } = useSWR<HitRates>("scenario-hit-rates", async () => {
+    const r = await fetch("/backend/api/ai/scenario-hit-rates");
+    if (!r.ok) throw new Error(String(r.status));
+    return r.json();
+  }, { revalidateOnFocus: false });
+  const allTickerKey = [...krTickers, ...usTickers].join(",");
+  const { data: mom5Map } = useSWR<Record<string, number | null>>(
+    allTickerKey ? `sc-mom5-${allTickerKey}` : null,
+    async () => {
+      const r = await fetch(`/backend/api/ai/scenario-mom5?tickers=${encodeURIComponent(allTickerKey)}`);
+      return r.ok ? r.json() : {};
+    },
+    { revalidateOnFocus: false }
+  );
+  const hitRoles = [
+    (scenario.rising_stocks?.length ?? 0) > 0 && "수혜",
+    (scenario.theme_stocks?.length ?? 0) > 0 && "테마",
+    (scenario.falling_stocks?.length ?? 0) > 0 && "피해",
+  ].filter(Boolean) as string[];
+
   // 상세분석 클릭 → 5초 취소 유예 후 AI 호출 시작. 유예 중 취소하면 호출 안 함 = 토큰 0.
   const startDetailWithGrace = () => {
     setShowDetail(true);
@@ -681,7 +750,9 @@ function ScenarioContent({ scenario, issueTitle }: { scenario: Scenario; issueTi
         }}>
           {scenario.market_direction}
         </span>
-        <span style={{ fontSize: "0.82rem", color: "var(--color-muted)" }}>확률: <strong style={{ color: "var(--color-text)" }}>{scenario.probability_pct}%</strong></span>
+        <span title="AI가 적은 확률입니다. 실제 적중과는 상관이 없었습니다(10-27 실측). 옆의 실측 적중을 보세요."
+          style={{ fontSize: "0.82rem", color: "var(--color-subtle)" }}>AI 확률 {scenario.probability_pct}%</span>
+        <HitRateBadge rates={hitRates} direction={scenario.market_direction} roles={hitRoles} />
       </div>
 
       {/* 현실화 조건 */}
@@ -727,7 +798,7 @@ function ScenarioContent({ scenario, issueTitle }: { scenario: Scenario; issueTi
               <div style={{ fontSize: "0.72rem", color: "var(--color-muted)", fontWeight: 700, marginBottom: "4px" }}>🇰🇷 국내</div>
               <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
                 {krRising.map((s, i) => (
-                  <StockRow key={i} stock={s} priceEntry={priceMap[s.ticker]} onClick={() => navigate(s.ticker)} />
+                  <StockRow key={i} stock={s} priceEntry={priceMap[s.ticker]} mom5={mom5Map?.[s.ticker]} onClick={() => navigate(s.ticker)} />
                 ))}
               </div>
             </div>
@@ -737,7 +808,7 @@ function ScenarioContent({ scenario, issueTitle }: { scenario: Scenario; issueTi
               <div style={{ fontSize: "0.72rem", color: "var(--color-muted)", fontWeight: 700, marginBottom: "4px" }}>🇺🇸 미국</div>
               <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
                 {usRising.map((s, i) => (
-                  <StockRow key={i} stock={s} priceEntry={priceMap[s.ticker]} onClick={() => navigate(s.ticker)} />
+                  <StockRow key={i} stock={s} priceEntry={priceMap[s.ticker]} mom5={mom5Map?.[s.ticker]} onClick={() => navigate(s.ticker)} />
                 ))}
               </div>
             </div>
@@ -759,7 +830,7 @@ function ScenarioContent({ scenario, issueTitle }: { scenario: Scenario; issueTi
           </div>
           <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
             {themeStocks.map((s, i) => (
-              <ThemeStockRow key={i} stock={s} priceEntry={priceMap[s.ticker]} onClick={() => navigate(s.ticker)} />
+              <ThemeStockRow key={i} stock={s} priceEntry={priceMap[s.ticker]} mom5={mom5Map?.[s.ticker]} onClick={() => navigate(s.ticker)} />
             ))}
           </div>
         </div>

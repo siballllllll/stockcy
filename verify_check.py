@@ -873,6 +873,43 @@ def main():
     except Exception as e:
         print(f"   [BLOCKED] 확인 실패: {str(e)[:80]}")
 
+    # ── V25. 시나리오 방향 신호 유지 여부 (v3.212.0) ─────────────────────────
+    print(_hdr("V25", "약세 시나리오 종목이 강세 시나리오 종목보다 계속 잘 맞나 — 실측 적중률 배지", "2026-11-24"))
+    print("   배경: 10-27 분해에서 AI 확률은 무의미(본선·대안 둘 다 d7 46%). 갈린 축은 방향이었다 —")
+    print("         강세 시나리오 수혜주 39% vs 약세 시나리오 수혜주 57%·피해주 60%(09-03~ 8주, 하락장 하나).")
+    print("         배지는 최근 8주 롤링이라 자동으로 따라가지만, '방향이 신호'라는 결론은 새 표본으로 확인한다.")
+    try:
+        from ai_engine import _scenario_win_sql
+        _w = _scenario_win_sql("d7_return", "bench_d7_return")
+        _rows = cur.execute(
+            f"""SELECT ticker, substr(captured_at,1,10) d, role, market_direction dir, {_w} w
+                FROM scenario_stocks
+                WHERE d7_return IS NOT NULL AND market_direction IS NOT NULL
+                  AND captured_at >= '2026-10-28' ORDER BY id""").fetchall()
+        _seen, _g = set(), {"강세·수혜": [], "약세(수혜+피해)": []}
+        for r in _rows:
+            k = (r["ticker"], r["d"], r["role"])
+            if k in _seen:
+                continue
+            _seen.add(k)
+            if r["dir"] == "강세" and r["role"] == "수혜":
+                _g["강세·수혜"].append(r["w"])
+            elif r["dir"] == "약세" and r["role"] in ("수혜", "피해"):
+                _g["약세(수혜+피해)"].append(r["w"])
+        _rate = {k: (round(sum(v) / len(v) * 100, 1) if v else None) for k, v in _g.items()}
+        for k, v in _g.items():
+            print(f"   10-28 이후 {k}: {len(v)}건 · d7 적중 {_rate[k]}%")
+        print("   통과 기준: 양쪽 40건+에서 약세 쪽이 8%p 이상 높으면 유지. 3%p 미만·역전이면 장세 의존 → 결론 철회.")
+        _na, _nb = len(_g["강세·수혜"]), len(_g["약세(수혜+피해)"])
+        if _days_to("2026-11-24") > 0:
+            print(f"   [WAIT] 새 표본 {_na}/{_nb}건 — 11-24까지(d7이 쌓일 시간).")
+        elif min(_na, _nb) < 40:
+            print(f"   [BLOCKED] 새 표본 부족({_na}/{_nb}) — 방향 컬럼 저장이 도는지, 시나리오 생성이 됐는지 확인.")
+        else:
+            print(f"   [DUE] 약세 {_rate['약세(수혜+피해)']}% vs 강세 수혜 {_rate['강세·수혜']}% — 기준대로 유지/철회 결정(VERIFY.md V25).")
+    except Exception as e:
+        print(f"   [BLOCKED] 확인 실패: {str(e)[:80]}")
+
 
     c.close()
     print(f"\n{'─' * 74}")

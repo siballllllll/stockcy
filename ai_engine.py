@@ -7766,6 +7766,19 @@ def _rescore_scenarios(cursor) -> dict:
     }
 
 
+_SCENARIO_FEE_SQL = ("(CASE WHEN COALESCE(market, '') = 'kr' "
+                     "        OR (COALESCE(market, '') = '' AND ticker NOT GLOB '*[^0-9]*') "
+                     "      THEN 0.21 ELSE 0.15 END)")
+
+
+def _scenario_win_sql(col, bench):
+    # 피해(하락 예상)는 시장보다 비용 이상 더 빠져야 적중.
+    # [v3.208.0] 종전 식 `col < -(bench + fee)`는 시장 수익률의 부호까지 뒤집었다 —
+    # 시장 -5%인 날엔 +4.79% 아래면 적중, 시장 +3%인 날엔 -3.21% 아래여야 적중이었다.
+    return (f"((COALESCE(role,'') != '피해' AND {col} > COALESCE({bench}, 0) + {_SCENARIO_FEE_SQL}) OR "
+            f"(role = '피해' AND {col} < COALESCE({bench}, 0) - {_SCENARIO_FEE_SQL}))")
+
+
 def _aggregate_scenario_stats(cursor) -> dict:
     """scenario_stocks 테이블에서 시나리오/horizon별 적중률·수익률을 집계한다.
     DB만 사용하고 네트워크 호출이 전혀 없어 즉시 반환된다 (가격 재추적과 분리)."""
@@ -7780,16 +7793,7 @@ def _aggregate_scenario_stats(cursor) -> dict:
     # [v3.199.0] 왕복 비용을 **시장 컬럼**으로 가른다. 종전은 `ticker GLOB '[0-9]*'`였는데
     # `8035.T`(도쿄일렉트론)처럼 숫자로 시작하는 해외 심볼이 국내 수수료 0.21%로 잡혔다.
     # market이 비어 있는 과거 행은 '전부 숫자면 국내'로 되짚는다(종전과 같은 결과).
-    _FEE = ("(CASE WHEN COALESCE(market, '') = 'kr' "
-            "        OR (COALESCE(market, '') = '' AND ticker NOT GLOB '*[^0-9]*') "
-            "      THEN 0.21 ELSE 0.15 END)")
-
-    def _win(col, bench):
-        # 피해(하락 예상)는 시장보다 비용 이상 더 빠져야 적중.
-        # [v3.208.0] 종전 식 `col < -(bench + fee)`는 시장 수익률의 부호까지 뒤집었다 —
-        # 시장 -5%인 날엔 +4.79% 아래면 적중, 시장 +3%인 날엔 -3.21% 아래여야 적중이었다.
-        return (f"((COALESCE(role,'') != '피해' AND {col} > COALESCE({bench}, 0) + {_FEE}) OR "
-                f"(role = '피해' AND {col} < COALESCE({bench}, 0) - {_FEE}))")
+    _win = _scenario_win_sql
 
     _WIN_D3 = _win("d3_return", "bench_d3_return")
     _WIN_D7 = _win("d7_return", "bench_d7_return")
@@ -8065,6 +8069,111 @@ def load_scenario_tracking_stats() -> dict:
     finally:
         conn.close()
     return {"updated_now": 0, **stats}
+
+
+# ── 실측 적중률 배지 [v3.212.0] ──────────────────────────────────────────────
+# AI가 붙인 probability_pct는 적중과 무관했다(2026-10-27, 본선·대안 둘 다 d7 46%).
+# 갈린 축은 시나리오 방향 × 종목 역할이었다 — 강세 시나리오 수혜주 39%, 약세 시나리오
+# 수혜주 57%·피해주 60%. 화면의 AI 확률 옆에 이 실측치를 붙여 '믿을 숫자'를 바꾼다.
+# 최근 8주만 본다: 장세가 바뀌면 같이 바뀌어야 하는 숫자다(V25가 유지 여부를 판정).
+_HIT_RATE_DAYS = 56
+_HIT_RATE_MIN_N = 20
+_hit_rate_cache: dict = {"ts": 0.0, "data": None}
+_mom5_cache: dict = {}            # ticker → (ts, pct|None)
+_HIT_RATE_TTL = 1800
+
+
+def load_scenario_hit_rates() -> dict:
+    """시장 방향(강세/약세/혼조) × 역할(수혜/피해/테마)별 최근 8주 d7 실측 적중률.
+    같은 날 같은 종목·역할은 한 번만 센다. 표본이 _HIT_RATE_MIN_N 미만이면 win_rate=None."""
+    now = time.time()
+    if _hit_rate_cache["data"] is not None and now - _hit_rate_cache["ts"] < _HIT_RATE_TTL:
+        return _hit_rate_cache["data"]
+    from db import get_db_conn
+    win = _scenario_win_sql("d7_return", "bench_d7_return")
+    conn = get_db_conn()
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            f"""SELECT ticker, substr(captured_at, 1, 10) AS day, role, market_direction AS dir,
+                       {win} AS w, d7_return - COALESCE(bench_d7_return, 0) AS ex
+                FROM scenario_stocks
+                WHERE d7_return IS NOT NULL AND market_direction IS NOT NULL
+                  AND captured_at >= date('now', ?)
+                ORDER BY id""", (f"-{_HIT_RATE_DAYS} day",))
+        rows = [dict(r) for r in cur.fetchall()]
+    finally:
+        conn.close()
+    seen, groups = set(), {}
+    for r in rows:
+        k = (r["ticker"], r["day"], r["role"])
+        if k in seen:
+            continue
+        seen.add(k)
+        ex = -(r["ex"] or 0) if r["role"] == "피해" else (r["ex"] or 0)
+        groups.setdefault((r["dir"], r["role"]), []).append((bool(r["w"]), ex))
+    buckets = []
+    for (d, role), v in sorted(groups.items()):
+        n = len(v)
+        enough = n >= _HIT_RATE_MIN_N
+        buckets.append({
+            "direction": d, "role": role, "count": n,
+            "win_rate_d7": round(sum(w for w, _ in v) / n * 100, 1) if enough else None,
+            "excess_d7": round(sum(e for _, e in v) / n, 2) if enough else None,
+        })
+    total = sum(len(v) for v in groups.values())
+    wins = sum(w for v in groups.values() for w, _ in v)
+    data = {"days": _HIT_RATE_DAYS, "min_count": _HIT_RATE_MIN_N, "buckets": buckets,
+            "overall_win_rate_d7": round(wins / total * 100, 1) if total else None,
+            "count": total}
+    _hit_rate_cache.update(ts=now, data=data)
+    return data
+
+
+def scenario_live_mom5(tickers: list) -> dict:
+    """화면에 뜬 시나리오 종목의 최근 5거래일 수익률(%) — '추격주의' 표시용.
+    포착 직전 5일 +15% 이상이 d7 37%·평균 -4.3%로 최악 구간이었다(V17 뒷북과 같은 현상).
+    오늘 봉(장중)까지 포함한다 — 지금 사면 쫓아 사는 것인지가 질문이라서. 30분 캐시."""
+    from concurrent.futures import ThreadPoolExecutor
+    from datetime import datetime as _dt, timedelta as _td
+    now = time.time()
+    out, todo = {}, []
+    for t in dict.fromkeys(str(x).strip() for x in tickers if str(x).strip()):
+        hit = _mom5_cache.get(t)
+        # 실패(None)는 5분만 기억한다 — 소스가 잠깐 막힌 걸 30분 동안 고정하지 않게
+        if hit and now - hit[0] < (_HIT_RATE_TTL if hit[1] is not None else 300):
+            out[t] = hit[1]
+        else:
+            todo.append(t)
+    start = (_dt.now() - _td(days=20)).strftime("%Y-%m-%d")
+    end = (_dt.now() + _td(days=1)).strftime("%Y-%m-%d")
+
+    def _pct(closes):
+        if len(closes) < 6 or not closes[-6] or closes[-6] <= 0:
+            return None
+        return round((closes[-1] - closes[-6]) / closes[-6] * 100, 2)
+
+    def _one(t):
+        try:
+            df = _fetch_scenario_bars(t, t.isdigit(), start, end)
+            v = _pct([float(x) for x in _bar_col(df, "Close").dropna()])
+            if v is not None:
+                return t, v
+        except Exception:
+            pass
+        # FDR(국내)은 네이버 차트를 쓴다 — 10-27 네이버가 이 PC에서 통째로 안 열렸다. 토스 일봉으로 한 번 더.
+        try:
+            from toss_api import get_candles
+            return t, _pct([c["close"] for c in get_candles(t, "1d", 8) if c.get("close")])
+        except Exception:
+            return t, None
+
+    if todo:
+        with ThreadPoolExecutor(max_workers=6) as ex:
+            for t, v in ex.map(_one, todo[:40]):
+                _mom5_cache[t] = (now, v)
+                out[t] = v
+    return out
 
 
 def load_scenario_tracking_list(limit: int = 300) -> list:

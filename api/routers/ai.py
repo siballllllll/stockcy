@@ -304,6 +304,7 @@ def _extract_scenario_stocks(result: dict) -> list:
             # 이래야 나중에 "확률 70%대 시나리오의 수혜주가 실제로 더 올랐는가"를 검증할 수 있다.
             sc_prob = sc.get("probability_pct")
             sc_label = str(sc.get("label") or "").strip()
+            sc_dir = str(sc.get("market_direction") or "").strip()
             for group, role in [("rising_stocks", "수혜"), ("falling_stocks", "피해"), ("theme_stocks", "테마")]:
                 for s in sc.get(group, []) or []:
                     ticker = str(s.get("ticker") or "").strip()
@@ -312,7 +313,8 @@ def _extract_scenario_stocks(result: dict) -> list:
                         # theme_stocks만 horizon(단타/중장기) 보유. rising/falling은 미지정.
                         stocks.append({"ticker": ticker, "name": name, "role": role,
                                        "horizon": str(s.get("horizon") or "").strip(),
-                                       "probability_pct": sc_prob, "scenario_label": sc_label})
+                                       "probability_pct": sc_prob, "scenario_label": sc_label,
+                                       "market_direction": sc_dir})
     # 중복 제거 (티커 단위)
     seen = set()
     deduped = []
@@ -1805,6 +1807,21 @@ async def get_scenario_tracking_stats():
     stats["by_scenario_total"] = len(bs)
     stats["by_scenario"] = bs[:30]
     return stats
+
+
+@router.get("/scenario-hit-rates")
+async def get_scenario_hit_rates():
+    """시장 방향 × 역할별 최근 8주 실측 적중률 — 시나리오 카드의 AI 확률 옆 배지 (v3.212.0). 과금 0."""
+    from ai_engine import load_scenario_hit_rates
+    return await asyncio.to_thread(load_scenario_hit_rates)
+
+
+@router.get("/scenario-mom5")
+async def get_scenario_mom5(tickers: str = Query("")):
+    """시나리오 종목의 최근 5거래일 수익률 — '추격주의' 배지 (v3.212.0). 최대 40종목, 30분 캐시."""
+    from ai_engine import scenario_live_mom5
+    tks = [t for t in tickers.split(",") if t.strip()][:40]
+    return await asyncio.to_thread(scenario_live_mom5, tks)
 
 
 @router.get("/market-judgment/stats")

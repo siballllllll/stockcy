@@ -505,6 +505,14 @@ def _scenario_tracking_loop():
                               f"(테마 커버리지 {tb.get('theme_coverage_pct')}%)")
                 except Exception as e:
                     print(f"[theme label] 오류: {e}")
+                # 시나리오 방향 채우기 (v3.212.0) — 실측 적중률 배지의 축. 로그로 되짚어 과금 0원.
+                try:
+                    from db import backfill_scenario_directions
+                    bd = backfill_scenario_directions()
+                    if bd.get("filled"):
+                        print(f"[scenario direction] 방향 보강 {bd.get('filled')}행")
+                except Exception as e:
+                    print(f"[scenario direction] 오류: {e}")
                 # 포착 시점 5일 모멘텀 소급 적재 (v3.195.0) — 뒷북 여부 판정의 재료.
                 #   일일 추적은 '아직 안 끝난 행'만 보므로 이미 끝난 과거 행은 여기서 채운다.
                 #   회당 티커 120개로 제한 — 며칠에 걸쳐 채워지고 그동안 다른 작업을 막지 않는다.
