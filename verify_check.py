@@ -919,14 +919,18 @@ def main():
         from ai_engine import _scenario_win_sql
         _w = _scenario_win_sql("d7_return", "bench_d7_return")
         _days = [r[0] for r in cur.execute("SELECT DISTINCT snapshot_date FROM frgn_inst_snapshots ORDER BY 1").fetchall()]
-        _flow = {}
-        for r in cur.execute("SELECT snapshot_date, ticker, orgn_ntby FROM frgn_inst_snapshots WHERE snapshot_date >= '2026-10-15'"):
+        _flow, _frg = {}, {}
+        for r in cur.execute("SELECT snapshot_date, ticker, orgn_ntby, frgn_ntby FROM frgn_inst_snapshots WHERE snapshot_date >= '2026-10-15'"):
             _flow[(r[1], r[0])] = r[2] or 0
+            _frg[(r[1], r[0])] = r[3] or 0
         _rows = cur.execute(
-            f"""SELECT ticker, substr(captured_at,1,10) d, role, {_w} w FROM scenario_stocks
+            f"""SELECT ticker, substr(captured_at,1,10) d, role, mom5_at_capture m5, {_w} w FROM scenario_stocks
                 WHERE d7_return IS NOT NULL AND captured_at >= '2026-10-28' AND role IN ('수혜','테마')
                 ORDER BY id""").fetchall()
         _seen, _g = set(), {"기관 꾸준히 매수": [], "기관 이탈": [], "그 외(스냅샷 종목)": []}
+        # 방어 매수 의심(10-28 사용자 지적): 기관은 사는데 주가는 5일 -2%↓, 외국인은 팔지 않음 = 기관 혼자 받치는 중.
+        # 10-27 과거 데이터는 이 경우 43%(후반 27%, 21건), 외국인 매도를 받아낸 경우는 76%(17건) — 표본 작아 판정 대상.
+        _d = {"방어 의심(주가 밀림·외국인 안 팖)": [], "그 외 기관 매수": []}
         for r in _rows:
             k = (r["ticker"], r["d"])
             if k in _seen or not str(r["ticker"]).isdigit():
@@ -938,9 +942,16 @@ def main():
             _v = [_flow.get((r["ticker"], x), 0) for x in _win]
             _b, _s = sum(v > 0 for v in _v), sum(v < 0 for v in _v)
             _g["기관 꾸준히 매수" if _b >= 3 else "기관 이탈" if _s >= 3 else "그 외(스냅샷 종목)"].append(r["w"])
+            if _b >= 3:
+                _fs = sum(_frg.get((r["ticker"], x), 0) < 0 for x in _win)
+                _weak = r["m5"] is not None and r["m5"] <= -2
+                _d["방어 의심(주가 밀림·외국인 안 팖)" if _weak and _fs < 3 else "그 외 기관 매수"].append(r["w"])
         for k, v in _g.items():
             print(f"   10-28 이후 {k}: {len(v)}건 · d7 적중 {round(sum(v) / len(v) * 100, 1) if v else None}%")
+        for k, v in _d.items():
+            print(f"   └ {k}: {len(v)}건 · d7 적중 {round(sum(v) / len(v) * 100, 1) if v else None}%")
         print("   통과 기준: 매수·이탈 각 25건+에서 매수 쪽이 8%p 이상 높으면 배지 유지. 3%p 미만·역전이면 배지 제거.")
+        print("   방어 의심: 15건+에서 그 외 기관 매수보다 8%p 이상 낮으면 배지를 '🏦 기관 매수 중 (주가는 밀림)' 주의 표시로 바꾼다.")
         _na, _nb = len(_g["기관 꾸준히 매수"]), len(_g["기관 이탈"])
         if _days_to("2026-11-24") > 0:
             print(f"   [WAIT] 새 표본 {_na}/{_nb}건 — 11-24까지.")
