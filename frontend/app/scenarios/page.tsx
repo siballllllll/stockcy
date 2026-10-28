@@ -910,55 +910,25 @@ function IssuePanel({ issue }: { issue: Issue }) {
   const activeScenario = scenarios[scenarioIdx];
 
   const urgencyColor = (u?: string) => {
-    if (u === "긴급") return "var(--color-danger)";
-    if (u === "보통") return "var(--color-warning)";
-    return "var(--color-muted)";
+    if (u === "긴급") return "#f87171";
+    if (u === "보통") return "#fbbf24";
+    return "#94a3b8";
   };
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
       {/* 이슈 헤더 */}
       <div>
-        <div style={{ display: "flex", gap: "6px", alignItems: "center", flexWrap: "wrap", marginBottom: "6px" }}>
-          {issue.urgency && (
-            <span style={{
-              padding: "1px 8px", borderRadius: "10px", fontSize: "0.72rem", fontWeight: 800,
-              background: `${urgencyColor(issue.urgency)}22`,
-              border: `1px solid ${urgencyColor(issue.urgency)}`,
-              color: urgencyColor(issue.urgency),
-            }}>
-              {issue.urgency}
-            </span>
-          )}
-          {issue.category && (
-            <span style={{
-              padding: "1px 8px", borderRadius: "10px", fontSize: "0.72rem", fontWeight: 700,
-              background: "rgba(255,255,255,0.06)",
-              border: "1px solid var(--color-border)",
-              color: "var(--color-muted)",
-            }}>
-              {issue.category}
-            </span>
-          )}
-          {issue.carried ? (
-            <span style={{
-              padding: "1px 8px", borderRadius: "10px", fontSize: "0.72rem", fontWeight: 800,
-              background: "rgba(148,163,184,0.14)", border: "1px solid var(--color-muted)", color: "var(--color-muted)",
-            }}>
-              🔁 지속 D+{issue.carried_days ?? 1}
-            </span>
-          ) : issue.scout_status ? (
-            <span style={{
-              padding: "1px 8px", borderRadius: "10px", fontSize: "0.72rem", fontWeight: 800,
-              background: issue.scout_status === "신규" ? "rgba(52,211,153,0.14)" : "rgba(96,165,250,0.14)",
-              border: `1px solid ${issue.scout_status === "신규" ? "#34d399" : "#60a5fa"}`,
-              color: issue.scout_status === "신규" ? "#34d399" : "#60a5fa",
-            }}>
-              {issue.scout_status === "신규" ? "✨ 신규" : "🔄 새 국면"}
-            </span>
-          ) : null}
+        <div style={{ display: "flex", gap: "6px", alignItems: "center", flexWrap: "wrap", marginBottom: "8px" }}>
+          {issue.urgency && <Pill strong color={urgencyColor(issue.urgency)}>{issue.urgency}</Pill>}
+          {issue.category && <Pill color="#94a3b8">{issue.category}</Pill>}
+          {issue.carried
+            ? <Pill strong color="#94a3b8">🔁 지속 D+{issue.carried_days ?? 1}</Pill>
+            : issue.scout_status
+            ? <Pill strong color={issue.scout_status === "신규" ? "#34d399" : "#60a5fa"}>{issue.scout_status === "신규" ? "✨ 신규" : "🔄 새 국면"}</Pill>
+            : null}
         </div>
-        <h2 style={{ fontSize: "1.1rem", fontWeight: 800, margin: "0 0 8px 0", color: "var(--color-text)" }}>
+        <h2 style={{ fontSize: "1.2rem", fontWeight: 800, margin: "0 0 10px 0", color: "var(--color-text)", lineHeight: 1.4 }}>
           {issue.title}
         </h2>
         {issue.summary && (
@@ -1078,6 +1048,12 @@ function IssuePanel({ issue }: { issue: Issue }) {
                   <div style={{ display: "flex", alignItems: "center", gap: "6px", marginBottom: "3px" }}>
                     <span style={{ fontSize: "0.7rem", fontWeight: 800 }}>시나리오 {sc.label}</span>
                     {sc.market_direction && <Pill color={dirColor(sc.market_direction)}>{sc.market_direction}</Pill>}
+                    {sc.probability_pct != null && (
+                      <span title="AI가 적은 확률 — 실제 적중과는 상관이 없었습니다(10-27 실측). 참고만 하세요."
+                        style={{ marginLeft: "auto", fontSize: "0.7rem", color: "var(--color-subtle)", fontVariantNumeric: "tabular-nums" }}>
+                        AI 확률 {sc.probability_pct}%
+                      </span>
+                    )}
                   </div>
                   <div style={{ fontSize: "0.86rem", fontWeight: 700, lineHeight: 1.4 }}>{sc.title}</div>
                 </button>
@@ -2516,7 +2492,7 @@ function ScenariosPageInner() {
                       key={r}
                       onClick={() => { setRegionFilter(r); setIssueIdx(0); }}
                       style={{
-                        padding: "5px 12px", fontSize: "0.78rem", fontWeight: 700, borderRadius: "6px",
+                        padding: "5px 13px", fontSize: "0.78rem", fontWeight: 700, borderRadius: "999px",
                         border: "1px solid",
                         borderColor: active ? (r === "커스텀" ? "var(--color-warning)" : r === "에이전트" ? "#a5b4fc" : "var(--color-accent)") : "var(--color-border)",
                         background: active ? (r === "커스텀" ? "rgba(255,180,50,0.12)" : r === "에이전트" ? "rgba(99,102,241,0.15)" : "rgba(255,255,255,0.1)") : "transparent",
@@ -2574,44 +2550,64 @@ function ScenariosPageInner() {
                 </div>
               ) : (
                 <>
-                  <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", marginBottom: "1.25rem", borderBottom: "1px solid var(--color-border)", paddingBottom: "10px" }}>
-                    {filteredIssues.map((issue, idx) => (
-                      <div key={idx} style={{ display: "flex", alignItems: "center", gap: "2px" }}>
-                        <button
-                          onClick={() => setIssueIdx(idx)}
-                          style={{
-                            padding: "4px 12px", fontSize: "0.78rem", fontWeight: 600, borderRadius: "4px",
-                            border: "1px solid",
-                            borderColor: clampedIdx === idx ? "var(--color-accent)" : "var(--color-border)",
-                            background: clampedIdx === idx ? "rgba(255,255,255,0.08)" : "transparent",
-                            color: clampedIdx === idx ? "var(--color-text)" : "var(--color-muted)",
-                            cursor: "pointer",
-                            transition: "0.15s",
-                          }}
-                        >
-                          {(issue as any).isCustom ? (
-                            <span>
-                              <span style={{ display: "block" }}>Custom {idx + 1}: {String((issue as any).keyword || issue.title || "").slice(0, 14)}{((issue as any).keyword || issue.title || "").length > 14 ? "…" : ""}</span>
-                              {(issue as any).searchedAt && <span style={{ fontSize: "0.65rem", color: "var(--color-muted)", display: "block" }}>{(issue as any).searchedAt}</span>}
-                            </span>
-                          ) : (issue as any).isAgent ? (
-                            <span>
-                              <span style={{ display: "block" }}>🤖 {String(issue.title || (issue as any)._keyword || "").slice(0, 14)}{(issue.title || "").length > 14 ? "…" : ""}</span>
-                              {(issue as any)._scenario_date && <span style={{ fontSize: "0.65rem", color: "var(--color-muted)", display: "block" }}>{(issue as any)._scenario_date}</span>}
-                            </span>
-                          ) : `Issue ${idx + 1}: ${String(issue.title || "").slice(0, 16)}${(issue.title || "").length > 16 ? "…" : ""}`}
-                        </button>
-                        {(issue as any).isCustom && (
+                  {/* 이슈 목록 (v3.215.1) — 종전엔 'Issue 1: 제목16자…' 버튼 줄이라 무슨 이슈인지 눌러봐야 알았다.
+                      제목 전체(2줄) + 긴급도·신규/지속·분류를 카드에 같이 보여준다. */}
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(min(220px, 100%), 1fr))", gap: "8px", marginBottom: "1.25rem", paddingBottom: "14px", borderBottom: "1px solid var(--color-border)" }}>
+                    {filteredIssues.map((issue, idx) => {
+                      const on = clampedIdx === idx;
+                      const ix = issue as any;
+                      const title = String(ix.isCustom ? (ix.keyword || issue.title || "") : (issue.title || ix._keyword || ""));
+                      const urgent = issue.urgency === "긴급";
+                      const accent = ix.isCustom ? "#fbbf24" : ix.isAgent ? "#a5b4fc" : urgent ? "#f87171" : "var(--color-border)";
+                      const sub = ix.isCustom ? ix.searchedAt : ix.isAgent ? ix._scenario_date : null;
+                      return (
+                        <div key={idx} style={{ position: "relative" }}>
                           <button
-                            onClick={() => handleDeleteCustomIssue(issue as any)}
-                            style={{ padding: "2px", background: "transparent", border: "none", cursor: "pointer", color: "var(--color-muted)", flexShrink: 0 }}
-                            title="삭제"
+                            onClick={() => setIssueIdx(idx)}
+                            style={{
+                              width: "100%", height: "100%", textAlign: "left", cursor: "pointer", transition: "0.15s",
+                              padding: "9px 12px", borderRadius: "8px",
+                              border: `1px solid ${on ? "var(--color-accent)" : "var(--color-border)"}`,
+                              borderLeft: `3px solid ${accent}`,
+                              background: on ? "rgba(255,255,255,0.07)" : "rgba(255,255,255,0.02)",
+                              display: "flex", flexDirection: "column", gap: "5px",
+                            }}
                           >
-                            <X size={11} />
+                            <div style={{ display: "flex", alignItems: "center", gap: "4px", flexWrap: "wrap", paddingRight: ix.isCustom ? "16px" : 0 }}>
+                              <span style={{ fontSize: "0.66rem", fontWeight: 800, color: "var(--color-subtle)" }}>
+                                {ix.isCustom ? "🔍 커스텀" : ix.isAgent ? "🤖 에이전트" : `이슈 ${idx + 1}`}
+                              </span>
+                              {issue.urgency && issue.urgency !== "낮음" && (
+                                <Pill strong color={urgent ? "#f87171" : "#fbbf24"}>{issue.urgency}</Pill>
+                              )}
+                              {issue.carried
+                                ? <Pill color="#94a3b8">🔁 D+{issue.carried_days ?? 1}</Pill>
+                                : issue.scout_status === "신규" ? <Pill color="#34d399">✨ 신규</Pill>
+                                : issue.scout_status ? <Pill color="#60a5fa">🔄 새 국면</Pill> : null}
+                            </div>
+                            <div style={{
+                              fontSize: "0.84rem", fontWeight: 700, lineHeight: 1.4,
+                              color: on ? "var(--color-text)" : "var(--color-muted)",
+                              display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden",
+                            }} title={title}>
+                              {title}
+                            </div>
+                            {(sub || issue.category) && (
+                              <div style={{ fontSize: "0.66rem", color: "var(--color-subtle)" }}>{sub || issue.category}</div>
+                            )}
                           </button>
-                        )}
-                      </div>
-                    ))}
+                          {ix.isCustom && (
+                            <button
+                              onClick={() => handleDeleteCustomIssue(ix)}
+                              style={{ position: "absolute", top: "6px", right: "6px", padding: "2px", background: "transparent", border: "none", cursor: "pointer", color: "var(--color-muted)" }}
+                              title="삭제"
+                            >
+                              <X size={12} />
+                            </button>
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
 
                   {activeIssue && <IssuePanel key={`${regionFilter}-${clampedIdx}`} issue={activeIssue} />}
