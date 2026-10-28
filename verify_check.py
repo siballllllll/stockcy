@@ -963,6 +963,38 @@ def main():
         print(f"   [BLOCKED] 확인 실패: {str(e)[:80]}")
 
 
+    # ── V27. 20일 보유 가설 (v3.214.1) ─────────────────────────────────────
+    print(_hdr("V27", "시나리오 종목을 20일 들고 가면 7일보다 정말 더 맞나 — 새 표본으로만", "2026-12-08"))
+    print("   배경: 10-28 과거 표본(급등 제외) 7일 46% → 20일 51% → 60일 57%. 점수판은 7일 고정(VERIFY.md 🔒),")
+    print("         보유 기간 효과는 10-28 이후 등장 종목으로만 확인한다.")
+    try:
+        from ai_engine import _scenario_win_sql
+        _w7, _w20 = _scenario_win_sql("d7_return", "bench_d7_return"), _scenario_win_sql("d20_return", "bench_d20_return")
+        _rows = cur.execute(
+            f"""SELECT ticker, substr(captured_at,1,10) d, role, {_w7} w7, {_w20} w20 FROM scenario_stocks
+                WHERE d20_return IS NOT NULL AND d7_return IS NOT NULL AND captured_at >= '2026-10-28'
+                  AND mom5_at_capture IS NOT NULL AND mom5_at_capture < 10 ORDER BY id""").fetchall()
+        _seen, _a7, _a20 = set(), [], []
+        for r in _rows:
+            k = (r["ticker"], r["d"], r["role"])
+            if k in _seen:
+                continue
+            _seen.add(k); _a7.append(r["w7"]); _a20.append(r["w20"])
+        _n = len(_a20)
+        _r7 = round(sum(_a7) / _n * 100, 1) if _n else None
+        _r20 = round(sum(_a20) / _n * 100, 1) if _n else None
+        print(f"   10-28 이후 급등 제외 {_n}건(20일 결과 찬 것) · 같은 행 7일 {_r7}% vs 20일 {_r20}%")
+        print("   통과 기준: 300건+, 20일이 7일보다 5%p+ 높고 50%+ → '몇 주 보유용' 안내 제안. 2%p 미만·역전 → 기각.")
+        if _days_to("2026-12-08") > 0:
+            print(f"   [WAIT] 새 표본 {_n}건 — 12-08까지(20거래일이 지나야 쌓인다).")
+        elif _n < 300:
+            print(f"   [BLOCKED] 새 표본 부족({_n}) — 2027-01-05로 연기.")
+        else:
+            print("   [DUE] 기준대로 채택/기각 결정(VERIFY.md V27). 점수판 기준은 바꾸지 않는다.")
+    except Exception as e:
+        print(f"   [BLOCKED] 확인 실패: {str(e)[:80]}")
+
+
     c.close()
     print(f"\n{'─' * 74}")
     print("자세한 배경과 판정 기준은 VERIFY.md 참조.")
