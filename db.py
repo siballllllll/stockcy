@@ -3949,6 +3949,37 @@ def load_frgn_inst_snapshot(snapshot_date: str, market: str | None = None) -> li
         return []
 
 
+def load_inst_streak(tickers: list, window: int = 5) -> dict:
+    """최근 window개 스냅샷일 중 기관 순매수/순매도 일수 (v3.213.0 '기관 꾸준히 매수' 배지).
+    10-27 검증: 3일+ 순매수 종목은 10일 뒤 시장 대비 52%(하락 구간 62%), 3일+ 순매도는 42%.
+    스냅샷은 외국인 매매 상위 60종목/시장이라 목록에 없는 날은 0으로 본다. 최신 스냅샷이 7일 넘게 묵으면 빈 결과."""
+    tks = [str(t).strip() for t in tickers if str(t).strip().isdigit()]
+    if not tks:
+        return {}
+    try:
+        conn = get_db_conn(); cur = conn.cursor()
+        cur.execute("SELECT DISTINCT snapshot_date FROM frgn_inst_snapshots ORDER BY snapshot_date DESC LIMIT ?", (int(window),))
+        dates = [r["snapshot_date"] for r in cur.fetchall()]
+        if not dates or dates[0] < (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d"):
+            conn.close(); return {}
+        q = ",".join("?" * len(dates)); qt = ",".join("?" * len(tks))
+        cur.execute(f"""SELECT ticker, orgn_ntby FROM frgn_inst_snapshots
+                        WHERE snapshot_date IN ({q}) AND ticker IN ({qt})""", dates + tks)
+        out: dict = {}
+        for r in cur.fetchall():
+            o = out.setdefault(r["ticker"], {"buy_days": 0, "sell_days": 0})
+            v = r["orgn_ntby"] or 0
+            if v > 0: o["buy_days"] += 1
+            elif v < 0: o["sell_days"] += 1
+        conn.close()
+        for o in out.values():
+            o["window"] = len(dates); o["latest"] = dates[0]
+        return out
+    except Exception as e:
+        print(f"load_inst_streak error: {e}")
+        return {}
+
+
 def load_cumulative_supply(days: int = 20, market: str | None = None, top_n: int = 15) -> dict:
     """기간 누적 세력(외국인·기관) 매집 TOP — 최근 days일 합산 순매수 + 매집 지속일.
     오늘 하루가 아니라 '일정 기간 동안 꾸준히 사 모은' 종목을 본다."""

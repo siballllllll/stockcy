@@ -911,6 +911,47 @@ def main():
         print(f"   [BLOCKED] 확인 실패: {str(e)[:80]}")
 
 
+    # ── V26. 기관 꾸준히 매수 배지 (v3.213.0) ───────────────────────────────
+    print(_hdr("V26", "'기관 꾸준히 매수' 시나리오 종목이 '기관 이탈' 종목보다 계속 잘 맞나", "2026-11-24"))
+    print("   배경: 10-27 수급 스냅샷 검증 — 기관 하루 순매수는 무의미(44 vs 43%), 최근 5개 스냅샷일 중")
+    print("         3일+ 순매수는 10일 뒤 시장 대비 52%(하락 구간 62%), 3일+ 순매도 42%. 표본 55~95로 작다.")
+    try:
+        from ai_engine import _scenario_win_sql
+        _w = _scenario_win_sql("d7_return", "bench_d7_return")
+        _days = [r[0] for r in cur.execute("SELECT DISTINCT snapshot_date FROM frgn_inst_snapshots ORDER BY 1").fetchall()]
+        _flow = {}
+        for r in cur.execute("SELECT snapshot_date, ticker, orgn_ntby FROM frgn_inst_snapshots WHERE snapshot_date >= '2026-10-15'"):
+            _flow[(r[1], r[0])] = r[2] or 0
+        _rows = cur.execute(
+            f"""SELECT ticker, substr(captured_at,1,10) d, role, {_w} w FROM scenario_stocks
+                WHERE d7_return IS NOT NULL AND captured_at >= '2026-10-28' AND role IN ('수혜','테마')
+                ORDER BY id""").fetchall()
+        _seen, _g = set(), {"기관 꾸준히 매수": [], "기관 이탈": [], "그 외(스냅샷 종목)": []}
+        for r in _rows:
+            k = (r["ticker"], r["d"])
+            if k in _seen or not str(r["ticker"]).isdigit():
+                continue
+            _seen.add(k)
+            _win = [x for x in _days if x < r["d"]][-5:]   # 등장 전날까지 — 배지가 보여준 그대로
+            if not _win or not any((r["ticker"], x) in _flow for x in _win):
+                continue
+            _v = [_flow.get((r["ticker"], x), 0) for x in _win]
+            _b, _s = sum(v > 0 for v in _v), sum(v < 0 for v in _v)
+            _g["기관 꾸준히 매수" if _b >= 3 else "기관 이탈" if _s >= 3 else "그 외(스냅샷 종목)"].append(r["w"])
+        for k, v in _g.items():
+            print(f"   10-28 이후 {k}: {len(v)}건 · d7 적중 {round(sum(v) / len(v) * 100, 1) if v else None}%")
+        print("   통과 기준: 매수·이탈 각 25건+에서 매수 쪽이 8%p 이상 높으면 배지 유지. 3%p 미만·역전이면 배지 제거.")
+        _na, _nb = len(_g["기관 꾸준히 매수"]), len(_g["기관 이탈"])
+        if _days_to("2026-11-24") > 0:
+            print(f"   [WAIT] 새 표본 {_na}/{_nb}건 — 11-24까지.")
+        elif min(_na, _nb) < 25:
+            print(f"   [BLOCKED] 새 표본 부족({_na}/{_nb}) — 판정 12-22로 미루고 수급 스냅샷 적재 확인.")
+        else:
+            print("   [DUE] 기준대로 배지 유지/제거 결정(VERIFY.md V26).")
+    except Exception as e:
+        print(f"   [BLOCKED] 확인 실패: {str(e)[:80]}")
+
+
     c.close()
     print(f"\n{'─' * 74}")
     print("자세한 배경과 판정 기준은 VERIFY.md 참조.")

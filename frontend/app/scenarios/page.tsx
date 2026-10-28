@@ -284,11 +284,32 @@ function ChaseBadge({ mom5 }: { mom5?: number | null }) {
   );
 }
 
-function StockRow({ stock, priceEntry, onClick, mom5 }: {
+interface InstFlow { buy_days: number; sell_days: number; window: number; latest: string }
+
+function InstBadge({ flow }: { flow?: InstFlow | null }) {
+  if (!flow) return null;
+  const buy = flow.buy_days >= 3, sell = flow.sell_days >= 3;
+  if (!buy && !sell) return null;
+  const n = buy ? flow.buy_days : flow.sell_days;
+  return (
+    <span title={buy
+      ? `최근 ${flow.window}거래일 중 ${n}일 기관 순매수 (~${flow.latest}). 하루 순매수는 의미 없었지만, 이렇게 꾸준히 산 종목은 10일 뒤 시장보다 오른 비율 52%, 시장이 빠질 때 62%였습니다 (꾸준히 판 종목은 42%·47%). 표본이 작아 11-24에 다시 확인합니다.`
+      : `최근 ${flow.window}거래일 중 ${n}일 기관 순매도 (~${flow.latest}). 기관이 꾸준히 판 종목은 10일 뒤 시장보다 오른 비율 42%로 나빴습니다.`}
+      style={{ display: "inline-block", padding: "1px 7px", borderRadius: "10px", fontSize: "0.7rem", fontWeight: 800,
+               background: buy ? "rgba(34,197,94,0.13)" : "rgba(148,163,184,0.12)",
+               border: `1px solid ${buy ? "rgba(34,197,94,0.5)" : "rgba(148,163,184,0.45)"}`,
+               color: buy ? "#4ade80" : "#94a3b8" }}>
+      🏦 {buy ? `기관 꾸준히 매수 (5일 중 ${n}일)` : `기관 이탈 (5일 중 ${n}일 매도)`}
+    </span>
+  );
+}
+
+function StockRow({ stock, priceEntry, onClick, mom5, inst }: {
   stock: StockEntry;
   priceEntry?: PriceEntry | null;
   onClick: () => void;
   mom5?: number | null;
+  inst?: InstFlow | null;
 }) {
   const isKr = isKrTicker(stock.ticker);
   const up   = (priceEntry?.change_pct ?? 0) >= 0;
@@ -317,6 +338,7 @@ function StockRow({ stock, priceEntry, onClick, mom5 }: {
           <MarketBadge ticker={stock.ticker} />
           {stock.signal && <SignalBadge signal={stock.signal} />}
           <ChaseBadge mom5={mom5} />
+          <InstBadge flow={inst} />
         </div>
         {/* 현재가 */}
         {priceEntry && priceEntry.price > 0 && (
@@ -364,11 +386,12 @@ function StockRow({ stock, priceEntry, onClick, mom5 }: {
 }
 
 // ── 테마주 카드 ───────────────────────────────────────────────────────────────
-function ThemeStockRow({ stock, priceEntry, onClick, mom5 }: {
+function ThemeStockRow({ stock, priceEntry, onClick, mom5, inst }: {
   stock: ThemeStock;
   priceEntry?: PriceEntry | null;
   onClick: () => void;
   mom5?: number | null;
+  inst?: InstFlow | null;
 }) {
   const isKr = isKrTicker(stock.ticker);
   const up   = (priceEntry?.change_pct ?? 0) >= 0;
@@ -413,6 +436,7 @@ function ThemeStockRow({ stock, priceEntry, onClick, mom5 }: {
           </span>
           {stock.signal && <SignalBadge signal={stock.signal} />}
           <ChaseBadge mom5={mom5} />
+          <InstBadge flow={inst} />
         </div>
         {priceEntry && priceEntry.price > 0 && (
           <div style={{ textAlign: "right", flexShrink: 0, minWidth: "70px" }}>
@@ -689,6 +713,16 @@ function ScenarioContent({ scenario, issueTitle }: { scenario: Scenario; issueTi
     },
     { revalidateOnFocus: false }
   );
+  // v3.213.0 기관 꾸준히 매수/이탈 (국내만, DB 스냅샷 — 비용 0)
+  const krTickerKey = krTickers.join(",");
+  const { data: instMap } = useSWR<Record<string, InstFlow>>(
+    krTickerKey ? `sc-inst-${krTickerKey}` : null,
+    async () => {
+      const r = await fetch(`/backend/api/ai/scenario-inst-flow?tickers=${encodeURIComponent(krTickerKey)}`);
+      return r.ok ? r.json() : {};
+    },
+    { revalidateOnFocus: false }
+  );
   const hitRoles = [
     (scenario.rising_stocks?.length ?? 0) > 0 && "수혜",
     (scenario.theme_stocks?.length ?? 0) > 0 && "테마",
@@ -800,7 +834,7 @@ function ScenarioContent({ scenario, issueTitle }: { scenario: Scenario; issueTi
               <div style={{ fontSize: "0.72rem", color: "var(--color-muted)", fontWeight: 700, marginBottom: "4px" }}>🇰🇷 국내</div>
               <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
                 {krRising.map((s, i) => (
-                  <StockRow key={i} stock={s} priceEntry={priceMap[s.ticker]} mom5={mom5Map?.[s.ticker]} onClick={() => navigate(s.ticker)} />
+                  <StockRow key={i} stock={s} priceEntry={priceMap[s.ticker]} mom5={mom5Map?.[s.ticker]} inst={instMap?.[s.ticker]} onClick={() => navigate(s.ticker)} />
                 ))}
               </div>
             </div>
@@ -810,7 +844,7 @@ function ScenarioContent({ scenario, issueTitle }: { scenario: Scenario; issueTi
               <div style={{ fontSize: "0.72rem", color: "var(--color-muted)", fontWeight: 700, marginBottom: "4px" }}>🇺🇸 미국</div>
               <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
                 {usRising.map((s, i) => (
-                  <StockRow key={i} stock={s} priceEntry={priceMap[s.ticker]} mom5={mom5Map?.[s.ticker]} onClick={() => navigate(s.ticker)} />
+                  <StockRow key={i} stock={s} priceEntry={priceMap[s.ticker]} mom5={mom5Map?.[s.ticker]} inst={instMap?.[s.ticker]} onClick={() => navigate(s.ticker)} />
                 ))}
               </div>
             </div>
@@ -832,7 +866,7 @@ function ScenarioContent({ scenario, issueTitle }: { scenario: Scenario; issueTi
           </div>
           <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
             {themeStocks.map((s, i) => (
-              <ThemeStockRow key={i} stock={s} priceEntry={priceMap[s.ticker]} mom5={mom5Map?.[s.ticker]} onClick={() => navigate(s.ticker)} />
+              <ThemeStockRow key={i} stock={s} priceEntry={priceMap[s.ticker]} mom5={mom5Map?.[s.ticker]} inst={instMap?.[s.ticker]} onClick={() => navigate(s.ticker)} />
             ))}
           </div>
         </div>
@@ -847,7 +881,7 @@ function ScenarioContent({ scenario, issueTitle }: { scenario: Scenario; issueTi
               <div style={{ fontSize: "0.72rem", color: "var(--color-muted)", fontWeight: 700, marginBottom: "4px" }}>🇰🇷 국내</div>
               <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
                 {krFalling.map((s, i) => (
-                  <StockRow key={i} stock={s} priceEntry={priceMap[s.ticker]} onClick={() => navigate(s.ticker)} />
+                  <StockRow key={i} stock={s} priceEntry={priceMap[s.ticker]} inst={instMap?.[s.ticker]} onClick={() => navigate(s.ticker)} />
                 ))}
               </div>
             </div>

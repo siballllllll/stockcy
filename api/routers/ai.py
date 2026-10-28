@@ -1824,6 +1824,14 @@ async def get_scenario_mom5(tickers: str = Query("")):
     return await asyncio.to_thread(scenario_live_mom5, tks)
 
 
+@router.get("/scenario-inst-flow")
+async def get_scenario_inst_flow(tickers: str = Query("")):
+    """시나리오 국내 종목의 최근 5개 수급 스냅샷일 중 기관 순매수/순매도 일수 — '기관 꾸준히 매수' 배지 (v3.213.0)."""
+    from db import load_inst_streak
+    tks = [t for t in tickers.split(",") if t.strip()][:40]
+    return await asyncio.to_thread(load_inst_streak, tks)
+
+
 @router.get("/market-judgment/stats")
 async def get_market_judgment_stats():
     """그날 시장 판단(매수 기회/중립/관망) 채점 — v3.208.0. DB 집계만, 과금 0."""
