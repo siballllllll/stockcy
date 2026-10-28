@@ -5195,14 +5195,17 @@ def load_ai_performance_summary() -> dict:
         conn = get_db_conn()
         cur = conn.cursor()
 
-        # 1. AI 시나리오 — d7 방향성 반영 적중 (피해=하락 적중, 그 외=상승 적중)
-        sc = _row(cur, """
-            SELECT COUNT(*) AS n, AVG(d7_return) AS avg,
-                   SUM(CASE WHEN (COALESCE(role,'') != '피해' AND d7_return > 0)
-                              OR (role = '피해' AND d7_return < 0) THEN 1 ELSE 0 END) AS wins
+        # 1. AI 시나리오 — d7 시장 대비·비용 차감 적중 (피해=시장보다 더 빠져야 적중)
+        # [v3.213.2] 승률 탭(_aggregate_scenario_stats)과 같은 기준으로 맞춤. 종전 0% 기준은
+        # 하락장 몫까지 패배로 세서 승률 탭 43%와 달리 36%로 보였다(10-28 사용자 질문).
+        from ai_engine import _scenario_win_sql
+        _w = _scenario_win_sql("d7_return", "bench_d7_return")
+        sc = _row(cur, f"""
+            SELECT COUNT(*) AS n, AVG(d7_return - COALESCE(bench_d7_return, 0)) AS avg,
+                   SUM(CASE WHEN {_w} THEN 1 ELSE 0 END) AS wins
             FROM scenario_stocks WHERE d7_return IS NOT NULL""")
         feats.append({"key": "scenario", "label": "AI 시나리오",
-                      "metric": "7일 방향 적중", **sc})
+                      "metric": "7일 시장 대비 적중(비용 차감)", **sc})
 
         # 2. 패턴 스크리너 — d3 상승 적중
         ps = _row(cur, """
