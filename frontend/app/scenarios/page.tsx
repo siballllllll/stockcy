@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect, useRef, useMemo, useCallback } from "react";
+import { useState, useEffect, useRef, useMemo, useCallback, type ReactNode, type CSSProperties } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import useSWR from "swr";
 import { Globe, TrendingUp, AlertTriangle, DollarSign, Loader2, ChevronDown, ChevronUp, RefreshCw, X } from "lucide-react";
@@ -120,6 +120,11 @@ function isKrTicker(ticker: string) {
   return /^\d{6}$/.test(ticker);
 }
 
+// 시나리오 방향 색 — 강세 빨강·약세 파랑·혼조 노랑 (국내 등락 색 관례)
+function dirColor(d?: string): string {
+  return d === "강세" ? "#f87171" : d === "약세" ? "#60a5fa" : "#fbbf24";
+}
+
 function signalColor(signal: string): string {
   if (signal === "매우 강력 추천") return "#00c853";
   if (signal === "추천")           return "#69f0ae";
@@ -197,42 +202,53 @@ function cleanScenarioError(msg: string): string {
   return msg.replace(/^Error:\s*/, "");
 }
 
-// ── 시그널 뱃지 ────────────────────────────────────────────────────────────────
-function SignalBadge({ signal }: { signal: string }) {
+// ── 공통 부품 (v3.215.0 가독성 정리) ─────────────────────────────────────────
+// 배지·정보 박스가 제각각(둥근 정도·여백·테두리 굵기)이라 화면이 빽빽해 보였다 → 한 모양으로 통일.
+function Pill({ color, children, title, strong }: { color: string; children: ReactNode; title?: string; strong?: boolean }) {
   return (
-    <span style={{
-      display: "inline-block",
-      padding: "1px 7px",
-      borderRadius: "10px",
-      fontSize: "0.7rem",
-      fontWeight: 700,
-      background: `${signalColor(signal)}22`,
-      border: `1px solid ${signalColor(signal)}`,
-      color: signalColor(signal),
-      flexShrink: 0,
+    <span title={title} style={{
+      display: "inline-flex", alignItems: "center", gap: "3px",
+      padding: "2px 8px", borderRadius: "999px", lineHeight: 1.4, whiteSpace: "nowrap", flexShrink: 0,
+      fontSize: "0.7rem", fontWeight: strong ? 800 : 700, color,
+      background: `color-mix(in srgb, ${color} 13%, transparent)`,
+      border: `1px solid color-mix(in srgb, ${color} 42%, transparent)`,
     }}>
-      {signal}
+      {children}
     </span>
   );
+}
+
+// 설명 글 박스 — 라벨은 작고 흐리게, 본문은 또렷하게, 왼쪽 색 띠로 종류 구분
+function InfoCard({ label, accent = "var(--color-border)", children }: { label: ReactNode; accent?: string; children: ReactNode }) {
+  return (
+    <div style={{
+      background: "rgba(255,255,255,0.025)", border: "1px solid var(--color-border)",
+      borderLeft: `3px solid ${accent}`, borderRadius: "8px", padding: "10px 14px", minWidth: 0,
+    }}>
+      <div style={{ fontSize: "0.7rem", fontWeight: 800, color: "var(--color-muted)", letterSpacing: "0.02em", marginBottom: "6px" }}>{label}</div>
+      <div style={{ fontSize: "0.85rem", color: "var(--color-text)", lineHeight: 1.65 }}>{children}</div>
+    </div>
+  );
+}
+
+// 짧은 박스 여러 개를 넓은 화면에선 나란히, 좁은 화면에선 세로로
+function CardGrid({ children, min = 260 }: { children: ReactNode; min?: number }) {
+  return (
+    <div style={{ display: "grid", gridTemplateColumns: `repeat(auto-fit, minmax(min(${min}px, 100%), 1fr))`, gap: "10px" }}>
+      {children}
+    </div>
+  );
+}
+
+// ── 시그널 뱃지 ────────────────────────────────────────────────────────────────
+function SignalBadge({ signal }: { signal: string }) {
+  return <Pill color={signalColor(signal)}>{signal}</Pill>;
 }
 
 // ── 시장 뱃지 ─────────────────────────────────────────────────────────────────
 function MarketBadge({ ticker }: { ticker: string }) {
   const kr = isKrTicker(ticker);
-  return (
-    <span style={{
-      display: "inline-block",
-      padding: "1px 6px",
-      borderRadius: "4px",
-      fontSize: "0.68rem",
-      fontWeight: 700,
-      background: kr ? "rgba(0,120,255,0.15)" : "rgba(50,200,100,0.15)",
-      border: kr ? "1px solid rgba(0,120,255,0.4)" : "1px solid rgba(50,200,100,0.4)",
-      color: kr ? "#60a5fa" : "var(--color-success)",
-    }}>
-      {kr ? "🇰🇷 KR" : "🇺🇸 US"}
-    </span>
-  );
+  return <Pill color={kr ? "#60a5fa" : "#34d399"}>{kr ? "🇰🇷 국내" : "🇺🇸 미국"}</Pill>;
 }
 
 // ── 종목 카드 행 (상승/하락) ───────────────────────────────────────────────────
@@ -274,13 +290,10 @@ function ChaseBadge({ mom5 }: { mom5?: number | null }) {
   if (mom5 == null || mom5 < 10) return null;
   const hot = mom5 >= 15;
   return (
-    <span title={`최근 5거래일 +${mom5.toFixed(1)}% — 이미 오른 뒤입니다. 5일 +15% 넘게 오른 뒤 담은 시나리오 종목은 7일 뒤 적중 37%, 평균 -4.3%로 가장 나빴습니다.`}
-      style={{ display: "inline-block", padding: "1px 7px", borderRadius: "10px", fontSize: "0.7rem", fontWeight: 800,
-               background: hot ? "rgba(239,68,68,0.15)" : "rgba(251,191,36,0.12)",
-               border: `1px solid ${hot ? "rgba(239,68,68,0.5)" : "rgba(251,191,36,0.45)"}`,
-               color: hot ? "#f87171" : "#fbbf24" }}>
+    <Pill strong color={hot ? "#f87171" : "#fbbf24"}
+      title={`최근 5거래일 +${mom5.toFixed(1)}% — 이미 오른 뒤입니다. 5일 +15% 넘게 오른 뒤 담은 시나리오 종목은 7일 뒤 적중 37%, 평균 -4.3%로 가장 나빴습니다.`}>
       🔺 5일 +{mom5.toFixed(0)}% {hot ? "추격주의" : "급등 후"}
-    </span>
+    </Pill>
   );
 }
 
@@ -292,96 +305,105 @@ function InstBadge({ flow }: { flow?: InstFlow | null }) {
   if (!buy && !sell) return null;
   const n = buy ? flow.buy_days : flow.sell_days;
   return (
-    <span title={buy
+    <Pill strong color={buy ? "#4ade80" : "#94a3b8"} title={buy
       ? `최근 ${flow.window}거래일 중 ${n}일 기관 순매수 (~${flow.latest}). 하루 순매수는 의미 없었지만, 이렇게 꾸준히 산 종목은 10일 뒤 시장보다 오른 비율 52%, 시장이 빠질 때 62%였습니다 (꾸준히 판 종목은 42%·47%). 표본이 작아 11-24에 다시 확인합니다.`
-      : `최근 ${flow.window}거래일 중 ${n}일 기관 순매도 (~${flow.latest}). 기관이 꾸준히 판 종목은 10일 뒤 시장보다 오른 비율 42%로 나빴습니다.`}
-      style={{ display: "inline-block", padding: "1px 7px", borderRadius: "10px", fontSize: "0.7rem", fontWeight: 800,
-               background: buy ? "rgba(34,197,94,0.13)" : "rgba(148,163,184,0.12)",
-               border: `1px solid ${buy ? "rgba(34,197,94,0.5)" : "rgba(148,163,184,0.45)"}`,
-               color: buy ? "#4ade80" : "#94a3b8" }}>
+      : `최근 ${flow.window}거래일 중 ${n}일 기관 순매도 (~${flow.latest}). 기관이 꾸준히 판 종목은 10일 뒤 시장보다 오른 비율 42%로 나빴습니다.`}>
       🏦 {buy ? `기관 꾸준히 매수 (5일 중 ${n}일)` : `기관 이탈 (5일 중 ${n}일 매도)`}
-    </span>
+    </Pill>
   );
 }
 
-function StockRow({ stock, priceEntry, onClick, mom5, inst }: {
+// 종목 한 줄의 공통 틀 — 1줄: 이름·가격 / 2줄: 배지 / 아래: 근거 / 맨 아래: 매수·목표·손절
+// 왼쪽 색 띠로 역할(수혜·관련·하락위험)을 구분한다. 종전엔 같은 정보가 행마다 다른 순서로 섞여 있었다.
+function StockCardShell({ name, ticker, accent, priceEntry, onClick, badges, children, targets }: {
+  name: string; ticker: string; accent: string; priceEntry?: PriceEntry | null; onClick: () => void;
+  badges: ReactNode; children?: ReactNode; targets?: { buy?: string; sell?: string; stop?: string };
+}) {
+  const isKr = isKrTicker(ticker);
+  const up = (priceEntry?.change_pct ?? 0) >= 0;
+  const hasTargets = targets && (targets.buy || targets.sell || targets.stop);
+  return (
+    <div
+      onClick={onClick}
+      style={{
+        display: "flex", flexDirection: "column", gap: "7px",
+        padding: "11px 14px",
+        background: "rgba(255,255,255,0.025)",
+        borderRadius: "8px",
+        border: "1px solid var(--color-border)",
+        borderLeft: `3px solid ${accent}`,
+        cursor: "pointer",
+        transition: "background 0.15s, border-color 0.15s",
+      }}
+      onMouseEnter={e => { e.currentTarget.style.background = "rgba(255,255,255,0.05)"; }}
+      onMouseLeave={e => { e.currentTarget.style.background = "rgba(255,255,255,0.025)"; }}
+    >
+      {/* 1줄: 이름 · 코드 | 현재가 · 등락 */}
+      <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: "10px" }}>
+        <div style={{ display: "flex", alignItems: "baseline", gap: "6px", minWidth: 0 }}>
+          <span style={{ fontWeight: 800, fontSize: "0.95rem", color: "var(--color-text)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{name}</span>
+          <span style={{ fontSize: "0.7rem", color: "var(--color-subtle)", flexShrink: 0 }}>{ticker}</span>
+        </div>
+        {priceEntry && priceEntry.price > 0 && (
+          <div style={{ display: "flex", alignItems: "baseline", gap: "6px", flexShrink: 0 }}>
+            <span style={{ fontWeight: 700, fontSize: "0.85rem", color: "var(--color-text)", fontVariantNumeric: "tabular-nums" }}>
+              {isKr ? `₩${priceEntry.price.toLocaleString()}` : `$${priceEntry.price.toFixed(2)}`}
+            </span>
+            <span style={{ fontSize: "0.76rem", fontWeight: 700, fontVariantNumeric: "tabular-nums", color: up ? "var(--color-danger)" : "var(--color-primary)" }}>
+              {up ? "▲" : "▼"}{Math.abs(priceEntry.change_pct).toFixed(2)}%
+            </span>
+          </div>
+        )}
+      </div>
+
+      {/* 2줄: 배지 */}
+      <div style={{ display: "flex", alignItems: "center", gap: "5px", flexWrap: "wrap" }}>{badges}</div>
+
+      {/* 근거 */}
+      {children && <div style={{ display: "flex", flexDirection: "column", gap: "3px" }}>{children}</div>}
+
+      {/* 매수 · 목표 · 손절 — 같은 자리, 같은 순서 */}
+      {hasTargets && (
+        <div onClick={e => e.stopPropagation()}
+          style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: "6px", marginTop: "1px" }}>
+          {([["매수", targets!.buy, "#69f0ae"], ["목표", targets!.sell, "#ff6b6b"], ["손절", targets!.stop, "#60a5fa"]] as const).map(([l, v, col]) => (
+            <div key={l} style={{ background: "rgba(0,0,0,0.25)", borderRadius: "6px", padding: "5px 8px", minWidth: 0 }}>
+              <div style={{ fontSize: "0.64rem", color: "var(--color-muted)", fontWeight: 700 }}>{l}</div>
+              <div style={{ fontSize: "0.76rem", fontWeight: 800, color: v ? col : "var(--color-subtle)", overflowWrap: "anywhere" }}>{v || "-"}</div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+const reasonStrong: CSSProperties = { fontSize: "0.78rem", color: "var(--color-text)", fontWeight: 600, lineHeight: 1.5 };
+const reasonMuted: CSSProperties  = { fontSize: "0.78rem", color: "var(--color-muted)", lineHeight: 1.55 };
+
+function StockRow({ stock, priceEntry, onClick, mom5, inst, tone = "up" }: {
   stock: StockEntry;
   priceEntry?: PriceEntry | null;
   onClick: () => void;
   mom5?: number | null;
   inst?: InstFlow | null;
+  tone?: "up" | "down";
 }) {
-  const isKr = isKrTicker(stock.ticker);
-  const up   = (priceEntry?.change_pct ?? 0) >= 0;
-  const hasTargets = stock.buy_target || stock.sell_target || stock.stop_loss;
-
   return (
-    <div
-      onClick={onClick}
-      style={{
-        display: "flex", flexDirection: "column", gap: "5px",
-        padding: "10px 12px",
-        background: "rgba(0,0,0,0.2)",
-        borderRadius: "6px",
-        border: "1px solid var(--color-border)",
-        cursor: "pointer",
-        transition: "border-color 0.15s",
-      }}
-      onMouseEnter={e => (e.currentTarget.style.borderColor = "var(--color-accent)")}
-      onMouseLeave={e => (e.currentTarget.style.borderColor = "var(--color-border)")}
+    <StockCardShell
+      name={stock.name} ticker={stock.ticker} priceEntry={priceEntry} onClick={onClick}
+      accent={tone === "down" ? "var(--color-primary)" : "#34d399"}
+      badges={<>
+        {stock.signal && <SignalBadge signal={stock.signal} />}
+        <ChaseBadge mom5={mom5} />
+        <InstBadge flow={inst} />
+      </>}
+      targets={{ buy: stock.buy_target, sell: stock.sell_target, stop: stock.stop_loss }}
     >
-      {/* 종목명 + 배지 + 현재가 */}
-      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: "6px" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: "5px", flexWrap: "wrap", flex: 1 }}>
-          <span style={{ fontWeight: 700, fontSize: "0.88rem" }}>{stock.name}</span>
-          <span style={{ fontSize: "0.7rem", color: "var(--color-muted)" }}>({stock.ticker})</span>
-          <MarketBadge ticker={stock.ticker} />
-          {stock.signal && <SignalBadge signal={stock.signal} />}
-          <ChaseBadge mom5={mom5} />
-          <InstBadge flow={inst} />
-        </div>
-        {/* 현재가 */}
-        {priceEntry && priceEntry.price > 0 && (
-          <div style={{ textAlign: "right", flexShrink: 0, minWidth: "70px" }}>
-            <div style={{ fontWeight: 700, fontSize: "0.8rem", color: "var(--color-text)" }}>
-              {isKr ? `₩${priceEntry.price.toLocaleString()}` : `$${priceEntry.price.toFixed(2)}`}
-            </div>
-            <div style={{ fontSize: "0.72rem", fontWeight: 700, color: up ? "var(--color-danger)" : "var(--color-primary)" }}>
-              {up ? "▲" : "▼"} {Math.abs(priceEntry.change_pct).toFixed(2)}%
-            </div>
-          </div>
-        )}
-      </div>
-
-      {stock.signal_reason && (
-        <div style={{ fontSize: "0.76rem", color: "var(--color-text)", fontWeight: 600 }}>{stock.signal_reason}</div>
-      )}
-      <div style={{ fontSize: "0.74rem", color: "var(--color-muted)", lineHeight: 1.4 }}>{stock.reason}</div>
-      {stock.valuation_note && (
-        <div style={{ fontSize: "0.71rem", color: "var(--color-muted)", fontStyle: "italic" }}>{stock.valuation_note}</div>
-      )}
-
-      {/* 매수타점 / 목표가 / 손절선 */}
-      {hasTargets && (
-        <div style={{
-          display: "flex", gap: "8px", flexWrap: "wrap", marginTop: "2px",
-          background: "rgba(0,0,0,0.25)", borderRadius: "5px", padding: "6px 8px",
-          fontSize: "0.72rem",
-        }}
-          onClick={e => e.stopPropagation()}
-        >
-          {stock.buy_target && (
-            <span>💰 매수 <strong style={{ color: "#69f0ae" }}>{stock.buy_target}</strong></span>
-          )}
-          {stock.sell_target && (
-            <span>🎯 목표 <strong style={{ color: "#ff6b6b" }}>{stock.sell_target}</strong></span>
-          )}
-          {stock.stop_loss && (
-            <span>🛡️ 손절 <strong style={{ color: "#60a5fa" }}>{stock.stop_loss}</strong></span>
-          )}
-        </div>
-      )}
-    </div>
+      {stock.signal_reason && <div style={reasonStrong}>{stock.signal_reason}</div>}
+      {stock.reason && <div style={reasonMuted}>{stock.reason}</div>}
+      {stock.valuation_note && <div style={{ ...reasonMuted, fontSize: "0.72rem", fontStyle: "italic" }}>{stock.valuation_note}</div>}
+    </StockCardShell>
   );
 }
 
@@ -393,107 +415,57 @@ function ThemeStockRow({ stock, priceEntry, onClick, mom5, inst }: {
   mom5?: number | null;
   inst?: InstFlow | null;
 }) {
-  const isKr = isKrTicker(stock.ticker);
-  const up   = (priceEntry?.change_pct ?? 0) >= 0;
-
   return (
-    <div
-      onClick={onClick}
-      style={{
-        display: "flex", flexDirection: "column", gap: "5px",
-        padding: "10px 12px",
-        background: "rgba(0,0,0,0.2)",
-        borderRadius: "6px",
-        border: "1px solid var(--color-border)",
-        cursor: "pointer",
-        transition: "border-color 0.15s",
-      }}
-      onMouseEnter={e => (e.currentTarget.style.borderColor = "var(--color-accent)")}
-      onMouseLeave={e => (e.currentTarget.style.borderColor = "var(--color-border)")}
-    >
-      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: "6px" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: "5px", flexWrap: "wrap", flex: 1 }}>
-          <span style={{ fontWeight: 700, fontSize: "0.88rem" }}>{stock.name}</span>
-          <span style={{ fontSize: "0.7rem", color: "var(--color-muted)" }}>({stock.ticker})</span>
-          <MarketBadge ticker={stock.ticker} />
-          {stock.horizon && (
-            <span style={{
-              display: "inline-block", padding: "1px 7px", borderRadius: "10px", fontSize: "0.7rem", fontWeight: 800,
-              background: stock.horizon === "중장기" ? "rgba(80,160,255,0.18)" : "rgba(255,140,50,0.18)",
-              border: stock.horizon === "중장기" ? "1px solid #5aa0ff" : "1px solid #ff8c32",
-              color: stock.horizon === "중장기" ? "#5aa0ff" : "#ff8c32",
-            }}>
-              {stock.horizon === "중장기" ? "📆 중장기" : "⚡ 단타"}
-            </span>
-          )}
-          <span style={{
-            display: "inline-block", padding: "1px 7px", borderRadius: "10px", fontSize: "0.7rem", fontWeight: 700,
-            background: stock.type === "직접관련주" ? "rgba(255,180,50,0.15)" : "rgba(180,100,255,0.15)",
-            border: stock.type === "직접관련주" ? "1px solid var(--color-warning)" : "1px solid rgba(180,100,255,0.6)",
-            color: stock.type === "직접관련주" ? "var(--color-warning)" : "#c084fc",
-          }}>
-            {stock.type}
-          </span>
-          {stock.signal && <SignalBadge signal={stock.signal} />}
-          <ChaseBadge mom5={mom5} />
-          <InstBadge flow={inst} />
-        </div>
-        {priceEntry && priceEntry.price > 0 && (
-          <div style={{ textAlign: "right", flexShrink: 0, minWidth: "70px" }}>
-            <div style={{ fontWeight: 700, fontSize: "0.8rem", color: "var(--color-text)" }}>
-              {isKr ? `₩${priceEntry.price.toLocaleString()}` : `$${priceEntry.price.toFixed(2)}`}
-            </div>
-            <div style={{ fontSize: "0.72rem", fontWeight: 700, color: up ? "var(--color-danger)" : "var(--color-primary)" }}>
-              {up ? "▲" : "▼"} {Math.abs(priceEntry.change_pct).toFixed(2)}%
-            </div>
-          </div>
+    <StockCardShell
+      name={stock.name} ticker={stock.ticker} priceEntry={priceEntry} onClick={onClick}
+      accent="#ff8c32"
+      badges={<>
+        <MarketBadge ticker={stock.ticker} />
+        {stock.horizon && (
+          <Pill strong color={stock.horizon === "중장기" ? "#5aa0ff" : "#ff8c32"}>
+            {stock.horizon === "중장기" ? "📆 중장기" : "⚡ 단타"}
+          </Pill>
         )}
-      </div>
-      {stock.signal_reason && (
-        <div style={{ fontSize: "0.74rem", color: "var(--color-text)", fontWeight: 600 }}>{stock.signal_reason}</div>
-      )}
+        {stock.type && <Pill color={stock.type === "직접관련주" ? "#fbbf24" : "#c084fc"}>{stock.type}</Pill>}
+        {stock.signal && <SignalBadge signal={stock.signal} />}
+        <ChaseBadge mom5={mom5} />
+        <InstBadge flow={inst} />
+      </>}
+    >
+      {stock.signal_reason && <div style={reasonStrong}>{stock.signal_reason}</div>}
       {stock.historical_pattern && (
-        <div style={{ fontSize: "0.74rem", color: "var(--color-accent)", fontWeight: 600 }}>
-          과거 패턴: {stock.historical_pattern}
-        </div>
+        <div style={{ ...reasonStrong, color: "var(--color-accent)" }}>과거 패턴: {stock.historical_pattern}</div>
       )}
-      <div style={{ fontSize: "0.74rem", color: "var(--color-muted)", lineHeight: 1.4 }}>{stock.reason}</div>
-    </div>
+      {stock.reason && <div style={reasonMuted}>{stock.reason}</div>}
+    </StockCardShell>
   );
 }
 
 // ── 섹션 헤더 ─────────────────────────────────────────────────────────────────
-function SectionHeader({ title, count }: { title: string; count?: number }) {
+function SectionHeader({ title, count, color, hint }: { title: string; count?: number; color?: string; hint?: ReactNode }) {
   return (
-    <div style={{
-      fontSize: "0.82rem", fontWeight: 800, color: "var(--color-muted)",
-      padding: "6px 0 4px",
-      borderBottom: "1px solid var(--color-border)",
-      marginBottom: "8px",
-      display: "flex", alignItems: "center", gap: "6px",
-    }}>
-      {title}
-      {count !== undefined && (
-        <span style={{ fontWeight: 600, color: "var(--color-muted)", fontSize: "0.75rem" }}>({count})</span>
-      )}
+    <div style={{ marginBottom: "10px" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+        {color && <span style={{ width: "8px", height: "8px", borderRadius: "50%", background: color, flexShrink: 0 }} />}
+        <span style={{ fontSize: "0.92rem", fontWeight: 800, color: "var(--color-text)" }}>{title}</span>
+        {count !== undefined && (
+          <span style={{ fontSize: "0.7rem", fontWeight: 700, color: "var(--color-muted)", background: "rgba(255,255,255,0.06)", borderRadius: "999px", padding: "1px 8px" }}>{count}</span>
+        )}
+        <span style={{ flex: 1, height: "1px", background: "var(--color-border)" }} />
+      </div>
+      {hint && <div style={{ fontSize: "0.74rem", color: "var(--color-muted)", marginTop: "5px", lineHeight: 1.5 }}>{hint}</div>}
     </div>
   );
 }
 
+// 국내 / 미국 소제목
+function SubLabel({ children }: { children: ReactNode }) {
+  return <div style={{ fontSize: "0.7rem", color: "var(--color-subtle)", fontWeight: 800, margin: "2px 0 6px 2px" }}>{children}</div>;
+}
+
 // ── 전략 박스 ─────────────────────────────────────────────────────────────────
 function StrategyBox({ label, text, color }: { label: string; text: string; color: string }) {
-  return (
-    <div style={{
-      background: `${color}0d`,
-      border: `1px solid ${color}44`,
-      borderRadius: "6px",
-      padding: "10px 12px",
-      flex: 1,
-    }}>
-      <div style={{ fontSize: "0.75rem", fontWeight: 800, color, marginBottom: "6px" }}>{label}</div>
-      <div style={{ fontSize: "0.82rem", color: "var(--color-text)", lineHeight: 1.5 }}>{text}</div>
-    </div>
-  );
+  return <InfoCard label={<span style={{ color }}>{label}</span>} accent={color}>{text}</InfoCard>;
 }
 
 // ── 상세 분석 패널 ────────────────────────────────────────────────────────────
@@ -772,67 +744,51 @@ function ScenarioContent({ scenario, issueTitle }: { scenario: Scenario; issueTi
   };
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
-      {/* 기본 정보 */}
-      <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", alignItems: "center" }}>
-        <span style={{
-          padding: "2px 10px", borderRadius: "10px", fontSize: "0.78rem", fontWeight: 700,
-          background: scenario.market_direction === "강세" ? "rgba(255,60,60,0.15)" :
-                      scenario.market_direction === "약세" ? "rgba(0,120,255,0.15)" : "rgba(255,180,50,0.15)",
-          border: `1px solid ${scenario.market_direction === "강세" ? "var(--color-danger)" :
-                               scenario.market_direction === "약세" ? "var(--color-primary)" : "var(--color-warning)"}`,
-          color: scenario.market_direction === "강세" ? "var(--color-danger)" :
-                 scenario.market_direction === "약세" ? "var(--color-primary)" : "var(--color-warning)",
-        }}>
-          {scenario.market_direction}
-        </span>
-        <span title="AI가 적은 확률입니다. 실제 적중과는 상관이 없었습니다(10-27 실측). 옆의 실측 적중을 보세요."
-          style={{ fontSize: "0.82rem", color: "var(--color-subtle)" }}>AI 확률 {scenario.probability_pct}%</span>
+    <div style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
+      {/* 요약 줄: 방향 · 실측 성적 · AI 확률(참고) */}
+      <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", alignItems: "center",
+                    padding: "10px 12px", borderRadius: "8px", background: "rgba(255,255,255,0.03)", border: "1px solid var(--color-border)" }}>
+        <Pill strong color={dirColor(scenario.market_direction)}>
+          {scenario.market_direction === "강세" ? "📈" : scenario.market_direction === "약세" ? "📉" : "↔"} {scenario.market_direction}
+        </Pill>
         <HitRateBadge rates={hitRates} direction={scenario.market_direction} roles={hitRoles} />
+        <span title="AI가 적은 확률입니다. 실제 적중과는 상관이 없었습니다(10-27 실측). 옆의 실측 성적을 보세요."
+          style={{ fontSize: "0.72rem", color: "var(--color-subtle)", marginLeft: "auto" }}>AI 확률 {scenario.probability_pct}% (참고)</span>
       </div>
 
-      {/* 현실화 조건 */}
-      {scenario.trigger && (
-        <div style={{ background: "rgba(0,0,0,0.3)", border: "1px solid var(--color-border)", borderRadius: "6px", padding: "10px 14px" }}>
-          <div style={{ fontSize: "0.72rem", fontWeight: 800, color: "var(--color-muted)", marginBottom: "4px" }}>현실화 조건</div>
-          <div style={{ fontSize: "0.85rem", color: "var(--color-text)", lineHeight: 1.5 }}>{scenario.trigger}</div>
-        </div>
-      )}
-
-      {/* 판정 체크포인트 (v3.114.0 딥다이브) — 이 시나리오로 가는지 관찰할 신호 */}
-      {(scenario.checkpoints?.length ?? 0) > 0 && (
-        <div style={{ background: "rgba(0,0,0,0.3)", border: "1px solid var(--color-border)", borderRadius: "6px", padding: "10px 14px" }}>
-          <div style={{ fontSize: "0.72rem", fontWeight: 800, color: "var(--color-muted)", marginBottom: "4px" }}>✅ 판정 체크포인트</div>
-          <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
-            {scenario.checkpoints!.map((cp, i) => (
-              <div key={i} style={{ fontSize: "0.83rem", color: "var(--color-text)", lineHeight: 1.5 }}>· {cp}</div>
-            ))}
-          </div>
-        </div>
+      {/* 조건 · 체크포인트 — 짧은 글이라 넓은 화면에선 나란히 */}
+      {(scenario.trigger || (scenario.checkpoints?.length ?? 0) > 0) && (
+        <CardGrid>
+          {scenario.trigger && <InfoCard label="🎯 현실화 조건" accent="var(--color-warning)">{scenario.trigger}</InfoCard>}
+          {(scenario.checkpoints?.length ?? 0) > 0 && (
+            <InfoCard label="✅ 판정 체크포인트" accent="#34d399">
+              <ul style={{ margin: 0, paddingLeft: "1.1rem", display: "flex", flexDirection: "column", gap: "3px" }}>
+                {scenario.checkpoints!.map((cp, i) => <li key={i}>{cp}</li>)}
+              </ul>
+            </InfoCard>
+          )}
+        </CardGrid>
       )}
 
       {/* 경제 분석 */}
-      {scenario.economic_analysis && (
-        <div style={{ background: "rgba(0,0,0,0.2)", borderLeft: "3px solid var(--color-accent)", borderRadius: "0 6px 6px 0", padding: "10px 14px" }}>
-          <div style={{ fontSize: "0.72rem", fontWeight: 800, color: "var(--color-muted)", marginBottom: "4px" }}>경제 분석</div>
-          <div style={{ fontSize: "0.85rem", color: "var(--color-text)", lineHeight: 1.6 }}>{scenario.economic_analysis}</div>
-        </div>
-      )}
+      {scenario.economic_analysis && <InfoCard label="🧭 경제 분석" accent="var(--color-accent)">{scenario.economic_analysis}</InfoCard>}
 
       {/* 전략 박스 */}
-      <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
-        {scenario.short_strategy && <StrategyBox label="단타 전략" text={scenario.short_strategy} color="var(--color-warning)" />}
-        {scenario.long_strategy  && <StrategyBox label="장타 전략" text={scenario.long_strategy}  color="var(--color-accent)" />}
-      </div>
+      {(scenario.short_strategy || scenario.long_strategy) && (
+        <CardGrid>
+          {scenario.short_strategy && <StrategyBox label="⚡ 단타 전략" text={scenario.short_strategy} color="var(--color-warning)" />}
+          {scenario.long_strategy  && <StrategyBox label="📆 장타 전략" text={scenario.long_strategy}  color="var(--color-accent)" />}
+        </CardGrid>
+      )}
 
       {/* 상승 예상 종목 */}
       {(krRising.length > 0 || usRising.length > 0) && (
         <div>
-          <SectionHeader title="🟢 상승 수혜주" count={(scenario.rising_stocks ?? []).length} />
+          <SectionHeader title="상승 수혜주" color="#34d399" count={(scenario.rising_stocks ?? []).length} />
           {krRising.length > 0 && (
             <div style={{ marginBottom: "8px" }}>
-              <div style={{ fontSize: "0.72rem", color: "var(--color-muted)", fontWeight: 700, marginBottom: "4px" }}>🇰🇷 국내</div>
-              <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+              <SubLabel>🇰🇷 국내</SubLabel>
+              <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
                 {krRising.map((s, i) => (
                   <StockRow key={i} stock={s} priceEntry={priceMap[s.ticker]} mom5={mom5Map?.[s.ticker]} inst={instMap?.[s.ticker]} onClick={() => navigate(s.ticker)} />
                 ))}
@@ -841,8 +797,8 @@ function ScenarioContent({ scenario, issueTitle }: { scenario: Scenario; issueTi
           )}
           {usRising.length > 0 && (
             <div>
-              <div style={{ fontSize: "0.72rem", color: "var(--color-muted)", fontWeight: 700, marginBottom: "4px" }}>🇺🇸 미국</div>
-              <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+              <SubLabel>🇺🇸 미국</SubLabel>
+              <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
                 {usRising.map((s, i) => (
                   <StockRow key={i} stock={s} priceEntry={priceMap[s.ticker]} mom5={mom5Map?.[s.ticker]} inst={instMap?.[s.ticker]} onClick={() => navigate(s.ticker)} />
                 ))}
@@ -854,17 +810,10 @@ function ScenarioContent({ scenario, issueTitle }: { scenario: Scenario; issueTi
 
       {/* 추가 관련주 (단타·중장기) — 강조 박스, 대장주(상승 수혜주) 바로 아래 배치 */}
       {themeStocks.length > 0 && (
-        <div style={{
-          background: "rgba(255,140,50,0.06)",
-          border: "1px solid rgba(255,140,50,0.35)",
-          borderRadius: "10px",
-          padding: "12px 14px",
-        }}>
-          <SectionHeader title="🔥 추가 관련주 (단타 · 중장기)" count={themeStocks.length} />
-          <div style={{ fontSize: "0.72rem", color: "var(--color-muted)", marginBottom: "8px", lineHeight: 1.5 }}>
-            대장주 외에 이 이슈로 수혜가 예상되는 종목 — <span style={{ color: "#ff8c32", fontWeight: 700 }}>⚡ 단타</span> 급등주와 <span style={{ color: "#5aa0ff", fontWeight: 700 }}>📆 중장기</span> 성장주를 함께 제시합니다.
-          </div>
-          <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+        <div>
+          <SectionHeader title="추가 관련주" color="#ff8c32" count={themeStocks.length}
+            hint={<>대장주 외에 이 이슈로 수혜가 예상되는 종목 — <span style={{ color: "#ff8c32", fontWeight: 700 }}>⚡ 단타</span> 급등주와 <span style={{ color: "#5aa0ff", fontWeight: 700 }}>📆 중장기</span> 성장주</>} />
+          <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
             {themeStocks.map((s, i) => (
               <ThemeStockRow key={i} stock={s} priceEntry={priceMap[s.ticker]} mom5={mom5Map?.[s.ticker]} inst={instMap?.[s.ticker]} onClick={() => navigate(s.ticker)} />
             ))}
@@ -875,23 +824,23 @@ function ScenarioContent({ scenario, issueTitle }: { scenario: Scenario; issueTi
       {/* 하락 예상 종목 */}
       {(krFalling.length > 0 || usFalling.length > 0) && (
         <div>
-          <SectionHeader title="🔴 하락 위험주" count={(scenario.falling_stocks ?? []).length} />
+          <SectionHeader title="하락 위험주" color="var(--color-primary)" count={(scenario.falling_stocks ?? []).length} />
           {krFalling.length > 0 && (
             <div style={{ marginBottom: "8px" }}>
-              <div style={{ fontSize: "0.72rem", color: "var(--color-muted)", fontWeight: 700, marginBottom: "4px" }}>🇰🇷 국내</div>
-              <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+              <SubLabel>🇰🇷 국내</SubLabel>
+              <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
                 {krFalling.map((s, i) => (
-                  <StockRow key={i} stock={s} priceEntry={priceMap[s.ticker]} inst={instMap?.[s.ticker]} onClick={() => navigate(s.ticker)} />
+                  <StockRow key={i} tone="down" stock={s} priceEntry={priceMap[s.ticker]} inst={instMap?.[s.ticker]} onClick={() => navigate(s.ticker)} />
                 ))}
               </div>
             </div>
           )}
           {usFalling.length > 0 && (
             <div>
-              <div style={{ fontSize: "0.72rem", color: "var(--color-muted)", fontWeight: 700, marginBottom: "4px" }}>🇺🇸 미국</div>
-              <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+              <SubLabel>🇺🇸 미국</SubLabel>
+              <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
                 {usFalling.map((s, i) => (
-                  <StockRow key={i} stock={s} priceEntry={priceMap[s.ticker]} onClick={() => navigate(s.ticker)} />
+                  <StockRow key={i} tone="down" stock={s} priceEntry={priceMap[s.ticker]} onClick={() => navigate(s.ticker)} />
                 ))}
               </div>
             </div>
@@ -1026,39 +975,41 @@ function IssuePanel({ issue }: { issue: Issue }) {
 
       {/* 이슈 심층 블록 (v3.114.0 딥다이브) — 배경·관전 레벨·향후 일정 */}
       {issue.deep_analysis && (issue.deep_analysis.background || (issue.deep_analysis.key_levels?.length ?? 0) > 0 || (issue.deep_analysis.watch_calendar?.length ?? 0) > 0) && (
-        <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
           {issue.deep_analysis.background && (
-            <div style={{ background: "rgba(0,0,0,0.2)", borderLeft: "3px solid var(--color-accent)", borderRadius: "0 6px 6px 0", padding: "10px 14px" }}>
-              <div style={{ fontSize: "0.72rem", fontWeight: 800, color: "var(--color-muted)", marginBottom: "4px" }}>구조적 배경</div>
-              <div style={{ fontSize: "0.85rem", color: "var(--color-text)", lineHeight: 1.6 }}>{issue.deep_analysis.background}</div>
-            </div>
+            <InfoCard label="🏛 구조적 배경" accent="var(--color-accent)">{issue.deep_analysis.background}</InfoCard>
           )}
-          {(issue.deep_analysis.key_levels?.length ?? 0) > 0 && (
-            <div style={{ background: "rgba(0,0,0,0.25)", border: "1px solid var(--color-border)", borderRadius: "6px", padding: "10px 14px" }}>
-              <div style={{ fontSize: "0.72rem", fontWeight: 800, color: "var(--color-muted)", marginBottom: "6px" }}>📐 관전 레벨</div>
-              <div style={{ display: "flex", flexDirection: "column", gap: "5px" }}>
-                {issue.deep_analysis.key_levels!.map((kl, i) => (
-                  <div key={i} style={{ fontSize: "0.83rem", lineHeight: 1.5, color: "var(--color-text)" }}>
-                    <strong style={{ color: "var(--color-warning)" }}>{kl.name}</strong>
-                    {kl.level && <span style={{ fontWeight: 700 }}> {kl.level}</span>}
-                    {kl.meaning && <span style={{ color: "var(--color-muted)" }}> — {kl.meaning}</span>}
+          {((issue.deep_analysis.key_levels?.length ?? 0) > 0 || (issue.deep_analysis.watch_calendar?.length ?? 0) > 0) && (
+            <CardGrid>
+              {(issue.deep_analysis.key_levels?.length ?? 0) > 0 && (
+                <InfoCard label="📐 관전 레벨" accent="var(--color-warning)">
+                  <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+                    {issue.deep_analysis.key_levels!.map((kl, i) => (
+                      <div key={i} style={{ fontSize: "0.83rem", lineHeight: 1.5 }}>
+                        <strong style={{ color: "var(--color-warning)" }}>{kl.name}</strong>
+                        {kl.level && <span style={{ fontWeight: 800 }}> {kl.level}</span>}
+                        {kl.meaning && <div style={{ color: "var(--color-muted)", fontSize: "0.78rem" }}>{kl.meaning}</div>}
+                      </div>
+                    ))}
                   </div>
-                ))}
-              </div>
-            </div>
-          )}
-          {(issue.deep_analysis.watch_calendar?.length ?? 0) > 0 && (
-            <div style={{ background: "rgba(0,0,0,0.25)", border: "1px solid var(--color-border)", borderRadius: "6px", padding: "10px 14px" }}>
-              <div style={{ fontSize: "0.72rem", fontWeight: 800, color: "var(--color-muted)", marginBottom: "6px" }}>📅 향후 일정</div>
-              <div style={{ display: "flex", flexDirection: "column", gap: "5px" }}>
-                {issue.deep_analysis.watch_calendar!.map((wc, i) => (
-                  <div key={i} style={{ fontSize: "0.83rem", lineHeight: 1.5, color: "var(--color-text)" }}>
-                    <strong style={{ color: "var(--color-accent)" }}>{wc.date}</strong> {wc.event}
-                    {wc.why && <span style={{ color: "var(--color-muted)" }}> — {wc.why}</span>}
+                </InfoCard>
+              )}
+              {(issue.deep_analysis.watch_calendar?.length ?? 0) > 0 && (
+                <InfoCard label="📅 향후 일정" accent="#60a5fa">
+                  <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+                    {issue.deep_analysis.watch_calendar!.map((wc, i) => (
+                      <div key={i} style={{ display: "flex", gap: "8px", fontSize: "0.83rem", lineHeight: 1.5 }}>
+                        <strong style={{ color: "#60a5fa", flexShrink: 0, minWidth: "3.2rem", fontVariantNumeric: "tabular-nums" }}>{wc.date}</strong>
+                        <div style={{ minWidth: 0 }}>
+                          {wc.event}
+                          {wc.why && <div style={{ color: "var(--color-muted)", fontSize: "0.78rem" }}>{wc.why}</div>}
+                        </div>
+                      </div>
+                    ))}
                   </div>
-                ))}
-              </div>
-            </div>
+                </InfoCard>
+              )}
+            </CardGrid>
           )}
         </div>
       )}
@@ -1069,8 +1020,8 @@ function IssuePanel({ issue }: { issue: Issue }) {
         const links = issue.deep_analysis?.linkages ?? issue.linkages ?? [];
         if (links.length === 0) return null;
         return (
-          <div style={{ background: "rgba(0,0,0,0.25)", border: "1px solid var(--color-border)", borderRadius: "6px", padding: "10px 14px" }}>
-            <div style={{ fontSize: "0.72rem", fontWeight: 800, color: "var(--color-muted)", marginBottom: "8px" }}>
+          <div style={{ background: "rgba(255,255,255,0.025)", border: "1px solid var(--color-border)", borderLeft: "3px solid #c084fc", borderRadius: "8px", padding: "10px 14px" }}>
+            <div style={{ fontSize: "0.7rem", fontWeight: 800, color: "var(--color-muted)", marginBottom: "8px" }}>
               🔗 연관 구조 <span style={{ fontWeight: 500 }}>— 무엇이 먼저 움직이면 무엇이 따라오는가</span>
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: "9px" }}>
@@ -1109,24 +1060,29 @@ function IssuePanel({ issue }: { issue: Issue }) {
       {/* 시나리오 탭 */}
       {scenarios.length > 0 && (
         <div>
-          <div style={{ display: "flex", gap: "6px", marginBottom: "1rem" }}>
-            {scenarios.map((sc, idx) => (
-              <button
-                key={idx}
-                onClick={() => setScenarioIdx(idx)}
-                style={{
-                  padding: "6px 14px", fontWeight: 700, fontSize: "0.85rem", borderRadius: "6px",
-                  border: "1px solid",
-                  borderColor: scenarioIdx === idx ? "var(--color-accent)" : "var(--color-border)",
-                  background: scenarioIdx === idx ? "rgba(255,255,255,0.08)" : "transparent",
-                  color: scenarioIdx === idx ? "var(--color-text)" : "var(--color-muted)",
-                  cursor: "pointer",
-                  transition: "0.15s",
-                }}
-              >
-                시나리오 {sc.label}: {sc.title} ({sc.probability_pct}%)
-              </button>
-            ))}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(240px, 100%), 1fr))", gap: "8px", marginBottom: "1rem" }}>
+            {scenarios.map((sc, idx) => {
+              const on = scenarioIdx === idx;
+              return (
+                <button
+                  key={idx}
+                  onClick={() => setScenarioIdx(idx)}
+                  style={{
+                    textAlign: "left", padding: "9px 12px", borderRadius: "8px", cursor: "pointer", transition: "0.15s",
+                    border: `1px solid ${on ? "var(--color-accent)" : "var(--color-border)"}`,
+                    borderLeft: `3px solid ${dirColor(sc.market_direction)}`,
+                    background: on ? "rgba(255,255,255,0.07)" : "transparent",
+                    color: on ? "var(--color-text)" : "var(--color-muted)",
+                  }}
+                >
+                  <div style={{ display: "flex", alignItems: "center", gap: "6px", marginBottom: "3px" }}>
+                    <span style={{ fontSize: "0.7rem", fontWeight: 800 }}>시나리오 {sc.label}</span>
+                    {sc.market_direction && <Pill color={dirColor(sc.market_direction)}>{sc.market_direction}</Pill>}
+                  </div>
+                  <div style={{ fontSize: "0.86rem", fontWeight: 700, lineHeight: 1.4 }}>{sc.title}</div>
+                </button>
+              );
+            })}
           </div>
           {activeScenario && <ScenarioContent scenario={activeScenario} issueTitle={issue.title} />}
         </div>
