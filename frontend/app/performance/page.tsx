@@ -378,8 +378,9 @@ function EngineScoreboard() {
   const engines = [
     { name: "🤖 AI추천", n: rec?.measured ?? 0, win: recH?.win_rate ?? null, avg: recH?.avg_return ?? null, note: "단타발굴·종목분석 추천의 7일 후 성과", href: "" },
     { name: "📈 시나리오", n: scnN, win: scnWin, avg: scnAvg, note: scnNote, href: "" },
-    { name: "🔍 복합스크리너", n: scr?.total_picks_backtested ?? 0, win: scrO.win_rate_d7 ?? null, avg: scrO.avg_d7_return ?? null, note: "패턴 스크리너 픽 7일 후 백테스트", href: "" },
-    { name: "🦾 AI에이전트", n: agent?.n ?? 0, win: agent?.win_rate ?? null, avg: agent?.avg_return ?? null, note: "에이전트 모의매매 '확정 거래'의 실현 승률·수익률", href: "/agent" },
+    // [v3.214.0] 스크리너·에이전트도 시나리오처럼 시장 대비·비용 차감. 건수는 7일 결과가 찬 것만.
+    { name: "🔍 복합스크리너", n: scrO.count_d7 ?? scr?.total_picks_backtested ?? 0, win: scrO.win_rate_d7 ?? null, avg: scrO.avg_d7_return ?? null, note: "패턴 스크리너 픽 7일 후 · 코스피 대비", href: "" },
+    { name: "🦾 AI에이전트", n: agent?.n ?? 0, win: agent?.win_rate ?? null, avg: agent?.avg_return ?? null, note: `모의매매 확정 거래 · 보유 기간 시장 대비${agent?.raw_win_rate != null ? ` (그냥 수익 난 비율 ${agent.raw_win_rate}%)` : ""}`, href: "/agent" },
   ];
 
   // 벤치마크(시장) 기준선 — 엔진 평균수익률을 '시장 대비'로 가늠
@@ -388,7 +389,7 @@ function EngineScoreboard() {
   return (
     <div className="stockcy-card" style={{ padding: "1rem 1.2rem" }}>
       <div style={{ fontWeight: 800, fontSize: "1rem", marginBottom: "4px" }}>📊 엔진별 성과 (7일 기준)</div>
-      <div style={{ fontSize: "0.74rem", color: "var(--color-muted)", marginBottom: "12px" }}>각 AI 엔진이 추천한 종목이 실제로 며칠 뒤 맞았나 — 표본이 쌓일수록 정확해집니다.</div>
+      <div style={{ fontSize: "0.74rem", color: "var(--color-muted)", marginBottom: "12px" }}>각 AI 엔진이 추천한 종목이 실제로 며칠 뒤 맞았나 — 승률·평균은 모두 같은 기간 시장(코스피·S&P500)보다 비용 넘게 더 올랐는지 기준입니다.</div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "10px" }}>
         {engines.map((e, i) => (
           <div key={i} onClick={e.href ? () => router.push(e.href) : undefined}

@@ -1387,20 +1387,9 @@ async def get_buy_reason_stats(user: dict = Depends(get_current_user)):
 
 
 def _agent_performance() -> dict:
-    """AI 에이전트의 '확정 거래'(trade_history, owner=AI_AGENT) 실현 성과 — 승률·평균수익률."""
-    from db import get_db_conn
-    try:
-        conn = get_db_conn()
-        cur = conn.cursor()
-        cur.execute("SELECT profit_pct FROM trade_history WHERE UPPER(owner) = 'AI_AGENT'")
-        vals = [float(r["profit_pct"] or 0) for r in cur.fetchall()]
-        n = len(vals)
-        if n == 0:
-            return {"n": 0, "win_rate": None, "avg_return": None}
-        wins = sum(1 for v in vals if v > 0)
-        return {"n": n, "win_rate": round(wins / n * 100, 1), "avg_return": round(sum(vals) / n, 2)}
-    except Exception:
-        return {"n": 0, "win_rate": None, "avg_return": None}
+    """AI 에이전트의 '확정 거래'(trade_history, owner=AI_AGENT) 실현 성과 — 시장 대비·비용 차감 (v3.214.0)."""
+    from db import load_agent_trade_performance
+    return load_agent_trade_performance()
 
 
 @router.get("/agent-performance")

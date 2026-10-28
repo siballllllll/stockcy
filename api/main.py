@@ -513,6 +513,14 @@ def _scenario_tracking_loop():
                         print(f"[scenario direction] 방향 보강 {bd.get('filled')}행")
                 except Exception as e:
                     print(f"[scenario direction] 오류: {e}")
+                # 스크리너·에이전트 지수 수익률 채우기 (v3.214.0) — 'AI 기능별 실적'을 시장 대비로 맞춘다.
+                try:
+                    from ai_engine import backfill_perf_benchmarks
+                    pb = backfill_perf_benchmarks()
+                    if pb.get("screener") or pb.get("agent"):
+                        print(f"[perf bench] 스크리너 {pb.get('screener')}행 · 에이전트 {pb.get('agent')}행")
+                except Exception as e:
+                    print(f"[perf bench] 오류: {e}")
                 # 포착 시점 5일 모멘텀 소급 적재 (v3.195.0) — 뒷북 여부 판정의 재료.
                 #   일일 추적은 '아직 안 끝난 행'만 보므로 이미 끝난 과거 행은 여기서 채운다.
                 #   회당 티커 120개로 제한 — 며칠에 걸쳐 채워지고 그동안 다른 작업을 막지 않는다.

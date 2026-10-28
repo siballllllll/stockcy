@@ -8742,6 +8742,92 @@ def _scenario_entry(df, captured_at, mkt: str, quote_price=None, quote_ts=None):
     return nxt, _open(nxt), "next_open"
 
 
+def backfill_perf_benchmarks() -> dict:
+    """스크리너(d1·d3·d7)·에이전트 확정 거래(매수~매도) 행에 같은 기간 지수 수익률을 채운다 (v3.214.0).
+    시나리오만 시장 대비로 채점하고 나머지는 '0%보다 올랐나'로 채점해서, 하락장에선 같은 화면의
+    세 기능이 서로 다른 잣대로 비교되고 있었다(10-28). 지수 2개만 받으므로 회당 호출 2~4번."""
+    import FinanceDataReader as fdr
+    import yfinance as yf
+    from datetime import datetime, timedelta
+    from db import get_db_conn
+    series = {}
+
+    def _ser(mkt):
+        if mkt in series:
+            return series[mkt]
+        ser = None
+        for src in ((("fdr", "KS11"), ("yf", "^KS11")) if mkt == "kr" else (("yf", "^GSPC"),)):
+            try:
+                if src[0] == "fdr":
+                    df = fdr.DataReader(src[1], "2026-01-01")
+                else:
+                    df = yf.download(src[1], start="2026-01-01", progress=False, timeout=15)
+                if df is not None and not df.empty:
+                    o, c = _bar_col(df, "Open"), _bar_col(df, "Close")
+                    ser = [(d.strftime("%Y-%m-%d"), float(o.loc[d]), float(v)) for d, v in c.dropna().items()]
+                    break
+            except Exception as e:
+                print(f"[perf bench] {src[1]} 실패: {e}")
+        series[mkt] = ser
+        return ser
+
+    def _idx(ser, day):  # day 이하 마지막 거래일 위치
+        bi = None
+        for j, (d, _, _) in enumerate(ser):
+            if d <= day:
+                bi = j
+            else:
+                break
+        return bi
+
+    out = {"screener": 0, "agent": 0}
+    conn = get_db_conn(); cur = conn.cursor()
+    # 스크리너: 픽 날 종가 진입 → 3·7거래일 뒤 종가 (d3/d7과 같은 오프셋)
+    rows = cur.execute("""SELECT id, picked_date, d1_return, d3_return, d7_return FROM screener_backtest_results
+                          WHERE (d1_return IS NOT NULL AND bench_d1_return IS NULL)
+                             OR (d3_return IS NOT NULL AND bench_d3_return IS NULL)
+                             OR (d7_return IS NOT NULL AND bench_d7_return IS NULL)""").fetchall()
+    ser = _ser("kr") if rows else None
+    for r in (rows if ser else []):
+        bi = _idx(ser, str(r["picked_date"])[:10])
+        if bi is None:
+            continue
+        c0 = ser[bi][2]
+        b1 = round((ser[bi + 1][2] / c0 - 1) * 100, 2) if bi + 1 < len(ser) and r["d1_return"] is not None else None
+        b3 = round((ser[bi + 3][2] / c0 - 1) * 100, 2) if bi + 3 < len(ser) and r["d3_return"] is not None else None
+        b7 = round((ser[bi + 7][2] / c0 - 1) * 100, 2) if bi + 7 < len(ser) and r["d7_return"] is not None else None
+        if b1 is None and b3 is None and b7 is None:
+            continue
+        cur.execute("UPDATE screener_backtest_results SET bench_d1_return = COALESCE(bench_d1_return, ?), "
+                    "bench_d3_return = COALESCE(bench_d3_return, ?), "
+                    "bench_d7_return = COALESCE(bench_d7_return, ?) WHERE id = ?", (b1, b3, b7, r["id"]))
+        out["screener"] += 1
+    # 에이전트 확정 거래: 매수 시각(장중 → 그날 시가) ~ 매도 시각(그날 종가). 미국은 KST-14h로 현지 날짜.
+    rows = cur.execute("""SELECT rowid AS id, ticker, buy_date AS decided_at, sell_date AS outcome_checked_at
+                          FROM trade_history
+                          WHERE UPPER(owner) = 'AI_AGENT' AND bench_return IS NULL
+                            AND COALESCE(buy_date, '') != '' AND COALESCE(sell_date, '') != ''""").fetchall()
+    for r in rows:
+        us = not str(r["ticker"]).isdigit()
+        ser = _ser("us" if us else "kr")
+        if not ser:
+            continue
+
+        def _day(ts):
+            dt = datetime.strptime(str(ts)[:19], "%Y-%m-%d %H:%M:%S")
+            return (dt - timedelta(hours=14) if us else dt).strftime("%Y-%m-%d")
+        d0, d1 = _day(r["decided_at"]), _day(r["outcome_checked_at"])
+        i0, i1 = _idx(ser, d0), _idx(ser, d1)
+        if i0 is None or i1 is None:
+            continue
+        b0 = ser[i0][1] if ser[i0][0] == d0 and ser[i0][1] > 0 else ser[i0][2]
+        cur.execute("UPDATE trade_history SET bench_return = ? WHERE rowid = ?",
+                    (round((ser[i1][2] / b0 - 1) * 100, 2), r["id"]))
+        out["agent"] += 1
+    conn.commit(); conn.close()
+    return out
+
+
 def _make_bench_lookup():
     """기준 지수 수익률 조회기 — 사이클마다 지수 2~3개만 받는다(시장별 캐시)."""
     import FinanceDataReader as fdr
@@ -9331,7 +9417,9 @@ def _backtest_screener_picks_impl() -> dict:
         ticker = raw_ticker.upper() if is_us else raw_ticker.zfill(6)
 
         try:
-            end_date = (picked + timedelta(days=10)).strftime("%Y-%m-%d")
+            # [v3.214.0] 종전 +10일(달력)은 주말 둘이면 7거래일째가 겨우 들어오고 연휴가 끼면 빠졌다
+            # → d7이 403건 중 173건만 채워졌다. 16일이면 연휴 포함해도 7거래일을 넘는다.
+            end_date = (picked + timedelta(days=16)).strftime("%Y-%m-%d")
             start_date = picked.strftime("%Y-%m-%d")
             df = _fetch_backtest_df(ticker, is_us, start_date, end_date)   # 종목별 타임아웃
             if df is None:
@@ -9376,6 +9464,11 @@ def _backtest_screener_picks_impl() -> dict:
             print(f"[backtest] {ticker} 처리 실패: {e}")
             continue
 
+    # INSERT OR REPLACE가 지수 수익률 칸을 비우므로 바로 다시 채운다 (v3.214.0)
+    try:
+        backfill_perf_benchmarks()
+    except Exception as e:
+        print(f"[backtest] 지수 보강 실패: {e}")
     stats = load_backtest_stats()
     stats["processed_now"] = processed
     stats["skipped_too_recent"] = skipped_too_recent

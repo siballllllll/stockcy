@@ -271,6 +271,7 @@ function BacktestStats() {
               { label: "+1일", ret: ov.avg_d1_return, wr: ov.win_rate_d1 },
               { label: "+3일", ret: ov.avg_d3_return, wr: ov.win_rate_d3 },
               { label: "+7일", ret: ov.avg_d7_return, wr: ov.win_rate_d7 },
+              // [v3.214.0] 수익률·승률 모두 코스피 대비·비용 차감 (ov.basis)
             ].map((s: any) => {
               const c = s.ret > 0 ? "#34d399" : s.ret < 0 ? "#f87171" : "var(--color-muted)";
               return (
@@ -528,14 +529,14 @@ function SavedPicksPanel() {
         </div>
         {tr && (
           <div style={{ fontSize: "0.72rem", color: tr.win_rate_pct >= 50 ? "#34d399" : "#f87171" }}>
-            실측 성적 {tr.n}건 · 7일 승률 {tr.win_rate_pct}% · 평균 {tr.avg_return_pct > 0 ? "+" : ""}{tr.avg_return_pct}%
+            실측 성적 {tr.n}건 · 7일 코스피 대비 승률 {tr.win_rate_pct}% · 평균 {tr.avg_return_pct > 0 ? "+" : ""}{tr.avg_return_pct}%
           </div>
         )}
       </div>
 
       {tr && tr.win_rate_pct < 50 && (
         <div style={{ fontSize: "0.72rem", color: "#fbbf24", background: "rgba(245,158,11,0.1)", border: "1px solid rgba(245,158,11,0.25)", borderRadius: "6px", padding: "6px 9px", lineHeight: 1.5 }}>
-          ⚠️ 이 스크리너의 과거 추천은 7일 기준 승률 {tr.win_rate_pct}%·평균 {tr.avg_return_pct}%였고,
+          ⚠️ 이 스크리너의 과거 추천은 7일 코스피 대비 승률 {tr.win_rate_pct}%·평균 {tr.avg_return_pct}%였고,
           점수(match_score)가 높을수록 결과가 좋다는 관계도 확인되지 않았습니다. 매수 근거로 단독 사용하지 마세요.
         </div>
       )}

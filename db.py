@@ -693,6 +693,11 @@ def init_local_db():
         # 10-27 분해: AI 확률은 적중과 무관했고, 갈린 축은 방향이었다 — 강세 시나리오 수혜주
         # d7 39% vs 약세 시나리오 수혜주 57%. A/B 라벨은 순서일 뿐이라 방향을 따로 남긴다.
         "ALTER TABLE scenario_stocks ADD COLUMN market_direction TEXT",
+        # [v3.214.0] 스크리너·에이전트도 시나리오처럼 '시장 대비'로 채점하려고 같은 기간 지수 수익률을 남긴다.
+        "ALTER TABLE screener_backtest_results ADD COLUMN bench_d1_return REAL",
+        "ALTER TABLE screener_backtest_results ADD COLUMN bench_d3_return REAL",
+        "ALTER TABLE screener_backtest_results ADD COLUMN bench_d7_return REAL",
+        "ALTER TABLE trade_history ADD COLUMN bench_return REAL",
         "ALTER TABLE portfolio ADD COLUMN buy_reason TEXT DEFAULT ''",
         "ALTER TABLE trade_history ADD COLUMN buy_reason TEXT DEFAULT ''",
         "ALTER TABLE agent_decisions ADD COLUMN is_realized INTEGER DEFAULT 0",
@@ -5111,17 +5116,26 @@ def save_backtest_result(row: dict):
         print(f"save_backtest_result error: {e}")
 
 
+def _scr_win(h: int) -> str:
+    """스크리너 승리 판정 SQL — 같은 기간 코스피보다 비용(0.21%) 넘게 더 올랐나 (v3.214.0, 시나리오와 같은 잣대)."""
+    return f"(d{h}_return - COALESCE(bench_d{h}_return, 0) > 0.21)"
+
+
 def load_backtest_stats() -> dict:
-    """백테스트 결과 집계 통계."""
+    """백테스트 결과 집계 통계.
+    [v3.214.0] 승률·평균을 시장(코스피) 대비·비용 차감으로 바꾸고, 기간별 분모를 그 기간이 찬 행으로.
+    종전엔 d7 분모가 d1이 찬 전체(403)라 d7이 안 찬 230행이 전부 '패배'로 세져 7일 승률 15.4%로 보였다."""
     try:
         conn = get_db_conn()
         cursor = conn.cursor()
         cursor.execute(
-            """SELECT COUNT(*) AS n,
-                      AVG(d1_return) AS avg_d1, AVG(d3_return) AS avg_d3, AVG(d7_return) AS avg_d7,
-                      SUM(CASE WHEN d1_return > 0 THEN 1 ELSE 0 END) AS win_d1,
-                      SUM(CASE WHEN d3_return > 0 THEN 1 ELSE 0 END) AS win_d3,
-                      SUM(CASE WHEN d7_return > 0 THEN 1 ELSE 0 END) AS win_d7
+            f"""SELECT COUNT(*) AS n, COUNT(d1_return) AS n1, COUNT(d3_return) AS n3, COUNT(d7_return) AS n7,
+                      AVG(d1_return - COALESCE(bench_d1_return, 0)) AS avg_d1,
+                      AVG(d3_return - COALESCE(bench_d3_return, 0)) AS avg_d3,
+                      AVG(d7_return - COALESCE(bench_d7_return, 0)) AS avg_d7,
+                      SUM(CASE WHEN {_scr_win(1)} THEN 1 ELSE 0 END) AS win_d1,
+                      SUM(CASE WHEN {_scr_win(3)} THEN 1 ELSE 0 END) AS win_d3,
+                      SUM(CASE WHEN {_scr_win(7)} THEN 1 ELSE 0 END) AS win_d7
                FROM screener_backtest_results
                WHERE d1_return IS NOT NULL"""
         )
@@ -5131,8 +5145,8 @@ def load_backtest_stats() -> dict:
         buckets = []
         for label, min_s, max_s in [("80점 이상", 80, 101), ("60~79점", 60, 80), ("60점 미만", 0, 60)]:
             cursor.execute(
-                """SELECT COUNT(*) AS n, AVG(d3_return) AS avg_d3,
-                          SUM(CASE WHEN d3_return > 0 THEN 1 ELSE 0 END) AS wins
+                f"""SELECT COUNT(*) AS n, AVG(d3_return - COALESCE(bench_d3_return, 0)) AS avg_d3,
+                          SUM(CASE WHEN {_scr_win(3)} THEN 1 ELSE 0 END) AS wins
                    FROM screener_backtest_results
                    WHERE d3_return IS NOT NULL AND match_score >= ? AND match_score < ?""",
                 (min_s, max_s)
@@ -5165,9 +5179,10 @@ def load_backtest_stats() -> dict:
                 "avg_d1_return": round(overall.get("avg_d1") or 0, 2),
                 "avg_d3_return": round(overall.get("avg_d3") or 0, 2),
                 "avg_d7_return": round(overall.get("avg_d7") or 0, 2),
-                "win_rate_d1":   round((overall.get("win_d1") or 0) / n * 100, 1) if n else 0,
-                "win_rate_d3":   round((overall.get("win_d3") or 0) / n * 100, 1) if n else 0,
-                "win_rate_d7":   round((overall.get("win_d7") or 0) / n * 100, 1) if n else 0,
+                **{f"win_rate_d{h}": round((overall.get(f"win_d{h}") or 0) / overall[f"n{h}"] * 100, 1)
+                   if overall.get(f"n{h}") else 0 for h in (1, 3, 7)},
+                "count_d7": overall.get("n7") or 0,
+                "basis": "코스피 대비·비용 0.21% 차감",
             },
             "score_buckets": buckets,
             "recent": recent,
@@ -5175,6 +5190,30 @@ def load_backtest_stats() -> dict:
     except Exception as e:
         print(f"load_backtest_stats error: {e}")
         return {"total_picks_backtested": 0, "overall": {}, "score_buckets": [], "recent": []}
+
+
+def load_agent_trade_performance() -> dict:
+    """AI 에이전트 확정 거래(trade_history, owner=AI_AGENT) 성과 — 보유 기간 같은 지수 대비·비용 차감 (v3.214.0).
+    승률 탭(엔진별 성과)과 AI 상태 탭(기능별 실적)이 이 함수 하나를 같이 쓴다."""
+    try:
+        conn = get_db_conn(); cur = conn.cursor()
+        cur.execute("""SELECT ticker, profit_pct, bench_return FROM trade_history
+                       WHERE UPPER(owner) = 'AI_AGENT' AND profit_pct IS NOT NULL""")
+        rows = cur.fetchall(); conn.close()
+        if not rows:
+            return {"n": 0, "win_rate": None, "avg_return": None, "raw_win_rate": None}
+        ex, wins, raw = [], 0, 0
+        for r in rows:
+            p = float(r["profit_pct"] or 0)
+            e = p - float(r["bench_return"] or 0)
+            fee = 0.21 if str(r["ticker"]).isdigit() else 0.15
+            ex.append(e); wins += e > fee; raw += p > 0
+        n = len(rows)
+        return {"n": n, "win_rate": round(wins / n * 100, 1), "avg_return": round(sum(ex) / n, 2),
+                "raw_win_rate": round(raw / n * 100, 1)}
+    except Exception as e:
+        print(f"load_agent_trade_performance error: {e}")
+        return {"n": 0, "win_rate": None, "avg_return": None, "raw_win_rate": None}
 
 
 def load_ai_performance_summary() -> dict:
@@ -5198,32 +5237,30 @@ def load_ai_performance_summary() -> dict:
         # 1. AI 시나리오 — d7 시장 대비·비용 차감 적중 (피해=시장보다 더 빠져야 적중)
         # [v3.213.2] 승률 탭(_aggregate_scenario_stats)과 같은 기준으로 맞춤. 종전 0% 기준은
         # 하락장 몫까지 패배로 세서 승률 탭 43%와 달리 36%로 보였다(10-28 사용자 질문).
-        from ai_engine import _scenario_win_sql
-        _w = _scenario_win_sql("d7_return", "bench_d7_return")
-        sc = _row(cur, f"""
-            SELECT COUNT(*) AS n, AVG(d7_return - COALESCE(bench_d7_return, 0)) AS avg,
-                   SUM(CASE WHEN {_w} THEN 1 ELSE 0 END) AS wins
-            FROM scenario_stocks WHERE d7_return IS NOT NULL""")
+        # [v3.214.0] 승률 탭과 같은 _rescore_scenarios '전체'를 그대로 쓴다 — 같은 날 같은 종목 중복
+        # (13,958행 중 서로 다른 건 ~7천)을 한 번만 세지 않으면 43.0% vs 44.4%로 또 어긋난다.
+        from ai_engine import _rescore_scenarios
+        _all = next((g for g in _rescore_scenarios(cur)["groups"] if g["label"] == "전체"), {}).get("d7") or {}
+        sc = {"n": _all.get("n", 0), "win_rate": _all.get("win_rate", 0.0),
+              "avg_return": _all.get("avg_excess", 0.0)}
         feats.append({"key": "scenario", "label": "AI 시나리오",
-                      "metric": "7일 시장 대비 적중(비용 차감)", **sc})
+                      "metric": "7일 시장 대비 적중(비용 차감·중복 제거)", **sc})
 
-        # 2. 패턴 스크리너 — d3 상승 적중
+        # 2. 패턴 스크리너 — d3 시장 대비·비용 차감 [v3.214.0] (스크리너는 국내 전용 → 0.21%)
         ps = _row(cur, """
-            SELECT COUNT(*) AS n, AVG(d3_return) AS avg,
-                   SUM(CASE WHEN d3_return > 0 THEN 1 ELSE 0 END) AS wins
+            SELECT COUNT(*) AS n, AVG(d3_return - COALESCE(bench_d3_return, 0)) AS avg,
+                   SUM(CASE WHEN d3_return - COALESCE(bench_d3_return, 0) > 0.21 THEN 1 ELSE 0 END) AS wins
             FROM screener_backtest_results WHERE d3_return IS NOT NULL""")
         feats.append({"key": "pattern_screener", "label": "패턴 스크리너",
-                      "metric": "3일 상승 적중", **ps})
+                      "metric": "3일 시장 대비 적중(비용 차감)", **ps})
 
-        # 3. AI 에이전트 — BUY 판단의 실현/잠정 수익 적중
-        ag = _row(cur, """
-            SELECT COUNT(*) AS n, AVG(outcome_return) AS avg,
-                   SUM(CASE WHEN outcome_return > 0 THEN 1 ELSE 0 END) AS wins
-            FROM agent_decisions WHERE action='BUY' AND outcome_return IS NOT NULL""")
-        feats.append({"key": "agent", "label": "AI 에이전트",
-                      "metric": "BUY 수익 적중", **ag})
-
+        # 3. AI 에이전트 — 승률 탭과 같은 확정 거래(trade_history) [v3.214.0]
+        # 종전엔 agent_decisions(BUY 판단 52건, 0% 기준 26.9%)를 봐서 승률 탭(확정 거래 58건 34.5%)과 달랐다.
         conn.close()
+        ag = load_agent_trade_performance()
+        feats.append({"key": "agent", "label": "AI 에이전트",
+                      "metric": "매수~매도 시장 대비 적중(비용 차감)",
+                      "n": ag["n"], "win_rate": ag["win_rate"] or 0.0, "avg_return": ag["avg_return"] or 0.0})
     except Exception as e:
         print(f"load_ai_performance_summary error: {e}")
 
@@ -5923,20 +5960,18 @@ def load_latest_screener_picks(days: int = 7) -> dict:
         )
         picks = [dict(r) for r in cur.fetchall()]
 
-        # 실측 성적 — screener_picks를 ml_training_samples(source='pattern')와 조인
+        # 실측 성적 — 승률 탭·스크리너 백테스트와 같은 표(screener_backtest_results), 코스피 대비 [v3.214.0]
+        # 종전엔 ml_training_samples d7을 0% 기준으로 세서 같은 스크리너가 화면마다 37.5%·15.4%·39.7%로 갈렸다.
         cur.execute(
-            """SELECT m.d7_return AS r
-               FROM screener_picks s
-               JOIN ml_training_samples m
-                 ON s.ticker = m.ticker AND substr(m.decided_at, 1, 10) = s.picked_date
-               WHERE m.source = 'pattern' AND m.d7_return IS NOT NULL"""
+            """SELECT d7_return - COALESCE(bench_d7_return, 0) AS r
+               FROM screener_backtest_results WHERE d7_return IS NOT NULL"""
         )
         rets = [x["r"] for x in cur.fetchall()]
         conn.close()
 
         track = None
         if rets:
-            wins = sum(1 for x in rets if x > 0)
+            wins = sum(1 for x in rets if x > 0.21)
             track = {
                 "n": len(rets),
                 "win_rate_pct": round(wins / len(rets) * 100, 1),
