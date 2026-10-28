@@ -469,125 +469,113 @@ function StrategyBox({ label, text, color }: { label: string; text: string; colo
 }
 
 // ── 상세 분석 패널 ────────────────────────────────────────────────────────────
-function DetailPanel({ detail }: { detail: DetailResult }) {
+// 진입·목표·손절 같은 짧은 값 한 칸
+function KVTile({ label, value, color }: { label: string; value?: string; color?: string }) {
+  if (!value) return null;
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
-      {/* deep_analysis */}
-      <div>
-        <SectionHeader title="심층 분석" />
-        <MarkdownLite text={detail.deep_analysis} style={{ fontSize: "0.85rem", color: "var(--color-text)", lineHeight: 1.7 }} />
+    <div style={{ background: "rgba(0,0,0,0.22)", border: "1px solid var(--color-border)", borderRadius: "8px", padding: "8px 11px", minWidth: 0 }}>
+      <div style={{ fontSize: "0.66rem", fontWeight: 800, color: "var(--color-muted)", marginBottom: "3px" }}>{label}</div>
+      <div style={{ fontSize: "0.82rem", fontWeight: 600, color: color ?? "var(--color-text)", lineHeight: 1.5, overflowWrap: "anywhere" }}>{value}</div>
+    </div>
+  );
+}
+
+// 상세 전략의 종목 1개 — 표(가로 스크롤) 대신 카드: 휴대폰에서도 한눈에
+function PlanStockCard({ name, ticker, entry, target, stop, extra, accent }: {
+  name: string; ticker: string; entry?: string; target?: string; stop?: string; extra?: ReactNode; accent: string;
+}) {
+  return (
+    <div style={{ background: "rgba(255,255,255,0.025)", border: "1px solid var(--color-border)", borderLeft: `3px solid ${accent}`,
+                  borderRadius: "8px", padding: "10px 12px", display: "flex", flexDirection: "column", gap: "7px", minWidth: 0 }}>
+      <div style={{ display: "flex", alignItems: "baseline", gap: "6px" }}>
+        <span style={{ fontWeight: 800, fontSize: "0.9rem", color: "var(--color-text)" }}>{name}</span>
+        <span style={{ fontSize: "0.7rem", color: "var(--color-subtle)" }}>{ticker}</span>
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: "6px" }}>
+        {([["진입", entry, "#69f0ae"], ["목표", target, "#ff6b6b"], ["손절", stop, "#60a5fa"]] as const).map(([l, v, col]) => (
+          <div key={l} style={{ background: "rgba(0,0,0,0.25)", borderRadius: "6px", padding: "5px 8px", minWidth: 0 }}>
+            <div style={{ fontSize: "0.64rem", color: "var(--color-muted)", fontWeight: 700 }}>{l}</div>
+            <div style={{ fontSize: "0.76rem", fontWeight: 800, color: v ? col : "var(--color-subtle)", overflowWrap: "anywhere" }}>{v || "-"}</div>
+          </div>
+        ))}
+      </div>
+      {extra && <div style={{ fontSize: "0.78rem", color: "var(--color-muted)", lineHeight: 1.55 }}>{extra}</div>}
+    </div>
+  );
+}
+
+function DetailPanel({ detail }: { detail: DetailResult }) {
+  const sd = detail.short_detail, ld = detail.long_detail;
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: "1.5rem" }}>
+      {/* 분석 · 선례 · 리스크 */}
+      <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+        <SectionHeader title="심층 분석" color="var(--color-accent)" />
+        <InfoCard label="🧠 이 시나리오가 전개되는 과정" accent="var(--color-accent)">
+          <MarkdownLite text={detail.deep_analysis} style={{ fontSize: "0.86rem", color: "var(--color-text)", lineHeight: 1.75 }} />
+        </InfoCard>
+        {(detail.historical_precedent || detail.key_risks?.length > 0) && (
+          <CardGrid min={300}>
+            {detail.historical_precedent && (
+              <InfoCard label="📜 역사적 선례" accent="#c084fc">{detail.historical_precedent}</InfoCard>
+            )}
+            {detail.key_risks?.length > 0 && (
+              <InfoCard label={`⚠️ 핵심 리스크 ${detail.key_risks.length}`} accent="#f87171">
+                <ol style={{ margin: 0, paddingLeft: "1.2rem", display: "flex", flexDirection: "column", gap: "4px" }}>
+                  {detail.key_risks.map((r, i) => <li key={i}>{r}</li>)}
+                </ol>
+              </InfoCard>
+            )}
+          </CardGrid>
+        )}
       </div>
 
-      {/* historical_precedent */}
-      {detail.historical_precedent && (
-        <div>
-          <SectionHeader title="역사적 선례" />
-          <div style={{ fontSize: "0.85rem", color: "var(--color-muted)", lineHeight: 1.6, fontStyle: "italic" }}>
-            {detail.historical_precedent}
-          </div>
-        </div>
-      )}
-
-      {/* key_risks */}
-      {detail.key_risks?.length > 0 && (
-        <div>
-          <SectionHeader title="핵심 리스크" count={detail.key_risks.length} />
-          <ul style={{ margin: 0, padding: "0 0 0 1.2rem" }}>
-            {detail.key_risks.map((r, i) => (
-              <li key={i} style={{ fontSize: "0.82rem", color: "var(--color-text)", lineHeight: 1.6, marginBottom: "2px" }}>{r}</li>
-            ))}
-          </ul>
-        </div>
-      )}
-
-      {/* short_detail */}
-      {detail.short_detail && (
-        <div>
-          <SectionHeader title="단타 상세 전략" />
-          <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", marginBottom: "10px" }}>
-            {[
-              { l: "진입", v: detail.short_detail.entry },
-              { l: "청산", v: detail.short_detail.exit },
-              { l: "타이밍", v: detail.short_detail.timing },
-            ].map(({ l, v }) => v ? (
-              <div key={l} style={{ background: "rgba(0,0,0,0.2)", border: "1px solid var(--color-border)", borderRadius: "6px", padding: "8px 12px", fontSize: "0.8rem" }}>
-                <span style={{ color: "var(--color-muted)", fontWeight: 700 }}>{l}: </span>
-                <span style={{ color: "var(--color-text)" }}>{v}</span>
-              </div>
-            ) : null)}
-          </div>
-          {detail.short_detail.stocks?.length > 0 && (
-            <div style={{ overflowX: "auto" }}>
-              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.8rem" }}>
-                <thead>
-                  <tr style={{ borderBottom: "1px solid var(--color-border)", color: "var(--color-muted)" }}>
-                    {["종목", "티커", "진입점", "목표가", "손절가", "메모"].map(h => (
-                      <th key={h} style={{ padding: "6px 8px", textAlign: "left", fontWeight: 700 }}>{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {detail.short_detail.stocks.map((s, i) => (
-                    <tr key={i} style={{ borderBottom: "1px solid rgba(255,255,255,0.04)" }}>
-                      <td style={{ padding: "6px 8px", fontWeight: 600 }}>{s.name}</td>
-                      <td style={{ padding: "6px 8px", color: "var(--color-muted)" }}>{s.ticker}</td>
-                      <td style={{ padding: "6px 8px" }}>{s.entry_point}</td>
-                      <td style={{ padding: "6px 8px", color: "var(--color-success)" }}>{s.target}</td>
-                      <td style={{ padding: "6px 8px", color: "var(--color-danger)" }}>{s.stop}</td>
-                      <td style={{ padding: "6px 8px", color: "var(--color-muted)", fontSize: "0.75rem" }}>{s.note}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+      {/* 단타 */}
+      {sd && (
+        <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+          <SectionHeader title="⚡ 단타 상세 전략" color="var(--color-warning)" count={sd.stocks?.length || undefined} />
+          {(sd.entry || sd.exit || sd.timing) && (
+            <CardGrid min={200}>
+              <KVTile label="진입" value={sd.entry} />
+              <KVTile label="청산" value={sd.exit} />
+              <KVTile label="타이밍" value={sd.timing} />
+            </CardGrid>
+          )}
+          {sd.stocks?.length > 0 && (
+            <CardGrid min={280}>
+              {sd.stocks.map((st, i) => (
+                <PlanStockCard key={i} accent="var(--color-warning)" name={st.name} ticker={st.ticker}
+                  entry={st.entry_point} target={st.target} stop={st.stop} extra={st.note} />
+              ))}
+            </CardGrid>
           )}
         </div>
       )}
 
-      {/* long_detail */}
-      {detail.long_detail && (
-        <div>
-          <SectionHeader title="장타 상세 전략" />
-          <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", marginBottom: "10px" }}>
-            {[
-              { l: "투자 논지", v: detail.long_detail.thesis },
-              { l: "보유 기간", v: detail.long_detail.hold_period },
-              { l: "포지션 사이징", v: detail.long_detail.position_sizing },
-            ].map(({ l, v }) => v ? (
-              <div key={l} style={{ background: "rgba(0,0,0,0.2)", border: "1px solid var(--color-border)", borderRadius: "6px", padding: "8px 12px", fontSize: "0.8rem", flex: 1, minWidth: "140px" }}>
-                <span style={{ color: "var(--color-muted)", fontWeight: 700 }}>{l}: </span>
-                <span style={{ color: "var(--color-text)" }}>{v}</span>
-              </div>
-            ) : null)}
-          </div>
-          {detail.long_detail.stocks?.length > 0 && (
-            <div style={{ overflowX: "auto" }}>
-              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.8rem" }}>
-                <thead>
-                  <tr style={{ borderBottom: "1px solid var(--color-border)", color: "var(--color-muted)" }}>
-                    {["종목", "티커", "분할매수 타점", "장기 목표가 (+30%)", "손절가 (-15%)", "보유 기간", "촉매 및 투자 근거"].map(h => (
-                      <th key={h} style={{ padding: "6px 8px", textAlign: "left", fontWeight: 700 }}>{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {detail.long_detail.stocks.map((s: any, i) => (
-                    <tr key={i} style={{ borderBottom: "1px solid rgba(255,255,255,0.04)" }}>
-                      <td style={{ padding: "6px 8px", fontWeight: 600 }}>{s.name}</td>
-                      <td style={{ padding: "6px 8px", color: "var(--color-muted)" }}>{s.ticker}</td>
-                      <td style={{ padding: "6px 8px", color: "#69f0ae" }}>{s.entry_point || "-"}</td>
-                      <td style={{ padding: "6px 8px", color: "#ff6b6b" }}>{s.target || "-"}</td>
-                      <td style={{ padding: "6px 8px", color: "#60a5fa" }}>{s.stop || "-"}</td>
-                      <td style={{ padding: "6px 8px", color: "var(--color-text)", fontWeight: 600 }}>{s.hold_period || "-"}</td>
-                      <td style={{ padding: "6px 8px", color: "var(--color-muted)", fontSize: "0.75rem" }}>
-                        {s.catalyst && <strong style={{ color: "var(--color-accent)" }}>[촉매: {s.catalyst}] </strong>}
-                        {s.reason || ""}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+      {/* 장타 */}
+      {ld && (
+        <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+          <SectionHeader title="📆 장타 상세 전략" color="var(--color-accent)" count={ld.stocks?.length || undefined}
+            hint="목표가는 +30%, 손절가는 -15% 기준으로 AI가 제시한 값입니다." />
+          {(ld.thesis || ld.hold_period || ld.position_sizing) && (
+            <CardGrid min={200}>
+              <KVTile label="투자 논지" value={ld.thesis} />
+              <KVTile label="보유 기간" value={ld.hold_period} />
+              <KVTile label="포지션 사이징" value={ld.position_sizing} />
+            </CardGrid>
+          )}
+          {ld.stocks?.length > 0 && (
+            <CardGrid min={280}>
+              {ld.stocks.map((st: any, i) => (
+                <PlanStockCard key={i} accent="var(--color-accent)" name={st.name} ticker={st.ticker}
+                  entry={st.entry_point} target={st.target} stop={st.stop}
+                  extra={<>
+                    {st.hold_period && <div><strong style={{ color: "var(--color-text)" }}>보유 {st.hold_period}</strong></div>}
+                    {st.catalyst && <div><strong style={{ color: "var(--color-accent)" }}>촉매</strong> {st.catalyst}</div>}
+                    {st.reason && <div>{st.reason}</div>}
+                  </>} />
+              ))}
+            </CardGrid>
           )}
         </div>
       )}
@@ -752,8 +740,11 @@ function ScenarioContent({ scenario, issueTitle }: { scenario: Scenario; issueTi
           {scenario.market_direction === "강세" ? "📈" : scenario.market_direction === "약세" ? "📉" : "↔"} {scenario.market_direction}
         </Pill>
         <HitRateBadge rates={hitRates} direction={scenario.market_direction} roles={hitRoles} />
-        <span title="AI가 적은 확률입니다. 실제 적중과는 상관이 없었습니다(10-27 실측). 옆의 실측 성적을 보세요."
-          style={{ fontSize: "0.72rem", color: "var(--color-subtle)", marginLeft: "auto" }}>AI 확률 {scenario.probability_pct}% (참고)</span>
+        <span title="AI가 예상한 확률입니다. 10-27 실측에선 확률 높낮이와 실제 적중이 상관없었습니다 — 옆의 최근 성적과 같이 보세요."
+          style={{ marginLeft: "auto", display: "inline-flex", alignItems: "baseline", gap: "5px" }}>
+          <span style={{ fontSize: "0.7rem", color: "var(--color-muted)", fontWeight: 700 }}>AI 예상 확률</span>
+          <span style={{ fontSize: "1.05rem", fontWeight: 800, color: "var(--color-text)", fontVariantNumeric: "tabular-nums" }}>{scenario.probability_pct}%</span>
+        </span>
       </div>
 
       {/* 조건 · 체크포인트 — 짧은 글이라 넓은 화면에선 나란히 */}
@@ -889,7 +880,7 @@ function ScenarioContent({ scenario, issueTitle }: { scenario: Scenario; issueTi
               {showDetail ? "상세 분석 접기" : "상세 분석 펼치기"}
             </button>
             {showDetail && (
-              <div style={{ marginTop: "1rem", background: "var(--color-surface)", border: "1px solid var(--color-border)", borderRadius: "8px", padding: "1rem" }}>
+              <div style={{ marginTop: "1rem", background: "var(--color-surface)", border: "1px solid var(--color-border)", borderRadius: "10px", padding: "1.1rem 1.1rem 1.25rem" }}>
                 {detailStatus === "error"
                   ? <div style={{ color: "var(--color-danger)", fontSize: "0.85rem" }}>{detailMsg}</div>
                   : detailResult && <DetailPanel detail={detailResult} />
@@ -1045,17 +1036,25 @@ function IssuePanel({ issue }: { issue: Issue }) {
                     color: on ? "var(--color-text)" : "var(--color-muted)",
                   }}
                 >
-                  <div style={{ display: "flex", alignItems: "center", gap: "6px", marginBottom: "3px" }}>
-                    <span style={{ fontSize: "0.7rem", fontWeight: 800 }}>시나리오 {sc.label}</span>
-                    {sc.market_direction && <Pill color={dirColor(sc.market_direction)}>{sc.market_direction}</Pill>}
+                  <div style={{ display: "flex", alignItems: "flex-start", gap: "10px" }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: "6px", marginBottom: "3px" }}>
+                        <span style={{ fontSize: "0.7rem", fontWeight: 800 }}>시나리오 {sc.label}</span>
+                        {sc.market_direction && <Pill color={dirColor(sc.market_direction)}>{sc.market_direction}</Pill>}
+                      </div>
+                      <div style={{ fontSize: "0.86rem", fontWeight: 700, lineHeight: 1.4 }}>{sc.title}</div>
+                    </div>
+                    {/* AI 확률 — 한눈에 보이게 큰 숫자. 적중과 무관했다는 실측은 툴팁으로 */}
                     {sc.probability_pct != null && (
-                      <span title="AI가 적은 확률 — 실제 적중과는 상관이 없었습니다(10-27 실측). 참고만 하세요."
-                        style={{ marginLeft: "auto", fontSize: "0.7rem", color: "var(--color-subtle)", fontVariantNumeric: "tabular-nums" }}>
-                        AI 확률 {sc.probability_pct}%
-                      </span>
+                      <div title="AI가 예상한 확률입니다. 10-27 실측에선 확률 높낮이와 실제 적중이 상관없었습니다 — 참고만 하세요."
+                        style={{ flexShrink: 0, textAlign: "right" }}>
+                        <div style={{ fontSize: "1.25rem", fontWeight: 800, lineHeight: 1.1, color: on ? "var(--color-text)" : "var(--color-muted)", fontVariantNumeric: "tabular-nums" }}>
+                          {sc.probability_pct}%
+                        </div>
+                        <div style={{ fontSize: "0.62rem", color: "var(--color-subtle)", fontWeight: 700 }}>AI 예상</div>
+                      </div>
                     )}
                   </div>
-                  <div style={{ fontSize: "0.86rem", fontWeight: 700, lineHeight: 1.4 }}>{sc.title}</div>
                 </button>
               );
             })}
