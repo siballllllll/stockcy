@@ -8186,7 +8186,7 @@ def load_scenario_tracking_list(limit: int = 300) -> list:
         cur.execute(
             """SELECT ticker, name, market, scenario_keyword, scenario_title, role, horizon,
                       captured_at, captured_price, d1_return, d3_return, d7_return,
-                      theme_id, mom5_at_capture
+                      theme_id, mom5_at_capture, bench_d7_return, entry_basis
                FROM scenario_stocks
                ORDER BY captured_at DESC
                LIMIT ?""",
@@ -8881,7 +8881,77 @@ def _make_bench_lookup():
 
         return (_br(1), _br(3), _br(7), _br(20), _br(60))
 
+    def since(cap_date, basis: str, market: str):
+        """진입부터 **지금까지** 지수 수익률(%) — 7일이 안 찬 행의 진행 중 판정용.
+        다음날 시가 진입(next_open)은 등장일 다음 거래일 시가가 출발점이다. 아직 진입 전이면 None."""
+        ser = _series(market)
+        if not ser:
+            return None
+        if basis == "next_open":
+            nxt = [x for x in ser if x[0] > cap_date]
+            if not nxt:
+                return None
+            b0 = nxt[0][1]
+        else:
+            prev = [x for x in ser if x[0] <= cap_date]
+            if not prev:
+                return None
+            d0, o0, c0 = prev[-1]
+            b0 = o0 if (basis not in ("close", "quote_after") and d0 == cap_date
+                        and o0 == o0 and o0 > 0) else c0
+        if not b0 or b0 <= 0:
+            return None
+        return round((ser[-1][2] - b0) / b0 * 100, 2)
+
+    lookup.since = since
     return lookup
+
+
+_LIST_BENCH = {"at": 0.0, "fn": None}
+
+
+def add_scenario_list_verdicts(rows: list) -> list:
+    """추적 목록 행마다 성적표와 **같은 기준**의 판정을 붙인다 [v3.218.0].
+    종전 목록은 '±1% 넘게 오르면 적중'(시장 무시)이라 성적표 승률과 판정이 엇갈렸다 —
+    코스피 +5%일 때 +3% 오른 종목이 목록에선 ✅, 성적표에선 빗나감.
+      · 7일 확정 행: _rescore_scenarios와 같은 식(d7 - 지수 d7, 피해는 반대, 비용 초과면 적중)
+      · 7일 전 행: 같은 식을 '지금까지'로 — 확정이 아니라 진행 중 표시(lead/lag)
+    """
+    import time as _time
+    from datetime import datetime as _dt, timedelta as _td
+    if _LIST_BENCH["fn"] is None or _time.time() - _LIST_BENCH["at"] > 600:
+        _LIST_BENCH["fn"], _LIST_BENCH["at"] = _make_bench_lookup(), _time.time()
+    bench = _LIST_BENCH["fn"]
+
+    for r in rows:
+        mkt = (r.get("market") or ("kr" if str(r.get("ticker", "")).isdigit() else "us")).lower()
+        fee = 0.21 if mkt == "kr" else 0.15
+        sgn = -1 if r.get("role") == "피해" else 1
+        r["fee"] = fee
+        r["verdict"] = None
+        d7 = r.get("d7_return")
+        if d7 is not None:
+            b7 = r.get("bench_d7_return")
+            r["bench_return"] = b7
+            ex = round(sgn * (d7 - (b7 or 0)), 2)
+            r["excess"] = ex
+            r["verdict"] = "hit" if ex > fee else "miss"
+            continue
+        cur = r.get("current_return")
+        if cur is None:
+            continue
+        try:
+            cap = _dt.strptime(str(r.get("captured_at"))[:19], "%Y-%m-%d %H:%M:%S")
+        except Exception:
+            continue
+        if mkt != "kr":
+            cap = cap - _td(hours=14)      # KST → 현지 거래일(백필과 같은 근사)
+        b = bench.since(cap.date(), r.get("entry_basis") or "", mkt)
+        r["bench_return"] = b
+        ex = round(sgn * (cur - (b or 0)), 2)
+        r["excess"] = ex
+        r["verdict"] = "lead" if ex > fee else "lag"
+    return rows
 
 
 def _measure_scenario_row(df, row: dict, mkt: str, bench) -> tuple | None:

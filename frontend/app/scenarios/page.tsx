@@ -1541,8 +1541,10 @@ export function ScenarioTrackingPanel() {
             </div>
 
             <div style={{ padding: "10px 20px 4px", fontSize: "0.7rem", color: "var(--color-muted)", lineHeight: 1.6 }}>
-              📅 <b>등장 날짜별</b>로 묶임(최신순). 왼쪽 배지 = 시나리오가 맞았는지: <span style={{ color: "#34d399" }}>✅적중</span>(예상대로 움직임) · <span style={{ color: "#f87171" }}>❌빗나감</span>(반대로 움직임) · <span style={{ color: "#fbbf24" }}>⏳진행중</span>(보합) · <span style={{ color: "#fbbf24" }}>추적중</span>(등장가/가격 집계 전)<br/>
-              · <b>📈상승기대</b>(수혜)는 오르면 적중, <b>📉하락기대</b>(피해)는 내리면 적중 · 오른쪽 숫자 = <b>등장가 대비 현재 수익률</b> · <b>7일확정</b>=등장 후 7거래일 성과
+              📅 <b>등장 날짜별</b>로 묶임(최신순). 왼쪽 배지는 <b>성적표와 같은 기준</b> — 같은 기간 <b>시장(코스피·S&amp;P500)보다 더 올랐는지</b>(비용 차감)로 봅니다.<br/>
+              · <span style={{ color: "#34d399" }}>✅적중</span> / <span style={{ color: "#f87171" }}>❌빗나감</span> = 7일이 지나 확정된 결과 ·
+              {" "}<span style={{ color: "#6ee7b7" }}>⏳앞서는 중</span> / <span style={{ color: "#fca5a5" }}>⏳뒤지는 중</span> = 7일 전, 지금까지 기준(바뀔 수 있음)<br/>
+              · <b>📉하락기대</b>(피해) 종목은 시장보다 <b>더 내리면</b> 적중 · 오른쪽 큰 숫자 = 등장가 대비 수익률
             </div>
 
             {/* 본문 (날짜 그룹별, 스크롤) */}
@@ -1562,18 +1564,19 @@ export function ScenarioTrackingPanel() {
                       const cr = s.current_return;
                       const crColor = cr == null ? "var(--color-muted)" : cr >= 0 ? "#34d399" : "#f87171";
                       const sceneText = String(s.scenario_title || s.scenario_keyword || "").trim();
-                      // 적중 판정: 수혜/테마=상승 기대, 피해=하락 기대. 결과는 현재수익률(없으면 7일).
-                      const outcome = cr != null ? cr : (s.d7_return ?? null);
+                      // [v3.218.0] 판정은 백엔드(add_scenario_list_verdicts)가 성적표와 같은 식으로 낸다.
+                      // 종전엔 여기서 '±1% 넘게 오르면 적중'(시장 무시)으로 따로 채점해 성적표와 엇갈렸다.
                       const expectUp = s.role !== "피해";
-                      let vt: { t: string; c: string; bg: string };
-                      if (outcome == null) vt = { t: "추적중", c: "#fbbf24", bg: "rgba(251,191,36,0.12)" };
-                      else {
-                        const hit  = expectUp ? outcome > 1 : outcome < -1;
-                        const miss = expectUp ? outcome < -1 : outcome > 1;
-                        vt = hit  ? { t: "✅ 적중",   c: "#34d399", bg: "rgba(52,211,153,0.15)" }
-                           : miss ? { t: "❌ 빗나감", c: "#f87171", bg: "rgba(248,113,113,0.15)" }
-                           :        { t: "⏳ 진행중", c: "#fbbf24", bg: "rgba(251,191,36,0.12)" };
-                      }
+                      const VT: Record<string, { t: string; c: string; bg: string }> = {
+                        hit:  { t: "✅ 적중",      c: "#34d399", bg: "rgba(52,211,153,0.15)" },
+                        miss: { t: "❌ 빗나감",    c: "#f87171", bg: "rgba(248,113,113,0.15)" },
+                        lead: { t: "⏳ 앞서는 중", c: "#6ee7b7", bg: "rgba(110,231,183,0.08)" },
+                        lag:  { t: "⏳ 뒤지는 중", c: "#fca5a5", bg: "rgba(252,165,165,0.08)" },
+                      };
+                      const vt = VT[s.verdict] ?? { t: "추적중", c: "#fbbf24", bg: "rgba(251,191,36,0.12)" };
+                      const mkt = String(s.market || (isUs ? "us" : "kr")).toLowerCase();
+                      const idxName = mkt === "kr" ? "코스피" : mkt === "us" ? "S&P500" : "현지 지수";
+                      const fmt = (v: number) => `${v > 0 ? "+" : ""}${v}`;
                       const roleLabel = s.role === "피해" ? "📉 하락기대" : s.role === "수혜" ? "📈 상승기대" : s.role === "테마" ? "테마" : s.role;
                       return (
                         <div key={i} style={{ display: "flex", alignItems: "center", gap: "12px", background: "rgba(255,255,255,0.03)", border: "1px solid var(--color-border)", borderLeft: `4px solid ${vt.c}`, borderRadius: "8px", padding: "10px 14px" }}>
@@ -1609,6 +1612,15 @@ export function ScenarioTrackingPanel() {
                                 ? <>등장가 {isUs ? "$" : "₩"}{Number(s.captured_price).toLocaleString()}{s.current_price != null && <> → 현재 {isUs ? "$" : "₩"}{Number(s.current_price).toLocaleString()}</>}</>
                                 : <span style={{ color: "#fbbf24" }}>등장가 집계 대기 (다음 새벽 확정)</span>}
                             </div>
+                            {s.excess != null && (
+                              <div style={{ fontSize: "0.72rem", color: "var(--color-muted)", marginTop: "1px" }}>
+                                같은 기간 {idxName} {s.bench_return != null ? `${fmt(s.bench_return)}%` : "–"}
+                                {" → "}<b style={{ color: s.excess > 0 ? "#34d399" : s.excess < 0 ? "#f87171" : "var(--color-muted)" }}>
+                                  {expectUp ? `시장보다 ${fmt(s.excess)}%p` : `시장보다 ${Math.abs(s.excess)}%p ${s.excess >= 0 ? "더 내림" : "덜 내림"}`}
+                                </b>
+                                <span style={{ color: "var(--color-subtle)" }}> · {s.d7_return != null ? "7일 확정" : "지금까지"}</span>
+                              </div>
+                            )}
                           </div>
                           {/* 등장 후 수익률 (대표 숫자) + 7일 확정 */}
                           <div style={{ textAlign: "right", flexShrink: 0, minWidth: "84px" }}>

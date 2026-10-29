@@ -1920,6 +1920,8 @@ async def get_scenario_tracking_list():
     from ai_engine import load_scenario_tracking_list
     rows = await asyncio.to_thread(load_scenario_tracking_list)
     rows = await asyncio.to_thread(_enrich_scenario_list_current, rows)
+    from ai_engine import add_scenario_list_verdicts
+    rows = await asyncio.to_thread(add_scenario_list_verdicts, rows)
     return rows
 
 
