@@ -6851,9 +6851,12 @@ def screen_by_my_pattern(market: str = "kr") -> dict:
             overheated = bool((p52 is not None and p52 >= 85) or (chg is not None and chg >= 8) or (rsi_v is not None and rsi_v >= 75))
             low_mult, high_mult = (0.96, 0.99) if overheated else (0.985, 1.0)
             raw_high = cur * high_mult
-            raw_low  = max(cur * low_mult, ma20) if ma20 else cur * low_mult
-            # low ≤ high 보장 (ma20이 현재가보다 높을 때 역전 방지)
-            raw_low  = min(raw_low, raw_high)
+            raw_low  = cur * low_mult
+            # 20일선은 현재가 아래에 있을 때만 받침(하단)으로 쓴다. [v3.220.1]
+            # 종전엔 max(현재가×비율, 20일선)이라 주가가 20일선 아래(=눌림목, 이 스크리너가 찾는 자리)면
+            # 하단이 상단보다 커졌고, 역전 방지 min()이 둘을 같게 만들어 '493.79 ~ 493.79'처럼 한 점이 됐다.
+            if ma20 and ma20 < raw_high:
+                raw_low = max(raw_low, ma20)
             if is_kr:
                 buy_low, buy_high = int(round(raw_low)), int(round(raw_high))
             else:
