@@ -6010,6 +6010,27 @@ def _get_trade_indicators(ticker: str, buy_date_str: str) -> dict:
             except Exception:
                 pass
 
+        # [v3.220.0] 미국: 정규장이 끝나지 않은 봉은 뺀다. 토스는 한국 낮(미국 주간거래)에 그날 봉을
+        # 미리 만든다 — 10-29 실측 DELL 오늘 봉 거래량 6,391주(평소 500만+)라 거래량 비율이 0.0이 되고
+        # 현재가·RSI도 몇 시간짜리 거래로 계산됐다. 날짜만으로 판정(미국 동부 날짜·16시 마감).
+        if hist is not None and not is_kr and not hist.empty:
+            try:
+                from zoneinfo import ZoneInfo
+                from datetime import timedelta
+                import pandas as pd
+                _et = datetime.now(ZoneInfo("America/New_York"))
+                _last_done = _et.date() if _et.hour >= 16 else _et.date() - timedelta(days=1)
+                if "datetime" in hist.columns:
+                    _dates = pd.to_datetime(hist["datetime"]).dt.date
+                else:
+                    _dates = pd.Series([getattr(d, "date", lambda: d)() for d in hist.index], index=hist.index)
+                _keep = (_dates <= _last_done).values
+                if not _keep.all():
+                    hist = hist[_keep]
+                hist = hist[hist["Close"].notna()]
+            except Exception as _pe:
+                print(f"[indicators] {ticker} 미완성 봉 정리 실패(무시): {_pe}")
+
         if hist is not None and not hist.empty and len(hist) >= 20:
             closes  = hist["Close"].values
             volumes = hist["Volume"].values
@@ -6505,8 +6526,11 @@ def _score_stock_against_profile(ind: dict, profile: dict) -> float:
     return round(max(0.0, min(100.0, final)), 1)
 
 
-def screen_by_my_pattern() -> dict:
-    """오늘 거래량·등락률 상위 종목 중 패턴 프로파일(개인+리딩방 교집합)에 가장 가까운 종목을 추천합니다."""
+def screen_by_my_pattern(market: str = "kr") -> dict:
+    """오늘 거래량·등락률 상위 종목 중 패턴 프로파일(개인+리딩방 교집합)에 가장 가까운 종목을 추천합니다.
+    [v3.220.0] market="us"면 S&P500 눌림목 후보(pullback_universe.build_us)만 같은 산식으로 채점한다.
+    국내 전용 신호(거래량·등락률 순위·돌파직전 분봉·수급 순위)는 미국에 없어 건너뛴다."""
+    market = "us" if str(market).lower() == "us" else "kr"
     import requests as req_lib
     from db import load_pattern_profile, load_pattern_profile_v2
 
@@ -6550,89 +6574,107 @@ def screen_by_my_pattern() -> dict:
     if win_rate < 50:
         reliability_warning = f"승률 {win_rate}% — 참고용으로만 활용하세요 (손실 패턴 페널티 적용 중)"
 
-    # 2. 오늘 거래량·등락률 상위 종목 수집
-    candidates: dict[str, dict] = {}
+    # 2. 후보 수집
+    if market == "us":
+        # 미국: 시장 전체(S&P500) 눌림목 후보만. 국내 순위·분봉·수급 신호는 미국에 없다.
+        candidates: dict[str, dict] = {}
+        prebreak_map: dict[str, dict] = {}
+        already_surged: set[str] = set()
+        try:
+            from pullback_universe import load as _load_pullback
+            for _u in _load_pullback(market="us"):
+                _cc = str(_u.get("code", "")).strip().upper()
+                if _cc:
+                    candidates[_cc] = {"code": _cc, "name": _u.get("name", ""), "signal": "pullback"}
+        except Exception as _e:
+            print(f"[screener US] 눌림목 후보 로드 오류: {_e}")
+        if not candidates:
+            return {"error": "오늘은 조건(추세 안 조정·거래량 평소 이하·RSI 30~55)에 맞는 미국 종목이 없습니다. "
+                             "후보 목록은 매일 아침 07시에 새로 만들어집니다.", "market": "us"}
+    else:
+        # 2. 오늘 거래량·등락률 상위 종목 수집
+        candidates: dict[str, dict] = {}
 
-    BASE = "http://127.0.0.1:8000"
-    def _extract_code(item: dict) -> str:
-        raw = item.get("종목코드") or item.get("code") or item.get("ticker") or ""
-        return str(raw).strip().zfill(6)
+        BASE = "http://127.0.0.1:8000"
+        def _extract_code(item: dict) -> str:
+            raw = item.get("종목코드") or item.get("code") or item.get("ticker") or ""
+            return str(raw).strip().zfill(6)
 
-    def _extract_name(item: dict) -> str:
-        return str(item.get("종목명") or item.get("name") or "")
+        def _extract_name(item: dict) -> str:
+            return str(item.get("종목명") or item.get("name") or "")
 
-    volume_list: list = []
-    change_list: list = []
-    try:
-        vol_r = req_lib.get(f"{BASE}/api/kr/volume-ranking?market=ALL", timeout=10,
-                            headers={"ngrok-skip-browser-warning": "69420"})
-        volume_list = vol_r.json() if vol_r.ok else []
-        for item in volume_list:
-            code = _extract_code(item)
-            if code and code != "000000":
-                candidates[code] = {"code": code, "name": _extract_name(item), "signal": "volume"}
-    except Exception as e:
-        print(f"[screener] volume-ranking 오류: {e}")
+        volume_list: list = []
+        change_list: list = []
+        try:
+            vol_r = req_lib.get(f"{BASE}/api/kr/volume-ranking?market=ALL", timeout=10,
+                                headers={"ngrok-skip-browser-warning": "69420"})
+            volume_list = vol_r.json() if vol_r.ok else []
+            for item in volume_list:
+                code = _extract_code(item)
+                if code and code != "000000":
+                    candidates[code] = {"code": code, "name": _extract_name(item), "signal": "volume"}
+        except Exception as e:
+            print(f"[screener] volume-ranking 오류: {e}")
 
-    try:
-        chg_r = req_lib.get(f"{BASE}/api/kr/change-ranking?market=ALL&direction=up", timeout=10,
-                            headers={"ngrok-skip-browser-warning": "69420"})
-        change_list = chg_r.json() if chg_r.ok else []
-        for item in change_list:
-            code = _extract_code(item)
-            if code and code != "000000":
-                if code in candidates:
-                    candidates[code]["signal"] = "both"
-                else:
-                    candidates[code] = {"code": code, "name": _extract_name(item), "signal": "change"}
-    except Exception as e:
-        print(f"[screener] change-ranking 오류: {e}")
+        try:
+            chg_r = req_lib.get(f"{BASE}/api/kr/change-ranking?market=ALL&direction=up", timeout=10,
+                                headers={"ngrok-skip-browser-warning": "69420"})
+            change_list = chg_r.json() if chg_r.ok else []
+            for item in change_list:
+                code = _extract_code(item)
+                if code and code != "000000":
+                    if code in candidates:
+                        candidates[code]["signal"] = "both"
+                    else:
+                        candidates[code] = {"code": code, "name": _extract_name(item), "signal": "change"}
+        except Exception as e:
+            print(f"[screener] change-ranking 오류: {e}")
 
-    # 2-b. 돌파 직전(pre-breakout) 후보 시그널 주입 — '오르기 전' 종목을 우선 포착하기 위함.
-    #      등락률 -2~+8% 구간(아직 안 터졌지만 거래량 유입)을 분봉으로 검증해 signal_score(0~5) 부여.
-    prebreak_map: dict[str, dict] = {}   # code -> {score, label}
-    already_surged: set[str] = set()     # 오늘 +8%↑ 이미 급등 (추격 페널티 대상)
-    try:
-        pb_enriched, pb_done = _compute_prebreakout_signals(volume_list, change_list)
-        for s in pb_enriched:
-            code = str(s.get("종목코드", "")).strip().zfill(6)
-            if not code or code == "000000":
-                continue
-            sig = s.get("_signal", {}) or {}
-            prebreak_map[code] = {"score": sig.get("signal_score", 0) or 0, "label": sig.get("signal_label", "") or ""}
-            # pre-breakout 후보가 후보군에 없으면 추가 (거래량/등락률 랭킹 밖이어도 포착)
-            if code not in candidates:
-                candidates[code] = {"code": code, "name": _extract_name(s), "signal": "prebreakout"}
-        for s in pb_done:
-            code = str(s.get("종목코드", "")).strip().zfill(6)
-            if code and code != "000000":
-                already_surged.add(code)
-    except Exception as e:
-        print(f"[screener] prebreakout 계산 오류: {e}")
+        # 2-b. 돌파 직전(pre-breakout) 후보 시그널 주입 — '오르기 전' 종목을 우선 포착하기 위함.
+        #      등락률 -2~+8% 구간(아직 안 터졌지만 거래량 유입)을 분봉으로 검증해 signal_score(0~5) 부여.
+        prebreak_map: dict[str, dict] = {}   # code -> {score, label}
+        already_surged: set[str] = set()     # 오늘 +8%↑ 이미 급등 (추격 페널티 대상)
+        try:
+            pb_enriched, pb_done = _compute_prebreakout_signals(volume_list, change_list)
+            for s in pb_enriched:
+                code = str(s.get("종목코드", "")).strip().zfill(6)
+                if not code or code == "000000":
+                    continue
+                sig = s.get("_signal", {}) or {}
+                prebreak_map[code] = {"score": sig.get("signal_score", 0) or 0, "label": sig.get("signal_label", "") or ""}
+                # pre-breakout 후보가 후보군에 없으면 추가 (거래량/등락률 랭킹 밖이어도 포착)
+                if code not in candidates:
+                    candidates[code] = {"code": code, "name": _extract_name(s), "signal": "prebreakout"}
+            for s in pb_done:
+                code = str(s.get("종목코드", "")).strip().zfill(6)
+                if code and code != "000000":
+                    already_surged.add(code)
+        except Exception as e:
+            print(f"[screener] prebreakout 계산 오류: {e}")
 
-    # 2-c. 시장 전체 눌림목 후보 편입 [v3.219.0]
-    #   종전(v3.106.0)엔 즐겨찾기+보유를 넣고 맨 앞에 세웠다 — 내 승리 패턴(거래량 조용한 눌림목)이
-    #   급등 순위엔 안 잡혀서였다. 그 결과 10-29 기준 최근 15일 픽의 91%가 즐겨찾기 25종목이었다
-    #   (사용자: "너무 한정적"). 이제 pullback_universe가 하루 한 번 코스피·코스닥 시총 1,000억+
-    #   전체에서 같은 조건(추세 안 조정·거래량 조용·RSI 중립 이하·5일 급등 아님)으로 추린 목록을 쓴다.
-    #   즐겨찾기 종목도 조건을 통과하면 여기 들어온다 — 특별 대우만 없앴다.
-    try:
-        from pullback_universe import load as _load_pullback
-        for _u in _load_pullback():
-            _cc = str(_u.get("code", "")).zfill(6)
-            if _cc and _cc != "000000" and _cc not in candidates:
-                candidates[_cc] = {"code": _cc, "name": _u.get("name", ""), "signal": "pullback"}
-    except Exception as _e:
-        print(f"[screener] 시장 전체 눌림목 편입 오류: {_e}")
+        # 2-c. 시장 전체 눌림목 후보 편입 [v3.219.0]
+        #   종전(v3.106.0)엔 즐겨찾기+보유를 넣고 맨 앞에 세웠다 — 내 승리 패턴(거래량 조용한 눌림목)이
+        #   급등 순위엔 안 잡혀서였다. 그 결과 10-29 기준 최근 15일 픽의 91%가 즐겨찾기 25종목이었다
+        #   (사용자: "너무 한정적"). 이제 pullback_universe가 하루 한 번 코스피·코스닥 시총 1,000억+
+        #   전체에서 같은 조건(추세 안 조정·거래량 조용·RSI 중립 이하·5일 급등 아님)으로 추린 목록을 쓴다.
+        #   즐겨찾기 종목도 조건을 통과하면 여기 들어온다 — 특별 대우만 없앴다.
+        try:
+            from pullback_universe import load as _load_pullback
+            for _u in _load_pullback():
+                _cc = str(_u.get("code", "")).zfill(6)
+                if _cc and _cc != "000000" and _cc not in candidates:
+                    candidates[_cc] = {"code": _cc, "name": _u.get("name", ""), "signal": "pullback"}
+        except Exception as _e:
+            print(f"[screener] 시장 전체 눌림목 편입 오류: {_e}")
 
-    # 채점 우선순위 정렬: 시장 전체 눌림목·pre-breakout 후보를 앞으로 →
-    #   [:60] 컷에서 눌림목 종목이 누락되지 않게.
-    candidates = dict(
-        sorted(candidates.items(),
-               key=lambda kv: (kv[1].get("signal") == "pullback",
-                               prebreak_map.get(kv[0], {}).get("score", 0)),
-               reverse=True)
-    )
+        # 채점 우선순위 정렬: 시장 전체 눌림목·pre-breakout 후보를 앞으로 →
+        #   [:60] 컷에서 눌림목 종목이 누락되지 않게.
+        candidates = dict(
+            sorted(candidates.items(),
+                   key=lambda kv: (kv[1].get("signal") == "pullback",
+                                   prebreak_map.get(kv[0], {}).get("score", 0)),
+                   reverse=True)
+        )
 
     if not candidates:
         return {"error": "시장 데이터를 가져오지 못했습니다. 백엔드 서버가 실행 중인지 확인해주세요."}
@@ -6651,7 +6693,8 @@ def screen_by_my_pattern() -> dict:
     supply_map: dict[str, dict] = {}   # code -> {rank, frgn, orgn}
     try:
         from data_kr import get_kr_frgn_inst_rank
-        _inv = (get_kr_frgn_inst_rank("J", 30, "buy") or []) + (get_kr_frgn_inst_rank("Q", 30, "buy") or [])
+        _inv = [] if market == "us" else (
+            (get_kr_frgn_inst_rank("J", 30, "buy") or []) + (get_kr_frgn_inst_rank("Q", 30, "buy") or []))
         for _i, _s in enumerate(_inv):
             _c = str(_s.get("종목코드", "")).strip().zfill(6)
             if _c and _c not in supply_map:
@@ -6661,7 +6704,7 @@ def screen_by_my_pattern() -> dict:
 
     hot_code_map: dict[str, str] = {}   # code -> 핫섹터 키워드
     try:
-        _hs = get_hot_sectors_nowait()
+        _hs = get_hot_sectors_nowait() if market == "kr" else None
         if _hs:
             for _sec in _hs.get("sectors", []):
                 _kw = _sec.get("keyword", "")
@@ -6978,6 +7021,7 @@ def screen_by_my_pattern() -> dict:
 {profile_summary}
 
 === 오늘 패턴 매칭 후보 종목 (매칭점수 높은 순) ===
+{"※ 후보는 미국(S&P500) 종목입니다. 가격은 달러, 이 패턴은 주로 국내 매매에서 배운 것이라 미국에선 참고 수준임을 감안하세요." if market == "us" else ""}
 {candidates_text}
 
 위 데이터를 바탕으로:
@@ -7013,6 +7057,7 @@ def screen_by_my_pattern() -> dict:
             "leading_trades":    leading_profile.get("total_trades") if dual_mode else None,
         },
         "top_picks":    top[:5],
+        "market":       market,
         "hard_filtered": hard_filtered[:10],   # 실측 저승률 구간으로 제외된 후보 (급등추격 차단 내역)
         "ai_narrative": narrative,
     }
@@ -8778,12 +8823,19 @@ def backfill_perf_benchmarks() -> dict:
     out = {"screener": 0, "agent": 0}
     conn = get_db_conn(); cur = conn.cursor()
     # 스크리너: 픽 날 종가 진입 → 3·7거래일 뒤 종가 (d3/d7과 같은 오프셋)
-    rows = cur.execute("""SELECT id, picked_date, d1_return, d3_return, d7_return FROM screener_backtest_results
+    rows = cur.execute("""SELECT id, picked_date, d1_return, d3_return, d7_return, COALESCE(market, 'kr') AS market
+                          FROM screener_backtest_results
                           WHERE (d1_return IS NOT NULL AND bench_d1_return IS NULL)
                              OR (d3_return IS NOT NULL AND bench_d3_return IS NULL)
                              OR (d7_return IS NOT NULL AND bench_d7_return IS NULL)""").fetchall()
-    ser = _ser("kr") if rows else None
-    for r in (rows if ser else []):
+    _sers = {}
+    for r in rows:
+        _m = "us" if r["market"] == "us" else "kr"
+        if _m not in _sers:
+            _sers[_m] = _ser(_m)
+        ser = _sers[_m]
+        if not ser:
+            continue
         bi = _idx(ser, str(r["picked_date"])[:10])
         if bi is None:
             continue
@@ -9452,7 +9504,7 @@ def _backtest_screener_picks_impl() -> dict:
     conn = get_db_conn()
     cursor = conn.cursor()
     cursor.execute(
-        """SELECT picked_date, ticker, name, match_score, signal
+        """SELECT picked_date, ticker, name, match_score, signal, COALESCE(market, 'kr') AS market
            FROM screener_picks
            ORDER BY picked_date ASC"""
     )
@@ -9478,7 +9530,8 @@ def _backtest_screener_picks_impl() -> dict:
             continue
 
         raw_ticker = str(pick["ticker"]).strip()
-        is_us = any(c.isalpha() for c in raw_ticker)
+        # [v3.220.0] 시장은 픽에 적힌 값으로 — 국내도 'Q570082'(ETN)처럼 영문이 섞인 코드가 있다
+        is_us = pick.get("market") == "us"
         ticker = raw_ticker.upper() if is_us else raw_ticker.zfill(6)
 
         try:
@@ -9516,6 +9569,7 @@ def _backtest_screener_picks_impl() -> dict:
                 "name":         pick.get("name", ticker),
                 "match_score":  pick.get("match_score"),
                 "signal":       pick.get("signal"),
+                "market":       pick.get("market") or "kr",
                 "entry_price":  entry_price,
                 "d1_price":     d1,
                 "d3_price":     d3,

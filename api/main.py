@@ -763,6 +763,24 @@ def _scenario_tracking_loop():
                         print(f"[pattern screen] 스킵: {_pr['error']}")
                 except Exception as e:
                     print(f"[pattern screen] 오류: {e}")
+                # [v3.220.0] 미국 패턴 스크리너 — 미국장 마감 뒤(07시)라 전날 미국 세션이 반영된다.
+                # 후보 목록(S&P500 눌림목)을 먼저 새로 만들고, 실패(속도 제한 등)하면 4일 이내 목록을 쓴다.
+                try:
+                    import pullback_universe as _pu
+                    try:
+                        _pu.build_us()
+                    except Exception as _be:
+                        print(f"[pattern screen US] 후보 생성 실패(기존 목록 사용): {_be}")
+                    from ai_engine import screen_by_my_pattern
+                    from db import save_screener_picks
+                    _pu_r = screen_by_my_pattern("us")
+                    if _pu_r.get("top_picks"):
+                        save_screener_picks(_pu_r["top_picks"], "us")
+                        print(f"[pattern screen US] 자동 스크리닝 저장: {len(_pu_r['top_picks'])}건 ({today})")
+                    elif _pu_r.get("error"):
+                        print(f"[pattern screen US] 스킵: {_pu_r['error']}")
+                except Exception as e:
+                    print(f"[pattern screen US] 오류: {e}")
         except Exception:
             pass
         _time.sleep(300)   # 5분마다 체크

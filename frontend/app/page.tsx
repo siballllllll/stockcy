@@ -504,12 +504,13 @@ function ExitGuidance() {
 // 없었다(아래 SSE 패널은 버튼을 눌러 그 자리에서 새로 돌리는 유료 경로). 저장분을
 // 진입 즉시 무과금으로 보여준다. 실측 성적을 함께 띄우는 것은 의도적이다 — 픽만
 // 보이면 근거 없이 사고 싶어지는데, 이 픽들의 과거 성적은 승률 29.6%·평균 -4.54%다.
-function SavedPicksPanel() {
+function SavedPicksPanel({ market = "kr" }: { market?: "kr" | "us" }) {
   const router = useRouter();
+  const idx = market === "us" ? "S&P500" : "코스피";
   const { data } = useSWR<{ picks: any[]; latest_date: string | null; track_record: any }>(
-    "saved-screener-picks",
+    `saved-screener-picks-${market}`,
     async () => {
-      const res = await fetch("/backend/api/ai/pattern-screener/latest?days=7");
+      const res = await fetch(`/backend/api/ai/pattern-screener/latest?days=7&market=${market}`);
       return res.json();
     },
     { refreshInterval: 300000 }
@@ -529,14 +530,14 @@ function SavedPicksPanel() {
         </div>
         {tr && (
           <div style={{ fontSize: "0.72rem", color: tr.win_rate_pct >= 50 ? "#34d399" : "#f87171" }}>
-            실측 성적 {tr.n}건 · 7일 코스피 대비 승률 {tr.win_rate_pct}% · 평균 {tr.avg_return_pct > 0 ? "+" : ""}{tr.avg_return_pct}%
+            실측 성적 {tr.n}건 · 7일 {idx} 대비 승률 {tr.win_rate_pct}% · 평균 {tr.avg_return_pct > 0 ? "+" : ""}{tr.avg_return_pct}%
           </div>
         )}
       </div>
 
       {tr && tr.win_rate_pct < 50 && (
         <div style={{ fontSize: "0.72rem", color: "#fbbf24", background: "rgba(245,158,11,0.1)", border: "1px solid rgba(245,158,11,0.25)", borderRadius: "6px", padding: "6px 9px", lineHeight: 1.5 }}>
-          ⚠️ 이 스크리너의 과거 추천은 7일 코스피 대비 승률 {tr.win_rate_pct}%·평균 {tr.avg_return_pct}%였고,
+          ⚠️ 이 스크리너의 과거 추천은 7일 {idx} 대비 승률 {tr.win_rate_pct}%·평균 {tr.avg_return_pct}%였고,
           점수(match_score)가 높을수록 결과가 좋다는 관계도 확인되지 않았습니다. 매수 근거로 단독 사용하지 마세요.
         </div>
       )}
@@ -779,10 +780,19 @@ export default function Dashboard() {
     "/api/ai/sector-rotation",
     { globalId: "sector-rotation", globalTitle: "섹터 순환 분석" }
   );
-  const myPick = useSSE<{ profile_summary: any; top_picks: any[]; ai_narrative: string }>(
+  const myPickKr = useSSE<{ profile_summary: any; top_picks: any[]; ai_narrative: string }>(
     "/api/ai/pattern-screener",
     { method: "POST", globalId: "pattern-screener", globalTitle: "내 패턴 스크리너" }
   );
+  // [v3.220.0] 미국 탭 — S&P500 눌림목 후보를 같은 산식으로. 국내 결과와 따로 돌고 따로 저장된다.
+  const myPickUs = useSSE<{ profile_summary: any; top_picks: any[]; ai_narrative: string }>(
+    "/api/ai/pattern-screener?market=us",
+    { method: "POST", globalId: "pattern-screener-us", globalTitle: "내 패턴 스크리너 (미국)" }
+  );
+  const [patMkt, setPatMkt] = useState<"kr" | "us">("kr");
+  const myPick = patMkt === "us" ? myPickUs : myPickKr;
+  const isUsPat = patMkt === "us";
+  const money = (v: any) => isUsPat ? `$${Number(v).toFixed(2)}` : `₩${Number(v).toLocaleString()}`;
 
   return (
     <div className="flex flex-col gap-6 animate-in fade-in duration-300">
@@ -867,11 +877,31 @@ export default function Dashboard() {
       {/* 내 패턴 스크리너 */}
       {activeTab === "mypattern" && (
         <>
-        <SavedPicksPanel />
-        <SSEPanel
+        {/* 국내 / 미국 */}
+        <div style={{ display: "flex", gap: "6px", alignItems: "center", flexWrap: "wrap" }}>
+          {([["kr", "🇰🇷 국내"], ["us", "🇺🇸 미국"]] as const).map(([k, l]) => (
+            <button key={k} onClick={() => setPatMkt(k)}
+              style={{ padding: "6px 16px", borderRadius: "999px", fontSize: "0.82rem", fontWeight: 800, cursor: "pointer",
+                       border: `1px solid ${patMkt === k ? "var(--color-accent)" : "var(--color-border)"}`,
+                       background: patMkt === k ? "rgba(255,255,255,0.08)" : "transparent",
+                       color: patMkt === k ? "var(--color-text)" : "var(--color-muted)" }}>
+              {l}
+            </button>
+          ))}
+          <span style={{ fontSize: "0.74rem", color: "var(--color-subtle)" }}>
+            {isUsPat ? "S&P500 전체에서 추린 눌림목 후보 · 매일 아침 7시 자동" : "코스피·코스닥 시총 1,000억+ 전체에서 추린 눌림목 후보 · 매일 아침 7시 자동"}
+          </span>
+        </div>
+        {isUsPat && (
+          <div style={{ fontSize: "0.76rem", color: "#fbbf24", background: "rgba(245,158,11,0.1)", border: "1px solid rgba(245,158,11,0.25)", borderRadius: "8px", padding: "8px 11px", lineHeight: 1.55 }}>
+            ⚠️ 채점 기준은 <b>국내 매매 기록</b>에서 배운 패턴입니다(미국 매매는 1건). 미국에서도 통하는지는 12월 29일에 따로 판정합니다 — 그때까지는 참고용으로 보세요.
+          </div>
+        )}
+        <SavedPicksPanel key={patMkt} market={patMkt} />
+        <SSEPanel key={`sse-${patMkt}`}
           status={myPick.status} message={myPick.message}
           result={myPick.result} fromCache={myPick.fromCache} completedAt={myPick.completedAt}
-          onStart={myPick.start} startLabel="내 패턴으로 종목 찾기"
+          onStart={myPick.start} startLabel={isUsPat ? "내 패턴으로 미국 종목 찾기" : "내 패턴으로 종목 찾기"}
           idleHint="내 거래 기록에서 승률이 높았던 매매 조건을 학습하고, 오늘 시장에서 그 조건에 가장 근접한 단기 유망 종목을 찾습니다. (1~2분 소요)"
         >
           {(data) => (
@@ -948,7 +978,7 @@ export default function Dashboard() {
                               {status.label}
                             </span>
                             {p.signal === "pullback" && (
-                              <span title="코스피·코스닥 시총 1,000억+ 전체에서 '추세 안 조정·거래량 조용' 조건으로 추린 후보" style={{ fontSize: "0.72rem", padding: "3px 10px", borderRadius: "99px", background: "rgba(96,165,250,0.15)", color: "#93c5fd", border: "1px solid rgba(96,165,250,0.45)", fontWeight: 700 }}>
+                              <span title={isUsPat ? "S&P500 전체에서 '추세 안 조정·거래량 평소 이하' 조건으로 추린 후보" : "코스피·코스닥 시총 1,000억+ 전체에서 '추세 안 조정·거래량 조용' 조건으로 추린 후보"} style={{ fontSize: "0.72rem", padding: "3px 10px", borderRadius: "99px", background: "rgba(96,165,250,0.15)", color: "#93c5fd", border: "1px solid rgba(96,165,250,0.45)", fontWeight: 700 }}>
                                 🔍 시장 전체 눌림목
                               </span>
                             )}
@@ -1038,7 +1068,7 @@ export default function Dashboard() {
                               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
                                 <span style={{ fontSize: "0.68rem", color: "var(--color-muted)" }}>현재가</span>
                                 <span style={{ fontWeight: 800, fontSize: "0.9rem" }}>
-                                  ₩{Number(p.current_price).toLocaleString()}
+                                  {money(p.current_price)}
                                   {p.today_change_pct != null && (
                                     <span style={{ marginLeft: "5px", fontSize: "0.72rem", fontWeight: 700, color: p.today_change_pct >= 0 ? "var(--color-danger)" : "var(--color-primary)" }}>
                                       {p.today_change_pct >= 0 ? "▲" : "▼"}{Math.abs(p.today_change_pct).toFixed(2)}%
@@ -1050,7 +1080,7 @@ export default function Dashboard() {
                                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
                                   <span style={{ fontSize: "0.68rem", color: "var(--color-muted)" }}>추천 매수가</span>
                                   <span style={{ fontWeight: 700, fontSize: "0.82rem", color: "#34d399" }}>
-                                    ₩{Number(p.buy_low).toLocaleString()} ~ ₩{Number(p.buy_high).toLocaleString()}
+                                    {money(p.buy_low)} ~ {money(p.buy_high)}
                                   </span>
                                 </div>
                               )}
@@ -1082,7 +1112,7 @@ export default function Dashboard() {
                                   p.ma_aligned    ? "MA 정배열 확인됨" : null,
                                   p.signal === "both" ? "거래량 급증+등락률 상위 이중 신호" : p.signal === "pullback" ? "시장 전체에서 추린 눌림목 후보(추세 안 조정·거래량 조용)" : `신호 유형: ${p.signal}`,
                                 ].filter(Boolean).join(" / ");
-                                setSelectedStock({ code: p.code, name: p.name, market: "국내", patternContext: ctx });
+                                setSelectedStock({ code: p.code, name: p.name, market: isUsPat ? "미국" : "국내", patternContext: ctx });
                               }}
                             >
                               <Zap size={11} /> AI분석

@@ -47,3 +47,4 @@ data_csv/gemini_usage.jsonl
 data_csv/ai_usage.jsonl
 data_csv/fx_historical_cache.json
 data_csv/pullback_universe.json
+data_csv/pullback_universe_us.json

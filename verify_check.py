@@ -1005,7 +1005,7 @@ def main():
             """SELECT b.ticker, b.d7_return - COALESCE(b.bench_d7_return, 0) ex
                FROM screener_backtest_results b JOIN screener_picks p
                  ON p.ticker = b.ticker AND p.picked_date = b.picked_date
-               WHERE p.signal = 'pullback' AND b.d7_return IS NOT NULL AND b.picked_date >= '2026-10-29'""").fetchall()
+               WHERE p.signal = 'pullback' AND b.d7_return IS NOT NULL AND b.picked_date >= '2026-10-29' AND COALESCE(p.market, 'kr') = 'kr'""").fetchall()
         _n = len(_rows)
         _uniq = len({r["ticker"] for r in _rows})
         _wr = round(sum(1 for r in _rows if r["ex"] > 0.21) / _n * 100, 1) if _n else None
@@ -1019,6 +1019,31 @@ def main():
             print(f"   [BLOCKED] 표본 부족({_n}건·{_uniq}종목) — 2027-01-12로 연기.")
         else:
             print("   [DUE] 기준대로 유지/혼합/복귀 결정(VERIFY.md V28).")
+    except Exception as e:
+        print(f"   [BLOCKED] 확인 실패: {str(e)[:80]}")
+
+
+    # ── V29. 미국 패턴 스크리너 (v3.220.0) ──────────────────────────────────
+    print(_hdr("V29", "국내 매매에서 배운 눌림목 패턴이 미국(S&P500)에서도 통하나", "2026-12-29"))
+    print("   배경: 사용자 매매 기록은 국내 27건·미국 1건 — 채점 패턴이 사실상 국내산. 미국은 탭을 따로 두고 따로 잰다.")
+    print("         미국만 거래량 조건 1.0배 이하(국내 0.8) — 10-29 실적 시즌에 0.8이면 503종목 중 1개만 통과.")
+    try:
+        _rows = cur.execute(
+            """SELECT b.ticker, b.d7_return - COALESCE(b.bench_d7_return, 0) ex
+               FROM screener_backtest_results b
+               WHERE COALESCE(b.market, 'kr') = 'us' AND b.d7_return IS NOT NULL""").fetchall()
+        _n = len(_rows)
+        _uniq = len({r["ticker"] for r in _rows})
+        _wr = round(sum(1 for r in _rows if r["ex"] > 0.15) / _n * 100, 1) if _n else None
+        _avg = round(sum(r["ex"] for r in _rows) / _n, 2) if _n else None
+        print(f"   미국 픽 {_n}건({_uniq}종목) · 7일 S&P500 대비 승률 {_wr}% · 평균 {_avg}%p (비용 0.15%)")
+        print("   기준: 60건+·25종목+에서 50%+ → 유지. 45~50% → 유지하되 '참고용' 표시. 45% 미만 → 미국 탭을 내릴지 사용자에게 묻는다.")
+        if _days_to("2026-12-29") > 0:
+            print(f"   [WAIT] 새 표본 {_n}건 — 12-29까지.")
+        elif _n < 60 or _uniq < 25:
+            print(f"   [BLOCKED] 표본 부족({_n}건·{_uniq}종목) — 2027-01-26으로 연기.")
+        else:
+            print("   [DUE] 기준대로 유지/참고용/내림 결정(VERIFY.md V29).")
     except Exception as e:
         print(f"   [BLOCKED] 확인 실패: {str(e)[:80]}")
 

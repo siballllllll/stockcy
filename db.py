@@ -3002,7 +3002,7 @@ def backfill_ml_samples_from_history() -> dict:
         # 2) 패턴 스크리너 픽
         cur.execute(
             """INSERT OR IGNORE INTO ml_training_samples (source, ticker, name, market, decided_at)
-               SELECT 'pattern', ticker, MAX(name), 'kr', picked_date
+               SELECT 'pattern', ticker, MAX(name), COALESCE(MAX(market), 'kr'), picked_date
                FROM screener_picks
                WHERE ticker IS NOT NULL AND TRIM(ticker) != ''
                GROUP BY ticker, picked_date"""
@@ -5102,13 +5102,13 @@ def save_backtest_result(row: dict):
             """INSERT OR REPLACE INTO screener_backtest_results
                (picked_date, ticker, name, match_score, signal,
                 entry_price, d1_price, d3_price, d7_price,
-                d1_return, d3_return, d7_return, computed_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                d1_return, d3_return, d7_return, computed_at, market)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (row.get("picked_date"), row.get("ticker"), row.get("name"),
              row.get("match_score"), row.get("signal"),
              row.get("entry_price"), row.get("d1_price"), row.get("d3_price"), row.get("d7_price"),
              row.get("d1_return"), row.get("d3_return"), row.get("d7_return"),
-             datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+             datetime.now().strftime("%Y-%m-%d %H:%M:%S"), row.get("market") or "kr")
         )
         conn.commit()
         conn.close()
@@ -5116,28 +5116,36 @@ def save_backtest_result(row: dict):
         print(f"save_backtest_result error: {e}")
 
 
-def _scr_win(h: int) -> str:
-    """스크리너 승리 판정 SQL — 같은 기간 코스피보다 비용(0.21%) 넘게 더 올랐나 (v3.214.0, 시나리오와 같은 잣대)."""
-    return f"(d{h}_return - COALESCE(bench_d{h}_return, 0) > 0.21)"
+def _scr_win(h: int, fee: float = 0.21) -> str:
+    """스크리너 승리 판정 SQL — 같은 기간 지수보다 비용 넘게 더 올랐나 (v3.214.0, 시나리오와 같은 잣대).
+    국내 코스피·0.21%, 미국 S&P500·0.15%(v3.220.0)."""
+    return f"(d{h}_return - COALESCE(bench_d{h}_return, 0) > {fee})"
 
 
-def load_backtest_stats() -> dict:
+def _scr_mkt(market: str) -> tuple:
+    """스크리너 표 시장 조건과 비용. [v3.220.0] 미국 탭이 생기며 국내 성적에 섞이지 않게 모든 집계를 시장별로."""
+    m = "us" if str(market).lower() == "us" else "kr"
+    return f"COALESCE(market, 'kr') = '{m}'", (0.15 if m == "us" else 0.21), m
+
+
+def load_backtest_stats(market: str = "kr") -> dict:
     """백테스트 결과 집계 통계.
     [v3.214.0] 승률·평균을 시장(코스피) 대비·비용 차감으로 바꾸고, 기간별 분모를 그 기간이 찬 행으로.
     종전엔 d7 분모가 d1이 찬 전체(403)라 d7이 안 찬 230행이 전부 '패배'로 세져 7일 승률 15.4%로 보였다."""
     try:
         conn = get_db_conn()
         cursor = conn.cursor()
+        _mk, _fee, _m = _scr_mkt(market)
         cursor.execute(
             f"""SELECT COUNT(*) AS n, COUNT(d1_return) AS n1, COUNT(d3_return) AS n3, COUNT(d7_return) AS n7,
                       AVG(d1_return - COALESCE(bench_d1_return, 0)) AS avg_d1,
                       AVG(d3_return - COALESCE(bench_d3_return, 0)) AS avg_d3,
                       AVG(d7_return - COALESCE(bench_d7_return, 0)) AS avg_d7,
-                      SUM(CASE WHEN {_scr_win(1)} THEN 1 ELSE 0 END) AS win_d1,
-                      SUM(CASE WHEN {_scr_win(3)} THEN 1 ELSE 0 END) AS win_d3,
-                      SUM(CASE WHEN {_scr_win(7)} THEN 1 ELSE 0 END) AS win_d7
+                      SUM(CASE WHEN {_scr_win(1, _fee)} THEN 1 ELSE 0 END) AS win_d1,
+                      SUM(CASE WHEN {_scr_win(3, _fee)} THEN 1 ELSE 0 END) AS win_d3,
+                      SUM(CASE WHEN {_scr_win(7, _fee)} THEN 1 ELSE 0 END) AS win_d7
                FROM screener_backtest_results
-               WHERE d1_return IS NOT NULL"""
+               WHERE d1_return IS NOT NULL AND {_mk}"""
         )
         overall = dict(cursor.fetchone() or {})
 
@@ -5146,9 +5154,9 @@ def load_backtest_stats() -> dict:
         for label, min_s, max_s in [("80점 이상", 80, 101), ("60~79점", 60, 80), ("60점 미만", 0, 60)]:
             cursor.execute(
                 f"""SELECT COUNT(*) AS n, AVG(d3_return - COALESCE(bench_d3_return, 0)) AS avg_d3,
-                          SUM(CASE WHEN {_scr_win(3)} THEN 1 ELSE 0 END) AS wins
+                          SUM(CASE WHEN {_scr_win(3, _fee)} THEN 1 ELSE 0 END) AS wins
                    FROM screener_backtest_results
-                   WHERE d3_return IS NOT NULL AND match_score >= ? AND match_score < ?""",
+                   WHERE d3_return IS NOT NULL AND {_mk} AND match_score >= ? AND match_score < ?""",
                 (min_s, max_s)
             )
             r = dict(cursor.fetchone() or {})
@@ -5163,10 +5171,10 @@ def load_backtest_stats() -> dict:
 
         # 최근 결과 샘플
         cursor.execute(
-            """SELECT picked_date, ticker, name, match_score,
+            f"""SELECT picked_date, ticker, name, match_score,
                       entry_price, d3_price, d3_return
                FROM screener_backtest_results
-               WHERE d3_return IS NOT NULL
+               WHERE d3_return IS NOT NULL AND {_mk}
                ORDER BY picked_date DESC LIMIT 10"""
         )
         recent = [dict(r) for r in cursor.fetchall()]
@@ -5182,7 +5190,7 @@ def load_backtest_stats() -> dict:
                 **{f"win_rate_d{h}": round((overall.get(f"win_d{h}") or 0) / overall[f"n{h}"] * 100, 1)
                    if overall.get(f"n{h}") else 0 for h in (1, 3, 7)},
                 "count_d7": overall.get("n7") or 0,
-                "basis": "코스피 대비·비용 0.21% 차감",
+                "basis": "S&P500 대비·비용 0.15% 차감" if _m == "us" else "코스피 대비·비용 0.21% 차감",
             },
             "score_buckets": buckets,
             "recent": recent,
@@ -5250,7 +5258,7 @@ def load_ai_performance_summary() -> dict:
         ps = _row(cur, """
             SELECT COUNT(*) AS n, AVG(d3_return - COALESCE(bench_d3_return, 0)) AS avg,
                    SUM(CASE WHEN d3_return - COALESCE(bench_d3_return, 0) > 0.21 THEN 1 ELSE 0 END) AS wins
-            FROM screener_backtest_results WHERE d3_return IS NOT NULL""")
+            FROM screener_backtest_results WHERE d3_return IS NOT NULL AND COALESCE(market, 'kr') = 'kr'""")
         feats.append({"key": "pattern_screener", "label": "패턴 스크리너",
                       "metric": "3일 시장 대비 적중(비용 차감)", **ps})
 
@@ -5833,7 +5841,8 @@ def load_exit_guidance() -> dict:
     try:
         conn = get_db_conn()
         cur = conn.cursor()
-        cur.execute("SELECT d1_return, d3_return, d7_return FROM screener_backtest_results WHERE d1_return IS NOT NULL")
+        cur.execute("SELECT d1_return, d3_return, d7_return FROM screener_backtest_results "
+                    "WHERE d1_return IS NOT NULL AND COALESCE(market, 'kr') = 'kr'")
         rows = [dict(r) for r in cur.fetchall()]
         conn.close()
         if not rows:
@@ -5913,22 +5922,23 @@ def load_notification_feed() -> list:
     return events
 
 
-def save_screener_picks(picks: list):
-    """패턴 스크리너 추천 결과를 DB에 저장합니다. 당일 기존 기록은 덮어씁니다."""
+def save_screener_picks(picks: list, market: str = "kr"):
+    """패턴 스크리너 추천 결과를 DB에 저장합니다. 당일 같은 시장 기록은 덮어씁니다(v3.220.0 시장별)."""
     try:
+        _mk, _fee, _m = _scr_mkt(market)
         conn = get_db_conn()
         cursor = conn.cursor()
         today = datetime.now().strftime("%Y-%m-%d")
-        cursor.execute("DELETE FROM screener_picks WHERE picked_date = ?", (today,))
+        cursor.execute(f"DELETE FROM screener_picks WHERE picked_date = ? AND {_mk}", (today,))
         for p in picks:
             cursor.execute(
                 """INSERT INTO screener_picks
-                   (picked_date, ticker, name, match_score, signal, rsi, vol_ratio, pos_52w, ma_aligned, price, hsh_label)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                   (picked_date, ticker, name, match_score, signal, rsi, vol_ratio, pos_52w, ma_aligned, price, hsh_label, market)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (today, _pad_kr_ticker(p.get("code", "")), p.get("name", ""),
                  p.get("match_score"), p.get("signal"), p.get("rsi"),
                  p.get("vol_ratio"), p.get("pos_52w"),
-                 1 if p.get("ma_aligned") else 0, p.get("current_price"), p.get("hsh_label") or "")
+                 1 if p.get("ma_aligned") else 0, p.get("current_price"), p.get("hsh_label") or "", _m)
             )
         conn.commit()
         conn.close()
@@ -5936,7 +5946,7 @@ def save_screener_picks(picks: list):
         print(f"save_screener_picks error: {e}")
 
 
-def load_latest_screener_picks(days: int = 7) -> dict:
+def load_latest_screener_picks(days: int = 7, market: str = "kr") -> dict:
     """[v3.136.2] 스케줄러가 매일 저장해둔 패턴 스크리너 픽을 조회한다(무과금).
 
     화면의 '내 패턴 스크리너'는 버튼을 눌러 그 자리에서 새로 돌리는 SSE 경로라, 매일 자동
@@ -5948,13 +5958,14 @@ def load_latest_screener_picks(days: int = 7) -> dict:
     화면에 픽만 띄우면 '보이니까 사고 싶어지는' 효과가 생기므로 성적을 같이 노출한다.
     """
     try:
+        _mk, _fee, _m = _scr_mkt(market)
         conn = get_db_conn()
         cur = conn.cursor()
         cur.execute(
-            """SELECT picked_date, ticker, name, match_score, signal, rsi, vol_ratio,
+            f"""SELECT picked_date, ticker, name, match_score, signal, rsi, vol_ratio,
                       pos_52w, ma_aligned, market, price, hsh_label
                FROM screener_picks
-               WHERE picked_date >= date('now', ?)
+               WHERE picked_date >= date('now', ?) AND {_mk}
                ORDER BY picked_date DESC, match_score DESC""",
             (f"-{int(days)} day",)
         )
@@ -5963,15 +5974,15 @@ def load_latest_screener_picks(days: int = 7) -> dict:
         # 실측 성적 — 승률 탭·스크리너 백테스트와 같은 표(screener_backtest_results), 코스피 대비 [v3.214.0]
         # 종전엔 ml_training_samples d7을 0% 기준으로 세서 같은 스크리너가 화면마다 37.5%·15.4%·39.7%로 갈렸다.
         cur.execute(
-            """SELECT d7_return - COALESCE(bench_d7_return, 0) AS r
-               FROM screener_backtest_results WHERE d7_return IS NOT NULL"""
+            f"""SELECT d7_return - COALESCE(bench_d7_return, 0) AS r
+               FROM screener_backtest_results WHERE d7_return IS NOT NULL AND {_mk}"""
         )
         rets = [x["r"] for x in cur.fetchall()]
         conn.close()
 
         track = None
         if rets:
-            wins = sum(1 for x in rets if x > 0.21)
+            wins = sum(1 for x in rets if x > _fee)
             track = {
                 "n": len(rets),
                 "win_rate_pct": round(wins / len(rets) * 100, 1),
@@ -5981,6 +5992,7 @@ def load_latest_screener_picks(days: int = 7) -> dict:
         latest = picks[0]["picked_date"] if picks else None
         return {
             "picks": picks,
+            "market": _m,
             "latest_date": latest,
             "days": days,
             "track_record": track,
