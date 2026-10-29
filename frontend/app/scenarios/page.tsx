@@ -1135,6 +1135,26 @@ function AgentDailyIssuesPanel() {
 }
 
 // ── AI 기능별 실적 통합 비교 ──────────────────────────────────────────────────
+const sign = (v: number | null | undefined, suffix = "%p") =>
+  v == null ? "–" : `${v > 0 ? "+" : ""}${v}${suffix}`;
+const tone = (v: number | null | undefined) =>
+  v == null ? "var(--color-subtle)" : v > 0 ? "#34d399" : v < 0 ? "#f87171" : "var(--color-muted)";
+
+// 성적표 숫자 한 칸 — 큰 숫자 + 위 이름 + 아래 설명
+function StatTile({ label, value, sub, color, accent, muted }: {
+  label: ReactNode; value: ReactNode; sub?: ReactNode; color?: string; accent?: string; muted?: boolean;
+}) {
+  return (
+    <div style={{ background: "rgba(255,255,255,0.03)", border: "1px solid var(--color-border)",
+                  borderLeft: `3px solid ${accent ?? "var(--color-border)"}`, borderRadius: "8px", padding: "9px 12px", minWidth: 0 }}>
+      <div style={{ fontSize: "0.72rem", fontWeight: 800, color: "var(--color-muted)", display: "flex", alignItems: "center", gap: "4px" }}>{label}</div>
+      <div style={{ fontSize: muted ? "1.15rem" : "1.5rem", fontWeight: 800, lineHeight: 1.25, fontVariantNumeric: "tabular-nums",
+                    color: color ?? (muted ? "var(--color-muted)" : "var(--color-text)") }}>{value}</div>
+      {sub && <div style={{ fontSize: "0.7rem", color: "var(--color-subtle)", lineHeight: 1.45 }}>{sub}</div>}
+    </div>
+  );
+}
+
 function AiPerformanceCompare() {
   const [feats, setFeats] = useState<any[] | null>(null);
   const [bestKey, setBestKey] = useState<string | null>(null);
@@ -1158,40 +1178,24 @@ function AiPerformanceCompare() {
   const hasData = feats.some((f: any) => f.n > 0);
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: "6px", paddingBottom: "8px", borderBottom: "1px solid rgba(255,255,255,0.08)", marginBottom: "2px" }}>
-      <div style={{ fontSize: "0.72rem", fontWeight: 800, color: "var(--color-text)" }}>🏆 AI 기능별 실적 비교</div>
-      <div style={{ display: "flex", gap: "6px" }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+      <SectionHeader title="🏆 AI 기능별 승률" color="#34d399" hint="기능마다 같은 기준(시장 대비·비용 차감)으로 잽니다." />
+      <CardGrid min={170}>
         {feats.map((f: any) => {
           const isBest = f.key === bestKey && f.n > 0;
-          const rc = f.avg_return > 0 ? "#34d399" : f.avg_return < 0 ? "#f87171" : "var(--color-muted)";
-          return (
-            <div key={f.key} style={{
-              flex: 1,
-              background: isBest ? "rgba(52,211,153,0.12)" : "rgba(255,255,255,0.03)",
-              border: `1px solid ${isBest ? "#34d399" : "rgba(255,255,255,0.1)"}`,
-              borderRadius: "6px", padding: "6px 7px",
-            }}>
-              <div style={{ fontSize: "0.66rem", fontWeight: 800, color: "var(--color-text)", display: "flex", alignItems: "center", gap: "3px" }}>
-                {isBest && <span>👑</span>}{f.label}
-              </div>
-              {f.n > 0 ? (
-                <>
-                  <div style={{ fontSize: "0.78rem", fontWeight: 800, color: rc }}>승률 {f.win_rate}%</div>
-                  <div style={{ fontSize: "0.6rem", color: "var(--color-muted)" }}>
-                    평균 <span style={{ color: rc }}>{f.avg_return >= 0 ? "+" : ""}{f.avg_return}%</span> · {f.n}건
-                  </div>
-                  <div style={{ fontSize: "0.56rem", color: "var(--color-muted)" }}>{f.metric}</div>
-                </>
-              ) : (
-                <div style={{ fontSize: "0.6rem", color: "var(--color-muted)", paddingTop: "4px" }}>데이터 누적 중</div>
-              )}
-            </div>
+          return f.n > 0 ? (
+            <StatTile key={f.key} accent={isBest ? "#34d399" : undefined}
+              label={<>{isBest && <span>👑</span>}{f.label}</>}
+              value={`${f.win_rate}%`}
+              sub={<>시장 대비 평균 <b style={{ color: tone(f.avg_return) }}>{sign(f.avg_return)}</b> · {f.n.toLocaleString()}건<br />{f.metric}</>} />
+          ) : (
+            <StatTile key={f.key} label={f.label} value="–" muted sub="데이터 누적 중" />
           );
         })}
-      </div>
+      </CardGrid>
       {!hasData && (
-        <div style={{ fontSize: "0.58rem", color: "var(--color-muted)" }}>
-          ※ 각 기능의 사후 성과가 쌓이면(시나리오 d7·스크리너 d3·에이전트 매도확정) 자동 표시됩니다.
+        <div style={{ fontSize: "0.7rem", color: "var(--color-muted)" }}>
+          ※ 각 기능의 사후 성과가 쌓이면(시나리오 7일·스크리너 3일·에이전트 매도 확정) 자동 표시됩니다.
         </div>
       )}
     </div>
@@ -1202,37 +1206,25 @@ function AiPerformanceCompare() {
 // ── 뒷북(급등 후 편입) 분해 [v3.195.0] ──────────────────────────────────────
 // V17 판정을 화면으로 옮긴 것. 사용자의 종전 우려("+10%여도 텐베거 초입일 수 있다")를
 // d60까지 재서 기각했다 — 급등 편입분은 시간이 갈수록 초과수익이 더 벌어진다.
-function ChaseSplit({ rows, meta }: { rows: any[]; meta: any }) {
+// [v3.217.0] 숫자는 중복 제거한 재채점(rescore) 기준 — 위 '전체 승률'과 같은 계산.
+function ChaseSplit({ groups, meta }: { groups: any[]; meta: any }) {
   return (
-    <div style={{ borderTop: "1px solid var(--color-border)", paddingTop: "8px", marginTop: "2px" }}>
-      <div style={{ fontSize: "0.72rem", fontWeight: 800, color: "var(--color-muted)", marginBottom: "4px" }}>
-        🔺 뒷북 여부로 가른 성적
-      </div>
-      <div style={{ display: "flex", gap: "6px" }}>
-        {rows.map((r: any) => {
-          const bad = r.label !== "비급등";
+    <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+      <SectionHeader title="🔺 뒷북 여부로 가른 성적" color="#f87171"
+        hint={<>뒷북 = {meta?.threshold ?? "포착 직전 급등"}에 편입된 종목. 20일을 기다려도 회복되지 않아 <b style={{ color: "var(--color-text)" }}>재료 집계에서 제외</b>합니다(기록은 남습니다).</>} />
+      <CardGrid min={200}>
+        {groups.map((g: any) => {
+          const bad = g.label !== "비급등";
           const c = bad ? "#f87171" : "#34d399";
           return (
-            <div key={r.label} style={{ flex: 1, padding: "7px 9px", borderRadius: "7px",
-              background: bad ? "rgba(248,113,113,0.08)" : "rgba(52,211,153,0.08)",
-              border: `1px solid ${c}44` }}>
-              <div style={{ fontSize: "0.66rem", fontWeight: 800, color: c }}>
-                {bad ? "🔺 " : "✅ "}{r.label} <span style={{ color: "var(--color-subtle)", fontWeight: 500 }}>{r.count}건</span>
-              </div>
-              <div style={{ fontSize: "0.62rem", color: "var(--color-muted)", lineHeight: 1.6 }}>
-                7일 {r.excess_d7 > 0 ? "+" : ""}{r.excess_d7}%p · 승률 {r.win_rate_d7}%<br />
-                20일 {r.excess_d20 == null ? "–" : `${r.excess_d20 > 0 ? "+" : ""}${r.excess_d20}%p`}
-                {r.win_rate_d20 != null && ` · 승률 ${r.win_rate_d20}%`}
-              </div>
-            </div>
+            <StatTile key={g.label} accent={c}
+              label={<span style={{ color: c }}>{bad ? "🔺 " : "✅ "}{g.label} <span style={{ color: "var(--color-subtle)", fontWeight: 600 }}>{g.count.toLocaleString()}건</span></span>}
+              value={`${g.d7?.win_rate ?? "–"}%`}
+              sub={<>7일 시장 대비 <b style={{ color: tone(g.d7?.avg_excess) }}>{sign(g.d7?.avg_excess)}</b>
+                {g.d20 && <><br />참고 20일: 승률 {g.d20.win_rate}% · <span style={{ color: tone(g.d20.avg_excess) }}>{sign(g.d20.avg_excess)}</span></>}</>} />
           );
         })}
-      </div>
-      <div style={{ fontSize: "0.6rem", color: "var(--color-subtle)", lineHeight: 1.5, marginTop: "4px" }}>
-        뒷북 = {meta?.threshold ?? "포착 직전 급등"}에 편입된 픽. 보유기간을 20일로 늘려도 회복되지 않아
-        <b style={{ color: "var(--color-text)" }}> 재료 집계에서 제외</b>합니다(기록은 남습니다).
-        {meta?.coverage_pct != null && <span> 측정 {meta.coverage_pct}% ({meta.measured}/{meta.total}행)</span>}
-      </div>
+      </CardGrid>
     </div>
   );
 }
@@ -1240,7 +1232,7 @@ function ChaseSplit({ rows, meta }: { rows: any[]; meta: any }) {
 // ── 테마별 실측표 [v3.194.0] ────────────────────────────────────────────────
 // 표본 30건 미만은 기본 접는다. 우연과 구분되지 않는 숫자를 표의 맨 위에 올리면
 // 없는 신호를 읽게 된다 — 섀도우 리그에서 +65.5% 한 건이 평균 순위를 뒤집은 전례가 있다.
-function ThemeScoreboard({ rows }: { rows: any[] }) {
+function ThemeScoreboard({ rows, overall }: { rows: any[]; overall?: any }) {
   const [all, setAll] = useState(false);
   const MIN_N = 30;
   const shown = useMemo(() => {
@@ -1248,62 +1240,51 @@ function ThemeScoreboard({ rows }: { rows: any[] }) {
     return [...f].sort((a, b) => (b.excess_d7 ?? 0) - (a.excess_d7 ?? 0));
   }, [rows, all]);
   const hidden = rows.length - rows.filter((r) => (r.count ?? 0) >= MIN_N).length;
-  const col = (v: number | null | undefined) =>
-    v == null ? "var(--color-subtle)" : v > 0 ? "#34d399" : v < 0 ? "#f87171" : "var(--color-muted)";
-  const num = (v: number | null | undefined, suffix = "%p") =>
-    v == null ? "–" : `${v > 0 ? "+" : ""}${v}${suffix}`;
+  const th: CSSProperties = { padding: "6px 8px", fontWeight: 700, fontSize: "0.7rem" };
+  const td: CSSProperties = { padding: "7px 8px", textAlign: "right", fontVariantNumeric: "tabular-nums" };
 
   return (
-    <div style={{ borderTop: "1px solid var(--color-border)", paddingTop: "8px", marginTop: "2px" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "4px" }}>
-        <div style={{ fontSize: "0.72rem", fontWeight: 800, color: "var(--color-muted)" }}>
-          🏷️ 테마별 실측 (시장 대비 초과수익)
-        </div>
-        <button
-          onClick={() => setAll((v) => !v)}
-          style={{ border: "1px solid var(--color-border)", background: "transparent", color: "var(--color-muted)",
-                   borderRadius: "5px", padding: "2px 7px", fontSize: "0.62rem", cursor: "pointer" }}
-        >
-          {all ? `표본 ${MIN_N}건+만` : `전체 보기 (+${hidden})`}
-        </button>
-      </div>
-      <div style={{ fontSize: "0.6rem", color: "var(--color-subtle)", lineHeight: 1.5, marginBottom: "5px" }}>
-        이슈 문장을 고정된 테마 이름표로 접어 집계합니다. d20을 함께 보는 이유 —
-        전체 초과수익이 7일 -1.31%p인데 20일은 +1.36%p로 부호가 뒤집힙니다.
-        <b style={{ color: "var(--color-text)" }}> 7일에 나쁜 테마와 그냥 늦게 오는 테마는 다릅니다.</b>
-      </div>
-      <div style={{ overflowX: "auto" }}>
-        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.64rem", minWidth: "420px" }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+      <SectionHeader title="🏷️ 테마별 성적" color="#c084fc" count={shown.length}
+        hint={<>이슈를 고정된 테마 이름표로 묶어 집계합니다.
+          {overall?.d7 && overall?.d20 && <> 전체 시장 대비 평균이 7일 {sign(overall.d7.avg_excess)}, 20일 {sign(overall.d20.avg_excess)}입니다 —</>}
+          <b style={{ color: "var(--color-text)" }}> 7일에 나쁜 테마와 그냥 늦게 오는 테마는 다릅니다.</b></>} />
+      <div style={{ overflowX: "auto", border: "1px solid var(--color-border)", borderRadius: "8px" }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.8rem", minWidth: "460px" }}>
           <thead>
-            <tr style={{ color: "var(--color-muted)", textAlign: "right" }}>
-              <th style={{ textAlign: "left", padding: "3px 4px", fontWeight: 700 }}>테마</th>
-              <th style={{ padding: "3px 4px", fontWeight: 700 }}>n</th>
-              <th style={{ padding: "3px 4px", fontWeight: 700 }}>7일 초과</th>
-              <th style={{ padding: "3px 4px", fontWeight: 700 }}>승률</th>
-              <th style={{ padding: "3px 4px", fontWeight: 700 }}>20일 초과</th>
-              <th style={{ padding: "3px 4px", fontWeight: 700 }}>승률</th>
+            <tr style={{ color: "var(--color-muted)", textAlign: "right", background: "rgba(255,255,255,0.04)" }}>
+              <th style={{ ...th, textAlign: "left" }}>테마</th>
+              <th style={th}>건수</th>
+              <th style={th}>7일 승률</th>
+              <th style={th}>7일 시장 대비</th>
+              <th style={{ ...th, color: "var(--color-subtle)" }}>참고 20일</th>
             </tr>
           </thead>
           <tbody>
-            {shown.map((t) => (
-              <tr key={t.theme_id} style={{ borderTop: "1px solid var(--color-border)" }}>
-                <td style={{ padding: "3px 4px", maxWidth: "160px", overflow: "hidden",
-                             textOverflow: "ellipsis", whiteSpace: "nowrap", color: "var(--color-text)", fontWeight: 600 }}>
-                  <span style={{ color: "var(--color-subtle)", fontWeight: 500 }}>{t.group}</span>{" "}{t.label}
+            {shown.map((t, i) => (
+              <tr key={t.theme_id} style={{ borderTop: "1px solid var(--color-border)", background: i % 2 ? "rgba(255,255,255,0.015)" : "transparent" }}>
+                <td style={{ ...td, textAlign: "left", maxWidth: "220px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={`${t.group} ${t.label}`}>
+                  <span style={{ color: "var(--color-subtle)", fontSize: "0.7rem" }}>{t.group}</span>{" "}
+                  <span style={{ color: "var(--color-text)", fontWeight: 700 }}>{t.label}</span>
                 </td>
-                <td style={{ padding: "3px 4px", textAlign: "right", color: "var(--color-muted)" }}>{t.count}</td>
-                <td style={{ padding: "3px 4px", textAlign: "right", color: col(t.excess_d7), fontWeight: 700 }}>{num(t.excess_d7)}</td>
-                <td style={{ padding: "3px 4px", textAlign: "right", color: "var(--color-muted)" }}>{t.win_rate_d7}%</td>
-                <td style={{ padding: "3px 4px", textAlign: "right", color: col(t.excess_d20), fontWeight: 700 }}>{num(t.excess_d20)}</td>
-                <td style={{ padding: "3px 4px", textAlign: "right", color: "var(--color-muted)" }}>
-                  {t.win_rate_d20 == null ? "–" : `${t.win_rate_d20}%`}
-                  {t.count_d20 ? <span style={{ color: "var(--color-subtle)" }}> ({t.count_d20})</span> : null}
+                <td style={{ ...td, color: "var(--color-muted)" }}>{t.count}</td>
+                <td style={{ ...td, color: "var(--color-text)", fontWeight: 800 }}>{t.win_rate_d7}%</td>
+                <td style={{ ...td, color: tone(t.excess_d7), fontWeight: 700 }}>{sign(t.excess_d7)}</td>
+                <td style={{ ...td, color: "var(--color-subtle)", fontSize: "0.72rem" }}>
+                  {t.win_rate_d20 == null ? "–" : <>{t.win_rate_d20}% · <span style={{ color: tone(t.excess_d20) }}>{sign(t.excess_d20)}</span></>}
                 </td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
+      <button
+        onClick={() => setAll((v) => !v)}
+        style={{ alignSelf: "flex-start", border: "1px solid var(--color-border)", background: "transparent", color: "var(--color-muted)",
+                 borderRadius: "999px", padding: "4px 12px", fontSize: "0.72rem", fontWeight: 700, cursor: "pointer" }}
+      >
+        {all ? `표본 ${MIN_N}건 이상만 보기` : `표본 적은 테마도 보기 (+${hidden})`}
+      </button>
     </div>
   );
 }
@@ -1383,6 +1364,10 @@ export function ScenarioTrackingPanel() {
   const byHorizon = data?.by_horizon ?? [];
   const winners = data?.top_winners ?? [];
   const losers = data?.top_losers ?? [];
+  // [v3.217.0] 고정 기준(중복 제거) 숫자 — 기능별 카드·AI 상태 탭과 같은 _rescore_scenarios 결과
+  const rsGroups: any[] = data?.rescore?.groups ?? [];
+  const head = rsGroups.find((g: any) => g.label === "전체" && g.d7?.n > 0) ?? null;
+  const chaseGroups = ["급등 후 편입", "비급등"].map((l) => rsGroups.find((g: any) => g.label === l)).filter(Boolean);
 
   // 추적 목록: 등장 날짜별로 묶고(최신 날짜 먼저), 그룹 안에서는 현재 수익률 높은 순
   const groupedByDate = useMemo(() => {
@@ -1405,125 +1390,121 @@ export function ScenarioTrackingPanel() {
   }, [list]);
 
   return (
-    <div className="stockcy-card" style={{ padding: "12px", display: "flex", flexDirection: "column", gap: "8px" }}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-        <div style={{ fontSize: "0.82rem", fontWeight: 800, color: "var(--color-muted)" }}>📊 시나리오 적중률</div>
+    <div className="stockcy-card" style={{ padding: "1rem 1.1rem", display: "flex", flexDirection: "column", gap: "1.25rem" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "8px" }}>
+        <div style={{ fontSize: "1.05rem", fontWeight: 800, color: "var(--color-text)" }}>📊 시나리오 성적표</div>
         <button
           onClick={runTracking}
           disabled={running}
-          style={{ fontSize: "0.68rem", padding: "3px 8px", background: "rgba(168,85,247,0.15)", border: "1px solid rgba(168,85,247,0.35)", color: "#c084fc", borderRadius: "4px", fontWeight: 700, cursor: running ? "wait" : "pointer" }}
+          style={{ fontSize: "0.74rem", padding: "5px 12px", background: "rgba(168,85,247,0.15)", border: "1px solid rgba(168,85,247,0.35)", color: "#c084fc", borderRadius: "999px", fontWeight: 700, cursor: running ? "wait" : "pointer" }}
         >
-          {running ? "..." : "추적 실행"}
+          {running ? "추적 중..." : "가격 추적 실행"}
         </button>
       </div>
 
-      <AiPerformanceCompare />
+      {msg && <div style={{ fontSize: "0.74rem", color: "var(--color-muted)", marginTop: "-0.75rem" }}>{msg}</div>}
 
-      {msg && <div style={{ fontSize: "0.68rem", color: "var(--color-muted)" }}>{msg}</div>}
+      <AiPerformanceCompare />
 
       {/* [v3.192.0] 승률 기준을 0%에서 '시장 대비 + 비용'으로 바꿨다.
           종전 기준은 시장이 오르면 같이 오른 것도 적중으로 세어, 사실상 시장을 재고 있었다.
-          실측: 전체 37.3% → 43.5%, 그리고 시나리오별 순위가 크게 바뀐다
-          (어떤 건 52.9%→17.6%, 어떤 건 35.7%→71.4%). */}
-      <div style={{ fontSize: "0.6rem", color: "var(--color-muted)", lineHeight: 1.5 }}>
-        ※ 적중 = <b style={{ color: "var(--color-text)" }}>같은 기간 시장(KOSPI·S&amp;P500)보다 더 오른 경우</b>
-        {" "}— 왕복 비용(국내 0.21%·미국 0.15%)까지 뺀 초과분 기준.
-        <br />
-        방향성 반영: 수혜·테마주는 시장 초과 상승 시, 하락 위험주는 시장 대비 더 하락 시 적중.
-        {data?.overall && (
-          <>
-            <br />
-            <span style={{ color: "var(--color-subtle)" }}>
-              (종전 0% 기준이었다면 {data.overall.win_rate_d7_raw}% — 차이는 시장 등락분입니다)
-            </span>
-          </>
-        )}
-      </div>
-
-      {data?.overall && (
-        <div style={{ display: "flex", gap: "6px", fontSize: "0.62rem" }}>
-          {[
-            { label: "전체 승률", val: `${data.overall.win_rate_d7}%`, sub: `${data.overall.count}건` },
-            { label: "시장 대비", val: `${data.overall.excess_d7_return > 0 ? "+" : ""}${data.overall.excess_d7_return}%p`,
-              sub: "평균 초과수익", warn: data.overall.excess_d7_return < 0 },
-            { label: "평균 d7", val: `${data.overall.avg_d7_return}%`, sub: "절대 수익률" },
-          ].map(x => (
-            <div key={x.label} style={{
-              flex: 1, padding: "6px 8px", borderRadius: "6px",
-              background: "rgba(255,255,255,0.04)", border: "1px solid var(--color-border)",
-            }}>
-              <div style={{ color: "var(--color-muted)", fontWeight: 700 }}>{x.label}</div>
-              <div style={{ fontSize: "0.9rem", fontWeight: 800,
-                            color: x.warn ? "var(--color-down)" : "var(--color-text)" }}>{x.val}</div>
-              <div style={{ color: "var(--color-subtle)", fontSize: "0.58rem" }}>{x.sub}</div>
+          [v3.217.0] 큰 숫자는 중복 제거 재채점(rescore '전체') — 위 기능별 카드와 같은 계산.
+          종전엔 같은 패널에서 위 44.4%(중복 제거)·아래 43.0%(중복 포함)가 따로 놀았다. */}
+      {(head || data?.overall) && (
+        <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+          <SectionHeader title="🎯 시나리오 종목 전체" color="var(--color-accent)"
+            hint={<>적중 = <b style={{ color: "var(--color-text)" }}>같은 기간 시장(코스피·S&amp;P500)보다 더 오른 경우</b>, 왕복 비용(국내 0.21%·미국 0.15%)을 뺀 뒤.
+              하락 위험 종목은 시장보다 더 내리면 적중. 같은 날 같은 종목은 한 번만 셉니다.</>} />
+          {head ? (
+            <CardGrid min={170}>
+              <StatTile accent="var(--color-accent)" label="7일 승률" value={`${head.d7.win_rate}%`}
+                sub={`${head.d7.n.toLocaleString()}건`} />
+              <StatTile label="시장 대비 평균" value={sign(head.d7.avg_excess)} color={tone(head.d7.avg_excess)}
+                sub="7일 동안 시장보다 더 번 폭" />
+              {head.d20 && (
+                <StatTile muted label="참고: 20일 들고 있었다면" value={`${head.d20.win_rate}%`}
+                  sub={<>시장 대비 <span style={{ color: tone(head.d20.avg_excess) }}>{sign(head.d20.avg_excess)}</span> · 판정은 7일 기준</>} />
+              )}
+            </CardGrid>
+          ) : (
+            <CardGrid min={170}>
+              <StatTile label="7일 승률" value={`${data.overall.win_rate_d7}%`} sub={`${data.overall.count}건`} />
+              <StatTile label="시장 대비 평균" value={sign(data.overall.excess_d7_return)} color={tone(data.overall.excess_d7_return)} />
+            </CardGrid>
+          )}
+          {data?.overall?.win_rate_d7_raw != null && (
+            <div style={{ fontSize: "0.7rem", color: "var(--color-subtle)" }}>
+              참고: 시장을 무시하고 0%만 넘으면 적중으로 쳤다면 {data.overall.win_rate_d7_raw}% — 차이는 시장 등락분입니다.
             </div>
-          ))}
+          )}
         </div>
       )}
 
       {byHorizon.length > 0 && (
-        <div style={{ display: "flex", gap: "6px" }}>
-          {byHorizon.map((h: any) => {
-            const isLong = h.horizon === "중장기";
-            return (
-              <div key={h.horizon} style={{
-                flex: 1,
-                background: isLong ? "rgba(80,160,255,0.1)" : "rgba(255,140,50,0.1)",
-                border: `1px solid ${isLong ? "#5aa0ff" : "#ff8c32"}`,
-                borderRadius: "6px", padding: "6px 8px",
-              }}>
-                <div style={{ fontSize: "0.66rem", fontWeight: 800, color: isLong ? "#5aa0ff" : "#ff8c32" }}>
-                  {isLong ? "📆 중장기" : "⚡ 단타"} ({h.count})
-                </div>
-                <div style={{ fontSize: "0.62rem", color: "var(--color-muted)" }}>
-                  {isLong ? "7일 승률" : "3일 승률"} {isLong ? h.win_rate_d7 : h.win_rate_d3}%
-                </div>
-              </div>
-            );
-          })}
+        <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+          <SectionHeader title="⏱️ 단타 · 중장기" color="#ff8c32" hint="AI가 붙인 투자 기간별로 나눈 성적입니다." />
+          <CardGrid min={170}>
+            {byHorizon.map((h: any) => {
+              const isLong = h.horizon === "중장기";
+              const c = isLong ? "#5aa0ff" : "#ff8c32";
+              return (
+                <StatTile key={h.horizon} accent={c}
+                  label={<span style={{ color: c }}>{isLong ? "📆 중장기" : "⚡ 단타"} <span style={{ color: "var(--color-subtle)", fontWeight: 600 }}>{h.count}건</span></span>}
+                  value={`${h.win_rate_d7}%`}
+                  sub={<>7일 승률 · 시장 대비 <span style={{ color: tone(h.excess_d7_return) }}>{sign(h.excess_d7_return)}</span>{!isLong && h.win_rate_d3 != null && <><br />참고 3일 승률 {h.win_rate_d3}%</>}</>} />
+              );
+            })}
+          </CardGrid>
         </div>
       )}
 
       {/* [테마 이름표 v3.194.0] 이슈 문장 대신 고정된 테마 ID로 집계한다.
           종전에는 이 표를 만들 수 없었다 — scenario_keyword가 AI가 매번 새로 쓴 자유문장이라
           6,816종 중 4,407종이 1회성이고, 40건 이상 쌓인 키워드가 0개였다. */}
-      {(data?.by_chase ?? []).length === 2 && <ChaseSplit rows={data.by_chase} meta={data.chase_meta} />}
+      {chaseGroups.length === 2 && <ChaseSplit groups={chaseGroups} meta={data.chase_meta} />}
 
-      {byTheme.length > 0 && <ThemeScoreboard rows={byTheme} />}
+      {byTheme.length > 0 && <ThemeScoreboard rows={byTheme} overall={head} />}
 
       {byScenario.length === 0 ? (
-        <div style={{ fontSize: "0.7rem", color: "var(--color-muted)", padding: "0.4rem 0" }}>
+        <div style={{ fontSize: "0.76rem", color: "var(--color-muted)" }}>
           시나리오 검색 후 1일 이상 경과한 종목부터 통계 표시.
         </div>
       ) : (
-        <>
-          <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
-            {byScenario.slice(0, 5).map((s: any) => {
-              const c = s.avg_d3_return > 0 ? "#34d399" : s.avg_d3_return < 0 ? "#f87171" : "var(--color-muted)";
-              return (
-                <div key={s.keyword} style={{ background: "rgba(255,255,255,0.02)", padding: "4px 6px", borderRadius: "4px", fontSize: "0.7rem" }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <span style={{ color: "var(--color-text)", fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "65%" }}>{s.keyword}</span>
-                    <span style={{ color: c, fontWeight: 700 }}>{s.avg_d3_return >= 0 ? "+" : ""}{s.avg_d3_return}%</span>
-                  </div>
-                  <div style={{ fontSize: "0.62rem", color: "var(--color-muted)" }}>{s.count}종목 · 3일 승률 {s.win_rate_d3}%</div>
+        <CardGrid min={300}>
+          <div style={{ display: "flex", flexDirection: "column", gap: "8px", minWidth: 0 }}>
+            <SectionHeader title="🧩 최근 시나리오별" color="#94a3b8" />
+            {byScenario.slice(0, 5).map((sc: any) => (
+              <div key={sc.keyword} style={{ display: "flex", alignItems: "center", gap: "10px", padding: "8px 11px", borderRadius: "8px",
+                                             background: "rgba(255,255,255,0.025)", border: "1px solid var(--color-border)", borderLeft: `3px solid ${tone(sc.excess_d7_return)}` }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div title={sc.title || sc.keyword} style={{ fontSize: "0.82rem", fontWeight: 700, color: "var(--color-text)", lineHeight: 1.4,
+                                display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{sc.title || sc.keyword}</div>
+                  <div style={{ fontSize: "0.7rem", color: "var(--color-subtle)" }}>{sc.count}종목 · 7일 승률 {sc.win_rate_d7}%</div>
                 </div>
-              );
-            })}
+                <div style={{ textAlign: "right", flexShrink: 0 }}>
+                  <div style={{ fontSize: "1rem", fontWeight: 800, color: tone(sc.excess_d7_return), fontVariantNumeric: "tabular-nums" }}>{sign(sc.excess_d7_return)}</div>
+                  <div style={{ fontSize: "0.62rem", color: "var(--color-subtle)", fontWeight: 700 }}>시장 대비</div>
+                </div>
+              </div>
+            ))}
           </div>
 
           {winners.length > 0 && (
-            <div>
-              <div style={{ fontSize: "0.65rem", color: "var(--color-muted)", marginBottom: "3px", fontWeight: 700 }}>🏆 7일 최고 수익</div>
-              {winners.slice(0, 3).map((w: any, i: number) => (
-                <div key={i} style={{ display: "flex", justifyContent: "space-between", fontSize: "0.65rem", padding: "1px 4px" }}>
-                  <span style={{ color: "var(--color-text)", fontWeight: 600 }}>{w.name}</span>
-                  <span style={{ color: "#34d399", fontWeight: 700 }}>+{w.d7_return}%</span>
+            <div style={{ display: "flex", flexDirection: "column", gap: "8px", minWidth: 0 }}>
+              <SectionHeader title="🏆 7일 최고 수익 종목" color="#34d399" />
+              {winners.slice(0, 5).map((w: any, i: number) => (
+                <div key={i} style={{ display: "flex", alignItems: "center", gap: "10px", padding: "8px 11px", borderRadius: "8px",
+                                      background: "rgba(255,255,255,0.025)", border: "1px solid var(--color-border)" }}>
+                  <span style={{ fontSize: "0.8rem", fontWeight: 800, color: "var(--color-subtle)", width: "1.2rem" }}>{i + 1}</span>
+                  <span style={{ flex: 1, minWidth: 0, fontSize: "0.86rem", fontWeight: 700, color: "var(--color-text)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {w.name} <span style={{ fontSize: "0.7rem", color: "var(--color-subtle)", fontWeight: 500 }}>{w.ticker}</span>
+                  </span>
+                  <span style={{ fontSize: "0.95rem", fontWeight: 800, color: "#34d399", fontVariantNumeric: "tabular-nums" }}>+{w.d7_return}%</span>
                 </div>
               ))}
             </div>
           )}
-        </>
+        </CardGrid>
       )}
 
       {/* 추적 중인 종목 — 별도 모달 창으로 보기 */}
