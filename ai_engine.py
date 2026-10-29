@@ -6610,31 +6610,26 @@ def screen_by_my_pattern() -> dict:
     except Exception as e:
         print(f"[screener] prebreakout 계산 오류: {e}")
 
-    # 2-c. 내 관심 유니버스(즐겨찾기+보유) 편입 — 눌림목 매수 스타일 커버.
-    #   내 승리패턴은 거래량 조용한 눌림목(vol 0.2~0.5)인데 급등 랭킹엔 안 잡힌다 →
-    #   '봐둔 종목이 눌린' 케이스를 후보에 넣어 패턴 점수로 발굴. (로컬 DB라 네트워크 무관)
+    # 2-c. 시장 전체 눌림목 후보 편입 [v3.219.0]
+    #   종전(v3.106.0)엔 즐겨찾기+보유를 넣고 맨 앞에 세웠다 — 내 승리 패턴(거래량 조용한 눌림목)이
+    #   급등 순위엔 안 잡혀서였다. 그 결과 10-29 기준 최근 15일 픽의 91%가 즐겨찾기 25종목이었다
+    #   (사용자: "너무 한정적"). 이제 pullback_universe가 하루 한 번 코스피·코스닥 시총 1,000억+
+    #   전체에서 같은 조건(추세 안 조정·거래량 조용·RSI 중립 이하·5일 급등 아님)으로 추린 목록을 쓴다.
+    #   즐겨찾기 종목도 조건을 통과하면 여기 들어온다 — 특별 대우만 없앴다.
     try:
-        from db import load_favorites, load_portfolio_from_gsheet
-        _watch = []
-        _favs, _ = load_favorites()
-        _watch += [(str(f.get("티커", "")).strip(), f.get("종목명", "")) for f in (_favs or [])]
-        for _own in ("USER", "AI_AGENT"):
-            for _p in (load_portfolio_from_gsheet(owner=_own) or []):
-                _watch.append((str(_p.get("ticker", "")).strip(), _p.get("name", "")))
-        for _cr, _nm in _watch:
-            if not _cr.isdigit():   # KR 스크리너 — 숫자 코드만
-                continue
-            _cc = _cr.zfill(6)
+        from pullback_universe import load as _load_pullback
+        for _u in _load_pullback():
+            _cc = str(_u.get("code", "")).zfill(6)
             if _cc and _cc != "000000" and _cc not in candidates:
-                candidates[_cc] = {"code": _cc, "name": _nm, "signal": "watchlist"}
+                candidates[_cc] = {"code": _cc, "name": _u.get("name", ""), "signal": "pullback"}
     except Exception as _e:
-        print(f"[screener] watchlist 편입 오류: {_e}")
+        print(f"[screener] 시장 전체 눌림목 편입 오류: {_e}")
 
-    # 채점 우선순위 정렬: watchlist(눌림목 유니버스)·pre-breakout 후보를 앞으로 →
+    # 채점 우선순위 정렬: 시장 전체 눌림목·pre-breakout 후보를 앞으로 →
     #   [:60] 컷에서 눌림목 종목이 누락되지 않게.
     candidates = dict(
         sorted(candidates.items(),
-               key=lambda kv: (kv[1].get("signal") == "watchlist",
+               key=lambda kv: (kv[1].get("signal") == "pullback",
                                prebreak_map.get(kv[0], {}).get("score", 0)),
                reverse=True)
     )

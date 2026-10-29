@@ -995,6 +995,33 @@ def main():
         print(f"   [BLOCKED] 확인 실패: {str(e)[:80]}")
 
 
+
+    # ── V28. 패턴 스크리너 후보 = 시장 전체 눌림목 (v3.219.0) ─────────────────
+    print(_hdr("V28", "스크리너를 즐겨찾기 대신 시장 전체 눌림목에서 고르면 성적이 버티나", "2026-12-15"))
+    print("   배경: 10-29까지 픽 91%가 즐겨찾기 25종목(7일 시장 대비 58.3%, 254건이지만 24종목 반복).")
+    print("         거래량·등락률 순위 픽은 26~34%. 사용자 요청으로 시장 전체(시총 1,000억+)에서 같은 눌림목 조건으로 추린다.")
+    try:
+        _rows = cur.execute(
+            """SELECT b.ticker, b.d7_return - COALESCE(b.bench_d7_return, 0) ex
+               FROM screener_backtest_results b JOIN screener_picks p
+                 ON p.ticker = b.ticker AND p.picked_date = b.picked_date
+               WHERE p.signal = 'pullback' AND b.d7_return IS NOT NULL AND b.picked_date >= '2026-10-29'""").fetchall()
+        _n = len(_rows)
+        _uniq = len({r["ticker"] for r in _rows})
+        _wr = round(sum(1 for r in _rows if r["ex"] > 0.21) / _n * 100, 1) if _n else None
+        _avg = round(sum(r["ex"] for r in _rows) / _n, 2) if _n else None
+        print(f"   시장 전체 눌림목 픽 {_n}건({_uniq}종목) · 7일 시장 대비 승률 {_wr}% · 평균 {_avg}%p")
+        print("   기준: 80건+·30종목+에서 50%+ → 유지. 45~50% → 유지하되 즐겨찾기 1~2칸 섞기 제안.")
+        print("         45% 미만 → 사용자에게 즐겨찾기 고정 칸 복귀 여부를 묻는다(혼자 되돌리지 않는다).")
+        if _days_to("2026-12-15") > 0:
+            print(f"   [WAIT] 새 표본 {_n}건 — 12-15까지.")
+        elif _n < 80 or _uniq < 30:
+            print(f"   [BLOCKED] 표본 부족({_n}건·{_uniq}종목) — 2027-01-12로 연기.")
+        else:
+            print("   [DUE] 기준대로 유지/혼합/복귀 결정(VERIFY.md V28).")
+    except Exception as e:
+        print(f"   [BLOCKED] 확인 실패: {str(e)[:80]}")
+
     c.close()
     print(f"\n{'─' * 74}")
     print("자세한 배경과 판정 기준은 VERIFY.md 참조.")

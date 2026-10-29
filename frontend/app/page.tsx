@@ -947,6 +947,11 @@ export default function Dashboard() {
                             <span style={{ fontSize: "0.72rem", padding: "3px 10px", borderRadius: "99px", background: status.bg, color: status.color, border: `1px solid ${status.border}`, fontWeight: 700 }}>
                               {status.label}
                             </span>
+                            {p.signal === "pullback" && (
+                              <span title="코스피·코스닥 시총 1,000억+ 전체에서 '추세 안 조정·거래량 조용' 조건으로 추린 후보" style={{ fontSize: "0.72rem", padding: "3px 10px", borderRadius: "99px", background: "rgba(96,165,250,0.15)", color: "#93c5fd", border: "1px solid rgba(96,165,250,0.45)", fontWeight: 700 }}>
+                                🔍 시장 전체 눌림목
+                              </span>
+                            )}
                             {p.momentum_stage === "prebreak" && (
                               <span title={p.prebreakout_label || "돌파 직전 시그널"} style={{ fontSize: "0.72rem", padding: "3px 10px", borderRadius: "99px", background: "rgba(34,197,94,0.18)", color: "#4ade80", border: "1px solid rgba(34,197,94,0.5)", fontWeight: 800 }}>
                                 🚀 돌파직전 {p.prebreakout_score}/5
@@ -1075,7 +1080,7 @@ export default function Dashboard() {
                                   p.rsi != null   ? `RSI: ${p.rsi}` : null,
                                   p.vol_ratio != null ? `거래량 비율: ${p.vol_ratio}배` : null,
                                   p.ma_aligned    ? "MA 정배열 확인됨" : null,
-                                  p.signal === "both" ? "거래량 급증+등락률 상위 이중 신호" : `신호 유형: ${p.signal}`,
+                                  p.signal === "both" ? "거래량 급증+등락률 상위 이중 신호" : p.signal === "pullback" ? "시장 전체에서 추린 눌림목 후보(추세 안 조정·거래량 조용)" : `신호 유형: ${p.signal}`,
                                 ].filter(Boolean).join(" / ");
                                 setSelectedStock({ code: p.code, name: p.name, market: "국내", patternContext: ctx });
                               }}

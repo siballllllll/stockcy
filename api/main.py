@@ -459,6 +459,40 @@ def _autopsy_loop():
         _time.sleep(180)
 
 
+def _pullback_universe_loop():
+    """시장 전체 눌림목 후보 [v3.219.0] — 평일 15:40 이후 하루 1회(+시작 시 오늘 것 없으면).
+    1,300종목 일봉 수집이 2분가량이라 스크리너 실행마다 하지 않고 파일로 남긴다."""
+    import pullback_universe as _pu
+    from datetime import datetime
+    last = None
+    while True:
+        try:
+            now = datetime.now()
+            built = None
+            try:
+                import json as _json
+                with open(_pu.PATH, encoding="utf-8") as _f:
+                    built = _json.load(_f).get("built_at", "")[:10]
+            except Exception:
+                pass
+            today = now.strftime("%Y-%m-%d")
+            after_close = now.weekday() < 5 and (now.hour, now.minute) >= (15, 40)
+            # 파일이 없거나 4일 넘게 묵었으면 장중이라도 한 번 만든다(스크리너가 빈 목록을 쓰지 않게)
+            stale = (not built) or (now - datetime.strptime(built, "%Y-%m-%d")).days >= 4
+            if last != today and ((after_close and built != today) or stale):
+                last = today
+                _pu.build()
+        except Exception as e:
+            print(f"[pullback universe] 생성 실패: {e}")
+        _time.sleep(600)
+
+
+@app.on_event("startup")
+def start_pullback_universe_scheduler():
+    _threading.Thread(target=_pullback_universe_loop, daemon=True, name="pullback-universe").start()
+    print("[pullback universe] 시장 전체 눌림목 후보 스케줄러 시작 (평일 15:40 이후 1회)")
+
+
 @app.on_event("startup")
 def start_autopsy_scheduler():
     t = _threading.Thread(target=_autopsy_loop, daemon=True)
