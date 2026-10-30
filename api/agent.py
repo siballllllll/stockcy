@@ -407,6 +407,29 @@ def _pos_state_write(ticker: str, peak: float = None, partial: bool = None, clea
         logger.error(f"[pos state write] {ticker}: {e}")
 
 
+_BRAKE_CTX = {"at": 0.0, "stances": {}, "scenario_map": {}}
+
+
+def _judgment_brake_ctx() -> dict:
+    """[v3.222.0] 그날 시장 판단 + 재료 맵 — 10분 캐시(스캔마다 DB를 두드리지 않게)."""
+    import time as _t
+    if _t.time() - _BRAKE_CTX["at"] > 600:
+        try:
+            from market_judgment import today_stances
+            _BRAKE_CTX["stances"] = today_stances() or {}
+        except Exception as e:
+            logger.error(f"[agent] 시장 판단 로드 실패: {e}")
+            _BRAKE_CTX["stances"] = {}
+        try:
+            from db import load_scenario_stocks_set
+            _BRAKE_CTX["scenario_map"] = load_scenario_stocks_set() or {}
+        except Exception as e:
+            logger.error(f"[agent] 시나리오 맵 로드 실패: {e}")
+            _BRAKE_CTX["scenario_map"] = {}
+        _BRAKE_CTX["at"] = _t.time()
+    return _BRAKE_CTX
+
+
 def _run_one_scan(force: bool = False) -> dict:
     """에이전트 1회 스캔(동기). 백그라운드 루프와 수동 트리거가 공유.
     force=True면 휴장이어도 진행(수동 점검용). 반환: 스캔 요약 dict.
@@ -915,6 +938,28 @@ def _run_one_scan(force: bool = False) -> dict:
                             except Exception:
                                 pass
                             continue
+
+                    # ── [시장 '관망' 브레이크 v3.222.0] 섀도우(v3.221.0)와 같은 규칙 ──
+                    # 그날 시장 판단이 '관망'이면 신규 매수를 쉬고, 재료(시나리오 등장)+저점·무릎
+                    # (볼린저 ≤0.35 또는 MA20 -3~+1%)+5일 +5% 미만만 예외로 산다.
+                    # [왜] 9/28~10/16 폭락장 섀도우 매수 500여 건 승률 15~16% — 전략이 아니라
+                    # 나쁜 장에서도 산 것이 원인이었다. 조건은 shadow_league._brake_exception 하나를 쓴다.
+                    # 추매(HOLDING)는 대상이 아니다. AGENT_JUDGMENT_BRAKE=0 으로 끈다.
+                    if os.getenv("AGENT_JUDGMENT_BRAKE", "1") != "0":
+                        _bctx = _judgment_brake_ctx()
+                        if _bctx["stances"].get(market) == "관망":
+                            from shadow_league import _brake_exception
+                            if not _brake_exception(_snap, ticker, _bctx):
+                                logger.info(f"AI Agent: {name} 매수 보류 - 오늘 {market} 시장 판단 '관망'")
+                                try:
+                                    log_agent_scan(ticker, name, current_price, position, "HOLD", confidence,
+                                        f"[{source_korean}] AI는 BUY 결정을 내렸으나 오늘 {market} 시장 판단이 '관망'이라 쉽니다. "
+                                        f"관망 날엔 재료(시나리오 등장)+저점·무릎(볼린저 ≤0.35 또는 20일선 -3~+1%)+5일 +5% 미만만 삽니다.")
+                                except Exception:
+                                    pass
+                                continue
+                            reason = f"{reason} · 관망 예외(재료+저점·무릎)"
+                            logger.info(f"AI Agent: {name} 관망 날이지만 재료+저점·무릎 예외로 매수 진행")
 
                     # [가격 순단 가드 v3.114.2] 실시간가가 일봉 기준가와 크게 어긋나면 매수 차단.
                     # 유니켐(6/11) 사고: 시세 API가 3,970원을 397원(1/10)으로 반환 → 평단 오염+수익률 +755% 오표기.
