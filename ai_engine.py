@@ -8229,7 +8229,7 @@ def load_scenario_tracking_list(limit: int = 300) -> list:
         cur.execute(
             """SELECT ticker, name, market, scenario_keyword, scenario_title, role, horizon,
                       captured_at, captured_price, d1_return, d3_return, d7_return,
-                      theme_id, mom5_at_capture, bench_d7_return, entry_basis
+                      theme_id, mom5_at_capture, bench_d7_return, entry_basis, quote_price
                FROM scenario_stocks
                ORDER BY captured_at DESC
                LIMIT ?""",
@@ -8627,7 +8627,7 @@ def track_confluence_outcomes() -> dict:
     return {"updated_now": updated, "scanned": len(rows)}
 
 
-def track_scenario_stocks_performance(limit: int = 600) -> dict:
+def track_scenario_stocks_performance(limit: int = 2500) -> dict:
     """시나리오에 등장한 종목들의 등장 시점 가격 + 1/3/7일 후 가격 자동 추적."""
     # 중복 실행 방지: 이미 추적이 돌고 있으면 즉시 반환.
     # (동시 실행 시 느린 네트워크 구간에서 DB write 락이 겹쳐 'database is locked' 발생)
@@ -9071,7 +9071,7 @@ def _fetch_scenario_bars(ticker: str, is_kr: bool, start: str, end: str):
     return yf.download(ticker, start=start, end=end, progress=False, timeout=10)
 
 
-def _track_scenario_stocks_performance_impl(limit: int = 600) -> dict:
+def _track_scenario_stocks_performance_impl(limit: int = 2500) -> dict:
     from db import get_db_conn, resolve_market as _rm
     from datetime import datetime, timedelta
 
@@ -9092,8 +9092,9 @@ def _track_scenario_stocks_performance_impl(limit: int = 600) -> dict:
                OR (d20_return IS NULL AND julianday('now') - julianday(captured_at) >= 28)
                OR (julianday('now') - julianday(captured_at) >= 84)
              )
-           ORDER BY CASE WHEN d7_return IS NULL THEN 0
-                         WHEN d20_return IS NULL THEN 1 ELSE 2 END,
+           ORDER BY CASE WHEN d1_return IS NULL THEN 0
+                         WHEN d7_return IS NULL THEN 1
+                         WHEN d20_return IS NULL THEN 2 ELSE 3 END,
                     captured_at ASC
            LIMIT ?""",
         (int(limit),),
@@ -9103,6 +9104,10 @@ def _track_scenario_stocks_performance_impl(limit: int = 600) -> dict:
     # 오래된 순으로만 집었다. 5~8월 행(d20·d60 대기)이 매일 600칸을 다 먹어서
     # 9/19 이후 포착분은 d3조차 한 번도 채워지지 않았다 — 화면 적중률이 9월 중순에 멈춘 원인.
     # d1~d7은 화면 적중률의 재료라 먼저, 장기 창은 남는 칸으로 채운다.
+    # [v3.220.2] 같은 일이 '7일 대기열'에서 또 났다. 시나리오가 하루 250~320행으로 늘자
+    # d7을 기다리는 행만 1,800행 — 600칸을 10-20~22 행이 매일 다 먹어서
+    # 10-23 오후 이후 포착분은 진입가조차 한 번도 안 채워졌다(성적표가 10-23에 멈춤).
+    # 한 번도 안 잰 행(d1 공백)을 맨 앞에, 칸은 2,500으로. 같은 종목·같은 날은 봉 캐시로 한 번만 받는다.
     rows = [dict(r) for r in cursor.fetchall()]
     today = datetime.now().date()
     # 네트워크 단계(느림)와 DB write 단계(빠름)를 분리한다.

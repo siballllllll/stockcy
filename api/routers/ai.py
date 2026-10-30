@@ -1905,7 +1905,8 @@ def _enrich_scenario_list_current(rows: list) -> list:
             c = kr_cache.get(tk.zfill(6)) or kr_cache.get(tk)
             if c:
                 cur_price = c.get("price")
-        cap = r.get("captured_price")
+        # 진입가(captured_price)는 다음 날 아침 추적이 채운다. 그 전에는 등장 순간 시세로 잰다.
+        cap = r.get("captured_price") or r.get("quote_price")
         r["current_price"] = round(cur_price, 2) if cur_price else None
         r["current_return"] = (
             round((cur_price - cap) / cap * 100, 2)
