@@ -138,6 +138,29 @@ SHADOW_RULEPAIR = {
 SHADOWS = ("SHADOW_A", "SHADOW_B", "SHADOW_C", "SHADOW_D", "SHADOW_E", "SHADOW_F",
            "SHADOW_G", "SHADOW_H") + tuple(SHADOW_ADDON) + tuple(SHADOW_RULEPAIR)
 
+# ── 시장 '관망' 브레이크 (v3.221.0) ──────────────────────────────────────────
+# 그날 시장 판단이 '관망'이면 신규 매수를 쉰다. 단 **재료(시나리오 등장) + 저점·무릎 자리
+# (볼린저 하단권 또는 20일선 -3~+1%) + 급등 아님(5일 < +5%)**이면 예외로 산다.
+# [왜] 9/28~10/16 폭락장에서 섀도우가 하루 30~60건씩 계속 샀고, 그 구간 매수 500여 건의
+#      승률이 15~16%(평균 -5~-10%)였다. 13개 전략이 전부 무너졌고 랜덤(E)도 7% —
+#      전략이 아니라 '나쁜 장에서도 산 것'이 원인이었다(10-30 실측). 사용자 요청:
+#      "재료가 있고 저점·무릎이면 사는 게 맞고, 아니면 쉬자."
+# [제외] C 계열(C·C2·C3)은 C4(예외 없는 브레이크)의 대조군이고 서로가 규칙 한 줄 짝이라
+#      손대면 기존 비교가 깨진다. E는 '운이냐 실력이냐'를 가리는 눈금자라 그대로 둔다.
+#      추매 짝(A2·D2·F2)은 원본과 같이 걸린다 — 진입이 같아야 차이가 '추매'만 남는다.
+_BRAKE_FREE = ("SHADOW_C", "SHADOW_C2", "SHADOW_C3", "SHADOW_C4", "SHADOW_E")
+JUDGMENT_BRAKE_OWNERS = tuple(o for o in SHADOWS if o not in _BRAKE_FREE)
+
+
+def _brake_exception(ind: dict, tk: str, ctx: dict) -> bool:
+    """'관망' 날에도 살 만한가 — 재료가 있고, 저점·무릎이고, 이미 뛰지 않았을 때."""
+    bb = ind.get("bb_pctb"); m5 = ind.get("mom_5"); ma20d = ind.get("ma20_dist")
+    linked = int((ctx or {}).get("scenario_map", {}).get(tk, 0)) > 0
+    zone = ((bb is not None and bb <= 0.35)
+            or (ma20d is not None and -3.0 <= ma20d <= 1.0))
+    not_hot = m5 is None or m5 < 5.0
+    return linked and zone and not_hot
+
 # 전략별 타임스탑 (미지정은 EXIT_DAYS). G만 예외인 이유는 모듈 docstring 참조.
 _EXIT_DAYS_BY_OWNER = {"SHADOW_G": EXIT_DAYS_FAST}
 # 짝 전략의 청산은 원본과 같아야 한다 — 추매 효과만 남기려면 다른 변수를 건드리면 안 된다.
@@ -644,10 +667,19 @@ def run_shadow_cycle(candidates: list, kr_open: bool, us_open: bool, force: bool
                         and ctx.get("stances", {}).get(_mkt) == "관망"):
                     continue
                 ind = c.get("ind") or {}
+                # '관망' 브레이크 — 유료 촉매 검색(G/H) 전에 거른다. 추매는 원본 진입의 연장이라 제외.
+                _brake_ex = False
+                if (owner in JUDGMENT_BRAKE_OWNERS and not add_to
+                        and ctx.get("stances", {}).get(_mkt) == "관망"):
+                    if not _brake_exception(ind, tk, ctx):
+                        continue
+                    _brake_ex = True
                 ok, mult, note = _wants_buy(owner, ind, tk=tk, ctx=ctx,
                                             blocked_reason=blocked.get(tk))
                 if not ok:
                     continue
+                if _brake_ex:
+                    note = f"{note} · 관망 예외(재료+저점·무릎)"
                 price = float(c.get("price") or 0)
                 if price <= 0:
                     continue

@@ -1047,6 +1047,35 @@ def main():
     except Exception as e:
         print(f"   [BLOCKED] 확인 실패: {str(e)[:80]}")
 
+
+    # ── V30. 섀도우 '관망' 브레이크 (v3.221.0) ───────────────────────────────
+    print(_hdr("V30", "시장 '관망' 날 쉬기(재료+저점·무릎만 예외)가 섀도우 손실을 줄였나", "2026-12-15"))
+    print("   배경: 9/28~10/16 폭락장 매수 500여 건 승률 15~16%. 브레이크 = A·A2·B·D·D2·F·F2·G·H. 대조 = C·C2·C3·E(브레이크 없음).")
+    try:
+        _since = "2026-10-31"
+        _rows = cur.execute(
+            """SELECT owner, profit_pct, buy_reason FROM trade_history
+               WHERE owner LIKE 'SHADOW_%' AND buy_date >= ?""", (_since,)).fetchall()
+        _brk = ("SHADOW_A", "SHADOW_A2", "SHADOW_B", "SHADOW_D", "SHADOW_D2", "SHADOW_F", "SHADOW_F2", "SHADOW_G", "SHADOW_H")
+        _ctl = ("SHADOW_C", "SHADOW_C2", "SHADOW_C3", "SHADOW_E")
+        def _st(rs):
+            if not rs:
+                return "0건"
+            return f"{len(rs)}건 · 승률 {round(sum(1 for r in rs if r['profit_pct'] > 0) / len(rs) * 100, 1)}% · 평균 {round(sum(r['profit_pct'] for r in rs) / len(rs), 2)}%"
+        _b = [r for r in _rows if r["owner"] in _brk]
+        _k = [r for r in _rows if r["owner"] in _ctl]
+        _x = [r for r in _b if "관망 예외" in str(r["buy_reason"] or "")]
+        print(f"   브레이크 군: {_st(_b)}  (그중 관망 예외 매수 {_st(_x)})")
+        print(f"   대조 군:     {_st(_k)}")
+        print("   기준: 브레이크 군 평균이 대조 군보다 낫고 예외 매수가 손실이 아니면 유지. 예외 매수가 손실이면 예외를 없앤다.")
+        print("         관망 날이 거의 없었으면(시장이 좋았으면) 판정 불가 → 2027-01-12로 연기.")
+        if _days_to("2026-12-15") > 0:
+            print(f"   [WAIT] 새 표본 {len(_rows)}건 — 12-15까지.")
+        else:
+            print("   [DUE] 기준대로 유지/예외 제거 결정(VERIFY.md V30).")
+    except Exception as e:
+        print(f"   [BLOCKED] 확인 실패: {str(e)[:80]}")
+
     c.close()
     print(f"\n{'─' * 74}")
     print("자세한 배경과 판정 기준은 VERIFY.md 참조.")
