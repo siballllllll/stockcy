@@ -8,6 +8,7 @@
 """
 import os
 import json
+import re
 import hashlib
 import requests
 from bs4 import BeautifulSoup
@@ -67,6 +68,18 @@ def _parse_json_array(raw: str) -> list:
         return json.loads(s[i:j + 1])
     except Exception:
         return []
+
+
+def _norm_ticker(t):
+    # [v3.222.1] AI가 012450.KS·A226950처럼 적으면 숫자도 영문도 아니라서 등록에서 조용히 빠졌다.
+    # 현행 모델 언급의 약 12%가 이 표기였다. 코드 자체가 틀린 것은 저장 시점에 이름으로 교정된다.
+    t = str(t).strip().upper()
+    m = re.fullmatch(r"A?(\d{6})(?:\.(?:KS|KQ|KRX))?", t)
+    if m:
+        return m.group(1)
+    if t.isdigit():
+        return t.zfill(6)
+    return t if (t.isalpha() and 1 <= len(t) <= 5) else None
 
 
 def run_research_watch(push: bool = True, limit_per: int = 6) -> dict:
@@ -134,12 +147,6 @@ def run_research_watch(push: bool = True, limit_per: int = 6) -> dict:
         for t in (it.get("tickers") or []):   # 구버전 호환
             out.append({"name": "", "ticker": str(t).strip()})
         return out
-
-    def _norm_ticker(t):
-        t = str(t).strip().upper()
-        if t.isdigit():
-            return t.zfill(6)
-        return t if (t.isalpha() and 1 <= len(t) <= 5) else None
 
     # 이슈→시나리오 자동 등록 (티커 있는 이슈만) → 교차검증·적중률 추적에 반영
     #

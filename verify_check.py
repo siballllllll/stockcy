@@ -864,11 +864,8 @@ def main():
         _n = _rep["sample"]
         if _n == 0:
             print("   [BLOCKED] 표본 0 — MODEL_SHADOW=0이거나 백엔드가 v3.209.0 이전 코드로 떠 있다(재시작 필요).")
-        elif _days_to("2026-11-02") > 0:
-            # 표본 수로 앞당기지 않는다 — 하루 ~145건이라 이틀이면 차지만, 판정 근거인 d3 채점은 그만큼 안 쌓인다
-            print(f"   [WAIT] 표본 {_n}건 — 11-02까지 쌓는다(d3 채점이 쌓일 시간).")
         else:
-            print(f"   [DUE] 표본 {_n}건 — 일치율·JSON·비용배율·지연 보고 전환 여부 결정(VERIFY.md V24).")
+            print("   [DONE] 11-03 판정 — Gemini 유지(V32로 채점), OpenAI는 종료일 때문에 전환(V31).")
         print("   ⚠️ gpt-6-luna 전환 시 _call_openai의 temperature/max_tokens/검색+JSON 처리를 같이 고칠 것.")
     except Exception as e:
         print(f"   [BLOCKED] 확인 실패: {str(e)[:80]}")
@@ -1075,6 +1072,29 @@ def main():
             print("   [DUE] 기준대로 유지/예외 제거 결정(VERIFY.md V30).")
     except Exception as e:
         print(f"   [BLOCKED] 확인 실패: {str(e)[:80]}")
+
+    # ── V31. gpt-4o-mini 종료 전 전환 (V24 판정) ─────────────────────────────
+    print(_hdr("V31", "gpt-4o-mini → gpt-6-luna 전환 (공식 종료 2027-01-14)", "2026-12-04"))
+    try:
+        from dotenv import load_dotenv as _ld
+        _ld()
+        _om = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+        print(f"   현재 설정 모델: {_om} · 공식 종료까지 {_days_to('2027-01-14')}일")
+        if "gpt-4o-mini" not in _om:
+            print("   [DONE] 전환됨 — 전환일을 VERIFY.md V31에 기록했는지 확인할 것.")
+        elif _days_to("2026-12-04") > 0:
+            print("   [WAIT] 12-04까지 _call_openai 수정·전환(VERIFY.md V31).")
+        else:
+            print("   [DUE] 전환할 것 — 늦어지면 2027-01-14에 에이전트 매매 판단이 멈춘다.")
+    except Exception as e:
+        print(f"   [BLOCKED] 확인 실패: {str(e)[:80]}")
+
+    # ── V32. Gemini 현행 vs 신형 무과금 채점 (V24 후속) ──────────────────────
+    print(_hdr("V32", "Gemini 현행 vs 신형 — 쌓인 리서치 감시 기록으로 7일 성적 비교", "2026-11-16"))
+    if _days_to("2026-11-16") > 0:
+        print("   [WAIT] 7일 결과가 찰 때까지 — 11-16에 scratch/grade_gemini_shadow.py 실행.")
+    else:
+        print("   [DUE] venv/Scripts/python scratch/grade_gemini_shadow.py 돌려 판정(VERIFY.md V32).")
 
     c.close()
     print(f"\n{'─' * 74}")

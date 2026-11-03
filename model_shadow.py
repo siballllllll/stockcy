@@ -15,6 +15,7 @@
 
 설정(.env, 없으면 기본값):
     MODEL_SHADOW=1                    0이면 끔
+    MODEL_SHADOW_PROVIDERS=openai     비교할 프로바이더(쉼표). Gemini는 V24 판정으로 11-03에 뺐다 — 다시 재려면 openai,gemini
     MODEL_SHADOW_GEMINI=gemini-3.8-flash
     MODEL_SHADOW_OPENAI=gpt-6-luna
     MODEL_SHADOW_OPENAI_EFFORT=none,low  추론형 모델 reasoning_effort — 쉼표로 여러 개면 각각 따로 잰다
@@ -65,6 +66,10 @@ def _enabled() -> bool:
     return os.getenv("MODEL_SHADOW", "1").strip() not in ("0", "false", "off", "")
 
 
+def _providers() -> set:
+    return {p.strip() for p in os.getenv("MODEL_SHADOW_PROVIDERS", "openai").split(",") if p.strip()}
+
+
 def _candidate(provider: str) -> str:
     if provider == "gemini":
         return os.getenv("MODEL_SHADOW_GEMINI", "gemini-3.8-flash").strip()
@@ -91,7 +96,7 @@ def maybe_shadow(provider: str, primary_model: str, primary_text: str, primary_l
     """메인 호출 성공 직후 불린다. 조건이 맞으면 그림자 호출을 백그라운드로 띄우고 즉시 반환.
     어떤 예외도 메인으로 올리지 않는다."""
     try:
-        if not _enabled() or not prompt:
+        if not _enabled() or not prompt or provider not in _providers():
             return
         if str(source or "").startswith("shadow:"):
             return
