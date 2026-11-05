@@ -256,7 +256,7 @@ type PriceEntry = { price: number; change_pct: number };
 
 // v3.212.0 실측 적중률 — AI 확률은 적중과 무관했다(10-27, 본선·대안 둘 다 d7 46%).
 // 갈린 축은 시나리오 방향 × 종목 역할. 최근 8주 7일 뒤 시장 대비(비용 차감) 적중률.
-interface HitRateBucket { direction: string; role: string; count: number; win_rate_d7: number | null; excess_d7: number | null }
+interface HitRateBucket { direction: string; role: string; count: number; win_rate_d7: number | null; excess_d7: number | null; up_rate_d7?: number | null; down_rate_d7?: number | null }
 interface HitRates { days: number; min_count: number; buckets: HitRateBucket[]; overall_win_rate_d7: number | null; count: number }
 
 function HitRateBadge({ rates, direction, roles }: { rates?: HitRates; direction: string; roles: string[] }) {
@@ -267,7 +267,7 @@ function HitRateBadge({ rates, direction, roles }: { rates?: HitRates; direction
   const roleName: Record<string, string> = { "수혜": "수혜주", "피해": "하락위험주", "테마": "관련주" };
   return (
     <span
-      title={`최근 ${Math.round(rates.days / 7)}주, '${direction}' 시나리오에 나온 종목이 7일 뒤 시장을 (수수료 빼고) 이긴 비율입니다.\n하락위험주는 시장보다 더 빠지면 적중입니다.\nAI가 적은 확률은 실제 적중과 상관이 없어서, 이 숫자를 보세요. (전체 평균 ${base}%)`}
+      title={`최근 ${Math.round(rates.days / 7)}주, '${direction}' 시나리오에 나온 종목이 7일 뒤 시장을 (수수료 빼고) 이긴 비율입니다.\n하락위험주는 시장보다 더 빠지면 적중입니다.\n시장을 이겨도 주가는 떨어졌을 수 있어서, 실제로 오른(하락위험주는 떨어진) 개수를 같이 적었습니다.\nAI가 적은 확률은 실제 적중과 상관이 없어서, 이 숫자를 보세요. (전체 평균 ${base}%)`}
       style={{ display: "inline-flex", gap: "6px", alignItems: "center", flexWrap: "wrap", fontSize: "0.76rem",
                padding: "2px 9px", borderRadius: "10px", background: "rgba(255,255,255,0.05)", border: "1px solid var(--color-border)" }}>
       <span style={{ color: "var(--color-muted)", fontWeight: 700 }}>📏 이런 시나리오 종목, 최근 성적</span>
@@ -275,10 +275,11 @@ function HitRateBadge({ rates, direction, roles }: { rates?: HitRates; direction
         const wr = b?.win_rate_d7;
         // 숫자만 보여주면 뜻을 다시 해석해야 한다 — 평균 대비 ±5%p로 좋음/보통/나쁨을 말로 붙인다
         const verdict = wr == null ? "아직 모름" : wr >= base + 5 ? "좋음" : wr <= base - 5 ? "나쁨" : "반반";
+        const actual = role === "피해" ? b?.down_rate_d7 : b?.up_rate_d7;
         const color = wr == null ? "var(--color-subtle)" : wr >= base + 5 ? "#69f0ae" : wr <= base - 5 ? "#ff6b6b" : "var(--color-text)";
         return (
           <span key={role} style={{ color, fontWeight: 700 }}>
-            {roleName[role] ?? role} {verdict}{wr == null ? "" : ` (10개 중 ${Math.round(wr / 10)}개 맞음)`}
+            {roleName[role] ?? role} {verdict}{wr == null ? "" : ` (10개 중 ${Math.round(wr / 10)}개 ${role === "피해" ? "시장보다 더 빠짐" : "시장 이김"}${actual == null ? "" : ` · 실제 ${role === "피해" ? "떨어진" : "오른"} 건 ${Math.round(actual / 10)}개`})`}
           </span>
         );
       })}

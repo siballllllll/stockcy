@@ -8128,7 +8128,10 @@ _HIT_RATE_TTL = 1800
 
 def load_scenario_hit_rates() -> dict:
     """시장 방향(강세/약세/혼조) × 역할(수혜/피해/테마)별 최근 8주 d7 실측 적중률.
-    같은 날 같은 종목·역할은 한 번만 센다. 표본이 _HIT_RATE_MIN_N 미만이면 win_rate=None."""
+    같은 날 같은 종목·역할은 한 번만 센다. 표본이 _HIT_RATE_MIN_N 미만이면 win_rate=None.
+    up/down_rate_d7 [v3.223.0] = 시장과 무관하게 주가가 실제로 오른/떨어진 비율. 승률 정의는 그대로다.
+    약세 시나리오 수혜주는 시장을 70% 이겼지만 실제 오른 건 44%였다(11-05) — '수혜'가 대개
+    '덜 빠짐'이라 승률만 보면 계좌가 줄어드는 걸 못 본다."""
     now = time.time()
     if _hit_rate_cache["data"] is not None and now - _hit_rate_cache["ts"] < _HIT_RATE_TTL:
         return _hit_rate_cache["data"]
@@ -8139,7 +8142,7 @@ def load_scenario_hit_rates() -> dict:
         cur = conn.cursor()
         cur.execute(
             f"""SELECT ticker, substr(captured_at, 1, 10) AS day, role, market_direction AS dir,
-                       {win} AS w, d7_return - COALESCE(bench_d7_return, 0) AS ex
+                       {win} AS w, d7_return - COALESCE(bench_d7_return, 0) AS ex, d7_return AS ret
                 FROM scenario_stocks
                 WHERE d7_return IS NOT NULL AND market_direction IS NOT NULL
                   AND captured_at >= date('now', ?)
@@ -8154,18 +8157,20 @@ def load_scenario_hit_rates() -> dict:
             continue
         seen.add(k)
         ex = -(r["ex"] or 0) if r["role"] == "피해" else (r["ex"] or 0)
-        groups.setdefault((r["dir"], r["role"]), []).append((bool(r["w"]), ex))
+        groups.setdefault((r["dir"], r["role"]), []).append((bool(r["w"]), ex, r["ret"]))
     buckets = []
     for (d, role), v in sorted(groups.items()):
         n = len(v)
         enough = n >= _HIT_RATE_MIN_N
         buckets.append({
             "direction": d, "role": role, "count": n,
-            "win_rate_d7": round(sum(w for w, _ in v) / n * 100, 1) if enough else None,
-            "excess_d7": round(sum(e for _, e in v) / n, 2) if enough else None,
+            "win_rate_d7": round(sum(x[0] for x in v) / n * 100, 1) if enough else None,
+            "excess_d7": round(sum(x[1] for x in v) / n, 2) if enough else None,
+            "up_rate_d7": round(sum(x[2] > 0 for x in v) / n * 100, 1) if enough else None,
+            "down_rate_d7": round(sum(x[2] < 0 for x in v) / n * 100, 1) if enough else None,
         })
     total = sum(len(v) for v in groups.values())
-    wins = sum(w for v in groups.values() for w, _ in v)
+    wins = sum(x[0] for v in groups.values() for x in v)
     data = {"days": _HIT_RATE_DAYS, "min_count": _HIT_RATE_MIN_N, "buckets": buckets,
             "overall_win_rate_d7": round(wins / total * 100, 1) if total else None,
             "count": total}
