@@ -547,7 +547,20 @@ def _get_kr_per_pbr_naver(code: str) -> dict:
 
 @st.cache_data(ttl=60)
 def get_kr_stock_price(stock_code: str, with_fundamental: bool = False):
-    """국내 주식 현재가 및 기본 정보 조회 (KIS API → yfinance 폴백, 1분 캐싱).
+    """국내 현재가(1분 캐시). 이름이 코드로 온 경로는 종목 목록으로 채운다 [v3.223.1].
+    KIS 현재가 응답엔 종목명 칸이 비어 있고 토스·FDR은 시세만 준다 — 그래서 어느 경로든 name이
+    코드였다(11-05 실측 6종목 전부). 목록을 못 읽어도 시세는 그대로 돌려준다."""
+    result = _fetch_kr_stock_price(stock_code, with_fundamental)
+    if result and result.get("name") in (None, "", result.get("code")):
+        try:
+            result["name"] = get_kr_code_to_name_map().get(result.get("code")) or result.get("code")
+        except Exception:
+            pass
+    return result
+
+
+def _fetch_kr_stock_price(stock_code: str, with_fundamental: bool = False):
+    """국내 주식 현재가 및 기본 정보 조회 (KIS API → yfinance 폴백).
     with_fundamental=True일 때만 KIS가 비운 PER/PBR을 네이버/pykrx로 보강(느린 네트워크 호출).
     → 종목검색 상세에서만 True, 픽·시나리오 등 대량 반복 호출 경로는 False(지연 방지)."""
     stock_code = str(stock_code) if stock_code else ""
