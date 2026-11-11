@@ -360,18 +360,19 @@ function EngineScoreboard() {
   //   실제 매수 판단은 급등 후 편입(포착 직전 5일 +10%↑)을 재료에서 뺀다(db.load_scenario_stocks_set).
   //   명단 전체 승률을 헤드라인에 두면 사지도 않는 뒷북분이 섞여 화면과 실제 매매 기준이 어긋난다.
   //   전체(overall)는 참고로 아래 줄에 남긴다. 비급등 행이 없으면 전체로 폴백.
-  const so = scn?.overall;
-  const nc = (scn?.by_chase ?? []).find((c: any) => c.label === "비급등");
-  const scnHead = nc ?? so;
-  const scnN = scnHead?.count ?? 0;
-  const scnWin = scnN > 0 ? scnHead.win_rate_d7 : null;
-  const scnAvg = scnN > 0 ? scnHead.avg_d7_return : null;
-  // 진입가 = 등장 순간 살 수 있던 가격(장중 시세·장 전 시가·마감 뒤 다음날 시가) [v3.203.0]
-  //   종전 '등장일 종가' 기준 승률을 같은 표본으로 나란히 보여준다.
-  const cmp = scn?.entry_compare?.["비급등"];
-  const cmpNote = cmp ? ` · 등장일 종가 기준이었으면 ${cmp.win_rate_d7_close}%` : "";
-  const scnNote = nc
-    ? `등장 순간 매수 · 급등 후 편입 제외 · 20일 승률 ${nc.win_rate_d20 ?? "-"}%${cmpNote} — 명단 전체는 ${so?.win_rate_d7 ?? "-"}% (${so?.count ?? 0}건)`
+  // [v3.223.2] 헤드라인 = '다시 채점'과 같은 표본(같은 날·같은 종목·같은 역할 1회).
+  //   종전엔 원본 행을 그대로 세서, 같은 종목이 시나리오 여러 개에 나오면 여러 번 셌다
+  //   (비급등 13,600행 → 실제 6,532건). 반복 편입 종목이 성적이 나빠 승률이 깎였다(43.4% vs 45.8%).
+  //   평균도 종전엔 시장을 빼지 않은 생수익률(-3.18%)이라 카드 설명("시장 대비")과 어긋났다.
+  const rsGroups = scn?.rescore?.groups ?? [];
+  const rsCalm = rsGroups.find((g: any) => g.label === "비급등");
+  const rsAll = rsGroups.find((g: any) => g.label === "전체");
+  const rsHead = rsCalm ?? rsAll;
+  const scnN = rsHead?.d7?.n ?? 0;
+  const scnWin = scnN > 0 ? rsHead.d7.win_rate : null;
+  const scnAvg = scnN > 0 ? rsHead.d7.avg_excess : null;
+  const scnNote = rsHead
+    ? `등장 순간 매수 · ${rsCalm ? "급등 후 편입 제외 · " : ""}같은 날 같은 종목 1회 · 20일 승률 ${rsHead.d20?.win_rate ?? "-"}% — 명단 전체는 ${rsAll?.d7?.win_rate ?? "-"}% (${rsAll?.d7?.n ?? 0}건)`
     : "시나리오 등장 종목 7일 후 (방향 적중) — 아래 상세";
   const scrO = scr?.overall ?? {};
 
