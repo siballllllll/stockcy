@@ -949,6 +949,8 @@ def shadow_detail(owner: str, limit: int = 30) -> dict:
     """개별 섀도우 상세 — 보유 종목 + 최근 거래 (/performance 리그 우측 패널용).
     buy_reason의 진입 컨텍스트 JSON은 서버에서 파싱해 ctx로 내려준다."""
     import json as _json
+    import re as _re
+    _re_alpha = _re.compile(r"[A-Za-z]")
     if owner not in SHADOWS:
         return {"error": "unknown owner", "holdings": [], "trades": []}
     conn = _conn(); cur = conn.cursor()
@@ -963,8 +965,21 @@ def shadow_detail(owner: str, limit: int = 30) -> dict:
                FROM trade_history WHERE owner=? ORDER BY sell_date DESC LIMIT ?""",
             (owner, int(limit)))
         trades = [dict(r) for r in cur.fetchall()]
+        # [v3.223.3] 요약 카드는 전체 기준 — 리그 목록(shadow_league_status)과 같은 범위.
+        # 예전엔 화면이 위의 최근 limit건만으로 건수·승률을 다시 세서 목록과 숫자가 달랐다.
+        cur.execute("SELECT ticker, profit, profit_pct FROM trade_history WHERE owner=?", (owner,))
+        all_rows = [dict(r) for r in cur.fetchall()]
     finally:
         conn.close()
+    n_all = len(all_rows)
+    wins_all = sum(1 for r in all_rows if float(r.get("profit_pct") or 0) > 0)
+    totals = {
+        "n": n_all,
+        "win_rate": round(wins_all / n_all * 100, 1) if n_all else None,
+        # 통화 구분은 화면(ShadowDetail.isUs)과 같은 규칙 — 영문자가 있으면 미국
+        "profit_kr": round(sum(float(r.get("profit") or 0) for r in all_rows if not _re_alpha.search(str(r["ticker"] or ""))), 0),
+        "profit_us": round(sum(float(r.get("profit") or 0) for r in all_rows if _re_alpha.search(str(r["ticker"] or ""))), 2),
+    }
     for row in holdings + trades:
         br = str(row.pop("buy_reason", "") or "")
         if br.startswith("{"):
@@ -983,7 +998,7 @@ def shadow_detail(owner: str, limit: int = 30) -> dict:
                 h["eval_pct"] = round((px - float(h["buy_price"])) / float(h["buy_price"]) * 100 - _fee(market), 2)
         except Exception:
             pass
-    return {"owner": owner, "holdings": holdings, "trades": trades}
+    return {"owner": owner, "holdings": holdings, "trades": trades, "totals": totals, "trades_limit": int(limit)}
 
 
 def shadow_league_status() -> dict:

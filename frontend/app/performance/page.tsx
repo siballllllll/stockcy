@@ -884,10 +884,17 @@ function ShadowDetail({ owner }: { owner: string }) {
     .reduce((a, h) => a + (h.current_price - h.buy_price) * h.quantity, 0);
   const evalUs = holdings.filter(h => isUs(h.ticker) && h.current_price != null)
     .reduce((a, h) => a + (h.current_price - h.buy_price) * h.quantity, 0);
-  const realKr = trades.filter(t => !isUs(t.ticker)).reduce((a, t) => a + Number(t.profit ?? 0), 0);
-  const realUs = trades.filter(t => isUs(t.ticker)).reduce((a, t) => a + Number(t.profit ?? 0), 0);
-  const wins = trades.filter(t => Number(t.profit_pct ?? 0) > 0).length;
-  const winRate = trades.length ? Math.round(wins / trades.length * 1000) / 10 : null;
+  // [v3.223.3] 요약은 전체 기준(서버 totals) — 리그 목록과 같은 숫자. trades는 최근 N건만 온다.
+  const tot = data.totals;
+  const recentWins = trades.filter(t => Number(t.profit_pct ?? 0) > 0).length;
+  const recentWinRate = trades.length ? Math.round(recentWins / trades.length * 1000) / 10 : null;
+  const totalN: number = tot?.n ?? trades.length;
+  const winRate: number | null = tot ? tot.win_rate : recentWinRate;
+  const realKr: number = tot ? Number(tot.profit_kr ?? 0)
+    : trades.filter(t => !isUs(t.ticker)).reduce((a, t) => a + Number(t.profit ?? 0), 0);
+  const realUs: number = tot ? Number(tot.profit_us ?? 0)
+    : trades.filter(t => isUs(t.ticker)).reduce((a, t) => a + Number(t.profit ?? 0), 0);
+  const truncated = totalN > trades.length;
   const moneyPair = (kr: number, us: number) => {
     const parts: string[] = [];
     if (kr !== 0 || us === 0) parts.push(`${kr >= 0 ? "+" : "-"}₩${Math.abs(Math.round(kr)).toLocaleString()}`);
@@ -907,15 +914,21 @@ function ShadowDetail({ owner }: { owner: string }) {
         </div>
         <div style={cardSt}>
           <div style={{ color: "var(--color-muted)", fontSize: "0.76rem", marginBottom: "4px" }}>실현 거래 · 승률</div>
-          <div style={{ fontSize: "1.4rem", fontWeight: 800 }}>{trades.length}건</div>
+          <div style={{ fontSize: "1.4rem", fontWeight: 800 }}>{totalN}건</div>
           <div style={{ fontSize: "0.85rem", fontWeight: 800, color: winRate == null ? "var(--color-muted)" : winRate >= 50 ? cUp : cDn }}>
             {winRate == null ? "—" : `승률 ${winRate}%`}
           </div>
+          {truncated && recentWinRate != null && (
+            <div style={{ fontSize: "0.7rem", marginTop: "2px", color: "var(--color-muted)" }}>
+              최근 {trades.length}건 승률{" "}
+              <span style={{ fontWeight: 700, color: recentWinRate >= 50 ? cUp : cDn }}>{recentWinRate}%</span>
+            </div>
+          )}
         </div>
         <div style={cardSt}>
           <div style={{ color: "var(--color-muted)", fontSize: "0.76rem", marginBottom: "4px" }}>누적 실현 손익</div>
           <div style={{ fontSize: "1.25rem", fontWeight: 800, color: (realKr + realUs) >= 0 ? cUp : cDn }}>
-            {trades.length ? moneyPair(realKr, realUs) : "—"}
+            {totalN ? moneyPair(realKr, realUs) : "—"}
           </div>
         </div>
       </div>
@@ -975,7 +988,14 @@ function ShadowDetail({ owner }: { owner: string }) {
 
       {/* 거래 내역 표 */}
       <div>
-        <div style={{ fontWeight: 800, fontSize: "0.9rem", marginBottom: "6px" }}>📜 거래 내역</div>
+        <div style={{ fontWeight: 800, fontSize: "0.9rem", marginBottom: "6px" }}>
+          📜 거래 내역
+          {truncated && (
+            <span style={{ fontSize: "0.72rem", fontWeight: 600, color: "var(--color-muted)", marginLeft: "6px" }}>
+              최근 {trades.length}건 / 전체 {totalN}건
+            </span>
+          )}
+        </div>
         {!trades.length ? (
           <div style={{ fontSize: "0.78rem", color: "var(--color-muted)" }}>아직 실현 거래 없음 — 7거래일 기간만료(또는 재난 -20%) 청산 시 쌓입니다.</div>
         ) : (
