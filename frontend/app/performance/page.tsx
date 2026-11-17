@@ -879,6 +879,46 @@ function ShadowDetail({ owner }: { owner: string }) {
       </div>
     );
   };
+  // [v3.224.0] 칩만 있고 '무슨 이슈·수급'인지 없던 것 — 서버가 매수 시점 기준으로 붙여 준다.
+  const shares = (n: number) => {
+    const a = Math.abs(n), s = n > 0 ? "+" : n < 0 ? "-" : "";
+    return a >= 10000 ? `${s}${(a / 10000).toFixed(a >= 100000 ? 0 : 1)}만주` : `${s}${a.toLocaleString()}주`;
+  };
+  const evidence = (row: any) => {
+    const iss = row.issues;
+    const sup = row.supply_info;
+    const wantSup = !!row.ctx?.supply;
+    if (!iss?.items?.length && !sup && !wantSup) return null;
+    const roleColor = (r: string) => (r === "피해" ? cDn : r === "수혜" ? cUp : "var(--color-muted)");
+    return (
+      <div style={{ marginTop: "5px", display: "flex", flexDirection: "column", gap: "3px", fontSize: "0.68rem", lineHeight: 1.4 }}>
+        {iss?.items?.length > 0 && (
+          <div>
+            <div style={{ color: "var(--color-muted)", fontWeight: 700 }}>
+              📰 매수 전 등장한 이슈 {iss.n}개{iss.n > iss.items.length ? ` (최근 ${iss.items.length}개)` : ""}
+            </div>
+            {iss.items.map((it: any, i: number) => (
+              <div key={i} style={{ paddingLeft: "6px" }}>
+                <span style={{ color: roleColor(it.role), fontWeight: 700 }}>{it.role ? `[${it.role}] ` : ""}</span>
+                {it.title}
+                <span style={{ color: "var(--color-subtle)" }}> · {String(it.date).slice(5)}{it.research ? " · 리서치" : ""}</span>
+              </div>
+            ))}
+          </div>
+        )}
+        {sup ? (
+          <div>
+            <span style={{ color: "var(--color-muted)", fontWeight: 700 }}>💰 수급 </span>
+            외국인 <span style={{ fontWeight: 700, color: sup.frgn >= 0 ? cUp : cDn }}>{shares(sup.frgn)}</span>
+            {" · "}기관 <span style={{ fontWeight: 700, color: sup.orgn >= 0 ? cUp : cDn }}>{shares(sup.orgn)}</span>
+            <span style={{ color: "var(--color-subtle)" }}> · {sup.basis}</span>
+          </div>
+        ) : wantSup ? (
+          <div style={{ color: "var(--color-subtle)" }}>💰 수급 상위였으나 수량 기록 없음</div>
+        ) : null}
+      </div>
+    );
+  };
   // 요약 집계 — 평가손익(보유)·실현손익(거래), 통화별 분리
   const evalKr = holdings.filter(h => !isUs(h.ticker) && h.current_price != null)
     .reduce((a, h) => a + (h.current_price - h.buy_price) * h.quantity, 0);
@@ -968,11 +1008,12 @@ function ShadowDetail({ owner }: { owner: string }) {
                       <td style={{ textAlign: "right", color: hasPx ? color : "var(--color-muted)", fontWeight: 700 }}>
                         {h.eval_pct != null ? `${h.eval_pct >= 0 ? "+" : ""}${Number(h.eval_pct).toFixed(2)}%` : "—"}
                       </td>
-                      <td style={{ maxWidth: "220px" }}>
+                      <td style={{ maxWidth: "300px", minWidth: "200px" }}>
                         <div style={{ fontSize: "0.76rem", whiteSpace: "pre-wrap", lineHeight: 1.4 }}>
                           {h.ctx?.note || <span style={{ color: "var(--color-subtle)" }}>기록 이전 매수</span>}
                         </div>
                         {ctxChips(h.ctx)}
+                        {evidence(h)}
                       </td>
                       <td style={{ fontSize: "0.72rem", color: "var(--color-muted)", whiteSpace: "nowrap" }}>
                         {dt(h.buy_date)}<br />보유 {heldFor(h.buy_date)}
@@ -1029,11 +1070,12 @@ function ShadowDetail({ owner }: { owner: string }) {
                         {profit >= 0 ? "+" : "-"}{sym(t.ticker)}{num(Math.abs(profit), t.ticker)}
                       </td>
                       <td style={{ textAlign: "right", color, fontWeight: 700 }}>{pct >= 0 ? "+" : ""}{pct.toFixed(2)}%</td>
-                      <td style={{ maxWidth: "200px" }}>
+                      <td style={{ maxWidth: "300px", minWidth: "200px" }}>
                         <div style={{ fontSize: "0.76rem", whiteSpace: "pre-wrap", lineHeight: 1.4 }}>
                           {t.ctx?.note || <span style={{ color: "var(--color-subtle)" }}>기록 이전 매수</span>}
                         </div>
                         {ctxChips(t.ctx)}
+                        {evidence(t)}
                       </td>
                       <td style={{ maxWidth: "180px", fontSize: "0.76rem" }}>{t.learning_point || "—"}</td>
                       <td style={{ fontSize: "0.72rem", color: "var(--color-muted)", whiteSpace: "nowrap" }}>

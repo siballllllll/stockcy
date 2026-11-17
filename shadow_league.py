@@ -44,6 +44,7 @@
 설계가 아니면 전략별 청산을 바꾸지 말 것.
 """
 import logging
+import os
 from datetime import datetime
 
 logger = logging.getLogger("shadow_league")
@@ -580,6 +581,10 @@ def run_shadow_cycle(candidates: list, kr_open: bool, us_open: bool, force: bool
             from data_kr import get_kr_frgn_inst_rank
             _sup = (get_kr_frgn_inst_rank("J", 30, "buy") or []) + (get_kr_frgn_inst_rank("Q", 30, "buy") or [])
             ctx["supply_set"] = {str(s.get("종목코드", "")).strip().zfill(6) for s in _sup if s.get("종목코드")}
+            # 매수 기록에 '무슨 수급이었나'를 남기려고 수량도 들고 간다 (v3.224.0)
+            ctx["supply_info"] = {str(s.get("종목코드", "")).strip().zfill(6):
+                                  {"frgn": int(s.get("외국인순매수") or 0), "orgn": int(s.get("기관순매수") or 0)}
+                                  for s in _sup if s.get("종목코드")}
             ctx["supply_loaded"] = bool(ctx["supply_set"])   # 비었으면 '모름'이지 '이탈'이 아니다
         except Exception as e:
             logger.error(f"[shadow] 수급 랭킹 로드 실패: {e}")
@@ -702,6 +707,8 @@ def run_shadow_cycle(candidates: list, kr_open: bool, us_open: bool, force: bool
                     "p52": ind.get("pos_52w"),
                     "issue": 1 if int(ctx.get("scenario_map", {}).get(tk, 0)) > 0 else 0,
                     "supply": 1 if tk in ctx.get("supply_set", set()) else 0,
+                    # supply_d는 표시용 — 매트릭스·판정은 위 0/1 플래그만 쓴다
+                    **({"supply_d": ctx["supply_info"][tk]} if tk in ctx.get("supply_info", {}) else {}),
                 }, ensure_ascii=False)
                 if add_to:
                     # 추매 수량은 1회차 대비 size배. 사유에 회차와 판정을 남긴다.
@@ -945,6 +952,62 @@ def shadow_synthesis(min_n: int = 5) -> dict:
             "note": "전략×상황별 실측 승률 — 상황별 최적 기법을 합성해 통합 패턴을 만들기 위한 매트릭스"}
 
 
+def _attach_entry_evidence(rows: list) -> None:
+    """각 행(보유·거래)에 매수 시점의 이슈·수급 내용을 붙인다 — 과거 거래에도 소급된다.
+
+    · issues: 매수 시각 이전에 그 종목이 등장한 시나리오(최근 3개)와 총 개수.
+      매수 판단의 `issue` 플래그는 load_scenario_stocks_set()(기간 제한 없는 누적 등장)이라,
+      여기서도 같은 범위(매수 이전 전체·뒷북 제외 규칙 동일)로 찾는다. 그래서 오래전
+      등장일 수도 있다 — 날짜를 같이 내려 화면이 '얼마나 묵은 재료인지' 보이게 한다.
+    · supply(국내만): 매수일(없으면 직전 5일 내 최근일) 장마감 외국인·기관 순매수 수량.
+      매수 판단의 `supply`는 장중 KIS 순매수 상위 30 포함 여부라 시점이 조금 다르다.
+      매수 때 기록한 supply_d(v3.224.0부터)가 있으면 그것을 우선한다.
+    """
+    if not rows:
+        return
+    exclude_chase = os.environ.get("SCENARIO_EXCLUDE_CHASE", "1") != "0"
+    chase_cond = " AND (mom5_at_capture IS NULL OR mom5_at_capture < 10)" if exclude_chase else ""
+    conn = _conn(); cur = conn.cursor()
+    try:
+        for row in rows:
+            tk = str(row.get("ticker") or "")
+            bd = str(row.get("buy_date") or "")[:19]
+            if not tk or not bd:
+                continue
+            ctx = row.get("ctx") or {}
+            if ctx.get("issue"):
+                cur.execute(
+                    f"""SELECT scenario_keyword, MAX(scenario_title) title, MAX(role) role,
+                               MAX(captured_at) at
+                        FROM scenario_stocks
+                        WHERE ticker=? AND captured_at<=?{chase_cond}
+                        GROUP BY scenario_keyword ORDER BY at DESC""", (tk, bd))
+                found = [dict(r) for r in cur.fetchall()]
+                row["issues"] = {
+                    "n": len(found),
+                    "items": [{"title": (f.get("title") or f.get("scenario_keyword") or "")[:120],
+                               "role": f.get("role") or "",
+                               "date": str(f.get("at") or "")[:10],
+                               "research": str(f.get("scenario_keyword") or "").startswith("[리서치]")}
+                              for f in found[:3]],
+                }
+            if tk.isdigit():
+                sd = ctx.get("supply_d")
+                if isinstance(sd, dict):
+                    row["supply_info"] = {**sd, "basis": "매수 순간(장중 순매수 상위)"}
+                else:
+                    cur.execute(
+                        """SELECT snapshot_date, frgn_ntby, orgn_ntby FROM frgn_inst_snapshots
+                           WHERE ticker=? AND snapshot_date<=? AND snapshot_date>=date(?, '-5 day')
+                           ORDER BY snapshot_date DESC LIMIT 1""", (tk, bd[:10], bd[:10]))
+                    r = cur.fetchone()
+                    if r:
+                        row["supply_info"] = {"frgn": int(r["frgn_ntby"] or 0), "orgn": int(r["orgn_ntby"] or 0),
+                                              "basis": f"{r['snapshot_date']} 장마감 기록"}
+    finally:
+        conn.close()
+
+
 def shadow_detail(owner: str, limit: int = 30) -> dict:
     """개별 섀도우 상세 — 보유 종목 + 최근 거래 (/performance 리그 우측 패널용).
     buy_reason의 진입 컨텍스트 JSON은 서버에서 파싱해 ctx로 내려준다."""
@@ -982,11 +1045,19 @@ def shadow_detail(owner: str, limit: int = 30) -> dict:
     }
     for row in holdings + trades:
         br = str(row.pop("buy_reason", "") or "")
+        # 추매 행은 "추매 n회차 (...) | {json}" 꼴이라 JSON 부분만 떼어 읽는다
+        if not br.startswith("{") and " | {" in br:
+            br = br.split(" | ", 1)[1]
         if br.startswith("{"):
             try:
                 row["ctx"] = _json.loads(br)
             except Exception:
                 pass
+    # [v3.224.0] 이슈·수급 '내용' — 예전엔 칩(있음/없음)만 보여 무슨 이슈·수급인지 알 수 없었다.
+    try:
+        _attach_entry_evidence(holdings + trades)
+    except Exception as e:
+        logger.error(f"[shadow] 진입 근거 상세 첨부 실패: {e}")
     # 보유 종목 현재가·실질 평가손익 — '산 금액 vs 지금 금액'이 한눈에 보이게 (v3.124.0)
     for h in holdings:
         tk = str(h["ticker"])
