@@ -6765,6 +6765,29 @@ def screen_by_my_pattern(market: str = "kr") -> dict:
                     _toxic.append(f"5일 +{_fm5}%·RSI {_frsi} 과열 추격(실측 승률 20%)")
                 if _fvr is not None and _fvr >= 4:
                     _toxic.append(f"5일 +{_fm5}%·거래량 {_fvr}배 폭증 추격(실측 승률 13%)")
+        # ── 섀도우 실측 과열 필터 (v3.225.0) ──
+        # [왜] 사용자가 6/29 이후 매매를 안 해 개인 패턴 프로필이 굳었다. 대신 섀도우가 매일 사고판
+        # 확정 거래 738건(중복 제거·E 제외, 7~11월)을 시장 대비·비용 차감으로 다시 채점했다(11-18).
+        # 전체 44.0%에 비해 아래 구간은 앞·뒤 절반 모두 꼴찌권이었다 — 시장 탓이 아니라 자리 탓.
+        #   52주 고점권 80%+ 30.8%(30.8/30.8) · 거래량 2배+ 30.8%(22.2/39.1)
+        #   20일선 +10%↑ 32.5%(27.7/37.3) · RSI 65+ 34.4%(29.6/39.0) · 5일 +5~10% 30.6%(29.2/32.0)
+        # 하나라도 해당 257건 36.6% vs 해당 없음 481건 48.0% (shadow_pattern_stats.HOT_RULES와 같은 문턱 —
+        # 바꾸면 거기도 같이 바꿀 것. 매주 재계산 표와 VERIFY.md V33 판정이 그 정의를 쓴다).
+        # SCREENER_SHADOW_FILTER=0 으로 끈다.
+        if not _toxic and os.environ.get("SCREENER_SHADOW_FILTER", "1") != "0":
+            _fp52 = _fd.get("pos_52w_pct")
+            _fma20 = (round((float(_fd["current_price"]) / float(_fd["ma20"]) - 1) * 100, 2)
+                      if _fd.get("ma20") and _fd.get("current_price") else None)
+            if _fm5 is not None and 5 <= _fm5 < 10:
+                _toxic.append(f"5일 +{_fm5}% 상승 추격(섀도우 실측 시장 대비 승률 31%)")
+            if _frsi is not None and _frsi >= 65:
+                _toxic.append(f"RSI {_frsi} 과열(섀도우 실측 34%)")
+            if _fma20 is not None and _fma20 >= 10:
+                _toxic.append(f"20일선 +{_fma20}% 이격(섀도우 실측 33%)")
+            if _fvr is not None and _fvr >= 2:
+                _toxic.append(f"거래량 {_fvr}배 급증(섀도우 실측 31%)")
+            if _fp52 is not None and _fp52 >= 80:
+                _toxic.append(f"52주 고점권 {_fp52}%(섀도우 실측 31%)")
         if _toxic:
             hard_filtered.append({"code": code, "name": meta.get("name", ""),
                                   "reason": " · ".join(_toxic)})

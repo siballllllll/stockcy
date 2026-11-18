@@ -493,6 +493,35 @@ def start_pullback_universe_scheduler():
     print("[pullback universe] 시장 전체 눌림목 후보 스케줄러 시작 (평일 15:40 이후 1회)")
 
 
+# ── 섀도우 실측 패턴표 주간 재계산 (v3.225.0) ─────────────────────────────────
+# 패턴 스크리너의 근거를 '6월에 굳은 개인 매매'에서 '섀도우가 매일 쌓는 실측'으로 옮겼다.
+# 토요일(장 없음)에 한 번, 파일이 8일 넘게 묵었으면 아무 날이나 한 번. DB+지수 2개만 받아 과금 0.
+def _shadow_pattern_loop():
+    import shadow_pattern_stats as _sps
+    from datetime import datetime
+    last = ""
+    _time.sleep(180)   # 기동 직후 다른 시작 작업과 겹치지 않게
+    while True:
+        try:
+            now = datetime.now()
+            today = now.strftime("%Y-%m-%d")
+            built = str(_sps.load().get("built_at", ""))[:10]
+            stale = (not built) or (now - datetime.strptime(built, "%Y-%m-%d")).days >= 8
+            if last != today and ((now.weekday() == 5 and now.hour >= 9 and built != today) or stale):
+                last = today
+                r = _sps.build()
+                print(f"[shadow pattern] 패턴표 재계산 {r.get('n_trades')}건 · {len(r.get('table', []))}개 조건")
+        except Exception as e:
+            print(f"[shadow pattern] 재계산 실패: {e}")
+        _time.sleep(1800)
+
+
+@app.on_event("startup")
+def start_shadow_pattern_scheduler():
+    _threading.Thread(target=_shadow_pattern_loop, daemon=True, name="shadow-pattern").start()
+    print("[shadow pattern] 섀도우 실측 패턴표 스케줄러 시작 (토 09시 이후 1회)")
+
+
 @app.on_event("startup")
 def start_autopsy_scheduler():
     t = _threading.Thread(target=_autopsy_loop, daemon=True)

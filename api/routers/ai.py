@@ -1287,6 +1287,13 @@ def resume_gap_bulk_job_if_any():
 
 # ── 리딩방 패턴 AI 분석 ────────────────────────────────────────────────────────
 
+@router.get("/shadow-pattern-stats")
+async def shadow_pattern_stats(_user: dict = Depends(get_current_user)):
+    """[v3.225.0] 섀도우 실측 패턴표(매주 토 재계산) — 매수 순간 차트 상태별 시장 대비 승률. DB 조회 0·과금 0."""
+    import shadow_pattern_stats as _sps
+    return _sps.load()
+
+
 @router.get("/pattern-screener/latest")
 async def pattern_screener_latest(days: int = 7, market: str = "kr", _user: dict = Depends(get_current_user)):
     """[v3.136.2] 스케줄러가 매일 저장해둔 패턴 스크리너 픽 조회 (AI 호출 없음, 무과금).

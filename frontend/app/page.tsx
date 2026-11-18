@@ -562,6 +562,66 @@ function SavedPicksPanel({ market = "kr" }: { market?: "kr" | "us" }) {
   );
 }
 
+// ── 섀도우 실측 패턴표 (v3.225.0) ───────────────────────────────────────────────
+// 사용자가 06-29 이후 매매를 안 해 개인 패턴이 굳었다. 섀도우가 매일 쌓는 확정 거래를
+// 매수 순간 차트 상태별로 시장 대비 채점한 표(매주 토 재계산). 앞·뒤 절반 모두 전체보다
+// 같은 쪽인 조건만 '꾸준함'으로 보여준다 — 한 시기 장세가 만든 숫자에 속지 않게.
+function ShadowPatternTable() {
+  const { data } = useSWR<any>("shadow-pattern-stats", async () => {
+    const res = await fetch("/backend/api/ai/shadow-pattern-stats");
+    return res.json();
+  }, { refreshInterval: 3600000 });
+  const table: any[] = data?.table ?? [];
+  if (!table.length) return null;
+  const all = table.find(t => t.key === "all");
+  const skip = new Set(["all", "not_hot", "hot"]);
+  const good = table.filter(t => t.steady === "good" && !skip.has(t.key)).sort((a, b) => b.win_rate - a.win_rate);
+  const bad = table.filter(t => t.steady === "bad" && !skip.has(t.key)).sort((a, b) => a.win_rate - b.win_rate);
+  const hot = table.find(t => t.key === "hot");
+  const row = (t: any, color: string) => (
+    <div key={t.key} style={{ display: "flex", justifyContent: "space-between", gap: "8px", fontSize: "0.76rem", padding: "3px 0", borderTop: "1px solid var(--color-border)" }}>
+      <span style={{ minWidth: 0 }}>{t.label} <span style={{ color: "var(--color-subtle)" }}>({t.n}건)</span></span>
+      <span style={{ whiteSpace: "nowrap" }}>
+        <b style={{ color }}>{t.win_rate}%</b>
+        <span style={{ color: "var(--color-subtle)", fontSize: "0.7rem" }}> · 앞 {t.first_half} / 뒤 {t.second_half}</span>
+      </span>
+    </div>
+  );
+  return (
+    <details className="stockcy-card" style={{ padding: "0.8rem 1rem" }}>
+      <summary style={{ cursor: "pointer", fontWeight: 800, fontSize: "0.9rem" }}>
+        🧪 섀도우 실측 패턴표{" "}
+        <span style={{ fontWeight: 600, fontSize: "0.74rem", color: "var(--color-muted)" }}>
+          — 어떤 자리에서 산 게 이겼나 · {data.n_trades}건 · {data.built_at} 갱신(매주 토)
+        </span>
+      </summary>
+      <div style={{ fontSize: "0.72rem", color: "var(--color-muted)", margin: "8px 0", lineHeight: 1.55 }}>
+        섀도우들이 {data.period?.[0]}~{data.period?.[1]} 실제로 사고판 거래를, 매수 순간의 차트 상태별로 나눠 채점했습니다.
+        승률 = 같은 기간 시장보다 비용 넘게 더 벌었나. 전체 기준 <b>{all?.win_rate}%</b>.
+        앞 절반·뒤 절반 모두 전체보다 같은 쪽인 조건만 보여줍니다.
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: "12px" }}>
+        <div>
+          <div style={{ fontWeight: 800, fontSize: "0.8rem", marginBottom: "4px", color: "var(--color-danger)" }}>꾸준히 이긴 자리</div>
+          {good.length ? good.map(t => row(t, "var(--color-danger)")) : <div style={{ fontSize: "0.74rem", color: "var(--color-subtle)" }}>없음</div>}
+          <div style={{ fontSize: "0.68rem", color: "var(--color-subtle)", marginTop: "4px" }}>
+            가점은 아직 안 줍니다 — 과거 표본으로 고른 조건이라 12-29에 새 표본으로 확인 후 반영(V33).
+          </div>
+        </div>
+        <div>
+          <div style={{ fontWeight: 800, fontSize: "0.8rem", marginBottom: "4px", color: "var(--color-primary)" }}>꾸준히 진 자리</div>
+          {bad.length ? bad.map(t => row(t, "var(--color-primary)")) : <div style={{ fontSize: "0.74rem", color: "var(--color-subtle)" }}>없음</div>}
+          {hot && (
+            <div style={{ fontSize: "0.68rem", color: "var(--color-subtle)", marginTop: "4px" }}>
+              과열 5조건(5일 +5~10%·RSI 65+·20일선 +10%↑·거래량 2배+·52주 80%+)은 스크리너 후보에서 뺍니다 — 해당 {hot.n}건 {hot.win_rate}%.
+            </div>
+          )}
+        </div>
+      </div>
+    </details>
+  );
+}
+
 // ── 교차검증(컨플루언스) 탭 ────────────────────────────────────────────────────
 type CfSort = "strength" | "date" | "change";
 
@@ -898,6 +958,7 @@ export default function Dashboard() {
           </div>
         )}
         <SavedPicksPanel key={patMkt} market={patMkt} />
+        <ShadowPatternTable />
         <SSEPanel key={`sse-${patMkt}`}
           status={myPick.status} message={myPick.message}
           result={myPick.result} fromCache={myPick.fromCache} completedAt={myPick.completedAt}

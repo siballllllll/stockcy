@@ -1096,6 +1096,29 @@ def main():
     else:
         print("   [DUE] venv/Scripts/python scratch/grade_gemini_shadow.py 돌려 판정(VERIFY.md V32).")
 
+    # ── V33. 패턴 스크리너 근거 교체 — 섀도우 실측 과열 필터·조용한 눌림 가점 (v3.225.0) ──
+    print(_hdr("V33", "섀도우 실측 과열 필터 유지? 조용한 눌림 가점 넣을까? (11-19 이후 새 표본)", "2026-12-29"))
+    try:
+        import shadow_pattern_stats as _sps
+        _rows = _sps.load_trades(since="2026-11-19")
+        _all = _sps.summarize(_rows, min_n=1)
+        _hot = _sps.summarize([x for x in _rows if _sps.is_hot(x)], min_n=1)
+        _calm = _sps.summarize([x for x in _rows if _sps.is_calm(x)], min_n=1)
+        _kbi = _sps.summarize([x for x in _rows if x["tk"].isdigit() and x.get("bb") is not None
+                               and x["bb"] < 0.3 and x.get("issue")], min_n=1)
+        _f = lambda s: f"{s['n']}건 {s['win_rate']}%" if s else "0건"
+        print(f"   새 표본(시장 대비): 전체 {_f(_all)} · 과열 {_f(_hot)} · 조용한 눌림 {_f(_calm)} · 국내 볼린저<0.3·이슈 {_f(_kbi)}")
+        print("   기준: ① 과열 30건+·전체보다 5%p+ 낮으면 필터 유지, 2%p 미만이면 끔 ② 조용한 눌림 40건+·5%p+ 높으면 +5점 가점")
+        print("         ③ 국내 볼린저<0.3·이슈 25건+·8%p+ 높으면 V34 설계. 모자라면 2027-01-26 연기.")
+        if _days_to("2026-12-29") > 0:
+            print(f"   [WAIT] 12-29까지 — 새 표본 {len(_rows)}건.")
+        elif (_hot or {}).get("n", 0) < 30 or (_calm or {}).get("n", 0) < 40:
+            print("   [BLOCKED] 표본 부족 — 2027-01-26으로 연기(VERIFY.md V33).")
+        else:
+            print("   [DUE] 기준대로 필터 유지/해제·가점 추가 결정(VERIFY.md V33).")
+    except Exception as e:
+        print(f"   [BLOCKED] 확인 실패: {str(e)[:80]}")
+
     c.close()
     print(f"\n{'─' * 74}")
     print("자세한 배경과 판정 기준은 VERIFY.md 참조.")
